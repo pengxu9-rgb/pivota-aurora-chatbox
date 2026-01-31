@@ -335,38 +335,38 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
         {routeAnalysis.routeType === 'all_internal' ? (
           <button
             onClick={handleCheckout}
-            className="action-button action-button-primary w-full flex items-center justify-center gap-2"
+            className="action-button action-button-secondary w-full flex items-center justify-center gap-2"
           >
             <ShoppingCart className="w-4 h-4" />
-            {language === 'EN' ? 'One-click Checkout' : '一键结账'} · ${currentTotal.toFixed(2)}
+            {language === 'EN' ? 'Checkout (optional)' : '结账（可选）'} · ${currentTotal.toFixed(2)}
           </button>
         ) : routeAnalysis.routeType === 'mixed' ? (
           <div className="space-y-2">
+            <button
+              onClick={() => onAction('set_open_affiliate_list', { 
+                affiliateItems: routeAnalysis.affiliateOffers,
+                selections 
+              })}
+              className="action-button action-button-primary w-full flex items-center justify-center gap-2"
+            >
+              <ExternalLink className="w-4 h-4" />
+              {language === 'EN' 
+                ? `Open retailer links (${routeAnalysis.affiliateOffers.length})`
+                : `打开零售商链接 (${routeAnalysis.affiliateOffers.length})`
+              }
+            </button>
             <button
               onClick={() => onAction('set_checkout_internal_only', { 
                 internalItems: routeAnalysis.internalOffers,
                 affiliateItems: routeAnalysis.affiliateOffers,
                 selections 
               })}
-              className="action-button action-button-primary w-full flex items-center justify-center gap-2"
+              className="action-button action-button-secondary w-full flex items-center justify-center gap-2"
             >
               <ShoppingCart className="w-4 h-4" />
               {language === 'EN' 
-                ? `Checkout ${routeAnalysis.internalOffers.length} available item(s)`
-                : `结账 ${routeAnalysis.internalOffers.length} 件可购商品`
-              }
-            </button>
-            <button
-              onClick={() => onAction('set_open_affiliate_list', { 
-                affiliateItems: routeAnalysis.affiliateOffers,
-                selections 
-              })}
-              className="action-button action-button-secondary w-full flex items-center justify-center gap-2"
-            >
-              <ExternalLink className="w-4 h-4" />
-              {language === 'EN' 
-                ? `Open retailer links (${routeAnalysis.affiliateOffers.length})`
-                : `打开零售商链接 (${routeAnalysis.affiliateOffers.length})`
+                ? `Checkout available items (optional): ${routeAnalysis.internalOffers.length}`
+                : `结账可购商品（可选）：${routeAnalysis.internalOffers.length} 件`
               }
             </button>
           </div>
@@ -379,7 +379,7 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
             className="action-button action-button-primary w-full flex items-center justify-center gap-2"
           >
             <ExternalLink className="w-4 h-4" />
-            {language === 'EN' ? 'Buy on Retailer Sites' : '在零售商网站购买'} · ${currentTotal.toFixed(2)}
+            {language === 'EN' ? 'Open retailer links' : '打开零售商链接'} · ${currentTotal.toFixed(2)}
           </button>
         )}
       </div>

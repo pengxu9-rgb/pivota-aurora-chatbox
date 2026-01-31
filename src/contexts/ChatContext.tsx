@@ -501,13 +501,57 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const labelKey = actionId === 'analysis_continue' ? 's5.btn.continue' : 
                        actionId === 'analysis_gentler' ? 's5.btn.gentler' : 's5.btn.simple';
       addMessage({ type: 'text', role: 'user', content: t(labelKey as any, language) });
-      
-      // Check if risk check needed
-      if (session.analysis?.needs_risk_check) {
+
+      addAssistantText(
+        language === 'EN'
+          ? 'What would you like to do next?'
+          : '你接下来想做什么？'
+      );
+      addAssistantCard('chips', {
+        chips: [],
+        actions: [
+          {
+            action_id: 'post_analysis_chat',
+            label: language === 'EN' ? '💬 Keep chatting' : '💬 继续聊天',
+            variant: 'primary',
+          },
+          {
+            action_id: 'analysis_review_products',
+            label: language === 'EN' ? '🔎 Review my current products' : '🔎 先评估我现在用的产品',
+            variant: 'outline',
+          },
+          {
+            action_id: 'post_analysis_recos',
+            label: language === 'EN' ? '✨ Get product recommendations' : '✨ 获取产品推荐',
+            variant: 'outline',
+          },
+        ],
+      });
+      return;
+    }
+
+    if (actionId === 'post_analysis_chat') {
+      addMessage({ type: 'text', role: 'user', content: language === 'EN' ? 'Keep chatting' : '继续聊天' });
+      setSession(prev => ({ ...prev, state: 'S1_OPEN_INTENT' as FlowState, isDiagnosisActive: false }));
+      addAssistantText(
+        language === 'EN'
+          ? "Sure — ask me anything. If you want, you can also paste a product link to evaluate it."
+          : "当然——你随时可以继续问问题。你也可以直接粘贴产品链接让我评估。"
+      );
+      return;
+    }
+
+    if (actionId === 'post_analysis_recos') {
+      addMessage({ type: 'text', role: 'user', content: language === 'EN' ? 'Get recommendations' : '获取推荐' });
+      setSession(prev => ({ ...prev, isDiagnosisActive: true }));
+
+      // Only ask risk/budget when the user explicitly wants recommendations.
+      if (session.analysis?.needs_risk_check && !session.analysis?.risk_answered) {
         analytics.emitRiskQuestionShown(session.brief_id, session.trace_id);
+        setSession(prev => ({ ...prev, state: 'S5a_RISK_CHECK' as FlowState }));
         addAssistantCard('risk_check_card');
       } else {
-        // Go directly to budget question
+        setSession(prev => ({ ...prev, state: 'S6_BUDGET' as FlowState }));
         showBudgetCard();
       }
       return;
