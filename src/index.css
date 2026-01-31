@@ -1,0 +1,562 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Aurora v4.0 Beauty Decision System Theme */
+    --background: 0 0% 100%;
+    --foreground: 215 25% 27%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 27%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 27%;
+
+    /* Indigo Primary */
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Slate Secondary */
+    --secondary: 215 20% 65%;
+    --secondary-foreground: 0 0% 100%;
+
+    /* Muted - subtle backgrounds */
+    --muted: 215 20% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    /* Accent - indigo tint */
+    --accent: 239 84% 97%;
+    --accent-foreground: 239 84% 50%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Status Colors - Aurora style */
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 215 25% 15%;
+
+    --risk: 347 77% 50%;
+    --risk-foreground: 0 0% 100%;
+
+    --border: 215 20% 91%;
+    --input: 215 20% 91%;
+    --ring: 239 84% 67%;
+
+    --radius: 0.75rem;
+
+    /* Aurora Chat-specific tokens */
+    --chat-bg: 215 25% 98%;
+    --chat-bubble-user: 239 84% 67%;
+    --chat-bubble-assistant: 0 0% 100%;
+    --chat-input-bg: 0 0% 100%;
+
+    /* Aurora Card shadows - enhanced depth */
+    --shadow-card: 0 1px 3px hsl(215 25% 27% / 0.08), 0 1px 2px hsl(215 25% 27% / 0.05);
+    --shadow-card-hover: 0 8px 16px -4px hsl(215 25% 27% / 0.12), 0 4px 6px -2px hsl(215 25% 27% / 0.06);
+    --shadow-elevated: 0 20px 25px -5px hsl(215 25% 27% / 0.1), 0 8px 10px -6px hsl(215 25% 27% / 0.08);
+
+    /* Icon backgrounds - glass morphism */
+    --icon-bg-primary: linear-gradient(135deg, hsl(239 84% 67% / 0.15), hsl(239 84% 67% / 0.08));
+    --icon-bg-success: linear-gradient(135deg, hsl(160 84% 39% / 0.15), hsl(160 84% 39% / 0.08));
+    --icon-bg-warning: linear-gradient(135deg, hsl(38 92% 50% / 0.15), hsl(38 92% 50% / 0.08));
+    --icon-bg-risk: linear-gradient(135deg, hsl(347 77% 50% / 0.15), hsl(347 77% 50% / 0.08));
+    --icon-shadow: 0 2px 8px hsl(239 84% 67% / 0.2);
+
+    /* Aurora Drawer */
+    --drawer-bg: 215 28% 9%;
+    --drawer-foreground: 215 20% 65%;
+    --drawer-accent: 239 84% 67%;
+  }
+
+  .dark {
+    --background: 215 28% 9%;
+    --foreground: 215 20% 95%;
+    --card: 215 25% 12%;
+    --card-foreground: 215 20% 95%;
+    --popover: 215 25% 12%;
+    --popover-foreground: 215 20% 95%;
+    --primary: 239 70% 65%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 215 20% 25%;
+    --secondary-foreground: 215 20% 90%;
+    --muted: 215 20% 18%;
+    --muted-foreground: 215 16% 60%;
+    --accent: 239 50% 20%;
+    --accent-foreground: 239 84% 75%;
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 160 70% 45%;
+    --success-foreground: 215 25% 10%;
+    --warning: 38 85% 55%;
+    --warning-foreground: 215 25% 10%;
+    --risk: 347 70% 55%;
+    --risk-foreground: 0 0% 100%;
+    --border: 215 20% 20%;
+    --input: 215 20% 20%;
+    --ring: 239 70% 65%;
+    --chat-bg: 215 28% 7%;
+    --chat-bubble-user: 239 60% 50%;
+    --chat-bubble-assistant: 215 25% 14%;
+    --chat-input-bg: 215 25% 12%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  /* Aurora Chat Container */
+  .chat-container {
+    /* Use dynamic viewport units so the input isn't hidden behind mobile browser UI. */
+    @apply flex flex-col overflow-hidden;
+    height: 100dvh;
+    min-height: 100vh;
+    @apply bg-chat;
+  }
+
+  /* Aurora Header */
+  .chat-header {
+    @apply sticky top-0 z-50 px-4 py-3 bg-card/95 backdrop-blur-sm border-b;
+    @apply flex items-center justify-between;
+  }
+
+  /* Aurora Messages Area */
+  .chat-messages {
+    @apply flex-1 overflow-y-auto px-4 py-4;
+    @apply scroll-smooth;
+  }
+
+  /* Aurora Input Container */
+  .chat-input-container {
+    @apply sticky bottom-0 p-4 bg-card/95 backdrop-blur-sm border-t;
+    @apply safe-area-bottom;
+  }
+
+  /* Aurora Message Bubbles */
+  .message-bubble {
+    @apply px-4 py-3 rounded-2xl max-w-[85%];
+    @apply animate-fade-in;
+  }
+
+  .message-bubble-user {
+    @apply bg-primary text-primary-foreground ml-auto;
+    @apply rounded-br-md px-4 py-2.5;
+  }
+
+  .message-bubble-assistant {
+    @apply bg-card text-card-foreground mr-auto;
+    @apply rounded-bl-md shadow-card px-4 py-2.5;
+    @apply border border-border/50;
+  }
+
+  /* Aurora Cards */
+  .chat-card {
+    @apply bg-card rounded-xl p-4 shadow-card;
+    @apply border border-border;
+    @apply animate-scale-in;
+  }
+
+  .chat-card-elevated {
+    @apply bg-card rounded-xl p-5 shadow-elevated;
+    @apply border border-border/80;
+  }
+
+  /* Aurora Status Cards */
+  .aurora-status-success {
+    @apply bg-success/10 border-success/30 text-success;
+  }
+
+  .aurora-status-warning {
+    @apply bg-warning/10 border-warning/30 text-warning;
+  }
+
+  .aurora-status-risk {
+    @apply bg-risk/10 border-risk/30 text-risk;
+  }
+
+  .aurora-status-info {
+    @apply bg-primary/10 border-primary/30 text-primary;
+  }
+
+  /* Aurora Chip Buttons - refined with better interaction */
+  .chip-button {
+    @apply inline-flex items-center justify-center px-4 py-2.5;
+    @apply bg-muted/80 text-muted-foreground;
+    @apply rounded-xl text-sm font-medium;
+    @apply transition-all duration-200 ease-out;
+    @apply hover:bg-primary/10 hover:text-primary hover:shadow-sm active:scale-[0.97];
+    @apply touch-manipulation border border-border/30;
+    min-height: 44px;
+  }
+
+  .chip-button-primary {
+    @apply bg-primary text-primary-foreground border-primary;
+    @apply hover:bg-primary/90 hover:text-primary-foreground;
+    box-shadow: 0 2px 6px hsl(var(--primary) / 0.3);
+  }
+
+  .chip-button-outline {
+    @apply bg-transparent border-2 border-primary/50 text-primary;
+    @apply hover:bg-primary/10 hover:border-primary;
+  }
+
+  /* Aurora Action Buttons - enhanced with better shadows */
+  .action-button {
+    @apply w-full py-3 px-4 rounded-xl font-medium;
+    @apply transition-all duration-200 ease-out;
+    @apply active:scale-[0.97] touch-manipulation;
+    min-height: 44px;
+  }
+
+  .action-button-primary {
+    @apply bg-primary text-primary-foreground;
+    @apply hover:bg-primary/90;
+    box-shadow: 0 2px 8px hsl(var(--primary) / 0.35), 0 1px 2px hsl(var(--primary) / 0.2);
+  }
+
+  .action-button-primary:hover {
+    box-shadow: 0 4px 12px hsl(var(--primary) / 0.4), 0 2px 4px hsl(var(--primary) / 0.25);
+    transform: translateY(-1px);
+  }
+
+  .action-button-secondary {
+    @apply bg-muted text-foreground border border-border/50;
+    @apply hover:bg-muted/80 hover:border-border;
+  }
+
+  .action-button-ghost {
+    @apply bg-transparent text-muted-foreground;
+    @apply hover:bg-muted/50;
+  }
+
+  /* Aurora Signal Pills */
+  .signal-pill {
+    @apply inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium;
+    @apply bg-muted text-muted-foreground;
+  }
+
+  .signal-pill-success {
+    @apply bg-success/15 text-success;
+  }
+
+  .signal-pill-warning {
+    @apply bg-warning/15 text-warning;
+  }
+
+  .signal-pill-risk {
+    @apply bg-risk/15 text-risk;
+  }
+
+  .signal-pill-primary {
+    @apply bg-primary/15 text-primary;
+  }
+
+  /* Aurora VETO Banner */
+  .veto-banner {
+    @apply px-3 py-2 rounded-lg bg-risk text-risk-foreground;
+    @apply text-sm font-medium flex items-center gap-2;
+  }
+
+  /* Aurora Icon Containers - Premium glass effect */
+  .icon-container {
+    @apply relative flex items-center justify-center rounded-xl;
+    @apply backdrop-blur-sm;
+    background: var(--icon-bg-primary);
+    box-shadow: var(--icon-shadow), inset 0 1px 1px hsl(0 0% 100% / 0.1);
+  }
+
+  .icon-container-success {
+    background: var(--icon-bg-success);
+    box-shadow: 0 2px 8px hsl(160 84% 39% / 0.2), inset 0 1px 1px hsl(0 0% 100% / 0.1);
+  }
+
+  .icon-container-warning {
+    background: var(--icon-bg-warning);
+    box-shadow: 0 2px 8px hsl(38 92% 50% / 0.2), inset 0 1px 1px hsl(0 0% 100% / 0.1);
+  }
+
+  .icon-container-risk {
+    background: var(--icon-bg-risk);
+    box-shadow: 0 2px 8px hsl(347 77% 50% / 0.2), inset 0 1px 1px hsl(0 0% 100% / 0.1);
+  }
+
+  /* Aurora Score Ring - enhanced */
+  .score-ring {
+    @apply relative w-20 h-20 rounded-full;
+    @apply flex items-center justify-center;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.12), hsl(var(--primary) / 0.05));
+    @apply border-4 border-primary;
+    box-shadow: 0 4px 12px hsl(var(--primary) / 0.25), inset 0 2px 4px hsl(0 0% 100% / 0.1);
+  }
+
+  .score-ring-value {
+    @apply text-2xl font-bold text-primary;
+    text-shadow: 0 1px 2px hsl(var(--primary) / 0.2);
+  }
+
+  /* Aurora Breakdown Bar */
+  .breakdown-bar {
+    @apply h-2 rounded-full bg-muted overflow-hidden;
+  }
+
+  .breakdown-bar-fill {
+    @apply h-full rounded-full transition-all duration-500;
+  }
+
+  /* Aurora Photo Slots */
+  .photo-slot {
+    @apply relative aspect-square rounded-xl border-2 border-dashed border-border;
+    @apply flex flex-col items-center justify-center gap-2;
+    @apply bg-muted/30 transition-all duration-200;
+    @apply hover:border-primary/50 hover:bg-muted/50;
+    @apply cursor-pointer touch-manipulation;
+  }
+
+  .photo-slot-filled {
+    @apply border-solid border-primary/30 bg-muted/20;
+  }
+
+  .photo-preview {
+    @apply absolute inset-0 rounded-xl overflow-hidden;
+  }
+
+  .photo-preview img {
+    @apply w-full h-full object-cover;
+  }
+
+  /* Aurora Product Cards */
+  .product-card {
+    @apply bg-card rounded-xl p-4 border border-border;
+    @apply shadow-card;
+  }
+
+  .product-card-premium {
+    @apply border-primary/30 bg-primary/5;
+  }
+
+  .product-card-dupe {
+    @apply border-success/30 bg-success/5;
+  }
+
+  /* Aurora Offer Badges */
+  .offer-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium;
+  }
+
+  .offer-badge-best-price {
+    @apply bg-success/15 text-success;
+  }
+
+  .offer-badge-best-returns {
+    @apply bg-primary/15 text-primary;
+  }
+
+  .offer-badge-fastest {
+    @apply bg-warning/15 text-warning;
+  }
+
+  .offer-badge-reliable {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  /* Aurora Logic Drawer */
+  .logic-drawer {
+    @apply fixed inset-y-0 right-0 z-[100] w-80;
+    @apply bg-drawer text-drawer-foreground;
+    @apply shadow-2xl;
+    @apply transition-transform duration-300 ease-out;
+    @apply translate-x-full;
+  }
+
+  .logic-drawer-open {
+    @apply translate-x-0;
+  }
+
+  .logic-drawer-backdrop {
+    @apply fixed inset-0 z-[99] bg-black/50;
+    @apply transition-opacity duration-300;
+  }
+
+  /* Aurora Dev Drawer */
+  .dev-drawer {
+    @apply fixed bottom-0 left-0 right-0 z-[100];
+    @apply bg-drawer text-drawer-foreground;
+    @apply rounded-t-2xl shadow-2xl;
+    @apply transition-transform duration-300 ease-out;
+    @apply font-mono text-xs;
+  }
+
+  .dev-drawer-collapsed {
+    @apply translate-y-[calc(100%-40px)];
+  }
+
+  /* Aurora Loading States */
+  .loading-dots {
+    @apply inline-flex gap-1;
+  }
+
+  .loading-dot {
+    @apply w-2 h-2 rounded-full bg-primary/60;
+    animation: bounce 1.4s infinite ease-in-out both;
+  }
+
+  .loading-dot:nth-child(1) { animation-delay: -0.32s; }
+  .loading-dot:nth-child(2) { animation-delay: -0.16s; }
+  .loading-dot:nth-child(3) { animation-delay: 0s; }
+
+  /* Aurora Step Indicator */
+  .step-indicator {
+    @apply flex items-center gap-2;
+  }
+
+  .step-dot {
+    @apply w-2.5 h-2.5 rounded-full bg-muted;
+    @apply transition-all duration-300;
+  }
+
+  .step-dot-active {
+    @apply bg-primary w-6;
+  }
+
+  .step-dot-completed {
+    @apply bg-success;
+  }
+
+  /* Aurora Section Labels */
+  .section-label {
+    @apply text-[10px] font-semibold uppercase tracking-wider;
+    @apply text-muted-foreground;
+  }
+
+  /* Utility Classes */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .bg-chat {
+    background-color: hsl(var(--chat-bg));
+  }
+
+  .bg-drawer {
+    background-color: hsl(var(--drawer-bg));
+  }
+
+  .text-drawer-foreground {
+    color: hsl(var(--drawer-foreground));
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-card-hover {
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .shadow-elevated {
+    box-shadow: var(--shadow-elevated);
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .font-mono-nums {
+    font-variant-numeric: tabular-nums;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+  }
+}
+
+/* Animations */
+@keyframes bounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.25s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out forwards;
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
