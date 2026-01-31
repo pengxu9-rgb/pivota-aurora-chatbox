@@ -146,6 +146,12 @@ export function AuroraScoringCard({ payload, onAction, language }: AuroraScoring
       {/* Actions */}
       <div className="space-y-2 pt-2">
         <button
+          onClick={() => onAction('analysis_review_products')}
+          className="action-button action-button-secondary w-full"
+        >
+          {language === 'EN' ? '🔎 Review my current products first' : '🔎 先评估我现在用的产品'}
+        </button>
+        <button
           onClick={() => onAction('analysis_continue')}
           className="action-button action-button-primary w-full flex items-center justify-center gap-2"
         >

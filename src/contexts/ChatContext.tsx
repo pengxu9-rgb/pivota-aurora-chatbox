@@ -481,6 +481,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (actionId === 'analysis_review_products') {
+      addMessage({
+        type: 'text',
+        role: 'user',
+        content: language === 'EN' ? 'Review my current products first' : '先评估我现在用的产品',
+      });
+
+      await sendToAgent(
+        language === 'EN'
+          ? 'Before recommending anything, please review my current skincare products and tell me what to keep/change.'
+          : '在推荐之前，请先评估我现在用的护肤品：哪些适合保留，哪些需要替换/注意。'
+      );
+      return;
+    }
+
     // Handle analysis summary actions
     if (actionId === 'analysis_continue' || actionId === 'analysis_gentler' || actionId === 'analysis_simple') {
       const labelKey = actionId === 'analysis_continue' ? 's5.btn.continue' : 
