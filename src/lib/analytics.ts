@@ -43,6 +43,9 @@ export const analytics = new AnalyticsStore();
 export const emitBriefStarted = (briefId: string, traceId: string) => 
   analytics.emit('brief_started', briefId, traceId);
 
+export const emitBriefResumed = (briefId: string, traceId: string, savedAt?: number) =>
+  analytics.emit('brief_resumed', briefId, traceId, savedAt ? { saved_at: savedAt } : undefined);
+
 export const emitIntentSelected = (briefId: string, traceId: string, intentId: string) => 
   analytics.emit('intent_selected', briefId, traceId, { intent_id: intentId });
 

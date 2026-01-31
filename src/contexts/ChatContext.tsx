@@ -12,6 +12,7 @@ import * as orchestrator from '@/lib/mockOrchestrator';
 import * as analytics from '@/lib/analytics';
 import { t } from '@/lib/i18n';
 import { PivotaApiError } from '@/lib/pivotaApi';
+import { clearPersistedChatState, getOrCreateAuroraUid, loadPersistedChatState, savePersistedChatState } from '@/lib/persistence';
 
 interface ChatContextType {
   session: Session;
@@ -102,9 +103,14 @@ const extractFirstUrl = (text: string) => {
 };
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
+  const resumeCandidateRef = useRef(loadPersistedChatState());
+  const hasResumeCandidate = Boolean(resumeCandidateRef.current?.session && resumeCandidateRef.current?.messages);
+
+  const [bootMode, setBootMode] = useState<'fresh' | 'resume_prompt' | 'running'>(hasResumeCandidate ? 'resume_prompt' : 'fresh');
+
   const [session, setSession] = useState<Session>(() => orchestrator.startSession());
   const [messages, setMessages] = useState<Message[]>([]);
-  const [language, setLanguage] = useState<Language>('EN');
+  const [language, setLanguage] = useState<Language>(() => resumeCandidateRef.current?.language ?? 'EN');
   const [isLoading, setIsLoading] = useState(false);
 
   type ChipReply =
@@ -113,6 +119,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const chipReplyMapRef = useRef<Record<string, ChipReply>>({});
   const pendingAnchorQuestionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Ensure we have a stable anonymous user id for same-device "returning user".
+    getOrCreateAuroraUid();
+  }, []);
 
   const addMessage = useCallback((message: Omit<Message, 'id' | 'timestamp'>) => {
     const newMessage: Message = {
@@ -132,11 +143,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     addMessage({ type, role: 'assistant', payload });
   }, [addMessage]);
 
-  // Initialize with welcome message
-  useEffect(() => {
-    analytics.emitBriefStarted(session.brief_id, session.trace_id);
-    
-    // Add welcome messages
+  const initializeWelcome = useCallback((activeSession: Session) => {
+    analytics.emitBriefStarted(activeSession.brief_id, activeSession.trace_id);
+
     setTimeout(() => {
       addAssistantText(t('s1.greeting', language));
       setTimeout(() => {
@@ -152,7 +161,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 { action_id: 'intent_brightening', label: t('s1.chip.brightening', language) },
               ],
               actions: [
-                { action_id: 'start_diagnosis', label: language === 'EN' ? '🔬 Start Skin Diagnosis' : '🔬 开始皮肤诊断', variant: 'outline' },
+                {
+                  action_id: 'start_diagnosis',
+                  label: language === 'EN' ? '🔬 Start Skin Diagnosis' : '🔬 开始皮肤诊断',
+                  variant: 'outline',
+                },
                 { action_id: 'try_sample', label: t('s1.btn.sample', language), variant: 'ghost' },
               ],
             });
@@ -161,10 +174,66 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }, 200);
       }, 200);
     }, 300);
-  }, []); // Only run once on mount
+  }, [addAssistantCard, addAssistantText, language]);
+
+  // Initialize with welcome message
+  useEffect(() => {
+    if (bootMode !== 'fresh') return;
+    initializeWelcome(session);
+    setBootMode('running');
+  }, [bootMode, initializeWelcome, session]);
+
+  // Resume prompt (only if we have a persisted session)
+  useEffect(() => {
+    if (bootMode !== 'resume_prompt') return;
+
+    const savedAt = resumeCandidateRef.current?.saved_at;
+    const lastSeen = savedAt ? new Date(savedAt).toLocaleString() : undefined;
+
+    setTimeout(() => {
+      addAssistantText(
+        language === 'EN'
+          ? `Welcome back${lastSeen ? ` — last active: ${lastSeen}` : ''}.`
+          : `欢迎回来${lastSeen ? `（上次活跃：${lastSeen}）` : ''}。`
+      );
+      addAssistantCard('chips', {
+        chips: [],
+        actions: [
+          { action_id: 'resume_previous', label: language === 'EN' ? 'Resume' : '继续上次', variant: 'primary' },
+          { action_id: 'restart', label: language === 'EN' ? 'Start new' : '重新开始', variant: 'outline' },
+        ],
+      });
+    }, 200);
+  }, [bootMode, addAssistantText, addAssistantCard, language]);
+
+  // Persist chat state on changes (skip the resume prompt stage)
+  useEffect(() => {
+    if (bootMode === 'resume_prompt') return;
+    const auroraUid = getOrCreateAuroraUid();
+    savePersistedChatState({
+      saved_at: Date.now(),
+      aurora_uid: auroraUid,
+      language,
+      session,
+      messages,
+    });
+  }, [bootMode, language, messages, session]);
 
   const handleAction = useCallback(async (actionId: string, data?: Record<string, any>) => {
     console.log('[Action]', actionId, data);
+
+    if (actionId === 'resume_previous') {
+      const candidate = resumeCandidateRef.current;
+      if (!candidate) return;
+
+      setSession(candidate.session);
+      setMessages(candidate.messages);
+      setLanguage(candidate.language);
+      setBootMode('running');
+
+      analytics.emitBriefResumed(candidate.session.brief_id, candidate.session.trace_id, candidate.saved_at);
+      return;
+    }
 
     if (actionId === 'chat_generate_recos') {
       addMessage({
@@ -673,29 +742,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // Handle restart
     if (actionId === 'restart') {
       analytics.emitBriefEnded(session.brief_id, session.trace_id, 'restart');
+      clearPersistedChatState();
+      resumeCandidateRef.current = undefined;
       const newSession = orchestrator.restartSession(session);
       setSession({ ...newSession, isDiagnosisActive: false });
       setMessages([]);
-      
-      // Re-initialize
-      setTimeout(() => {
-        analytics.emitBriefStarted(newSession.brief_id, newSession.trace_id);
-        addAssistantText(t('s1.greeting', language));
-        addAssistantText(t('s1.intro', language));
-        addAssistantText(t('s1.question', language));
-        addAssistantCard('chips', {
-          chips: [
-            { action_id: 'intent_routine', label: t('s1.chip.routine', language) },
-            { action_id: 'intent_breakouts', label: t('s1.chip.breakouts', language) },
-            { action_id: 'intent_brightening', label: t('s1.chip.brightening', language) },
-          ],
-          actions: [
-            { action_id: 'start_diagnosis', label: language === 'EN' ? '🔬 Start Skin Diagnosis' : '🔬 开始皮肤诊断', variant: 'outline' },
-            { action_id: 'try_sample', label: t('s1.btn.sample', language), variant: 'ghost' },
-          ],
-        });
-        setSession(prev => ({ ...prev, state: 'S1_OPEN_INTENT' }));
-      }, 300);
+      setBootMode('running');
+      initializeWelcome(newSession);
       return;
     }
 

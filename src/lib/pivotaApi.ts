@@ -1,4 +1,5 @@
 import type { Session } from './types';
+import { getAuroraUid } from './persistence';
 
 export class PivotaApiError extends Error {
   readonly status: number;
@@ -49,6 +50,11 @@ const safeReadJson = async (res: Response) => {
   }
 };
 
+const getAuroraUidHeader = () => {
+  const uid = getAuroraUid();
+  return uid ? { 'X-Aurora-UID': uid } : {};
+};
+
 export const pivotaJson = async <TResponse>(
   session: Pick<Session, 'brief_id' | 'trace_id'>,
   path: string,
@@ -66,6 +72,7 @@ export const pivotaJson = async <TResponse>(
       'Content-Type': 'application/json',
       'X-Brief-ID': session.brief_id,
       'X-Trace-ID': session.trace_id,
+      ...getAuroraUidHeader(),
       ...(init.headers || {}),
     },
   });
@@ -97,6 +104,7 @@ export const pivotaUpload = async <TResponse>(
       Accept: 'application/json',
       'X-Brief-ID': session.brief_id,
       'X-Trace-ID': session.trace_id,
+      ...getAuroraUidHeader(),
       ...(init.headers || {}),
     },
   });
