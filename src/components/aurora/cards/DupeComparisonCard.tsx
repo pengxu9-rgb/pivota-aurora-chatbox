@@ -177,7 +177,12 @@ function ProductCol({ product, selected }: { product: DupeProduct; selected?: bo
   const tops = topMechanisms(product.mechanism, 2);
 
   return (
-    <div className={cn('space-y-2 rounded-xl p-2', selected ? 'ring-1 ring-primary/40 bg-primary/5' : 'bg-transparent')}>
+    <div
+      className={cn(
+        'space-y-2 rounded-xl border border-border/60 bg-muted/10 p-3',
+        selected ? 'ring-1 ring-primary/40 bg-primary/5' : '',
+      )}
+    >
       <div className="flex gap-3">
         <div className="h-14 w-14 overflow-hidden rounded-lg border border-border/60 bg-muted/30 flex-shrink-0">
           {product.imageUrl ? (
@@ -264,7 +269,7 @@ export function DupeComparisonCard({
             <ProductCol product={dupe} selected={selected === 'dupe'} />
           </div>
 
-          <Badge className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full px-3 py-1 text-xs font-semibold bg-foreground text-background shadow-sm">
+          <Badge className="pointer-events-none absolute left-1/2 top-9 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-semibold bg-foreground text-background shadow-sm">
             {savingsLabel}
           </Badge>
         </div>
