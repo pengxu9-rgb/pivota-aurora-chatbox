@@ -5,6 +5,44 @@ import { GitCompareArrows, Crown, Sparkles, ChevronDown, ChevronUp, ShoppingCart
 import * as orchestrator from '@/lib/mockOrchestrator';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getOfferPrice(price: number | undefined) {
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return undefined;
+  return price;
+}
+
+function formatMoney(price: number | undefined, currency: string | undefined) {
+  const safe = getOfferPrice(price);
+  if (typeof safe !== 'number') return '—';
+  const curr = currency?.trim() || 'USD';
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: curr, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safe);
+  } catch {
+    return `$${safe.toFixed(2)}`;
+  }
+}
+
+function computeFitTagSimilarity(aTags: string[], bTags: string[]) {
+  const a = new Set(aTags.map((t) => t.toLowerCase().trim()).filter(Boolean));
+  const b = new Set(bTags.map((t) => t.toLowerCase().trim()).filter(Boolean));
+  if (a.size === 0 || b.size === 0) return undefined;
+  let intersection = 0;
+  for (const v of a) if (b.has(v)) intersection += 1;
+  const union = new Set([...a, ...b]).size;
+  if (!union) return undefined;
+  return clampPercent((intersection / union) * 100);
+}
+
+function getPairSimilarity(pair: ProductPair) {
+  const raw = (pair as any)?.similarity ?? (pair as any)?.similarity_score ?? (pair as any)?.similarityPercent;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return clampPercent(raw);
+  return computeFitTagSimilarity(pair.premium.product.fit_tags ?? [], pair.dupe.product.fit_tags ?? []);
+}
+
 interface AuroraDupeCardProps {
   payload: {
     pairs: ProductPair[];
@@ -27,20 +65,20 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
 
   // Calculate totals
   const premiumTotal = pairs.reduce((sum, pair) => {
-    const price = pair.premium.offers[0]?.price || 0;
+    const price = getOfferPrice(pair.premium.offers[0]?.price) ?? 0;
     return sum + (selections[pair.category] === 'premium' || !selections[pair.category] ? price : 0);
   }, 0);
 
   const dupeTotal = pairs.reduce((sum, pair) => {
-    const price = pair.dupe.offers[0]?.price || 0;
+    const price = getOfferPrice(pair.dupe.offers[0]?.price) ?? 0;
     return sum + (selections[pair.category] === 'dupe' ? price : 0);
   }, 0);
 
   const currentTotal = pairs.reduce((sum, pair) => {
     const selected = selections[pair.category] || 'dupe';
-    const price = selected === 'premium' 
-      ? pair.premium.offers[0]?.price || 0
-      : pair.dupe.offers[0]?.price || 0;
+    const price = selected === 'premium'
+      ? getOfferPrice(pair.premium.offers[0]?.price) ?? 0
+      : getOfferPrice(pair.dupe.offers[0]?.price) ?? 0;
     return sum + price;
   }, 0);
 
@@ -77,7 +115,6 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
     }
   };
 
-  const similarity = 92; // Mock similarity score
   const [activePreference, setActivePreference] = useState<string | null>(null);
 
   const handlePreferenceClick = (pref: string) => {
@@ -110,7 +147,7 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
             {language === 'EN' ? 'Your Total' : '你的总计'}
           </p>
           <p className="text-lg font-bold text-foreground font-mono-nums">
-            ${currentTotal.toFixed(2)}
+            {formatMoney(currentTotal, 'USD')}
           </p>
         </div>
       </div>
@@ -120,7 +157,7 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
         <div className="flex-1 p-2 rounded-lg bg-warning/10 border border-warning/20 text-center">
           <Crown className="w-4 h-4 text-warning mx-auto mb-1" />
           <p className="text-muted-foreground">{language === 'EN' ? 'Premium' : '高端'}</p>
-          <p className="font-semibold text-foreground font-mono-nums">${premiumTotal.toFixed(2)}</p>
+          <p className="font-semibold text-foreground font-mono-nums">{formatMoney(premiumTotal, 'USD')}</p>
         </div>
         <div className="flex items-center">
           <GitCompareArrows className="w-4 h-4 text-muted-foreground" />
@@ -128,7 +165,7 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
         <div className="flex-1 p-2 rounded-lg bg-success/10 border border-success/20 text-center">
           <Sparkles className="w-4 h-4 text-success mx-auto mb-1" />
           <p className="text-muted-foreground">{language === 'EN' ? 'Dupe' : '平替'}</p>
-          <p className="font-semibold text-foreground font-mono-nums">${dupeTotal.toFixed(2)}</p>
+          <p className="font-semibold text-foreground font-mono-nums">{formatMoney(dupeTotal, 'USD')}</p>
         </div>
       </div>
 
@@ -153,6 +190,7 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
       {/* Product Pairs */}
       <div className="space-y-3">
         {pairs.map((pair) => {
+          const similarity = getPairSimilarity(pair);
           const isExpanded = expandedPair === pair.category;
           const selected = selections[pair.category] || 'dupe';
           const selectedOffer = selected === 'premium' ? pair.premium.offers[0] : pair.dupe.offers[0];
@@ -160,8 +198,8 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
           const premiumOffer = pair.premium.offers[0];
           const dupeOffer = pair.dupe.offers[0];
           const savings =
-            typeof premiumOffer?.price === 'number' && typeof dupeOffer?.price === 'number'
-              ? premiumOffer.price - dupeOffer.price
+            typeof getOfferPrice(premiumOffer?.price) === 'number' && typeof getOfferPrice(dupeOffer?.price) === 'number'
+              ? (getOfferPrice(premiumOffer?.price) as number) - (getOfferPrice(dupeOffer?.price) as number)
               : undefined;
           const savingsLabel =
             typeof savings === 'number' && Number.isFinite(savings) && savings > 0
@@ -191,9 +229,11 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
                   <span className="text-sm font-medium text-foreground capitalize">
                     {t(`product.category.${pair.category}`, language)}
                   </span>
-                  <span className="signal-pill signal-pill-primary text-[10px]">
-                    {similarity}% {language === 'EN' ? 'similar' : '相似'}
-                  </span>
+                  {typeof similarity === 'number' ? (
+                    <span className="signal-pill signal-pill-primary text-[10px]">
+                      {similarity}% {language === 'EN' ? 'similar' : '相似'}
+                    </span>
+                  ) : null}
                   {isAffiliate && (
                     <span className="signal-pill text-[10px] flex items-center gap-1">
                       <ExternalLink className="w-3 h-3" />
@@ -255,7 +295,7 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
                     </span>
                   </div>
                   <span className="text-sm font-medium text-foreground font-mono-nums">
-                    ${(selected === 'premium' ? pair.premium.offers[0]?.price : pair.dupe.offers[0]?.price)?.toFixed(2)}
+                    {formatMoney(selected === 'premium' ? premiumOffer?.price : dupeOffer?.price, selectedOffer?.currency)}
                   </span>
                 </div>
               )}

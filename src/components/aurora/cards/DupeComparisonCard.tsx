@@ -20,7 +20,7 @@ export interface DupeComparisonCardProps {
   original: DupeProduct;
   dupe: DupeProduct;
   savingsLabel?: string; // e.g. "Save $250"
-  similarity: number; // 0-100
+  similarity?: number; // 0-100
   missingActives?: string[];
   addedBenefits?: string[];
   selected?: 'original' | 'dupe';
@@ -83,7 +83,7 @@ export function DupeComparisonCard({
   onSwitchToDupe,
   onKeepOriginal,
 }: DupeComparisonCardProps) {
-  const similarityPct = clampPercent(similarity);
+  const similarityPct = typeof similarity === 'number' && Number.isFinite(similarity) ? clampPercent(similarity) : undefined;
   const copy = {
     similarity: labels?.similarity ?? 'Similarity',
     tradeoffsTitle: labels?.tradeoffsTitle ?? 'Trade-offs Analysis',
@@ -94,6 +94,7 @@ export function DupeComparisonCard({
   };
 
   const similarityIndicatorClassName = useMemo(() => {
+    if (typeof similarityPct !== 'number') return 'bg-muted-foreground/30';
     if (similarityPct > 90) return 'bg-emerald-500';
     if (similarityPct >= 70) return 'bg-amber-500';
     return 'bg-rose-500';
@@ -117,9 +118,9 @@ export function DupeComparisonCard({
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{copy.similarity}</span>
-            <span className="font-semibold text-foreground">{similarityPct}%</span>
+            <span className="font-semibold text-foreground">{typeof similarityPct === 'number' ? `${similarityPct}%` : '—'}</span>
           </div>
-          <Progress value={similarityPct} className="h-2" indicatorClassName={similarityIndicatorClassName} />
+          <Progress value={similarityPct ?? 0} className="h-2" indicatorClassName={similarityIndicatorClassName} />
         </div>
 
         <Accordion type="single" collapsible>
