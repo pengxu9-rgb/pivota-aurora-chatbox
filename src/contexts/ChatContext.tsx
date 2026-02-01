@@ -571,7 +571,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           if (photos?.[slot]) analytics.emitPhotoUploadFailed(session.brief_id, session.trace_id, String(slot), reason);
         });
         console.error('[Photo upload] failed', err);
-        addAssistantText(language === 'EN' ? 'Photo upload failed. Please try again.' : '照片上传失败，请重试。');
+        const statusHint = err instanceof PivotaApiError && err.status ? ` (HTTP ${err.status})` : '';
+        const configHint =
+          err instanceof PivotaApiError && (err.status === 0 || err.status === 404 || err.status === 405)
+            ? language === 'EN'
+              ? ' (Check upload config: remove `VITE_UPLOAD_ENDPOINT` or set it to the same host as `VITE_API_BASE_URL`.)'
+              : '（请检查上传配置：删除 `VITE_UPLOAD_ENDPOINT` 或将其设置为与 `VITE_API_BASE_URL` 相同的 host。）'
+            : '';
+        addAssistantText(
+          language === 'EN'
+            ? `Photo upload failed${statusHint}${configHint} You can also skip photos for now.`
+            : `照片上传失败${statusHint}${configHint}。你也可以先选择跳过。`
+        );
       }
       return;
     }
