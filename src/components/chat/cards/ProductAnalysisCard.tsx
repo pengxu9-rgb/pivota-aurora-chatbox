@@ -17,6 +17,97 @@ import {
   Palette
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ProductVectorRadar, type ProductVector, type ProductVectorAxis, type ProductVectorContributors } from '@/components/aurora/charts/ProductVectorRadar';
+
+const AXES: ProductVectorAxis[] = ['Hydration', 'Anti-Aging', 'Acne Control', 'Brightening', 'Value'];
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getMechanismStrength(result: ProductAnalysisResult, vector: MechanismVector) {
+  return clampPercent(result.mechanisms.find((m) => m.vector === vector)?.strength ?? 0);
+}
+
+function computeValueScore(result: ProductAnalysisResult) {
+  const savings = clampPercent(result.dupeRecommendation?.savingsPercent ?? 0);
+  let base = result.dupeRecommendation ? 65 + savings / 2 : 55;
+  if (result.suitability === 'poor') base -= 18;
+  if (result.suitability === 'moderate') base -= 8;
+  return clampPercent(base);
+}
+
+function computeProductVector(result: ProductAnalysisResult): ProductVector {
+  return {
+    Hydration: getMechanismStrength(result, 'hydrating') || 50,
+    'Anti-Aging': getMechanismStrength(result, 'anti_aging') || 50,
+    'Acne Control': getMechanismStrength(result, 'oil_control') || 50,
+    Brightening: getMechanismStrength(result, 'brightening') || 50,
+    Value: computeValueScore(result),
+  };
+}
+
+function computeIdealVector(result: ProductAnalysisResult): ProductVector {
+  const base: ProductVector = { Hydration: 65, 'Anti-Aging': 65, 'Acne Control': 65, Brightening: 65, Value: 65 };
+  const profile = result.skinProfileMatch;
+  if (!profile) return base;
+
+  if (profile.skinType === 'dry') base.Hydration = 85;
+  if (profile.skinType === 'oily') base['Acne Control'] = 85;
+  if (profile.skinType === 'combination') base['Acne Control'] = 75;
+  if (profile.skinType === 'sensitive') {
+    base.Hydration = 78;
+    base.Value = 78;
+  }
+
+  for (const c of profile.matchedConcerns ?? []) {
+    switch (c) {
+      case 'acne':
+        base['Acne Control'] = Math.max(base['Acne Control'], 90);
+        break;
+      case 'pores':
+        base['Acne Control'] = Math.max(base['Acne Control'], 82);
+        break;
+      case 'dark_spots':
+        base.Brightening = Math.max(base.Brightening, 88);
+        break;
+      case 'dullness':
+        base.Brightening = Math.max(base.Brightening, 82);
+        break;
+      case 'wrinkles':
+        base['Anti-Aging'] = Math.max(base['Anti-Aging'], 88);
+        break;
+      case 'dehydration':
+        base.Hydration = Math.max(base.Hydration, 90);
+        break;
+      case 'redness':
+        base.Hydration = Math.max(base.Hydration, 78);
+        base.Value = Math.max(base.Value, 72);
+        break;
+    }
+  }
+
+  for (const axis of AXES) base[axis] = clampPercent(base[axis]);
+  return base;
+}
+
+function pickContributors(axis: ProductVectorAxis, ingredients: string[]) {
+  if (axis === 'Value') return [];
+
+  const keywords: Record<ProductVectorAxis, string[]> = {
+    Hydration: ['hyalur', 'glycer', 'ceramide', 'panthenol', 'betaine', 'squalane', 'urea', 'allantoin'],
+    'Anti-Aging': ['retinol', 'retinal', 'tretinoin', 'peptide', 'bakuchiol', 'vitamin c', 'ascorb', 'copper', 'resveratrol'],
+    'Acne Control': ['salicy', 'bha', 'benzoyl', 'azelaic', 'niacin', 'zinc', 'adapal', 'tea tree'],
+    Brightening: ['vitamin c', 'ascorb', 'niacin', 'tranex', 'arbutin', 'kojic', 'licorice', 'alpha arbutin'],
+    Value: [],
+  };
+
+  const lowered = ingredients.map((i) => ({ raw: i, v: i.toLowerCase() }));
+  const hits = keywords[axis].length ? lowered.filter((i) => keywords[axis].some((k) => i.v.includes(k))) : [];
+  const ordered = [...hits.map((h) => h.raw), ...ingredients];
+  return [...new Set(ordered)].slice(0, 3);
+}
 
 interface ProductAnalysisCardProps {
   result: ProductAnalysisResult;
@@ -68,6 +159,12 @@ const suitabilityConfig = {
 export function ProductAnalysisCard({ result, photoPreview, language, onAction }: ProductAnalysisCardProps) {
   const config = suitabilityConfig[result.suitability];
   const SuitabilityIcon = config.icon;
+  const productVector = computeProductVector(result);
+  const idealVector = computeIdealVector(result);
+  const contributors: ProductVectorContributors = AXES.reduce((acc, axis) => {
+    acc[axis] = pickContributors(axis, result.ingredients.beneficial ?? []);
+    return acc;
+  }, {} as ProductVectorContributors);
   
   return (
     <div className="chat-card space-y-4">
@@ -155,6 +252,17 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
           </div>
         </div>
       )}
+
+      {/* Product Vector Radar */}
+      <ProductVectorRadar
+        title={language === 'EN' ? 'Product Vector Radar' : '产品向量雷达'}
+        productLabel={language === 'EN' ? 'Product' : '产品'}
+        idealLabel={language === 'EN' ? 'Your Ideal' : '你的理想'}
+        productVector={productVector}
+        idealVector={idealVector}
+        contributors={contributors}
+        matchScore={result.matchScore}
+      />
       
       {/* Mechanism Vectors */}
       <div className="space-y-2">
