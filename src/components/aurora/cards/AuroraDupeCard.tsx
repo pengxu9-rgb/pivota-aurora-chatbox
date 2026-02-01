@@ -43,6 +43,32 @@ function getPairSimilarity(pair: ProductPair) {
   return computeFitTagSimilarity(pair.premium.product.fit_tags ?? [], pair.dupe.product.fit_tags ?? []);
 }
 
+function uniqueTokens(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of items) {
+    const v = String(raw ?? '').trim();
+    if (!v) continue;
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+
+function extractKeyActives(product: any): string[] {
+  const direct = uniqueTokens(product?.key_actives);
+  if (direct.length) return direct;
+
+  const packActives = uniqueTokens(product?.evidence_pack?.keyActives);
+  if (packActives.length) return packActives;
+
+  const tags = uniqueTokens(product?.fit_tags);
+  return tags;
+}
+
 interface AuroraDupeCardProps {
   payload: {
     pairs: ProductPair[];
@@ -210,10 +236,15 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
               ? 'Save'
               : '省钱';
 
-          const premiumTags = pair.premium.product.fit_tags ?? [];
-          const dupeTags = pair.dupe.product.fit_tags ?? [];
-          const missingActives = premiumTags.filter((tag) => !dupeTags.includes(tag)).slice(0, 8);
-          const addedBenefits = dupeTags.filter((tag) => !premiumTags.includes(tag)).slice(0, 8);
+          const premiumActives = extractKeyActives(pair.premium.product);
+          const dupeActives = extractKeyActives(pair.dupe.product);
+          const missingActives = premiumActives.filter((tag) => !dupeActives.includes(tag)).slice(0, 8);
+          const addedBenefits = dupeActives.filter((tag) => !premiumActives.includes(tag)).slice(0, 8);
+          const tradeoffNote =
+            (pair as any)?.tradeoff_note ??
+            (pair as any)?.tradeoffNote ??
+            (pair as any)?.tradeoff ??
+            undefined;
           
           return (
             <div 
@@ -257,6 +288,13 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
                       name: pair.premium.product.name,
                       price: premiumOffer?.price,
                       currency: premiumOffer?.currency,
+                      mechanism: (pair.premium.product as any)?.mechanism,
+                      experience: (pair.premium.product as any)?.experience,
+                      risk_flags: (pair.premium.product as any)?.risk_flags,
+                      social_stats: (pair.premium.product as any)?.social_stats,
+                      key_actives: premiumActives,
+                      evidence_pack: (pair.premium.product as any)?.evidence_pack,
+                      ingredients: (pair.premium.product as any)?.ingredients,
                     }}
                     dupe={{
                       imageUrl: pair.dupe.product.image_url,
@@ -264,15 +302,31 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
                       name: pair.dupe.product.name,
                       price: dupeOffer?.price,
                       currency: dupeOffer?.currency,
+                      mechanism: (pair.dupe.product as any)?.mechanism,
+                      experience: (pair.dupe.product as any)?.experience,
+                      risk_flags: (pair.dupe.product as any)?.risk_flags,
+                      social_stats: (pair.dupe.product as any)?.social_stats,
+                      key_actives: dupeActives,
+                      evidence_pack: (pair.dupe.product as any)?.evidence_pack,
+                      ingredients: (pair.dupe.product as any)?.ingredients,
                     }}
                     savingsLabel={savingsLabel}
                     similarity={similarity}
+                    tradeoffNote={typeof tradeoffNote === 'string' ? tradeoffNote : undefined}
                     missingActives={missingActives}
                     addedBenefits={addedBenefits}
                     selected={selected === 'premium' ? 'original' : 'dupe'}
                     labels={{
                       similarity: language === 'EN' ? 'Similarity' : '相似度',
                       tradeoffsTitle: language === 'EN' ? 'Trade-offs Analysis' : '差异分析',
+                      evidenceTitle: language === 'EN' ? 'Evidence & Signals' : '依据与信号',
+                      scienceLabel: language === 'EN' ? 'Science' : '科学',
+                      socialLabel: language === 'EN' ? 'Social' : '社媒',
+                      keyActives: language === 'EN' ? 'Key actives' : '关键活性',
+                      riskFlags: language === 'EN' ? 'Risks' : '风险点',
+                      ingredientHighlights: language === 'EN' ? 'Ingredient highlights' : '成分亮点',
+                      citations: language === 'EN' ? 'Citations' : 'KB 引用',
+                      tradeoffNote: language === 'EN' ? 'Trade-off' : '权衡',
                       missingActives: language === 'EN' ? 'Missing Actives' : '缺少点',
                       addedBenefits: language === 'EN' ? 'Added Benefits' : '新增点',
                       switchToDupe: language === 'EN' ? 'Switch to Dupe' : '选择平替',

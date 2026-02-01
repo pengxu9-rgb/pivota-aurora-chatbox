@@ -67,6 +67,8 @@ export interface DiagnosisResult {
 
 export interface ProductPair {
   category: string;
+  similarity?: number; // 0-100
+  tradeoff_note?: string;
   premium: {
     product: Product;
     offers: Offer[];
@@ -156,6 +158,36 @@ export interface Product {
   image_url: string;
   size: string;
   fit_tags?: string[]; // e.g., ["gentle", "fragrance-free", "vegan"]
+  source_sku_id?: string | null;
+  // Scientific + social signals (optional; populated by Aurora / Glow Agent when available)
+  mechanism?: Record<string, number>; // 0-1 or 0-100 values (normalize in UI)
+  experience?: Record<string, any>;
+  risk_flags?: string[];
+  social_stats?: {
+    platform_scores?: Record<string, number>; // 0-1
+    RED_score?: number; // 0-1
+    Reddit_score?: number; // 0-1
+    burn_rate?: number; // 0-1
+    key_phrases?: Partial<Record<string, string[]>>;
+  };
+  key_actives?: string[];
+  evidence_pack?: {
+    product_id?: string;
+    display_name?: string;
+    region?: string;
+    availability?: string[];
+    keyActives?: string[];
+    textureFinish?: string[];
+    sensitivityFlags?: string[];
+    pairingRules?: string[];
+    comparisonNotes?: string[];
+    citations?: string[];
+  };
+  ingredients?: {
+    head: string[];
+    hero_actives?: unknown;
+    highlights: string[];
+  };
 }
 
 export type PurchaseRoute = 'internal_checkout' | 'affiliate_outbound';
