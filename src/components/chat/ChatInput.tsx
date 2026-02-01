@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { Send, Plus } from 'lucide-react';
+import { Camera, Send } from 'lucide-react';
 import { useChatContext } from '@/contexts/ChatContext';
 
 export function ChatInput() {
   const [input, setInput] = useState('');
-  const { sendUserText, session, handleAction, isLoading } = useChatContext();
+  const { sendUserText, handleAction, isLoading, language } = useChatContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -42,9 +42,9 @@ export function ChatInput() {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="p-2.5 rounded-xl bg-muted/60 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all duration-200 hover:shadow-sm border border-transparent hover:border-primary/20"
-            title="Analyze product photo"
+            title={language === 'EN' ? 'Upload a product photo' : '上传产品照片'}
           >
-            <Plus className="w-5 h-5" />
+            <Camera className="w-5 h-5" />
           </button>
           <input
             ref={fileInputRef}
@@ -58,7 +58,7 @@ export function ChatInput() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type a message..."
+            placeholder={language === 'EN' ? 'Ask a question… (or paste a product link)' : '输入问题…（或粘贴产品链接）'}
             className="flex-1 px-3 py-2.5 bg-transparent text-foreground placeholder:text-muted-foreground/70 focus:outline-none text-[15px]"
           />
           <button

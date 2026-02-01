@@ -163,6 +163,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               ],
               actions: [
                 {
+                  action_id: 'start_product_analysis',
+                  label: language === 'EN' ? '🔎 Analyze a product' : '🔎 分析单品',
+                  variant: 'outline',
+                },
+                {
                   action_id: 'start_diagnosis',
                   label: language === 'EN' ? '🔬 Start Skin Diagnosis' : '🔬 开始皮肤诊断',
                   variant: 'outline',
@@ -293,6 +298,30 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           ? 'Tap the “+” button and upload a clear photo of the product front + ingredients list.'
           : '点击下方“+”上传产品正面 + 成分表的清晰照片。'
       );
+      return;
+    }
+
+    if (actionId === 'start_product_analysis') {
+      addMessage({
+        type: 'text',
+        role: 'user',
+        content: language === 'EN' ? 'Analyze a product' : '分析一个单品',
+      });
+
+      addAssistantText(
+        language === 'EN'
+          ? 'Sure. For the best result, upload a clear photo of the product front + ingredients list (tap the camera button). You can also paste a link or type the product name.'
+          : '可以。效果最好的是上传「产品正面 + 成分表」清晰照片（点击下方相机按钮）；你也可以粘贴购买链接或直接输入产品名。'
+      );
+
+      addAssistantCard('chips', {
+        chips: [],
+        actions: [
+          { action_id: 'chat_anchor_upload_photo', label: language === 'EN' ? 'Upload a photo' : '上传照片', variant: 'primary' },
+          { action_id: 'chat_anchor_send_link', label: language === 'EN' ? 'Paste product link' : '粘贴链接', variant: 'outline' },
+          { action_id: 'chat_anchor_send_name', label: language === 'EN' ? 'Type product name' : '输入产品名', variant: 'outline' },
+        ],
+      });
       return;
     }
 
