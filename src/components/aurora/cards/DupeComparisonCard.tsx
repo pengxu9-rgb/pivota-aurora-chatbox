@@ -179,7 +179,7 @@ function ProductCol({ product, selected }: { product: DupeProduct; selected?: bo
   return (
     <div
       className={cn(
-        'space-y-2 rounded-xl border border-border/60 bg-muted/10 p-3',
+        'min-w-0 space-y-2 rounded-xl border border-border/60 bg-muted/10 p-3',
         selected ? 'ring-1 ring-primary/40 bg-primary/5' : '',
       )}
     >
@@ -262,22 +262,23 @@ export function DupeComparisonCard({
   return (
     <Card className={cn('w-full bg-white/90 backdrop-blur-sm border-border/70 shadow-card', className)}>
       <CardContent className="p-4 space-y-3">
-        <div className="flex justify-center -mb-1">
-          <Badge className="rounded-full px-3 py-1 text-xs font-semibold bg-foreground text-background shadow-sm">
-            {savingsLabel}
-          </Badge>
-        </div>
-
-        <div className="grid grid-cols-[1fr,auto,1fr] gap-3 items-start">
-            <ProductCol product={original} selected={selected === 'original'} />
-            <Separator orientation="vertical" className="self-stretch" />
-            <ProductCol product={dupe} selected={selected === 'dupe'} />
+        <div className="grid grid-cols-[minmax(0,1fr),auto,minmax(0,1fr)] gap-3 items-start">
+          <ProductCol product={original} selected={selected === 'original'} />
+          <Separator orientation="vertical" className="self-stretch" />
+          <ProductCol product={dupe} selected={selected === 'dupe'} />
         </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{copy.similarity}</span>
-            <span className="font-semibold text-foreground">{typeof similarityPct === 'number' ? `${similarityPct}%` : '—'}</span>
+            <div className="flex items-center gap-2">
+              {savingsLabel && savingsLabel.trim() && savingsLabel !== 'Save' && savingsLabel !== '省钱' ? (
+                <Badge variant="secondary" className="rounded-full text-[10px] font-semibold">
+                  {savingsLabel}
+                </Badge>
+              ) : null}
+              <span className="font-semibold text-foreground">{typeof similarityPct === 'number' ? `${similarityPct}%` : '—'}</span>
+            </div>
           </div>
           <Progress value={similarityPct ?? 0} className="h-2" indicatorClassName={similarityIndicatorClassName} />
         </div>
