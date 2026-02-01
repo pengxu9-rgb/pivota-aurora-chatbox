@@ -7,6 +7,7 @@ import {
   FlowState,
   PhotoSlot,
   CheckoutOutcome,
+  SkinConcern,
 } from '@/lib/types';
 import * as orchestrator from '@/lib/mockOrchestrator';
 import * as analytics from '@/lib/analytics';
@@ -409,19 +410,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     // Handle diagnosis submission
     if (actionId === 'diagnosis_submit') {
-      const { skinType, concerns, currentRoutine } = data || {};
+      const { skinType, concerns, currentRoutine, barrierStatus } = data || {};
       addMessage({ type: 'text', role: 'user', content: `${skinType} skin, concerns: ${concerns?.join(', ')}` });
       try {
         const newSession = await orchestrator.submitDiagnosis(session, { skinType, concerns, currentRoutine });
-        setSession(newSession);
+        const diagnosisSnapshot = {
+          ...(newSession.diagnosis ?? { skinType, concerns: concerns ?? [], currentRoutine: currentRoutine ?? 'basic' }),
+          ...(barrierStatus ? { barrierStatus } : {}),
+        };
+        setSession({ ...newSession, diagnosis: diagnosisSnapshot as any });
 
-        // Show photo option
-        setTimeout(() => {
-          analytics.emitPhotoPromptShown(session.brief_id, session.trace_id);
-          addAssistantText(t('s3.intro', language));
-          addAssistantText(t('s3.tip', language));
-          addAssistantCard('photo_upload_card');
-        }, 300);
+        addAssistantText(
+          language === 'EN'
+            ? "Here’s your Skin Identity snapshot. Confirm when you’re ready to go deeper (optional photos help)."
+            : '这是你的「皮肤画像」快照。确认后我们再继续（可选：上传照片会更准确）。'
+        );
+        addAssistantCard('skin_identity_card', { diagnosis: diagnosisSnapshot });
       } catch (err) {
         console.error('[Diagnosis] submit failed', err);
         const statusHint = err instanceof PivotaApiError && err.status ? ` (HTTP ${err.status})` : '';
@@ -437,6 +441,37 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             : `抱歉：诊断信息提交失败${statusHint}${configHint}。你可以稍后重试，或直接在下方继续对话。`
         );
       }
+      return;
+    }
+
+    if (actionId === 'profile_update_concerns') {
+      const nextConcerns = (data?.concerns as SkinConcern[] | undefined) ?? [];
+      setSession(prev =>
+        prev.diagnosis
+          ? {
+              ...prev,
+              diagnosis: {
+                ...prev.diagnosis,
+                concerns: nextConcerns,
+              },
+            }
+          : prev
+      );
+      return;
+    }
+
+    if (actionId === 'profile_confirm' || actionId === 'profile_upload_selfie') {
+      addMessage({
+        type: 'text',
+        role: 'user',
+        content: language === 'EN' ? (actionId === 'profile_confirm' ? 'Confirm profile' : 'Upload selfie') : actionId === 'profile_confirm' ? '确认画像' : '上传自拍',
+      });
+
+      analytics.emitPhotoPromptShown(session.brief_id, session.trace_id);
+      setSession(prev => ({ ...prev, state: 'S3_PHOTO_OPTION' as FlowState, isDiagnosisActive: true }));
+      addAssistantText(t('s3.intro', language));
+      addAssistantText(t('s3.tip', language));
+      addAssistantCard('photo_upload_card');
       return;
     }
 

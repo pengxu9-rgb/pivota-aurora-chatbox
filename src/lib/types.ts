@@ -62,6 +62,7 @@ export interface DiagnosisResult {
   skinType?: SkinType;
   concerns: SkinConcern[];
   currentRoutine: 'none' | 'basic' | 'full';
+  barrierStatus?: 'healthy' | 'impaired' | 'unknown';
 }
 
 export interface ProductPair {
@@ -201,6 +202,7 @@ export type MessageType =
   | 'context_card'
   | 'diagnosis_card'
   | 'diagnosis_progress'
+  | 'skin_identity_card'
   | 'budget_card'
   | 'photo_upload_card'
   | 'loading_card'

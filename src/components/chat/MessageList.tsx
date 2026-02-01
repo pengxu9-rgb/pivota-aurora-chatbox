@@ -20,6 +20,7 @@ import { AuroraBudgetCard } from '../aurora/cards/AuroraBudgetCard';
 import { AuroraLoadingCard } from '../aurora/cards/AuroraLoadingCard';
 import { AuroraDiagnosisProgress } from '../aurora/cards/AuroraDiagnosisProgress';
 import { AuroraLogicDrawer } from '../aurora/AuroraLogicDrawer';
+import { SkinIdentityCard } from '../aurora/cards/SkinIdentityCard';
 
 function MessageBubble({ message }: { message: Message }) {
   const { handleAction, language, session } = useChatContext();
@@ -51,6 +52,8 @@ function MessageBubble({ message }: { message: Message }) {
             />
           </>
         );
+      case 'skin_identity_card':
+        return <SkinIdentityCard payload={message.payload} onAction={handleAction} language={language} />;
       case 'budget_card':
         return <AuroraBudgetCard onAction={handleAction} language={language} />;
       case 'photo_upload_card':
