@@ -261,8 +261,8 @@ export function DupeComparisonCard({
 
   return (
     <Card className={cn('w-full bg-white/90 backdrop-blur-sm border-border/70 shadow-card', className)}>
-      <CardContent className="p-4 space-y-4">
-        <div className="flex justify-center">
+      <CardContent className="p-4 space-y-3">
+        <div className="flex justify-center -mb-1">
           <Badge className="rounded-full px-3 py-1 text-xs font-semibold bg-foreground text-background shadow-sm">
             {savingsLabel}
           </Badge>

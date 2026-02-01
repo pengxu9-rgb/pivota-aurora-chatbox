@@ -37,10 +37,49 @@ function computeFitTagSimilarity(aTags: string[], bTags: string[]) {
   return clampPercent((intersection / union) * 100);
 }
 
+function normalizePercentFrom01(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const scaled = value > 1 ? value : value * 100;
+  return clampPercent(scaled);
+}
+
+function computeMechanismSimilarity(a: Record<string, unknown> | undefined, b: Record<string, unknown> | undefined) {
+  if (!a || !b) return undefined;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  if (keys.size === 0) return undefined;
+
+  let sum = 0;
+  let count = 0;
+  for (const key of keys) {
+    const av = normalizePercentFrom01((a as any)[key]);
+    const bv = normalizePercentFrom01((b as any)[key]);
+    if (av === null || bv === null) continue;
+    sum += Math.abs(av - bv);
+    count += 1;
+  }
+  if (count === 0) return undefined;
+
+  // avg absolute distance in 0-100 space → similarity
+  return clampPercent(100 - sum / count);
+}
+
 function getPairSimilarity(pair: ProductPair) {
   const raw = (pair as any)?.similarity ?? (pair as any)?.similarity_score ?? (pair as any)?.similarityPercent;
   if (typeof raw === 'number' && Number.isFinite(raw)) return clampPercent(raw);
-  return computeFitTagSimilarity(pair.premium.product.fit_tags ?? [], pair.dupe.product.fit_tags ?? []);
+
+  const fromFitTags = computeFitTagSimilarity(pair.premium.product.fit_tags ?? [], pair.dupe.product.fit_tags ?? []);
+  if (typeof fromFitTags === 'number') return fromFitTags;
+
+  const fromActives = computeFitTagSimilarity(extractKeyActives(pair.premium.product), extractKeyActives(pair.dupe.product));
+  if (typeof fromActives === 'number') return fromActives;
+
+  const fromMechanism = computeMechanismSimilarity(
+    (pair.premium.product as any)?.mechanism,
+    (pair.dupe.product as any)?.mechanism,
+  );
+  if (typeof fromMechanism === 'number') return fromMechanism;
+
+  return undefined;
 }
 
 function uniqueTokens(items: unknown): string[] {
