@@ -50,6 +50,15 @@ const safeReadJson = async (res: Response) => {
   }
 };
 
+const cloneFormData = (form: FormData) => {
+  const next = new FormData();
+  for (const [key, value] of form.entries()) {
+    if (value instanceof File) next.append(key, value, value.name);
+    else next.append(key, value);
+  }
+  return next;
+};
+
 const getAuroraUidHeader = () => {
   const uid = getAuroraUid();
   return uid ? { 'X-Aurora-UID': uid } : {};
@@ -91,28 +100,65 @@ export const pivotaUpload = async <TResponse>(
   form: FormData,
   init: RequestInit & { baseUrl?: string } = {}
 ): Promise<TResponse> => {
-  const baseUrl = init.baseUrl ?? getUploadBaseUrl();
-  if (!baseUrl) {
+  const uploadBaseUrl = init.baseUrl ?? getUploadBaseUrl();
+  if (!uploadBaseUrl) {
     throw new PivotaApiError('Missing VITE_UPLOAD_ENDPOINT or VITE_API_BASE_URL', 0, undefined);
   }
 
-  const res = await fetch(joinUrl(baseUrl, path), {
-    ...init,
-    method: init.method ?? 'POST',
-    body: form,
-    headers: {
-      Accept: 'application/json',
-      'X-Brief-ID': session.brief_id,
-      'X-Trace-ID': session.trace_id,
-      ...getAuroraUidHeader(),
-      ...(init.headers || {}),
-    },
-  });
+  const apiBaseUrl = getApiBaseUrl();
+  const configuredUploadUrl = import.meta.env.VITE_UPLOAD_ENDPOINT?.trim();
 
-  const body = await safeReadJson(res);
-  if (!res.ok) {
-    throw new PivotaApiError(`Upload failed: ${res.status} ${res.statusText}`, res.status, body);
+  const candidates: string[] = [uploadBaseUrl];
+  if (!init.baseUrl && configuredUploadUrl && apiBaseUrl) {
+    const normalizedConfigured = normalizeBaseUrl(configuredUploadUrl);
+    const normalizedApi = normalizeBaseUrl(apiBaseUrl);
+    if (normalizedConfigured !== normalizedApi && !candidates.includes(apiBaseUrl)) {
+      candidates.push(apiBaseUrl);
+    }
   }
 
-  return body as TResponse;
+  let lastError: { status: number; statusText: string; body: unknown; baseUrl: string } | null = null;
+
+  for (const baseUrl of candidates) {
+    try {
+      const res = await fetch(joinUrl(baseUrl, path), {
+        ...init,
+        method: init.method ?? 'POST',
+        body: candidates.length > 1 && baseUrl !== candidates[0] ? cloneFormData(form) : form,
+        headers: {
+          Accept: 'application/json',
+          'X-Brief-ID': session.brief_id,
+          'X-Trace-ID': session.trace_id,
+          ...getAuroraUidHeader(),
+          ...(init.headers || {}),
+        },
+      });
+
+      const body = await safeReadJson(res);
+      if (res.ok) return body as TResponse;
+
+      lastError = { status: res.status, statusText: res.statusText, body, baseUrl };
+
+      // If the upload endpoint is misconfigured (common on Vercel) we fall back to the API base url.
+      // Only retry on "not found / method not allowed" or when we have an explicit second candidate.
+      if ((res.status === 404 || res.status === 405) && baseUrl !== candidates[candidates.length - 1]) {
+        continue;
+      }
+      throw new PivotaApiError(`Upload failed: ${res.status} ${res.statusText}`, res.status, body);
+    } catch (err) {
+      // Network error or CORS failure — retry once against API base if available.
+      if (baseUrl !== candidates[candidates.length - 1]) continue;
+      throw err;
+    }
+  }
+
+  if (lastError) {
+    throw new PivotaApiError(
+      `Upload failed: ${lastError.status} ${lastError.statusText}`,
+      lastError.status,
+      lastError.body
+    );
+  }
+
+  throw new PivotaApiError('Upload failed: unknown error', 0, undefined);
 };
