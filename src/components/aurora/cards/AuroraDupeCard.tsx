@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Language, ProductPair, CheckoutRouteAnalysis } from '@/lib/types';
 import { t } from '@/lib/i18n';
-import { GitCompareArrows, Crown, Sparkles, Check, AlertTriangle, ChevronDown, ChevronUp, ShoppingCart, ExternalLink, Info } from 'lucide-react';
+import { GitCompareArrows, Crown, Sparkles, ChevronDown, ChevronUp, ShoppingCart, ExternalLink, Info } from 'lucide-react';
 import * as orchestrator from '@/lib/mockOrchestrator';
+import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 
 interface AuroraDupeCardProps {
   payload: {
@@ -156,6 +157,25 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
           const selected = selections[pair.category] || 'dupe';
           const selectedOffer = selected === 'premium' ? pair.premium.offers[0] : pair.dupe.offers[0];
           const isAffiliate = selectedOffer?.purchase_route === 'affiliate_outbound';
+          const premiumOffer = pair.premium.offers[0];
+          const dupeOffer = pair.dupe.offers[0];
+          const savings =
+            typeof premiumOffer?.price === 'number' && typeof dupeOffer?.price === 'number'
+              ? premiumOffer.price - dupeOffer.price
+              : undefined;
+          const savingsLabel =
+            typeof savings === 'number' && Number.isFinite(savings) && savings > 0
+              ? language === 'EN'
+                ? `Save $${Math.round(savings)}`
+                : `省 $${Math.round(savings)}`
+              : language === 'EN'
+              ? 'Save'
+              : '省钱';
+
+          const premiumTags = pair.premium.product.fit_tags ?? [];
+          const dupeTags = pair.dupe.product.fit_tags ?? [];
+          const missingActives = premiumTags.filter((tag) => !dupeTags.includes(tag)).slice(0, 8);
+          const addedBenefits = dupeTags.filter((tag) => !premiumTags.includes(tag)).slice(0, 8);
           
           return (
             <div 
@@ -188,91 +208,41 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
                 )}
               </button>
 
-              {/* Comparison Content */}
-              <div className={`grid grid-cols-2 gap-2 p-3 ${isExpanded ? '' : 'hidden'}`}>
-                {/* Premium Option */}
-                <button
-                  onClick={() => handleSelect(pair, 'premium')}
-                  className={`p-3 rounded-lg border text-left transition-all ${
-                    selected === 'premium'
-                      ? 'border-warning bg-warning/5'
-                      : 'border-border hover:border-warning/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-1 mb-2">
-                    <Crown className="w-3 h-3 text-warning" />
-                    <span className="text-[10px] uppercase font-medium text-warning">Premium</span>
-                    {selected === 'premium' && <Check className="w-3 h-3 text-warning ml-auto" />}
-                  </div>
-                  <p className="text-xs font-medium text-foreground truncate">
-                    {pair.premium.product.brand}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground truncate mb-2">
-                    {pair.premium.product.name}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-foreground font-mono-nums">
-                      ${pair.premium.offers[0]?.price.toFixed(2)}
-                    </p>
-                    {pair.premium.offers[0]?.purchase_route === 'affiliate_outbound' && (
-                      <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                    )}
-                  </div>
-                  {/* Fit tags */}
-                  {pair.premium.product.fit_tags && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {pair.premium.product.fit_tags.slice(0, 2).map(tag => (
-                        <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </button>
-
-                {/* Dupe Option */}
-                <button
-                  onClick={() => handleSelect(pair, 'dupe')}
-                  className={`p-3 rounded-lg border text-left transition-all ${
-                    selected === 'dupe'
-                      ? 'border-success bg-success/5'
-                      : 'border-border hover:border-success/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-1 mb-2">
-                    <Sparkles className="w-3 h-3 text-success" />
-                    <span className="text-[10px] uppercase font-medium text-success">Dupe</span>
-                    {selected === 'dupe' && <Check className="w-3 h-3 text-success ml-auto" />}
-                  </div>
-                  <p className="text-xs font-medium text-foreground truncate">
-                    {pair.dupe.product.brand}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground truncate mb-2">
-                    {pair.dupe.product.name}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-foreground font-mono-nums">
-                      ${pair.dupe.offers[0]?.price.toFixed(2)}
-                    </p>
-                    {pair.dupe.offers[0]?.purchase_route === 'affiliate_outbound' && (
-                      <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                    )}
-                  </div>
-                  {/* Fit tags */}
-                  {pair.dupe.product.fit_tags && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {pair.dupe.product.fit_tags.slice(0, 2).map(tag => (
-                        <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </button>
-              </div>
-
-              {/* Collapsed View */}
-              {!isExpanded && (
+              {isExpanded ? (
+                <div className="p-3">
+                  <DupeComparisonCard
+                    original={{
+                      imageUrl: pair.premium.product.image_url,
+                      brand: pair.premium.product.brand,
+                      name: pair.premium.product.name,
+                      price: premiumOffer?.price,
+                      currency: premiumOffer?.currency,
+                    }}
+                    dupe={{
+                      imageUrl: pair.dupe.product.image_url,
+                      brand: pair.dupe.product.brand,
+                      name: pair.dupe.product.name,
+                      price: dupeOffer?.price,
+                      currency: dupeOffer?.currency,
+                    }}
+                    savingsLabel={savingsLabel}
+                    similarity={similarity}
+                    missingActives={missingActives}
+                    addedBenefits={addedBenefits}
+                    selected={selected === 'premium' ? 'original' : 'dupe'}
+                    labels={{
+                      similarity: language === 'EN' ? 'Similarity' : '相似度',
+                      tradeoffsTitle: language === 'EN' ? 'Trade-offs Analysis' : '差异分析',
+                      missingActives: language === 'EN' ? 'Missing Actives' : '缺少点',
+                      addedBenefits: language === 'EN' ? 'Added Benefits' : '新增点',
+                      switchToDupe: language === 'EN' ? 'Switch to Dupe' : '选择平替',
+                      keepOriginal: language === 'EN' ? 'Keep Original' : '保留原版',
+                    }}
+                    onSwitchToDupe={() => handleSelect(pair, 'dupe')}
+                    onKeepOriginal={() => handleSelect(pair, 'premium')}
+                  />
+                </div>
+              ) : (
                 <div className="p-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {selected === 'premium' ? (
@@ -285,26 +255,8 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
                     </span>
                   </div>
                   <span className="text-sm font-medium text-foreground font-mono-nums">
-                    ${(selected === 'premium' 
-                      ? pair.premium.offers[0]?.price 
-                      : pair.dupe.offers[0]?.price
-                    )?.toFixed(2)}
+                    ${(selected === 'premium' ? pair.premium.offers[0]?.price : pair.dupe.offers[0]?.price)?.toFixed(2)}
                   </span>
-                </div>
-              )}
-
-              {/* Trade-off */}
-              {isExpanded && (
-                <div className="px-3 pb-3">
-                  <div className="p-2 rounded-lg bg-muted/50 flex items-start gap-2">
-                    <AlertTriangle className="w-3 h-3 text-warning mt-0.5 flex-shrink-0" />
-                    <p className="text-[10px] text-muted-foreground">
-                      {language === 'EN' 
-                        ? 'Trade-off: Dupe may have slightly different texture or finish'
-                        : '差异：平替可能质地或肤感略有不同'
-                      }
-                    </p>
-                  </div>
                 </div>
               )}
             </div>
