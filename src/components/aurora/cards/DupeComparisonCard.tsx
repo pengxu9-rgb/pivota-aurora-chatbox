@@ -262,16 +262,16 @@ export function DupeComparisonCard({
   return (
     <Card className={cn('w-full bg-white/90 backdrop-blur-sm border-border/70 shadow-card', className)}>
       <CardContent className="p-4 space-y-4">
-        <div className="relative">
-          <div className="grid grid-cols-[1fr,auto,1fr] gap-3 items-start pt-4">
+        <div className="flex justify-center">
+          <Badge className="rounded-full px-3 py-1 text-xs font-semibold bg-foreground text-background shadow-sm">
+            {savingsLabel}
+          </Badge>
+        </div>
+
+        <div className="grid grid-cols-[1fr,auto,1fr] gap-3 items-start">
             <ProductCol product={original} selected={selected === 'original'} />
             <Separator orientation="vertical" className="self-stretch" />
             <ProductCol product={dupe} selected={selected === 'dupe'} />
-          </div>
-
-          <Badge className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full px-3 py-1 text-xs font-semibold bg-foreground text-background shadow-sm">
-            {savingsLabel}
-          </Badge>
         </div>
 
         <div className="space-y-2">
