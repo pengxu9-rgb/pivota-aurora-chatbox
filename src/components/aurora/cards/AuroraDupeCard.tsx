@@ -5,6 +5,7 @@ import { GitCompareArrows, Crown, Sparkles, ChevronDown, ChevronUp, ShoppingCart
 import * as orchestrator from '@/lib/mockOrchestrator';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { RoutineTimeline, RoutineStep, RoutineStepType, CompatibilityResult } from '@/components/aurora/RoutineTimeline';
+import { SmartBudgetReceipt, BudgetReceiptItem } from '@/components/aurora/SmartBudgetReceipt';
 
 function clampPercent(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -195,15 +196,8 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
   }, [pairs, selections]);
 
   // Calculate totals
-  const premiumTotal = pairs.reduce((sum, pair) => {
-    const price = getOfferPrice(pair.premium.offers[0]?.price) ?? 0;
-    return sum + (selections[pair.category] === 'premium' || !selections[pair.category] ? price : 0);
-  }, 0);
-
-  const dupeTotal = pairs.reduce((sum, pair) => {
-    const price = getOfferPrice(pair.dupe.offers[0]?.price) ?? 0;
-    return sum + (selections[pair.category] === 'dupe' ? price : 0);
-  }, 0);
+  const premiumTotal = pairs.reduce((sum, pair) => sum + (getOfferPrice(pair.premium.offers[0]?.price) ?? 0), 0);
+  const dupeTotal = pairs.reduce((sum, pair) => sum + (getOfferPrice(pair.dupe.offers[0]?.price) ?? 0), 0);
 
   const currentTotal = pairs.reduce((sum, pair) => {
     const selected = selections[pair.category] || 'dupe';
@@ -212,6 +206,24 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
       : getOfferPrice(pair.dupe.offers[0]?.price) ?? 0;
     return sum + price;
   }, 0);
+
+  const receiptPremiumItems: BudgetReceiptItem[] = useMemo(() => {
+    return pairs.map((pair) => ({
+      id: pair.category,
+      name: pair.premium.product.name,
+      price: getOfferPrice(pair.premium.offers[0]?.price),
+      currency: pair.premium.offers[0]?.currency ?? 'USD',
+    }));
+  }, [pairs]);
+
+  const receiptDupeItems: BudgetReceiptItem[] = useMemo(() => {
+    return pairs.map((pair) => ({
+      id: pair.category,
+      name: pair.dupe.product.name,
+      price: getOfferPrice(pair.dupe.offers[0]?.price),
+      currency: pair.dupe.offers[0]?.currency ?? 'USD',
+    }));
+  }, [pairs]);
 
   const handleSelect = (pair: ProductPair, type: 'premium' | 'dupe') => {
     setSelections(prev => ({ ...prev, [pair.category]: type }));
@@ -327,6 +339,13 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
           </button>
         ))}
       </div>
+
+      <SmartBudgetReceipt
+        items={receiptPremiumItems}
+        optimizedItems={receiptDupeItems}
+        language={language}
+        initialOptimized={true}
+      />
 
       <RoutineTimeline
         language={language}

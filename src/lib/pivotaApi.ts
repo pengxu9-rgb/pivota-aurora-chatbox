@@ -15,6 +15,12 @@ export class PivotaApiError extends Error {
 
 const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
 
+export const getApiRootUrl = () => {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (!baseUrl) return undefined;
+  return normalizeBaseUrl(baseUrl);
+};
+
 export const getApiBaseUrl = () => {
   const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!baseUrl) return undefined;
@@ -28,6 +34,12 @@ export const getApiBaseUrl = () => {
 };
 
 export const isBackendConfigured = () => Boolean(getApiBaseUrl());
+
+export const getShopGatewayUrl = () => {
+  const url = import.meta.env.VITE_SHOP_GATEWAY_URL?.trim();
+  if (url) return normalizeBaseUrl(url);
+  return getApiRootUrl();
+};
 
 export const getUploadBaseUrl = () => {
   const uploadUrl = import.meta.env.VITE_UPLOAD_ENDPOINT?.trim();

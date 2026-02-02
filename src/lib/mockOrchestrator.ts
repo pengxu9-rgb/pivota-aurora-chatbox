@@ -19,7 +19,7 @@ import {
   ProductPair,
   CheckoutRouteAnalysis,
 } from './types';
-import { isBackendConfigured, pivotaJson, pivotaUpload } from './pivotaApi';
+import { getShopGatewayUrl, isBackendConfigured, pivotaJson, pivotaUpload } from './pivotaApi';
 
 // Deterministic ID generation
 let idCounter = 0;
@@ -950,18 +950,76 @@ export async function resolveAffiliateItems(
 ): Promise<{ product: Product; offer: Offer }[]> {
   if (!isLiveSession(session)) return affiliateItems;
 
-  const res = await pivotaJson<any>(session, '/offers/resolve', {
-    method: 'POST',
-    body: JSON.stringify({
-      items: affiliateItems,
-      trace_id: session.trace_id,
-    }),
-  });
+  const shopGatewayUrl = getShopGatewayUrl();
+  if (!shopGatewayUrl) return affiliateItems;
 
-  const items = (res as any).items ?? (res as any).affiliateItems ?? (res as any).affiliate_items;
-  if (!Array.isArray(items)) return affiliateItems;
+  const market = (session.market ?? 'US') as Market;
 
-  return items as { product: Product; offer: Offer }[];
+  const resolveOne = async (item: { product: Product; offer: Offer }) => {
+    const skuId = item.product?.sku_id;
+    if (!skuId) return item;
+
+    const res = await pivotaJson<any>(session, '/agent/shop/v1/invoke', {
+      baseUrl: shopGatewayUrl,
+      method: 'POST',
+      body: JSON.stringify({
+        operation: 'offers.resolve',
+        payload: {
+          offers: {
+            product: { sku_id: skuId },
+            market,
+            tool: '*',
+            limit: 10,
+          },
+        },
+        metadata: {
+          source: 'chatbox',
+          trace_id: session.trace_id,
+        },
+      }),
+    });
+
+    const offers =
+      (res as any)?.offers ??
+      (res as any)?.payload?.offers ??
+      (res as any)?.result?.offers ??
+      (res as any)?.data?.offers ??
+      [];
+
+    if (!Array.isArray(offers) || offers.length === 0) return item;
+
+    const external =
+      offers.find((o: any) => o?.purchase_route === 'affiliate_outbound' && typeof o?.affiliate_url === 'string') ??
+      null;
+
+    // Only replace when we can provide a real outbound link.
+    if (!external) return item;
+
+    const rawAffiliateUrl = String((external as any).affiliate_url ?? '').trim();
+    const normalizedAffiliateUrl =
+      rawAffiliateUrl && rawAffiliateUrl.startsWith('/') ? `${shopGatewayUrl}${rawAffiliateUrl}` : rawAffiliateUrl || undefined;
+
+    return {
+      product: item.product,
+      offer: {
+        ...(external as Offer),
+        ...(normalizedAffiliateUrl ? { affiliate_url: normalizedAffiliateUrl } : {}),
+      },
+    };
+  };
+
+  // Resolve in parallel; keep best-effort fallbacks per item.
+  const resolved = await Promise.all(
+    affiliateItems.map(async (item) => {
+      try {
+        return await resolveOne(item);
+      } catch {
+        return item;
+      }
+    })
+  );
+
+  return resolved;
 }
 
 // Analyze checkout route for a set of selected products
