@@ -1,8 +1,16 @@
 import { AnalyticsEvent } from './types';
+import { getApiBaseUrl } from './pivotaApi';
 
 class AnalyticsStore {
   private events: AnalyticsEvent[] = [];
+  private pending: AnalyticsEvent[] = [];
   private maxEvents = 100;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushInFlight = false;
+  private backoffMs = 0;
+
+  private batchSize = 25;
+  private maxPending = 200;
 
   emit(eventName: string, briefId: string, traceId: string, data?: Record<string, any>) {
     const event: AnalyticsEvent = {
@@ -22,6 +30,8 @@ class AnalyticsStore {
 
     // Console log for debugging
     console.log(`[Analytics] ${eventName}`, { briefId, traceId, data });
+
+    this.enqueue(event);
   }
 
   getEvents(): AnalyticsEvent[] {
@@ -34,6 +44,70 @@ class AnalyticsStore {
 
   clear() {
     this.events = [];
+    this.pending = [];
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.flushInFlight = false;
+    this.backoffMs = 0;
+  }
+
+  private enqueue(event: AnalyticsEvent) {
+    // Best-effort remote ingest: keep a small pending queue and flush asynchronously.
+    this.pending.push(event);
+    if (this.pending.length > this.maxPending) {
+      this.pending = this.pending.slice(-this.maxPending);
+    }
+    this.scheduleFlush();
+  }
+
+  private scheduleFlush() {
+    if (this.flushTimer) return;
+    const delay = this.backoffMs || 1500;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      void this.flush();
+    }, delay);
+  }
+
+  private async flush() {
+    if (this.flushInFlight) return;
+    if (!this.pending.length) return;
+
+    const baseUrl = getApiBaseUrl();
+    if (!baseUrl) return;
+
+    const url = `${baseUrl.replace(/\/+$/, '')}/events`;
+    const batch = this.pending.splice(0, this.batchSize);
+
+    this.flushInFlight = true;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source: 'pivota-aurora-chatbox',
+          events: batch,
+        }),
+        keepalive: true,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Event ingest failed: ${res.status}`);
+      }
+      this.backoffMs = 0;
+    } catch (err) {
+      // Requeue and retry with backoff.
+      this.pending = [...batch, ...this.pending].slice(-this.maxPending);
+      this.backoffMs = Math.min(this.backoffMs ? this.backoffMs * 2 : 2000, 30000);
+    } finally {
+      this.flushInFlight = false;
+      if (this.pending.length) this.scheduleFlush();
+    }
   }
 }
 
