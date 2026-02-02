@@ -32,7 +32,7 @@ const STEPS: ProgressStep[] = [
   {
     id: 'compare',
     icon: GitCompareArrows,
-    label: { EN: 'Match', CN: '匹配' },
+    label: { EN: 'Products', CN: '产品' },
     states: ['S6_BUDGET', 'S7_PRODUCT_RECO'],
   },
   {

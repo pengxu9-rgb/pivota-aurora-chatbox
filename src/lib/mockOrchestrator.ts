@@ -506,13 +506,17 @@ export function skipPhotos(session: Session): Session {
   };
 }
 
-export async function runAnalysis(session: Session): Promise<{ session: Session; analysis: AnalysisResult }> {
+export async function runAnalysis(
+  session: Session,
+  language?: Language
+): Promise<{ session: Session; analysis: AnalysisResult }> {
   if (isLiveSession(session)) {
     const res = await pivotaJson<any>(session, '/analysis', {
       method: 'POST',
       body: JSON.stringify({
         trace_id: session.trace_id,
         intent_id: session.intent_id,
+        language,
       }),
     });
 

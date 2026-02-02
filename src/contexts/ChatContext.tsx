@@ -682,7 +682,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 	        // If the user clicks "continue" while analysis is already in-flight, clear any stale loading UI.
 	        setIsLoading(false);
 	        removeLoadingCards();
-	        const { session: analysisSession, analysis } = await orchestrator.runAnalysis(session);
+	        const { session: analysisSession, analysis } = await orchestrator.runAnalysis(session, language);
 	        setSession(analysisSession);
 	        addAssistantCard('analysis_summary', { analysis, session: analysisSession });
 	      } catch (err) {
@@ -1250,7 +1250,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const photoCount = Object.values(currentSession.photos).filter((p) => p?.preview).length;
 
     try {
-      const { session: analysisSession, analysis } = await orchestrator.runAnalysis(currentSession);
+      const { session: analysisSession, analysis } = await orchestrator.runAnalysis(currentSession, language);
       setSession(analysisSession);
       analytics.emitAnalysisCompleted(analysisSession.brief_id, analysisSession.trace_id, photoCount);
       addAssistantCard('analysis_summary', { analysis, session: analysisSession });

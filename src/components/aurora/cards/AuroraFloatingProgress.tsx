@@ -33,7 +33,7 @@ const STEPS: ProgressStep[] = [
   {
     id: 'compare',
     icon: GitCompareArrows,
-    label: { EN: 'Match', CN: '匹配' },
+    label: { EN: 'Products', CN: '产品' },
     states: ['S6_BUDGET', 'S7_PRODUCT_RECO'],
   },
   {
@@ -113,7 +113,7 @@ export function AuroraFloatingProgress({ currentState, language, isActive, onDis
                     />
                   </div>
                   <span className="text-[10px] text-muted-foreground">
-                    {progressPercent}%
+                    {language === 'EN' ? `Progress ${progressPercent}%` : `进度 ${progressPercent}%`}
                   </span>
                 </div>
               </div>
