@@ -168,21 +168,6 @@ export default function BffChat() {
 
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
 
-  const onGenerateRoutine = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const env = await bffJson<V1Envelope>('/v1/reco/generate', headers, {
-        method: 'POST',
-        body: JSON.stringify({ focus: 'daily routine', constraints: { simplicity: 'high' } }),
-      });
-      applyEnvelope(env);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [applyEnvelope, headers]);
-
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col">
@@ -209,9 +194,6 @@ export default function BffChat() {
               </button>
               <button className="action-button action-button-ghost" onClick={bootstrap} disabled={isLoading}>
                 {language === 'EN' ? 'Refresh' : '刷新'}
-              </button>
-              <button className="action-button action-button-outline" onClick={onGenerateRoutine} disabled={isLoading}>
-                {language === 'EN' ? 'Generate routine' : '生成 routine'}
               </button>
             </div>
           </div>
