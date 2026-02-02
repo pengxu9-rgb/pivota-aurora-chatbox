@@ -1,6 +1,8 @@
 # Pivota Aurora Chatbox (Frontend)
 
-Mobile-first chat UI that connects to the Pivota Glow Agent (BFF), which proxies Aurora Decision System.
+Mobile-first chat UI for `aurora.pivota.cc/chat`.
+
+`/chat` is now wired to the **pivota-agent** `/v1` BFF (Railway). A legacy UI is kept at `/legacy` during migration.
 
 ## Local dev
 
@@ -16,11 +18,15 @@ Default dev server: `http://localhost:8080`
 Set these in Vercel (or locally via `.env.local`):
 
 ```bash
-# Glow Agent BFF (Railway)
-VITE_API_BASE_URL=https://pivota-glow-agent-production.up.railway.app
+# pivota-agent BFF (Railway)
+VITE_PIVOTA_AGENT_URL=https://pivota-agent-production.up.railway.app
 
-# Optional (defaults to VITE_API_BASE_URL if unset)
-VITE_UPLOAD_ENDPOINT=https://pivota-glow-agent-production.up.railway.app
+# Back-compat (used when VITE_PIVOTA_AGENT_URL is unset)
+VITE_SHOP_GATEWAY_URL=https://pivota-agent-production.up.railway.app
+
+# Legacy (optional): keep old Glow Agent UI working at /legacy
+VITE_API_BASE_URL=https://pivota-glow-guide-production.up.railway.app
+VITE_UPLOAD_ENDPOINT=https://pivota-glow-guide-production.up.railway.app
 ```
 
 ## Deploy (Vercel)
