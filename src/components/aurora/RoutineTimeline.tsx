@@ -94,6 +94,7 @@ function TimelineRow({
 }) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [simulation, setSimulation] = useState<CompatibilityResult | null>(null);
+  const [isPlacing, setIsPlacing] = useState(false);
 
   const effective = simulation?.conflicts?.length ? simulation.conflicts : baseConflicts;
   const effectiveConflicts = useMemo(() => uniqConflicts(effective), [effective]);
@@ -125,6 +126,7 @@ function TimelineRow({
     e.dataTransfer.setData('application/x-aurora-test-product', JSON.stringify(defaultTestProduct));
     e.dataTransfer.effectAllowed = 'copy';
     setSimulation(null);
+    setIsPlacing(false);
   }
 
   function onDragOverDropTarget(e: React.DragEvent, afterIndex: number) {
@@ -144,6 +146,26 @@ function TimelineRow({
 
   function onDragLeave() {
     setDragOverIndex(null);
+  }
+
+  function onToggleTestMode() {
+    if (!isPlacing) {
+      setIsPlacing(true);
+      // Default to "after last step" so mobile users see an immediate result.
+      const defaultAfterIndex = steps.length - 1;
+      setDragOverIndex(defaultAfterIndex);
+      simulate(defaultAfterIndex);
+      return;
+    }
+
+    setIsPlacing(false);
+    setDragOverIndex(null);
+  }
+
+  function onTapPlace(afterIndex: number) {
+    if (!isPlacing) return;
+    setDragOverIndex(afterIndex);
+    simulate(afterIndex);
   }
 
   const previewSteps = useMemo(() => {
@@ -204,12 +226,14 @@ function TimelineRow({
                     onDragOver={(e) => onDragOverDropTarget(e, idx - 1)}
                     onDrop={(e) => onDropOnTarget(e, idx - 1)}
                     onDragLeave={onDragLeave}
+                    onClick={() => onTapPlace(idx - 1)}
                   >
                     <div
                       className={cn(
                         'relative h-11 w-11 rounded-full border border-border/60 bg-muted/20 flex items-center justify-center',
                         isPreview ? 'ring-2 ring-primary/15' : '',
                         isDropTarget ? 'ring-2 ring-primary/30 bg-primary/5' : '',
+                        isPlacing ? 'cursor-pointer hover:bg-primary/5' : '',
                       )}
                       title={step.label ?? step.type}
                     >
@@ -222,10 +246,14 @@ function TimelineRow({
 
                   {!isLast ? (
                     <div
-                      className={cn('relative shrink-0 w-12 h-10 flex items-center justify-center')}
+                      className={cn(
+                        'relative shrink-0 w-12 h-10 flex items-center justify-center rounded-lg',
+                        isPlacing ? 'cursor-pointer ring-1 ring-primary/20 hover:bg-primary/5' : '',
+                      )}
                       onDragOver={(e) => onDragOverDropTarget(e, idx)}
                       onDrop={(e) => onDropOnTarget(e, idx)}
                       onDragLeave={onDragLeave}
+                      onClick={() => onTapPlace(idx)}
                     >
                       <svg width="48" height="20" viewBox="0 0 48 20" className="block">
                         <line
@@ -267,12 +295,16 @@ function TimelineRow({
               className={cn(
                 'shrink-0 rounded-xl border border-dashed border-border/70 bg-muted/10 px-3 py-2',
                 dragOverIndex === previewSteps.length - 1 ? 'border-primary/50 bg-primary/5' : '',
+                isPlacing ? 'cursor-pointer ring-1 ring-primary/20 hover:bg-primary/5' : '',
               )}
               onDragOver={(e) => onDragOverDropTarget(e, previewSteps.length - 1)}
               onDrop={(e) => onDropOnTarget(e, previewSteps.length - 1)}
               onDragLeave={onDragLeave}
+              onClick={() => onTapPlace(previewSteps.length - 1)}
             >
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Drop to test</div>
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                {isPlacing ? 'Tap to test' : 'Drag or tap to test'}
+              </div>
               <div className="mt-0.5 text-xs text-muted-foreground">after last step</div>
             </div>
           </div>
@@ -282,18 +314,24 @@ function TimelineRow({
             <div className="min-w-0">
               <div className="text-xs font-semibold text-foreground">Test Product</div>
               <div className="text-xs text-muted-foreground truncate">
-                Drag into the timeline to simulate compatibility
+                {isPlacing ? 'Tap a connector to place it' : 'Tap to test (or drag on desktop)'}
               </div>
             </div>
-            <div
+            <button
+              type="button"
               draggable
               onDragStart={onDragStart}
-              className="shrink-0 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 cursor-grab active:cursor-grabbing"
-              title="Drag me"
+              onClick={onToggleTestMode}
+              className={cn(
+                'shrink-0 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5',
+                'cursor-pointer md:cursor-grab md:active:cursor-grabbing',
+                isPlacing ? 'ring-2 ring-primary/20 bg-primary/5' : '',
+              )}
+              title={isPlacing ? 'Exit test mode' : 'Tap to test'}
             >
               <Wand2 className="h-4 w-4 text-primary" />
               <span className="text-xs font-semibold text-foreground">{defaultTestProduct.label ?? 'Test'}</span>
-            </div>
+            </button>
           </div>
 
           {simulation?.summary ? (
@@ -341,4 +379,3 @@ export function RoutineTimeline({ className, am, pm, conflicts, testProduct, onS
     </Card>
   );
 }
-
