@@ -1,5 +1,5 @@
 import React from 'react';
-import { Language, AnalysisResult, Session } from '@/lib/types';
+import { Language, AnalysisResult, DiagnosisResult, Session } from '@/lib/types';
 import { t, getConfidenceLabel } from '@/lib/i18n';
 import { Calculator, CheckCircle2, AlertTriangle, HelpCircle, ChevronRight, Shield } from 'lucide-react';
 
@@ -12,17 +12,16 @@ interface AuroraScoringCardProps {
   language: Language;
 }
 
+function barrierSummary(status: DiagnosisResult['barrierStatus'] | undefined, language: Language) {
+  if (status === 'healthy') return language === 'EN' ? 'Healthy barrier' : '屏障稳定';
+  if (status === 'impaired') return language === 'EN' ? 'Barrier stressed' : '屏障受损/脆弱';
+  if (status === 'unknown') return language === 'EN' ? 'Barrier: not sure' : '屏障：不确定';
+  return language === 'EN' ? 'Barrier: not provided' : '屏障：未填写';
+}
+
 export function AuroraScoringCard({ payload, onAction, language }: AuroraScoringCardProps) {
   const { analysis, session } = payload;
   const photoCount = Object.values(session.photos).filter(p => p?.preview).length;
-
-  // Mock scores for Aurora visualization
-  const scores = {
-    science: 85,
-    social: 72,
-    engineering: 90,
-    overall: 82,
-  };
 
   const confidenceIcons = {
     pretty_sure: CheckCircle2,
@@ -45,60 +44,42 @@ export function AuroraScoringCard({ payload, onAction, language }: AuroraScoring
         </div>
         <div>
           <p className="section-label">
-            {language === 'EN' ? 'SCORING & ANALYSIS' : '评分与分析'}
+            {language === 'EN' ? 'ASSESSMENT SUMMARY' : '分析总结'}
           </p>
           <h3 className="text-sm font-semibold text-foreground">
-            {language === 'EN' ? 'Your Skin Profile Analysis' : '你的肤质分析'}
+            {language === 'EN' ? 'Your Skin Snapshot' : '你的皮肤快照'}
           </h3>
         </div>
       </div>
 
-      {/* Overall Score Ring */}
-      <div className="flex items-center gap-4 p-4 bg-muted/30 rounded-xl">
-        <div className="score-ring">
-          <span className="score-ring-value">{scores.overall}</span>
+      {/* Snapshot */}
+      <div className="grid grid-cols-1 gap-2 rounded-xl bg-muted/30 p-4">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">{language === 'EN' ? 'Skin type:' : '肤质：'}</span>
+          <span className="font-medium text-foreground">
+            {session.diagnosis?.skinType
+              ? t(`diagnosis.skin_type.${session.diagnosis.skinType}`, language)
+              : language === 'EN'
+                ? 'Not provided'
+                : '未填写'}
+          </span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-muted-foreground">{language === 'EN' ? 'Barrier:' : '屏障：'}</span>
+          <span className="font-medium text-foreground">{barrierSummary(session.diagnosis?.barrierStatus, language)}</span>
         </div>
-        <div className="flex-1">
-          <p className="text-sm font-medium text-foreground mb-2">
-            {language === 'EN' ? 'Match Score' : '匹配分数'}
-          </p>
-          
-          {/* Breakdown bars */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-success" />
-              <span className="text-xs text-muted-foreground w-16">Science</span>
-              <div className="breakdown-bar flex-1">
-                <div 
-                  className="breakdown-bar-fill bg-success" 
-                  style={{ width: `${scores.science}%` }} 
-                />
-              </div>
-              <span className="text-xs font-mono-nums text-foreground w-8">{scores.science}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-risk" />
-              <span className="text-xs text-muted-foreground w-16">Social</span>
-              <div className="breakdown-bar flex-1">
-                <div 
-                  className="breakdown-bar-fill bg-risk" 
-                  style={{ width: `${scores.social}%` }} 
-                />
-              </div>
-              <span className="text-xs font-mono-nums text-foreground w-8">{scores.social}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-muted-foreground" />
-              <span className="text-xs text-muted-foreground w-16">Eng</span>
-              <div className="breakdown-bar flex-1">
-                <div 
-                  className="breakdown-bar-fill bg-muted-foreground" 
-                  style={{ width: `${scores.engineering}%` }} 
-                />
-              </div>
-              <span className="text-xs font-mono-nums text-foreground w-8">{scores.engineering}</span>
-            </div>
-          </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">{language === 'EN' ? 'Priorities:' : '目标：'}</span>
+          <span className="font-medium text-foreground">
+            {session.diagnosis?.concerns?.length
+              ? session.diagnosis.concerns
+                  .slice(0, 3)
+                  .map((c) => t(`diagnosis.concern.${c}`, language))
+                  .join(', ')
+              : language === 'EN'
+                ? 'Not provided'
+                : '未填写'}
+          </span>
         </div>
       </div>
 

@@ -641,16 +641,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Handle analysis summary actions
-    if (actionId === 'analysis_continue' || actionId === 'analysis_gentler' || actionId === 'analysis_simple') {
-      const labelKey = actionId === 'analysis_continue' ? 's5.btn.continue' : 
-                       actionId === 'analysis_gentler' ? 's5.btn.gentler' : 's5.btn.simple';
+    if (actionId === 'analysis_continue') {
+      // The CTA label is "See product recommendations" — treat it as an explicit recommendation request.
+      addMessage({ type: 'text', role: 'user', content: t('s5.btn.continue', language) });
+      setSession(prev => ({ ...prev, isDiagnosisActive: true }));
+
+      // Only ask risk/budget when the user explicitly wants recommendations.
+      if (session.analysis?.needs_risk_check && !session.analysis?.risk_answered) {
+        analytics.emitRiskQuestionShown(session.brief_id, session.trace_id);
+        setSession(prev => ({ ...prev, state: 'S5a_RISK_CHECK' as FlowState }));
+        addAssistantCard('risk_check_card');
+      } else {
+        setSession(prev => ({ ...prev, state: 'S6_BUDGET' as FlowState }));
+        showBudgetCard();
+      }
+      return;
+    }
+
+    if (actionId === 'analysis_gentler' || actionId === 'analysis_simple') {
+      const labelKey = actionId === 'analysis_gentler' ? 's5.btn.gentler' : 's5.btn.simple';
       addMessage({ type: 'text', role: 'user', content: t(labelKey as any, language) });
 
-      addAssistantText(
-        language === 'EN'
-          ? 'What would you like to do next?'
-          : '你接下来想做什么？'
-      );
+      addAssistantText(language === 'EN' ? 'What would you like to do next?' : '你接下来想做什么？');
       addAssistantCard('chips', {
         chips: [],
         actions: [

@@ -24,9 +24,23 @@ const LOADING_MESSAGES = {
   ],
 };
 
+const STATUS_PILLS = {
+  EN: {
+    profile: '✓ Profile loaded',
+    kb: '✓ Knowledge base ready',
+    safety: 'Safety checks running',
+  },
+  CN: {
+    profile: '✓ 已加载画像',
+    kb: '✓ 知识库就绪',
+    safety: '正在进行安全检查',
+  },
+} as const;
+
 export function AuroraLoadingCard({ onSkip, language }: AuroraLoadingCardProps) {
   const [messageIndex, setMessageIndex] = useState(0);
   const messages = LOADING_MESSAGES[language];
+  const pills = STATUS_PILLS[language];
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -68,13 +82,13 @@ export function AuroraLoadingCard({ onSkip, language }: AuroraLoadingCardProps) 
       {/* Status pills */}
       <div className="flex flex-wrap gap-2 mb-4">
         {messageIndex >= 0 && (
-          <span className="signal-pill signal-pill-success">✓ Profile loaded</span>
+          <span className="signal-pill signal-pill-success">{pills.profile}</span>
         )}
         {messageIndex >= 1 && (
-          <span className="signal-pill signal-pill-success">✓ 2,847 ingredients</span>
+          <span className="signal-pill signal-pill-success">{pills.kb}</span>
         )}
         {messageIndex >= 2 && (
-          <span className="signal-pill signal-pill-primary">Checking VETO rules</span>
+          <span className="signal-pill signal-pill-primary">{pills.safety}</span>
         )}
       </div>
       
