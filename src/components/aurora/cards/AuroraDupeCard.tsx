@@ -329,6 +329,7 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
       </div>
 
       <RoutineTimeline
+        language={language}
         am={stepsAM}
         pm={stepsPM}
         testProduct={{
