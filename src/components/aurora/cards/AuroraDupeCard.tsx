@@ -4,6 +4,7 @@ import { t } from '@/lib/i18n';
 import { GitCompareArrows, Crown, Sparkles, ChevronDown, ChevronUp, ShoppingCart, ExternalLink, Info } from 'lucide-react';
 import * as orchestrator from '@/lib/mockOrchestrator';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
+import { RoutineTimeline, RoutineStep, RoutineStepType, CompatibilityResult } from '@/components/aurora/RoutineTimeline';
 
 function clampPercent(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -108,6 +109,71 @@ function extractKeyActives(product: any): string[] {
   return tags;
 }
 
+const STEP_ORDER: Record<RoutineStepType, number> = {
+  cleanser: 10,
+  toner: 20,
+  serum: 30,
+  treatment: 40,
+  moisturizer: 50,
+  sunscreen: 60,
+  mask: 70,
+  other: 80,
+};
+
+function categoryToStepType(category: string): RoutineStepType {
+  const c = String(category ?? '').toLowerCase().trim();
+  if (c.includes('cleanser') || c.includes('cleanse')) return 'cleanser';
+  if (c.includes('toner')) return 'toner';
+  if (c.includes('serum')) return 'serum';
+  if (c.includes('treat') || c.includes('active')) return 'treatment';
+  if (c.includes('moist')) return 'moisturizer';
+  if (c.includes('spf') || c.includes('sunscreen') || c.includes('sun')) return 'sunscreen';
+  if (c.includes('mask')) return 'mask';
+  return 'other';
+}
+
+function buildStepsFromPairs(pairs: ProductPair[], language: Language): RoutineStep[] {
+  const steps = pairs.map((pair) => {
+    const type = categoryToStepType(pair.category);
+    return {
+      id: `step_${pair.category}`,
+      type,
+      label: language === 'EN' ? pair.category : t(`product.category.${pair.category}`, language),
+    } satisfies RoutineStep;
+  });
+
+  return steps
+    .sort((a, b) => (STEP_ORDER[a.type] ?? 999) - (STEP_ORDER[b.type] ?? 999))
+    .filter((s, idx, arr) => arr.findIndex((x) => x.type === s.type) === idx);
+}
+
+function simulateCompatibility(steps: RoutineStep[], afterIndex: number, testProduct: RoutineStep): CompatibilityResult {
+  const idx = Math.max(-1, Math.min(steps.length - 1, afterIndex));
+  const nextSteps = steps.slice();
+  nextSteps.splice(idx + 1, 0, { ...testProduct, id: 'test_product_sim' });
+
+  const conflicts: Array<{ stepIndex: number; message: string; severity?: 'warn' | 'block' }> = [];
+  const activeTypes = new Set<RoutineStepType>(['serum', 'treatment']);
+
+  for (let i = 0; i < nextSteps.length - 1; i += 1) {
+    const a = nextSteps[i];
+    const b = nextSteps[i + 1];
+    if (activeTypes.has(a.type) && activeTypes.has(b.type)) {
+      conflicts.push({
+        stepIndex: i,
+        severity: 'warn',
+        message: 'Incompatible pH levels. Use on alternate nights.',
+      });
+    }
+  }
+
+  return {
+    safe: conflicts.length === 0,
+    conflicts,
+    summary: conflicts.length ? 'Try spacing actives apart or alternating nights.' : 'Looks compatible with your routine order.',
+  };
+}
+
 interface AuroraDupeCardProps {
   payload: {
     pairs: ProductPair[];
@@ -187,6 +253,16 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
     onAction(pref === 'fastest' ? 'pref_fastest_delivery' : `pref_${pref}`);
   };
 
+  const stepsAM = useMemo(() => {
+    const amPairs: ProductPair[] = payload?.session?.productPairs?.am ?? (routine === 'am' ? pairs : []);
+    return buildStepsFromPairs(amPairs, language);
+  }, [language, pairs, payload?.session?.productPairs?.am, routine]);
+
+  const stepsPM = useMemo(() => {
+    const pmPairs: ProductPair[] = payload?.session?.productPairs?.pm ?? (routine === 'pm' ? pairs : []);
+    return buildStepsFromPairs(pmPairs, language);
+  }, [language, pairs, payload?.session?.productPairs?.pm, routine]);
+
   return (
     <div className="chat-card-elevated space-y-4">
       {/* Header */}
@@ -251,6 +327,17 @@ export function AuroraDupeCard({ payload, onAction, language }: AuroraDupeCardPr
           </button>
         ))}
       </div>
+
+      <RoutineTimeline
+        am={stepsAM}
+        pm={stepsPM}
+        testProduct={{
+          id: 'test_product',
+          type: 'treatment',
+          label: language === 'EN' ? 'Test Product' : '测试单品',
+        }}
+        onSimulate={({ steps, testProduct, afterIndex }) => simulateCompatibility(steps, afterIndex, testProduct)}
+      />
 
       {/* Product Pairs */}
       <div className="space-y-3">
