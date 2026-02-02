@@ -150,6 +150,9 @@ export const emitPhotoRetryClicked = (briefId: string, traceId: string) =>
 export const emitPhotoContinueClicked = (briefId: string, traceId: string) =>
   analytics.emit('photo_continue_clicked', briefId, traceId);
 
+export const emitPhotoQcRetryCheckClicked = (briefId: string, traceId: string) =>
+  analytics.emit('photo_qc_retry_check_clicked', briefId, traceId);
+
 export const emitAnalysisStarted = (briefId: string, traceId: string) => 
   analytics.emit('analysis_started', briefId, traceId);
 

@@ -607,13 +607,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 		          ? 'qc.has_filter'
 		          : 'qc.blurry';
 		        addAssistantText(t(qcKey as any, language));
-		        addAssistantCard('chips', {
-		          chips: [],
-		          actions: [
-		            { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
-	            { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
-	          ],
-	        });
+		        const actions =
+		          issue.status === 'pending'
+		            ? [
+		                { action_id: 'qc_retry_check', label: t('qc.btn.retry_check', language), variant: 'primary' },
+		                { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
+		                { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
+		              ]
+		            : [
+		                { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
+		                { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
+		              ];
+		        addAssistantCard('chips', { chips: [], actions });
 	        } else {
 	        // Proceed to analysis
 	        await runAnalysisFlow(normalizedSession);
@@ -654,6 +659,98 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const { session: photoSession } = await orchestrator.attachPhotos(session, {}, sampleSetId);
       setSession(photoSession);
       await runAnalysisFlow(photoSession);
+      return;
+    }
+
+    if (actionId === 'qc_retry_check') {
+      analytics.emitPhotoQcRetryCheckClicked(session.brief_id, session.trace_id);
+      addMessage({ type: 'text', role: 'user', content: t('qc.btn.retry_check', language) });
+
+      const pendingSlots = (['daylight', 'indoor_white'] as const)
+        .map((slot) => {
+          const photo = session.photos[slot];
+          const uploadId = photo?.uploadId ?? (photo as any)?.upload_id;
+          if (!photo || photo.qcStatus !== 'pending' || !uploadId) return null;
+          return { slot, uploadId };
+        })
+        .filter(Boolean) as Array<{ slot: 'daylight' | 'indoor_white'; uploadId: string }>;
+
+      if (!pendingSlots.length) {
+        addAssistantText(t('qc.pending', language));
+        return;
+      }
+
+      try {
+        const results = await Promise.all(pendingSlots.map((p) => orchestrator.checkPhotoQc(session, p.uploadId)));
+
+        const nextPhotos = { ...session.photos };
+        pendingSlots.forEach((p, idx) => {
+          const current = nextPhotos[p.slot];
+          nextPhotos[p.slot] = {
+            id: p.slot,
+            retryCount: current?.retryCount ?? 0,
+            ...current,
+            uploadId: p.uploadId,
+            qcStatus: results[idx]?.qcStatus ?? current?.qcStatus,
+            qcAdvice: results[idx]?.qcAdvice ?? (current as any)?.qcAdvice,
+          } as any;
+        });
+
+        const nextSession = { ...session, photos: nextPhotos };
+        setSession(nextSession);
+
+        pendingSlots.forEach((p) => {
+          const status = nextPhotos[p.slot]?.qcStatus;
+          if (status) analytics.emitPhotoQcResult(session.brief_id, session.trace_id, p.slot, String(status));
+        });
+
+        const issues: Array<{ slot: string; status: PhotoSlot['qcStatus'] }> = [];
+        (['daylight', 'indoor_white'] as const).forEach((slot) => {
+          const status = nextPhotos[slot]?.qcStatus;
+          if (status && status !== 'passed') issues.push({ slot, status });
+        });
+
+        if (!issues.length) {
+          await runAnalysisFlow(nextSession);
+          return;
+        }
+
+        const issue = issues[0];
+        const qcKey =
+          issue.status === 'pending'
+            ? 'qc.pending'
+            : issue.status === 'too_dark'
+            ? 'qc.too_dark'
+            : issue.status === 'has_filter'
+            ? 'qc.has_filter'
+            : 'qc.blurry';
+
+        addAssistantText(t(qcKey as any, language));
+
+        const actions =
+          issue.status === 'pending'
+            ? [
+                { action_id: 'qc_retry_check', label: t('qc.btn.retry_check', language), variant: 'primary' },
+                { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
+                { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
+              ]
+            : [
+                { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
+                { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
+              ];
+
+        addAssistantCard('chips', { chips: [], actions });
+      } catch (err) {
+        console.error('[QC] check failed', err);
+        addAssistantText(t('qc.pending', language));
+        addAssistantCard('chips', {
+          chips: [],
+          actions: [
+            { action_id: 'qc_retry_check', label: t('qc.btn.retry_check', language), variant: 'primary' },
+            { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
+          ],
+        });
+      }
       return;
     }
 

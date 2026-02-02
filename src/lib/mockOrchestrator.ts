@@ -85,10 +85,18 @@ const normalizePhotoSlot = (
   if (!raw || typeof raw !== 'object') return fallback;
 
   const obj = raw as Record<string, unknown>;
+  const uploadId =
+    (obj.uploadId as string) ??
+    (obj.upload_id as string) ??
+    fallback?.uploadId;
   const qcStatus =
     (obj.qcStatus as PhotoSlot['qcStatus']) ??
     (obj.qc_status as PhotoSlot['qcStatus']) ??
     fallback?.qcStatus;
+  const qcAdvice =
+    (obj.qcAdvice as Record<string, any>) ??
+    (obj.qc_advice as Record<string, any>) ??
+    fallback?.qcAdvice;
   const preview =
     (obj.preview as string) ??
     (obj.preview_url as string) ??
@@ -102,9 +110,11 @@ const normalizePhotoSlot = (
 
   return {
     id: slotId,
+    uploadId,
     file: fallback?.file,
     preview,
     qcStatus,
+    qcAdvice,
     retryCount,
   };
 };
@@ -497,6 +507,34 @@ export async function attachPhotos(
     },
     qcIssues,
   };
+}
+
+export async function checkPhotoQc(
+  session: Session,
+  uploadId: string
+): Promise<{ qcStatus?: PhotoSlot['qcStatus']; qcAdvice?: Record<string, any> }> {
+  const normalizedUploadId = String(uploadId || '').trim();
+  if (!normalizedUploadId) return {};
+
+  if (isLiveSession(session)) {
+    const res = await pivotaJson<any>(session, `/photos/qc?upload_id=${encodeURIComponent(normalizedUploadId)}`, {
+      method: 'GET',
+    });
+
+    const qcStatus = (res?.qc_status ?? res?.qcStatus ?? res?.status) as PhotoSlot['qcStatus'] | undefined;
+    const qcAdvice = (res?.qc_advice ?? res?.qcAdvice) as Record<string, any> | undefined;
+    return { qcStatus, qcAdvice };
+  }
+
+  const known =
+    session.photos.daylight?.uploadId === normalizedUploadId
+      ? session.photos.daylight
+      : session.photos.indoor_white?.uploadId === normalizedUploadId
+      ? session.photos.indoor_white
+      : undefined;
+
+  if (known?.qcStatus === 'pending') return { qcStatus: 'passed' };
+  return { qcStatus: known?.qcStatus ?? 'passed' };
 }
 
 export function skipPhotos(session: Session): Session {

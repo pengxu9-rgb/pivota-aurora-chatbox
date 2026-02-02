@@ -68,6 +68,7 @@ const translations = {
     'qc.too_dark': "This photo is a bit dark—I may miss some details. Re-upload in brighter light?",
     'qc.has_filter': "This might have a filter. For best results, use an unedited photo.",
     'qc.blurry': "This photo appears blurry. A clearer photo helps me spot details better.",
+    'qc.btn.retry_check': "Check again",
     'qc.btn.reupload': "Re-upload",
     'qc.btn.continue': "Continue anyway",
 
@@ -265,6 +266,7 @@ const translations = {
     'qc.too_dark': "这张有点暗——可能看不清细节。要重新上传吗？",
     'qc.has_filter': "这张可能有滤镜。建议用未编辑的照片。",
     'qc.blurry': "这张有点模糊。清晰的照片能帮我看得更清楚。",
+    'qc.btn.retry_check': "重新检查",
     'qc.btn.reupload': "重新上传",
     'qc.btn.continue': "先这样继续",
 

@@ -81,9 +81,11 @@ export interface ProductPair {
 
 export interface PhotoSlot {
   id: 'daylight' | 'indoor_white';
+  uploadId?: string;
   file?: File;
   preview?: string;
   qcStatus?: 'pending' | 'passed' | 'too_dark' | 'has_filter' | 'blurry';
+  qcAdvice?: Record<string, any>;
   retryCount: number;
 }
 
