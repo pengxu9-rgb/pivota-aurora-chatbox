@@ -67,6 +67,15 @@ export const emitPhotoUploadFailed = (briefId: string, traceId: string, slot: st
 export const emitPhotoQcCompleted = (briefId: string, traceId: string, status: string) => 
   analytics.emit('photo_qc_completed', briefId, traceId, { status });
 
+export const emitPhotoQcResult = (briefId: string, traceId: string, slot: string, status: string) =>
+  analytics.emit('photo_qc_result', briefId, traceId, { slot, status });
+
+export const emitPhotoRetryClicked = (briefId: string, traceId: string) =>
+  analytics.emit('photo_retry_clicked', briefId, traceId);
+
+export const emitPhotoContinueClicked = (briefId: string, traceId: string) =>
+  analytics.emit('photo_continue_clicked', briefId, traceId);
+
 export const emitAnalysisStarted = (briefId: string, traceId: string) => 
   analytics.emit('analysis_started', briefId, traceId);
 

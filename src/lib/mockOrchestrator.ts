@@ -385,7 +385,8 @@ export function simulatePhotoQC(photo: PhotoSlot): PhotoSlot['qcStatus'] {
 export async function attachPhotos(
   session: Session,
   photos: { daylight?: PhotoSlot; indoor_white?: PhotoSlot },
-  sampleSetId?: string
+  sampleSetId?: string,
+  consent?: boolean
 ): Promise<{ session: Session; qcIssues: { slot: string; status: PhotoSlot['qcStatus'] }[] }> {
   if (isLiveSession(session)) {
     const res = sampleSetId
@@ -397,6 +398,7 @@ export async function attachPhotos(
           const form = new FormData();
           if (photos.daylight?.file) form.append('daylight', photos.daylight.file);
           if (photos.indoor_white?.file) form.append('indoor_white', photos.indoor_white.file);
+          form.append('consent', consent ? 'true' : 'false');
           form.append('trace_id', session.trace_id);
           return form;
         })());

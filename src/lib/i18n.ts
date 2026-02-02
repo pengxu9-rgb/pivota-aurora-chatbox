@@ -61,8 +61,10 @@ const translations = {
     's3.btn.sample': "Try sample photos",
     's3.uploading': "Uploading...",
     's3.tap_to_upload': "Tap to upload",
+    's3.consent': "I agree to upload and temporarily store my photos for analysis.",
 
     // QC
+    'qc.pending': "Processing your photo—please wait a moment or try uploading again.",
     'qc.too_dark': "This photo is a bit dark—I may miss some details. Re-upload in brighter light?",
     'qc.has_filter': "This might have a filter. For best results, use an unedited photo.",
     'qc.blurry': "This photo appears blurry. A clearer photo helps me spot details better.",
@@ -256,8 +258,10 @@ const translations = {
     's3.btn.sample': "用示例照片",
     's3.uploading': "上传中...",
     's3.tap_to_upload': "点击上传",
+    's3.consent': "我同意上传并临时存储照片用于分析。",
 
     // QC
+    'qc.pending': "正在处理照片——请稍等片刻，或尝试重新上传。",
     'qc.too_dark': "这张有点暗——可能看不清细节。要重新上传吗？",
     'qc.has_filter': "这张可能有滤镜。建议用未编辑的照片。",
     'qc.blurry': "这张有点模糊。清晰的照片能帮我看得更清楚。",

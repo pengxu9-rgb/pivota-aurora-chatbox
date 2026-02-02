@@ -13,6 +13,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
     daylight?: { file: File; preview: string };
     indoor_white?: { file: File; preview: string };
   }>({});
+  const [consent, setConsent] = useState(false);
   
   const daylightInputRef = useRef<HTMLInputElement>(null);
   const indoorInputRef = useRef<HTMLInputElement>(null);
@@ -56,7 +57,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
       };
     }
     
-    onAction('photo_upload', { photos: photoSlots });
+    onAction('photo_upload', { photos: photoSlots, consent });
   };
 
   const hasPhotos = photos.daylight || photos.indoor_white;
@@ -159,11 +160,22 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
         </div>
       </div>
 
+      <label className="flex items-start gap-2 text-xs text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={consent}
+          onChange={(e) => setConsent(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>{t('s3.consent', language)}</span>
+      </label>
+
       <div className="space-y-2">
         {hasPhotos && (
           <button
             onClick={handleUpload}
-            className="action-button action-button-primary w-full"
+            disabled={!consent}
+            className="action-button action-button-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t('s3.btn.upload', language)}
           </button>

@@ -565,32 +565,52 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // Handle photo actions
 	    if (actionId === 'photo_upload') {
 	      const photos = data?.photos as { daylight?: PhotoSlot; indoor_white?: PhotoSlot };
+	      const consent = Boolean((data as any)?.consent);
 	      (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
 	        if (photos?.[slot]) analytics.emitPhotoUploadStarted(session.brief_id, session.trace_id, String(slot));
 	      });
 
 	      try {
-	        const { session: photoSession, qcIssues } = await orchestrator.attachPhotos(session, photos);
-	        const normalizedSession =
-	          qcIssues.length > 0 && photoSession.state !== 'S3a_PHOTO_QC'
-	            ? ({ ...photoSession, state: 'S3a_PHOTO_QC' as FlowState })
-	            : photoSession;
-	        setSession(normalizedSession);
+	        if ((photos?.daylight || photos?.indoor_white) && !consent) {
+	          addAssistantText(
+	            language === 'EN'
+	              ? 'Please confirm consent before uploading photos.'
+	              : '上传前请先勾选同意。'
+	          );
+	          return;
+	        }
 
-	        (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
-	          if (photos?.[slot]) analytics.emitPhotoUploadSucceeded(session.brief_id, session.trace_id, String(slot));
-	        });
-	      
-	        if (qcIssues.length > 0) {
-	        // Show QC message
-	        const issue = qcIssues[0];
-	        const qcKey = issue.status === 'too_dark' ? 'qc.too_dark' : 
-	                      issue.status === 'has_filter' ? 'qc.has_filter' : 'qc.blurry';
-	        addAssistantText(t(qcKey as any, language));
-	        addAssistantCard('chips', {
-	          chips: [],
-	          actions: [
-	            { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
+	        const { session: photoSession, qcIssues } = await orchestrator.attachPhotos(session, photos, undefined, consent);
+		        const normalizedSession =
+		          qcIssues.length > 0 && photoSession.state !== 'S3a_PHOTO_QC'
+		            ? ({ ...photoSession, state: 'S3a_PHOTO_QC' as FlowState })
+		            : photoSession;
+		        setSession(normalizedSession);
+
+		        (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
+		          if (photos?.[slot]) analytics.emitPhotoUploadSucceeded(session.brief_id, session.trace_id, String(slot));
+		        });
+		        (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
+		          const slotKey = String(slot);
+		          const status = (normalizedSession.photos as any)?.[slotKey]?.qcStatus;
+		          if (status) analytics.emitPhotoQcResult(session.brief_id, session.trace_id, slotKey, String(status));
+		        });
+		      
+		        if (qcIssues.length > 0) {
+		        // Show QC message
+		        const issue = qcIssues[0];
+		        const qcKey = issue.status === 'pending'
+		          ? 'qc.pending'
+		          : issue.status === 'too_dark'
+		          ? 'qc.too_dark'
+		          : issue.status === 'has_filter'
+		          ? 'qc.has_filter'
+		          : 'qc.blurry';
+		        addAssistantText(t(qcKey as any, language));
+		        addAssistantCard('chips', {
+		          chips: [],
+		          actions: [
+		            { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
 	            { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
 	          ],
 	        });
@@ -637,8 +657,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (actionId === 'qc_continue' || actionId === 'qc_reupload') {
-      addMessage({ type: 'text', role: 'user', content: t(actionId === 'qc_continue' ? 'qc.btn.continue' : 'qc.btn.reupload', language) });
+    if (actionId === 'qc_reupload') {
+      analytics.emitPhotoRetryClicked(session.brief_id, session.trace_id);
+      addMessage({ type: 'text', role: 'user', content: t('qc.btn.reupload', language) });
+      setIsLoading(false);
+      removeLoadingCards();
+      setSession((prev) => ({ ...prev, state: 'S3a_PHOTO_QC' as FlowState }));
+      addAssistantCard('photo_upload_card');
+      return;
+    }
+
+    if (actionId === 'qc_continue') {
+      analytics.emitPhotoContinueClicked(session.brief_id, session.trace_id);
+      addMessage({ type: 'text', role: 'user', content: t('qc.btn.continue', language) });
       const newSession = { ...session, state: 'S4_ANALYSIS_LOADING' as FlowState };
       setSession(newSession);
       await runAnalysisFlow(newSession);
@@ -1209,7 +1240,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-  }, [session, language, isLoading, addMessage, addAssistantText, addAssistantCard]);
+  }, [session, language, isLoading, addMessage, addAssistantText, addAssistantCard, removeLoadingCards]);
 
   const runAnalysisFlow = useCallback(async (currentSession: Session) => {
     setIsLoading(true);
