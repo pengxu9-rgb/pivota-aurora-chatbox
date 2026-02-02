@@ -563,41 +563,45 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Handle photo actions
-    if (actionId === 'photo_upload') {
-      const photos = data?.photos as { daylight?: PhotoSlot; indoor_white?: PhotoSlot };
-      (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
-        if (photos?.[slot]) analytics.emitPhotoUploadStarted(session.brief_id, session.trace_id, String(slot));
-      });
+	    if (actionId === 'photo_upload') {
+	      const photos = data?.photos as { daylight?: PhotoSlot; indoor_white?: PhotoSlot };
+	      (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
+	        if (photos?.[slot]) analytics.emitPhotoUploadStarted(session.brief_id, session.trace_id, String(slot));
+	      });
 
-      try {
-        const { session: photoSession, qcIssues } = await orchestrator.attachPhotos(session, photos);
-        setSession(photoSession);
+	      try {
+	        const { session: photoSession, qcIssues } = await orchestrator.attachPhotos(session, photos);
+	        const normalizedSession =
+	          qcIssues.length > 0 && photoSession.state !== 'S3a_PHOTO_QC'
+	            ? ({ ...photoSession, state: 'S3a_PHOTO_QC' as FlowState })
+	            : photoSession;
+	        setSession(normalizedSession);
 
-        (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
-          if (photos?.[slot]) analytics.emitPhotoUploadSucceeded(session.brief_id, session.trace_id, String(slot));
-        });
-      
-        if (qcIssues.length > 0 && photoSession.state === 'S3a_PHOTO_QC') {
-        // Show QC message
-        const issue = qcIssues[0];
-        const qcKey = issue.status === 'too_dark' ? 'qc.too_dark' : 
-                      issue.status === 'has_filter' ? 'qc.has_filter' : 'qc.blurry';
-        addAssistantText(t(qcKey as any, language));
-        addAssistantCard('chips', {
-          chips: [],
-          actions: [
-            { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
-            { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
-          ],
-        });
-        } else {
-        // Proceed to analysis
-        await runAnalysisFlow(photoSession);
-        }
-      } catch (err: any) {
-        const reason = typeof err?.message === 'string' ? err.message : 'unknown';
-        (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
-          if (photos?.[slot]) analytics.emitPhotoUploadFailed(session.brief_id, session.trace_id, String(slot), reason);
+	        (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
+	          if (photos?.[slot]) analytics.emitPhotoUploadSucceeded(session.brief_id, session.trace_id, String(slot));
+	        });
+	      
+	        if (qcIssues.length > 0) {
+	        // Show QC message
+	        const issue = qcIssues[0];
+	        const qcKey = issue.status === 'too_dark' ? 'qc.too_dark' : 
+	                      issue.status === 'has_filter' ? 'qc.has_filter' : 'qc.blurry';
+	        addAssistantText(t(qcKey as any, language));
+	        addAssistantCard('chips', {
+	          chips: [],
+	          actions: [
+	            { action_id: 'qc_reupload', label: t('qc.btn.reupload', language), variant: 'secondary' },
+	            { action_id: 'qc_continue', label: t('qc.btn.continue', language), variant: 'ghost' },
+	          ],
+	        });
+	        } else {
+	        // Proceed to analysis
+	        await runAnalysisFlow(normalizedSession);
+	        }
+	      } catch (err: any) {
+	        const reason = typeof err?.message === 'string' ? err.message : 'unknown';
+	        (Object.keys(photos || {}) as Array<keyof typeof photos>).forEach((slot) => {
+	          if (photos?.[slot]) analytics.emitPhotoUploadFailed(session.brief_id, session.trace_id, String(slot), reason);
         });
         console.error('[Photo upload] failed', err);
         const statusHint = err instanceof PivotaApiError && err.status ? ` (HTTP ${err.status})` : '';
@@ -641,18 +645,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (actionId === 'analysis_skip') {
-      addMessage({ type: 'text', role: 'user', content: t('s4.btn.skip', language) });
-      try {
-        const { session: analysisSession, analysis } = await orchestrator.runAnalysis(session);
-        setSession(analysisSession);
-        addAssistantCard('analysis_summary', { analysis, session: analysisSession });
-      } catch (err) {
-        console.error('[Analysis] failed', err);
-        addAssistantText(language === 'EN' ? 'Analysis failed. Please try again.' : '分析失败，请重试。');
-      }
-      return;
-    }
+	    if (actionId === 'analysis_skip') {
+	      addMessage({ type: 'text', role: 'user', content: t('s4.btn.skip', language) });
+	      try {
+	        // If the user clicks "continue" while analysis is already in-flight, clear any stale loading UI.
+	        setIsLoading(false);
+	        removeLoadingCards();
+	        const { session: analysisSession, analysis } = await orchestrator.runAnalysis(session);
+	        setSession(analysisSession);
+	        addAssistantCard('analysis_summary', { analysis, session: analysisSession });
+	      } catch (err) {
+	        console.error('[Analysis] failed', err);
+	        addAssistantText(language === 'EN' ? 'Analysis failed. Please try again.' : '分析失败，请重试。');
+	      } finally {
+	        setIsLoading(false);
+	        removeLoadingCards();
+	      }
+	      return;
+	    }
 
     if (actionId === 'analysis_review_products') {
       addMessage({
