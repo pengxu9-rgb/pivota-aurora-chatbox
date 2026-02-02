@@ -28,6 +28,7 @@ export default function BffChat() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasBootstrapped, setHasBootstrapped] = useState(false);
 
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, lang: language }));
@@ -61,13 +62,63 @@ export default function BffChat() {
     setIsLoading(true);
     try {
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', headers, { method: 'GET' });
-      applyEnvelope(env);
+      const profile = (env.session_patch as Record<string, unknown> | undefined)?.profile;
+      const isReturning = Boolean((env.session_patch as Record<string, unknown> | undefined)?.is_returning);
+
+      if (!hasBootstrapped) {
+        const lang = language === 'CN' ? 'CN' : 'EN';
+        const intro =
+          lang === 'CN'
+            ? `你好，我是你的护肤搭子。${isReturning && profile ? '欢迎回来！' : ''}你想先做什么？`
+            : `Hi — I’m your skincare partner. ${isReturning && profile ? 'Welcome back! ' : ''}What would you like to do?`;
+
+        const startChips: SuggestedChip[] = [
+          {
+            chip_id: 'chip.start.reco_products',
+            label: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
+            kind: 'quick_reply',
+            data: {
+              reply_text: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
+            },
+          },
+          {
+            chip_id: 'chip.start.routine',
+            label: lang === 'CN' ? '生成早晚护肤 routine' : 'Build an AM/PM routine',
+            kind: 'quick_reply',
+            data: { reply_text: lang === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine' },
+          },
+          {
+            chip_id: 'chip.start.evaluate',
+            label: lang === 'CN' ? '评估某个产品适合吗' : 'Evaluate a specific product for me',
+            kind: 'quick_reply',
+            data: { reply_text: lang === 'CN' ? '评估这款产品是否适合我' : 'Evaluate a specific product for me' },
+          },
+          {
+            chip_id: 'chip.start.dupes',
+            label: lang === 'CN' ? '找平替/更便宜替代品' : 'Find dupes / cheaper alternatives',
+            kind: 'quick_reply',
+            data: { reply_text: lang === 'CN' ? '帮我找平替并比较 tradeoffs' : 'Find dupes/cheaper alternatives' },
+          },
+          {
+            chip_id: 'chip.start.ingredients',
+            label: lang === 'CN' ? '问成分机理/证据链' : 'Ask ingredient science (evidence/mechanism)',
+            kind: 'quick_reply',
+            data: { reply_text: lang === 'CN' ? '解释成分机理并给证据链' : 'Explain ingredient science with evidence/mechanism' },
+          },
+        ];
+
+        setItems([
+          { id: nextId(), role: 'assistant', kind: 'text', content: intro },
+          { id: nextId(), role: 'assistant', kind: 'chips', chips: startChips },
+        ]);
+        setHasBootstrapped(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [applyEnvelope, headers]);
+  }, [hasBootstrapped, headers, language]);
 
   useEffect(() => {
     bootstrap();
@@ -157,7 +208,7 @@ export default function BffChat() {
                 EN
               </button>
               <button className="action-button action-button-ghost" onClick={bootstrap} disabled={isLoading}>
-                Bootstrap
+                {language === 'EN' ? 'Refresh' : '刷新'}
               </button>
               <button className="action-button action-button-outline" onClick={onGenerateRoutine} disabled={isLoading}>
                 {language === 'EN' ? 'Generate routine' : '生成 routine'}
