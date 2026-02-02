@@ -114,6 +114,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>(() => resumeCandidateRef.current?.language ?? 'EN');
   const [isLoading, setIsLoading] = useState(false);
 
+  const pendingRecoPreferenceRef = useRef<'cheaper' | 'gentler' | 'fastest' | 'keep' | null>(null);
+  const pendingRoutinePresetRef = useRef<'simple' | null>(null);
+
+  const removeLoadingCards = useCallback(() => {
+    setMessages((prev) => prev.filter((m) => m.type !== 'loading_card'));
+  }, []);
+
   type ChipReply =
     | { kind: 'text'; text: string }
     | { kind: 'anchor'; anchorProductId: string };
@@ -141,7 +148,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [addMessage]);
 
   const addAssistantCard = useCallback((type: Message['type'], payload?: any) => {
-    addMessage({ type, role: 'assistant', payload });
+    return addMessage({ type, role: 'assistant', payload });
   }, [addMessage]);
 
   const initializeWelcome = useCallback((activeSession: Session) => {
@@ -255,6 +262,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         await showProductRecommendations(session);
       } finally {
         setIsLoading(false);
+        removeLoadingCards();
       }
       return;
     }
@@ -489,11 +497,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (actionId === 'profile_confirm' || actionId === 'profile_upload_selfie') {
+    if (actionId === 'profile_upload_selfie') {
       addMessage({
         type: 'text',
         role: 'user',
-        content: language === 'EN' ? (actionId === 'profile_confirm' ? 'Confirm profile' : 'Upload selfie') : actionId === 'profile_confirm' ? '确认画像' : '上传自拍',
+        content: language === 'EN' ? 'Upload photos' : '上传照片',
       });
 
       analytics.emitPhotoPromptShown(session.brief_id, session.trace_id);
@@ -501,6 +509,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       addAssistantText(t('s3.intro', language));
       addAssistantText(t('s3.tip', language));
       addAssistantCard('photo_upload_card');
+      return;
+    }
+
+    if (actionId === 'profile_confirm') {
+      addMessage({
+        type: 'text',
+        role: 'user',
+        content: language === 'EN' ? 'Continue without photos' : '不传照片，继续',
+      });
+
+      analytics.emitPhotoPromptShown(session.brief_id, session.trace_id);
+      const nextSession = { ...session, state: 'S4_ANALYSIS_LOADING' as FlowState, isDiagnosisActive: true };
+      setSession(nextSession);
+
+      addAssistantText(
+        language === 'EN'
+          ? "No problem — I’ll do a best‑effort analysis from your answers. You can add photos later for higher accuracy."
+          : '没问题——我会先基于你的回答做一个“尽力而为”的分析；之后随时补充照片可以显著提升准确性。'
+      );
+
+      await runAnalysisFlow(nextSession);
       return;
     }
 
@@ -662,27 +691,38 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const labelKey = actionId === 'analysis_gentler' ? 's5.btn.gentler' : 's5.btn.simple';
       addMessage({ type: 'text', role: 'user', content: t(labelKey as any, language) });
 
-      addAssistantText(language === 'EN' ? 'What would you like to do next?' : '你接下来想做什么？');
-      addAssistantCard('chips', {
-        chips: [],
-        actions: [
-          {
-            action_id: 'post_analysis_chat',
-            label: language === 'EN' ? '💬 Keep chatting' : '💬 继续聊天',
-            variant: 'primary',
-          },
-          {
-            action_id: 'analysis_review_products',
-            label: language === 'EN' ? '🔎 Review my current products' : '🔎 先评估我现在用的产品',
-            variant: 'outline',
-          },
-          {
-            action_id: 'post_analysis_recos',
-            label: language === 'EN' ? '✨ Get product recommendations' : '✨ 获取产品推荐',
-            variant: 'outline',
-          },
-        ],
-      });
+      // Make the preference buttons meaningful: they influence how recommendations are generated.
+      if (actionId === 'analysis_gentler') {
+        pendingRecoPreferenceRef.current = 'gentler';
+        pendingRoutinePresetRef.current = null;
+
+        addAssistantText(
+          language === 'EN'
+            ? 'Got it — I’ll prioritize gentler options and lower irritation risk.'
+            : '好的——我会优先给出更温和、刺激风险更低的选择。'
+        );
+      } else {
+        pendingRoutinePresetRef.current = 'simple';
+        pendingRecoPreferenceRef.current = null;
+
+        addAssistantText(
+          language === 'EN'
+            ? 'Got it — I’ll keep it minimal (cleanser + moisturizer + SPF), and avoid strong actives unless you ask.'
+            : '好的——我会保持极简（洁面 + 保湿 + 防晒），除非你明确想加更强功效活性。'
+        );
+      }
+
+      setSession(prev => ({ ...prev, isDiagnosisActive: true }));
+
+      // If the user chooses "Keep it simple", we skip the actives risk check by design.
+      if (actionId === 'analysis_gentler' && session.analysis?.needs_risk_check && !session.analysis?.risk_answered) {
+        analytics.emitRiskQuestionShown(session.brief_id, session.trace_id);
+        setSession(prev => ({ ...prev, state: 'S5a_RISK_CHECK' as FlowState }));
+        addAssistantCard('risk_check_card');
+      } else {
+        setSession(prev => ({ ...prev, state: 'S6_BUDGET' as FlowState }));
+        showBudgetCard();
+      }
       return;
     }
 
@@ -802,6 +842,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         addAssistantText(language === 'EN' ? 'Checkout failed. Please try again.' : '结账失败，请重试。');
       } finally {
         setIsLoading(false);
+        removeLoadingCards();
       }
 
       return;
@@ -925,6 +966,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         addAssistantCard('affiliate_outcome_card', { affiliateItems: affiliateItemsSafe });
       } finally {
         setIsLoading(false);
+        removeLoadingCards();
       }
       return;
     }
@@ -986,6 +1028,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         addAssistantText(language === 'EN' ? 'Checkout failed. Please try again.' : '结账失败，请重试。');
       } finally {
         setIsLoading(false);
+        removeLoadingCards();
       }
 
       return;
@@ -1104,6 +1147,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           const { session: analysisSession, result } = orchestrator.analyzeProduct(session, preview);
           setSession(analysisSession);
           setIsLoading(false);
+          removeLoadingCards();
           
           addAssistantText(language === 'EN' 
             ? `I've analyzed **${result.productName}** by ${result.brand}. Here's what I found:`
@@ -1174,8 +1218,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       addAssistantText(language === 'EN' ? 'Analysis failed. Please try again.' : '分析失败，请重试。');
     } finally {
       setIsLoading(false);
+      removeLoadingCards();
     }
-  }, [language, addAssistantCard, addAssistantText]);
+  }, [language, addAssistantCard, addAssistantText, removeLoadingCards]);
 
   const showBudgetCard = useCallback((currentSession?: Session) => {
     setTimeout(() => {
@@ -1186,23 +1231,40 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const showProductRecommendations = useCallback(async (currentSession: Session) => {
     try {
-      const { session: pairSession, amPairs, pmPairs } = await orchestrator.buildProductPairs(currentSession);
-      setSession(pairSession);
-      analytics.emitRoutineShown(pairSession.brief_id, pairSession.trace_id, amPairs.length + pmPairs.length);
+      const preference = pendingRecoPreferenceRef.current ?? undefined;
+      const preset = pendingRoutinePresetRef.current ?? null;
+
+      // Consume one-shot preferences.
+      pendingRecoPreferenceRef.current = null;
+      pendingRoutinePresetRef.current = null;
+
+      const { session: pairSession, amPairs, pmPairs } = await orchestrator.buildProductPairs(currentSession, preference);
+
+      const isSimple = preset === 'simple';
+      const filteredAmPairs = isSimple
+        ? amPairs.filter((p) => p.category === 'cleanser' || p.category === 'moisturizer' || p.category === 'sunscreen')
+        : amPairs;
+      const filteredPmPairs = isSimple
+        ? pmPairs.filter((p) => p.category === 'cleanser' || p.category === 'moisturizer')
+        : pmPairs;
+
+      const nextSession = isSimple ? { ...pairSession, productPairs: { am: filteredAmPairs, pm: filteredPmPairs } } : pairSession;
+      setSession(nextSession);
+      analytics.emitRoutineShown(nextSession.brief_id, nextSession.trace_id, filteredAmPairs.length + filteredPmPairs.length);
 
       // Show AM routine
       addAssistantCard('product_comparison_card', {
-        pairs: amPairs,
+        pairs: filteredAmPairs,
         routine: 'am',
-        session: pairSession,
+        session: nextSession,
       });
 
       // Show PM routine after a short delay
       setTimeout(() => {
         addAssistantCard('product_comparison_card', {
-          pairs: pmPairs,
+          pairs: filteredPmPairs,
           routine: 'pm',
-          session: pairSession,
+          session: nextSession,
         });
       }, 300);
     } catch (err) {

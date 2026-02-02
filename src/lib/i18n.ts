@@ -85,8 +85,8 @@ const translations = {
     's5.btn.simple': "Keep it simple",
 
     // S5a Risk Check
-    's5a.intro': "Quick compatibility check:",
-    's5a.question': "Are you currently using a retinoid or exfoliating acid 2+ nights/week?",
+    's5a.intro': "Quick safety check (to avoid over-stacking actives):",
+    's5a.question': "Do you currently use strong actives 2+ nights/week? (retinoids or exfoliating acids)",
     's5a.btn.yes': "Yes",
     's5a.btn.no': "No",
     's5a.btn.not_sure': "Not sure",
@@ -280,8 +280,8 @@ const translations = {
     's5.btn.simple': "保持简单",
 
     // S5a Risk Check
-    's5a.intro': "兼容性确认：",
-    's5a.question': "你现在每周2晚以上使用视黄醇或刷酸类产品吗？",
+    's5a.intro': "快速安全确认（避免活性叠加刺激）：",
+    's5a.question': "你现在每周≥2晚会用 A 醇/维A 类或刷酸（AHA/BHA）吗？",
     's5a.btn.yes': "是",
     's5a.btn.no': "否",
     's5a.btn.not_sure': "不确定",
