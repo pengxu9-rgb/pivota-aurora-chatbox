@@ -1,3 +1,12 @@
+/**
+ * Legacy orchestrator (demo + pre-BFF API wiring).
+ *
+ * Production chat is now driven by `pivota-agent` BFF endpoints (`/v1/...`) via `src/lib/pivotaAgentBff.ts`
+ * and the `/chat` route (`src/pages/BffChat.tsx`).
+ *
+ * Keep this file only for reference / local experiments, and gate it behind a dev/feature flag.
+ */
+
 import {
   Session,
   FlowState,

@@ -9,7 +9,7 @@ import {
   CheckoutOutcome,
   SkinConcern,
 } from '@/lib/types';
-import * as orchestrator from '@/lib/mockOrchestrator';
+import * as orchestrator from '@/lib/legacyOrchestrator';
 import * as analytics from '@/lib/analytics';
 import { t } from '@/lib/i18n';
 import { PivotaApiError } from '@/lib/pivotaApi';

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Language, ProductPair, CheckoutRouteAnalysis } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { GitCompareArrows, Crown, Sparkles, ChevronDown, ChevronUp, ShoppingCart, ExternalLink, Info } from 'lucide-react';
-import * as orchestrator from '@/lib/mockOrchestrator';
+import * as orchestrator from '@/lib/legacyOrchestrator';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { RoutineTimeline, RoutineStep, RoutineStepType, CompatibilityResult } from '@/components/aurora/RoutineTimeline';
 import { SmartBudgetReceipt, BudgetReceiptItem } from '@/components/aurora/SmartBudgetReceipt';
