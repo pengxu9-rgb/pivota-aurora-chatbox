@@ -1227,7 +1227,12 @@ export default function BffChat() {
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
+  const [productSheetOpen, setProductSheetOpen] = useState(false);
+  const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
+
+  const [productDraft, setProductDraft] = useState('');
+  const [dupeDraft, setDupeDraft] = useState({ original: '', dupe: '' });
 
   const [profileDraft, setProfileDraft] = useState({
     skinType: '',
@@ -1601,6 +1606,133 @@ export default function BffChat() {
     [applyEnvelope, headers, language, sessionState]
   );
 
+  const parseMaybeUrl = useCallback((text: string) => {
+    const t = String(text || '').trim();
+    if (!t) return null;
+    try {
+      const u = new URL(t);
+      if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString();
+    } catch {
+      // ignore
+    }
+    return null;
+  }, []);
+
+  const runProductDeepScan = useCallback(
+    async (rawInput: string) => {
+      const inputText = String(rawInput || '').trim();
+      if (!inputText) return;
+
+      setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: inputText }]);
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        setSessionState('P1_PRODUCT_ANALYZING');
+
+        const requestHeaders = { ...headers, lang: language };
+        const asUrl = parseMaybeUrl(inputText);
+
+        const parseEnv = await bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(asUrl ? { url: asUrl } : { text: inputText }),
+        });
+        applyEnvelope(parseEnv);
+
+        const parseCard = Array.isArray(parseEnv.cards) ? parseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
+        const parsedProduct = parseCard && parseCard.payload && typeof parseCard.payload === 'object' ? (parseCard.payload as any).product : null;
+
+        const analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(
+            parsedProduct
+              ? { product: parsedProduct }
+              : asUrl
+                ? { url: asUrl }
+                : { name: inputText },
+          ),
+        });
+        applyEnvelope(analyzeEnv);
+        setSessionState('P2_PRODUCT_RESULT');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [applyEnvelope, headers, language, parseMaybeUrl],
+  );
+
+  const runDupeCompare = useCallback(
+    async (rawOriginal: string, rawDupe: string) => {
+      const originalText = String(rawOriginal || '').trim();
+      const dupeText = String(rawDupe || '').trim();
+      if (!originalText || !dupeText) {
+        setError(language === 'CN' ? '需要同时填写「原版」和「平替」。' : 'Please provide both the original and the dupe.');
+        return;
+      }
+
+      setItems((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: 'user',
+          kind: 'text',
+          content: language === 'CN' ? `平替对比：${originalText} vs ${dupeText}` : `Dupe compare: ${originalText} vs ${dupeText}`,
+        },
+      ]);
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        setSessionState('P1_PRODUCT_ANALYZING');
+
+        const requestHeaders = { ...headers, lang: language };
+        const originalUrl = parseMaybeUrl(originalText);
+        const dupeUrl = parseMaybeUrl(dupeText);
+
+        const [origParseEnv, dupeParseEnv] = await Promise.all([
+          bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(originalUrl ? { url: originalUrl } : { text: originalText }),
+          }),
+          bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(dupeUrl ? { url: dupeUrl } : { text: dupeText }),
+          }),
+        ]);
+
+        applyEnvelope(origParseEnv);
+        applyEnvelope(dupeParseEnv);
+
+        const origParseCard = Array.isArray(origParseEnv.cards) ? origParseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
+        const dupeParseCard = Array.isArray(dupeParseEnv.cards) ? dupeParseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
+        const originalProduct =
+          origParseCard && origParseCard.payload && typeof origParseCard.payload === 'object' ? (origParseCard.payload as any).product : null;
+        const dupeProduct =
+          dupeParseCard && dupeParseCard.payload && typeof dupeParseCard.payload === 'object' ? (dupeParseCard.payload as any).product : null;
+
+        const compareBody: Record<string, unknown> = {
+          ...(originalProduct ? { original: originalProduct } : originalUrl ? { original_url: originalUrl } : { original: { name: originalText } }),
+          ...(dupeProduct ? { dupe: dupeProduct } : dupeUrl ? { dupe_url: dupeUrl } : { dupe: { name: dupeText } }),
+        };
+
+        const compareEnv = await bffJson<V1Envelope>('/v1/dupe/compare', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(compareBody),
+        });
+
+        applyEnvelope(compareEnv);
+        setSessionState('P2_PRODUCT_RESULT');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [applyEnvelope, headers, language, parseMaybeUrl],
+  );
+
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
       if (actionId === 'profile_upload_selfie') {
@@ -1740,6 +1872,17 @@ export default function BffChat() {
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: chip.label }]);
+      const id = String(chip.chip_id || '');
+      if (id === 'chip.start.evaluate') {
+        setProductDraft('');
+        setProductSheetOpen(true);
+        return;
+      }
+      if (id === 'chip.start.dupes') {
+        setDupeDraft({ original: '', dupe: '' });
+        setDupeSheetOpen(true);
+        return;
+      }
       await sendChat(undefined, { action_id: chip.chip_id, kind: 'chip', data: chip.data });
     },
     [sendChat]
@@ -1859,6 +2002,96 @@ export default function BffChat() {
             onClose={() => setPhotoSheetOpen(false)}
           >
             <PhotoUploadCard language={language} onAction={onPhotoAction} />
+          </Sheet>
+          <Sheet
+            open={productSheetOpen}
+            title={language === 'CN' ? '单品评估（Deep Scan）' : 'Product deep scan'}
+            onClose={() => setProductSheetOpen(false)}
+          >
+            <div className="space-y-3">
+              <div className="text-xs text-muted-foreground">
+                {language === 'CN' ? '粘贴产品名或链接，我会先解析再评估。' : 'Paste a product name or link. I will parse it, then deep-scan.'}
+              </div>
+              <input
+                className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                value={productDraft}
+                onChange={(e) => setProductDraft(e.target.value)}
+                placeholder={language === 'CN' ? '例如：Nivea Creme / https://…' : 'e.g., Nivea Creme / https://…'}
+                disabled={isLoading}
+              />
+              <div className="flex gap-2">
+                <button type="button" className="chip-button" onClick={() => setProductSheetOpen(false)} disabled={isLoading}>
+                  {language === 'CN' ? '取消' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  className="chip-button chip-button-primary"
+                  disabled={isLoading || !productDraft.trim()}
+                  onClick={() => {
+                    const text = productDraft.trim();
+                    setProductSheetOpen(false);
+                    setProductDraft('');
+                    void runProductDeepScan(text);
+                  }}
+                >
+                  {language === 'CN' ? '开始评估' : 'Analyze'}
+                </button>
+              </div>
+            </div>
+          </Sheet>
+
+          <Sheet
+            open={dupeSheetOpen}
+            title={language === 'CN' ? '平替对比（Dupe Compare）' : 'Dupe compare'}
+            onClose={() => setDupeSheetOpen(false)}
+          >
+            <div className="space-y-3">
+              <div className="text-xs text-muted-foreground">
+                {language === 'CN' ? '分别粘贴「原版」和「平替」的产品名或链接。' : 'Paste the original and the dupe (name or link).'}
+              </div>
+
+              <label className="space-y-1 text-xs text-muted-foreground">
+                {language === 'CN' ? '原版' : 'Original'}
+                <input
+                  className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                  value={dupeDraft.original}
+                  onChange={(e) => setDupeDraft((p) => ({ ...p, original: e.target.value }))}
+                  placeholder={language === 'CN' ? '例如：Nivea Creme / https://…' : 'e.g., Nivea Creme / https://…'}
+                  disabled={isLoading}
+                />
+              </label>
+
+              <label className="space-y-1 text-xs text-muted-foreground">
+                {language === 'CN' ? '平替' : 'Dupe'}
+                <input
+                  className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                  value={dupeDraft.dupe}
+                  onChange={(e) => setDupeDraft((p) => ({ ...p, dupe: e.target.value }))}
+                  placeholder={language === 'CN' ? '例如：CeraVe Moisturizing Cream / https://…' : 'e.g., CeraVe Moisturizing Cream / https://…'}
+                  disabled={isLoading}
+                />
+              </label>
+
+              <div className="flex gap-2">
+                <button type="button" className="chip-button" onClick={() => setDupeSheetOpen(false)} disabled={isLoading}>
+                  {language === 'CN' ? '取消' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  className="chip-button chip-button-primary"
+                  disabled={isLoading || !dupeDraft.original.trim() || !dupeDraft.dupe.trim()}
+                  onClick={() => {
+                    const original = dupeDraft.original.trim();
+                    const dupe = dupeDraft.dupe.trim();
+                    setDupeSheetOpen(false);
+                    setDupeDraft({ original: '', dupe: '' });
+                    void runDupeCompare(original, dupe);
+                  }}
+                >
+                  {language === 'CN' ? '开始对比' : 'Compare'}
+                </button>
+              </div>
+            </div>
           </Sheet>
           <Sheet
             open={profileSheetOpen}
