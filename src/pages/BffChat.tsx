@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
+import { buildEnvStressUiModelFromInputV1, toEnvStressInputV1 } from '@/lib/auroraEnvStress';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
@@ -8,6 +9,7 @@ import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
+import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
@@ -817,6 +819,7 @@ function BffCardView({
   session,
   onAction,
   resolveSkuOffers,
+  bootstrapInfo,
 }: {
   card: Card;
   language: UiLanguage;
@@ -824,6 +827,7 @@ function BffCardView({
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
   resolveSkuOffers?: (skuId: string) => Promise<any>;
+  bootstrapInfo?: BootstrapInfo | null;
 }) {
   const cardType = String(card.type || '').toLowerCase();
   if (
@@ -864,12 +868,32 @@ function BffCardView({
   if (cardType === 'profile') {
     const profilePayload = asObject((payload as any)?.profile) ?? asObject(payload) ?? null;
     const diagnosis = toDiagnosisResult(profilePayload);
+    let envStress: ReturnType<typeof buildEnvStressUiModelFromInputV1> | null = null;
+    try {
+      const input = toEnvStressInputV1({
+        profile: (bootstrapInfo?.profile ?? profilePayload) ?? null,
+        recent_logs: bootstrapInfo?.recent_logs ?? [],
+      });
+      envStress = buildEnvStressUiModelFromInputV1(input);
+    } catch (err) {
+      console.warn('[aurora.ui] failed to compute env_stress model', err);
+      envStress = {
+        schema_version: 'aurora.ui.env_stress.v1',
+        ess: null,
+        tier: null,
+        radar: [],
+        notes: ['EnvStress unavailable (failed to compute).'],
+      };
+    }
     return (
-      <SkinIdentityCard
-        payload={{ diagnosis, avatarUrl: null, photoHint: true }}
-        onAction={(id, data) => onAction(id, data)}
-        language={language}
-      />
+      <div className="space-y-3">
+        <SkinIdentityCard
+          payload={{ diagnosis, avatarUrl: null, photoHint: true }}
+          onAction={(id, data) => onAction(id, data)}
+          language={language}
+        />
+        <EnvStressCard payload={envStress} language={language} />
+      </div>
     );
   }
 
@@ -1472,6 +1496,7 @@ export default function BffChat() {
   const [productSheetOpen, setProductSheetOpen] = useState(false);
   const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
+  const [awaitingRoutine, setAwaitingRoutine] = useState(false);
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '', dupe: '' });
@@ -2063,22 +2088,30 @@ export default function BffChat() {
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '先不传照片，继续' : 'Continue without photos' },
         ]);
 
-        setIsLoading(true);
-        try {
-          // Reflect progress immediately in the UI.
-          setSessionState('S4_ANALYSIS_LOADING');
-
-          const requestHeaders = { ...headers, lang: language };
-          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({ use_photo: false, photos: [] }),
-          });
-          applyEnvelope(env);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          setIsLoading(false);
-        }
+        setAwaitingRoutine(true);
+        const prompt =
+          language === 'CN'
+            ? '为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也发我（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以直接跳过，我会先给低置信度的通用 7 天建议。'
+            : 'To make this analysis accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). You can also skip; I’ll give a low-confidence 7‑day baseline.';
+        const chips: SuggestedChip[] = [
+          {
+            chip_id: 'chip.intake.upload_photos',
+            label: language === 'CN' ? '改为上传照片' : 'Upload photos instead',
+            kind: 'quick_reply',
+            data: {},
+          },
+          {
+            chip_id: 'chip.intake.skip_analysis',
+            label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
+            kind: 'quick_reply',
+            data: {},
+          },
+        ];
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
+          { id: nextId(), role: 'assistant', kind: 'chips', chips },
+        ]);
         return;
       }
 
@@ -2184,13 +2217,66 @@ export default function BffChat() {
     if (!msg) return;
     setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
     setInput('');
+
+    if (awaitingRoutine) {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const requestHeaders = { ...headers, lang: language };
+        const envProfile = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({ currentRoutine: msg }),
+        });
+        applyEnvelope(envProfile);
+
+        // Reflect progress immediately in the UI.
+        setSessionState('S4_ANALYSIS_LOADING');
+        const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({ use_photo: false, photos: [] }),
+        });
+        applyEnvelope(envAnalysis);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setAwaitingRoutine(false);
+        setIsLoading(false);
+      }
+      return;
+    }
+
     await sendChat(msg);
-  }, [input, sendChat]);
+  }, [applyEnvelope, awaitingRoutine, headers, input, language, sendChat]);
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: chip.label }]);
       const id = String(chip.chip_id || '');
+      if (id === 'chip.intake.upload_photos') {
+        setAwaitingRoutine(false);
+        setPhotoSheetOpen(true);
+        return;
+      }
+      if (id === 'chip.intake.skip_analysis') {
+        setAwaitingRoutine(false);
+        setIsLoading(true);
+        setError(null);
+        try {
+          // Reflect progress immediately in the UI.
+          setSessionState('S4_ANALYSIS_LOADING');
+          const requestHeaders = { ...headers, lang: language };
+          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify({ use_photo: false, photos: [] }),
+          });
+          applyEnvelope(env);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
       if (id === 'chip.start.evaluate') {
         setProductDraft('');
         setProductSheetOpen(true);
@@ -2203,7 +2289,7 @@ export default function BffChat() {
       }
       await sendChat(undefined, { action_id: chip.chip_id, kind: 'chip', data: chip.data });
     },
-    [sendChat]
+    [applyEnvelope, headers, language, sendChat]
   );
 
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
@@ -2637,6 +2723,7 @@ export default function BffChat() {
                     session={sessionForCards}
                     onAction={onCardAction}
                     resolveSkuOffers={resolveSkuOffers}
+                    bootstrapInfo={bootstrapInfo}
                   />
                 ))}
               </div>
