@@ -511,6 +511,7 @@ function RecommendationsCard({
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
     const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
+    const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
     const keyActives = asArray(evidencePack?.keyActives ?? evidencePack?.key_actives)
       .map((v) => asString(v))
@@ -525,6 +526,13 @@ function RecommendationsCard({
       .map((v) => asString(v))
       .filter(Boolean) as string[];
     const citations = asArray(evidencePack?.citations).map((v) => asString(v)).filter(Boolean) as string[];
+
+    const labelKind = (kindRaw: string | null) => {
+      const k = String(kindRaw || '').trim().toLowerCase();
+      if (k === 'dupe') return language === 'CN' ? '平替' : 'Dupe';
+      if (k === 'premium') return language === 'CN' ? '升级款' : 'Premium';
+      return language === 'CN' ? '相似' : 'Similar';
+    };
 
     return (
       <div key={`${step}_${idx}`} className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm">
@@ -572,6 +580,74 @@ function RecommendationsCard({
               {offersLoading === skuId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
             </button>
           </div>
+        ) : null}
+
+        {alternativesRaw.length ? (
+          <details className="mt-2 rounded-xl border border-border/50 bg-muted/30 p-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-primary/90">
+              <span>{language === 'CN' ? '相似/平替/升级选择（点击查看差异）' : 'Alternatives (dupe / similar / premium) — see tradeoffs'}</span>
+              <ChevronDown className="h-4 w-4" />
+            </summary>
+            <div className="mt-3 space-y-2">
+              {alternativesRaw.slice(0, 3).map((alt, j) => {
+                const kind = asString((alt as any).kind);
+                const kindLabel = labelKind(kind);
+                const similarity = asNumber((alt as any).similarity);
+                const altProduct = asObject((alt as any).product) || null;
+                const altBrand = asString(altProduct?.brand) || null;
+                const altName =
+                  asString(altProduct?.name) || asString((altProduct as any)?.display_name) || asString((altProduct as any)?.displayName) || null;
+                const altSkuId =
+                  asString((altProduct as any)?.sku_id) ||
+                  asString((altProduct as any)?.skuId) ||
+                  asString((altProduct as any)?.product_id) ||
+                  asString((altProduct as any)?.productId) ||
+                  '';
+                const tradeoffs = uniqueStrings((alt as any).tradeoffs).slice(0, 4);
+
+                return (
+                  <div key={`${kindLabel}_${j}_${altSkuId || altName || 'alt'}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-muted-foreground">
+                          <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5">{kindLabel}</span>
+                          {typeof similarity === 'number' ? (
+                            <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5">
+                              {language === 'CN' ? `相似度 ${Math.round(similarity)}%` : `${Math.round(similarity)}% similar`}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="text-sm font-semibold text-foreground">
+                          {altBrand ? `${altBrand} ` : ''}
+                          {altName || (language === 'CN' ? '未知产品' : 'Unknown product')}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="chip-button"
+                        disabled={Boolean(altSkuId) && offersLoading === altSkuId}
+                        onClick={() => void openExternal({ skuId: altSkuId, brand: altBrand, name: altName })}
+                      >
+                        {language === 'CN' ? '外链购买' : 'External'}
+                      </button>
+                    </div>
+
+                    {tradeoffs.length ? (
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                        {tradeoffs.slice(0, 4).map((t) => (
+                          <li key={t}>{t}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {language === 'CN' ? '差异信息缺失（上游未返回 tradeoffs）。' : 'Tradeoffs missing (upstream did not return details).'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
         ) : null}
 
         {evidencePack ? (
@@ -997,6 +1073,10 @@ function BffCardView({
         const verdictRaw = asString(assessment?.verdict);
         const verdict = verdictRaw ? verdictRaw.trim() : null;
         const reasons = uniqueStrings(assessment?.reasons).slice(0, 6);
+        const heroRaw = asObject((assessment as any)?.hero_ingredient || (assessment as any)?.heroIngredient) || null;
+        const heroName = asString(heroRaw?.name);
+        const heroRole = asString(heroRaw?.role);
+        const heroWhy = asString(heroRaw?.why);
         const anchorRaw = asObject((assessment as any)?.anchor_product || (assessment as any)?.anchorProduct);
         const product = anchorRaw ? toUiProduct(anchorRaw, language) : null;
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
@@ -1067,6 +1147,19 @@ function BffCardView({
             {verdict ? (
               <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}>
                 {language === 'CN' ? '结论：' : 'Verdict: '} {verdict}
+              </div>
+            ) : null}
+
+            {(heroName || heroWhy) ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '最关键成分' : 'Most impactful ingredient'}</div>
+                {heroName ? <div className="mt-1 text-sm font-semibold text-foreground">{heroName}</div> : null}
+                {heroRole ? (
+                  <div className="mt-1 text-[11px] font-medium text-muted-foreground">
+                    {language === 'CN' ? `角色：${heroRole}` : `Role: ${heroRole}`}
+                  </div>
+                ) : null}
+                {heroWhy ? <div className="mt-2 text-sm text-foreground">{heroWhy}</div> : null}
               </div>
             ) : null}
 
@@ -1494,13 +1587,14 @@ export default function BffChat() {
           kind: 'quick_reply',
           data: {
             reply_text: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
+            include_alternatives: true,
           },
         },
         {
           chip_id: 'chip.start.routine',
           label: lang === 'CN' ? '生成早晚护肤 routine' : 'Build an AM/PM routine',
           kind: 'quick_reply',
-          data: { reply_text: lang === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine' },
+          data: { reply_text: lang === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine', include_alternatives: true },
         },
         {
           chip_id: 'chip.start.evaluate',
@@ -2049,6 +2143,7 @@ export default function BffChat() {
           kind: 'chip',
           data: {
             reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
+            include_alternatives: true,
           },
         });
         return;
@@ -2070,7 +2165,7 @@ export default function BffChat() {
           await sendChat(undefined, {
             action_id: 'chip.action.reco_routine',
             kind: 'chip',
-            data: { reply_text: replyText },
+            data: { reply_text: replyText, include_alternatives: true },
           });
           return;
         }
