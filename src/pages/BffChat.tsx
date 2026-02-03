@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
+import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
@@ -754,13 +755,16 @@ function BffCardView({
     (cardType === 'aurora_structured' ||
       cardType === 'gate_notice' ||
       cardType === 'session_bootstrap' ||
-      cardType === 'diagnosis_gate' ||
       cardType === 'budget_gate')
   )
     return null;
 
   const payloadObj = asObject(card.payload);
   const payload = payloadObj ?? (card.payload as any);
+
+  if (cardType === 'diagnosis_gate') {
+    return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
+  }
 
   if (cardType === 'analysis_summary') {
     const analysisObj = asObject((payload as any).analysis) || {};
@@ -1450,7 +1454,7 @@ export default function BffChat() {
     const suppressChips = Array.isArray(env.cards)
       ? env.cards.some((c) => {
           const t = String((c as any)?.type || '').toLowerCase();
-          return t === 'analysis_summary' || t === 'profile';
+          return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
         })
       : false;
 
@@ -1880,6 +1884,53 @@ export default function BffChat() {
 
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
+      if (actionId === 'diagnosis_skip') {
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
+        ]);
+        setSessionState('idle');
+        return;
+      }
+
+      if (actionId === 'diagnosis_submit') {
+        const skinType = typeof data?.skinType === 'string' ? data.skinType.trim() : '';
+        const barrierStatus = typeof data?.barrierStatus === 'string' ? data.barrierStatus.trim() : '';
+        const sensitivity = typeof data?.sensitivity === 'string' ? data.sensitivity.trim() : '';
+        const concerns = Array.isArray(data?.concerns) ? (data?.concerns as unknown[]).map((c) => String(c || '').trim()).filter(Boolean) : [];
+
+        if (!skinType || !barrierStatus || !sensitivity || concerns.length === 0) {
+          setError(language === 'CN' ? '请先完成诊断信息。' : 'Please complete the diagnosis first.');
+          return;
+        }
+
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '分析我的皮肤' : 'Analyze my skin' },
+        ]);
+
+        setIsLoading(true);
+        try {
+          const requestHeaders = { ...headers, lang: language };
+          const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify({
+              skinType,
+              barrierStatus,
+              sensitivity,
+              goals: concerns.slice(0, 3),
+            }),
+          });
+          applyEnvelope(env);
+          setSessionState('S3_PHOTO_OPTION');
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       if (actionId === 'affiliate_open') {
         const url = typeof data?.url === 'string' ? data.url.trim() : '';
         const offerId = typeof data?.offer_id === 'string' ? data.offer_id.trim() : undefined;

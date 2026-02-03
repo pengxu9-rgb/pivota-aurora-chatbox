@@ -9,15 +9,20 @@ interface DiagnosisCardProps {
 
 type SkinType = 'oily' | 'dry' | 'combination' | 'normal' | 'sensitive';
 type SkinConcern = 'acne' | 'dark_spots' | 'wrinkles' | 'dullness' | 'redness' | 'pores' | 'dehydration';
+type BarrierStatus = 'healthy' | 'impaired' | 'unknown';
+type SensitivityLevel = 'low' | 'medium' | 'high';
 
 const SKIN_TYPES: SkinType[] = ['oily', 'dry', 'combination', 'normal', 'sensitive'];
 const SKIN_CONCERNS: SkinConcern[] = ['acne', 'dark_spots', 'wrinkles', 'dullness', 'redness', 'pores', 'dehydration'];
+const BARRIER_STATUSES: BarrierStatus[] = ['healthy', 'impaired', 'unknown'];
+const SENSITIVITY_LEVELS: SensitivityLevel[] = ['low', 'medium', 'high'];
 
 export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [skinType, setSkinType] = useState<SkinType | null>(null);
+  const [barrierStatus, setBarrierStatus] = useState<BarrierStatus | null>(null);
+  const [sensitivity, setSensitivity] = useState<SensitivityLevel | null>(null);
   const [concerns, setConcerns] = useState<SkinConcern[]>([]);
-  const [currentRoutine, setCurrentRoutine] = useState<'none' | 'basic' | 'full'>('basic');
 
   const toggleConcern = (concern: SkinConcern) => {
     setConcerns(prev => 
@@ -34,12 +39,13 @@ export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
       onAction('diagnosis_submit', { 
         skinType, 
         concerns, 
-        currentRoutine 
+        barrierStatus,
+        sensitivity,
       });
     }
   };
 
-  const canProceed = step === 1 ? skinType !== null : step === 2 ? concerns.length > 0 : true;
+  const canProceed = step === 1 ? skinType !== null : step === 2 ? barrierStatus !== null && sensitivity !== null : concerns.length > 0;
 
   return (
     <div className="chat-card space-y-4">
@@ -78,8 +84,53 @@ export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
         </div>
       )}
 
-      {/* Step 2: Concerns */}
+      {/* Step 2: Barrier + Sensitivity */}
       {step === 2 && (
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              {t('diagnosis.barrier.label', language)}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('diagnosis.barrier.hint', language)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {BARRIER_STATUSES.map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setBarrierStatus(status)}
+                  className={`chip-button ${barrierStatus === status ? 'chip-button-primary' : ''}`}
+                >
+                  {t(`diagnosis.barrier.${status}`, language)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <label className="text-sm font-medium text-foreground">
+              {t('diagnosis.sensitivity.label', language)}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('diagnosis.sensitivity.hint', language)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {SENSITIVITY_LEVELS.map((lvl) => (
+                <button
+                  key={lvl}
+                  onClick={() => setSensitivity(lvl)}
+                  className={`chip-button ${sensitivity === lvl ? 'chip-button-primary' : ''}`}
+                >
+                  {t(`diagnosis.sensitivity.${lvl}`, language)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Concerns */}
+      {step === 3 && (
         <div className="space-y-3">
           <label className="text-sm font-medium text-foreground">
             {t('diagnosis.concerns.label', language)}
@@ -95,35 +146,6 @@ export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
                 className={`chip-button ${concerns.includes(concern) ? 'chip-button-primary' : ''}`}
               >
                 {t(`diagnosis.concern.${concern}`, language)}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Current Routine */}
-      {step === 3 && (
-        <div className="space-y-3">
-          <label className="text-sm font-medium text-foreground">
-            {t('diagnosis.routine.label', language)}
-          </label>
-          <div className="space-y-2">
-            {(['none', 'basic', 'full'] as const).map((routine) => (
-              <button
-                key={routine}
-                onClick={() => setCurrentRoutine(routine)}
-                className={`w-full p-3 rounded-lg text-left transition-colors border ${
-                  currentRoutine === routine 
-                    ? 'bg-primary/10 border-primary/30' 
-                    : 'bg-muted/50 border-transparent hover:bg-muted'
-                }`}
-              >
-                <p className="font-medium text-sm text-foreground">
-                  {t(`diagnosis.routine.${routine}`, language)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {t(`diagnosis.routine.${routine}_desc`, language)}
-                </p>
               </button>
             ))}
           </div>
