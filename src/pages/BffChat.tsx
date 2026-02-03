@@ -3,9 +3,11 @@ import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgen
 import { bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
 import {
   Activity,
+  AlertCircle,
   ArrowRight,
   Beaker,
   Camera,
+  CheckCircle2,
   ChevronDown,
   Copy,
   FlaskConical,
@@ -74,6 +76,7 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   const key = t.toLowerCase();
   if (key === 'diagnosis_gate') return language === 'CN' ? '先做一个极简肤况确认' : 'Quick skin profile first';
   if (key === 'budget_gate') return language === 'CN' ? '预算确认' : 'Budget';
+  if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
   if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
   if (key === 'routine_simulation') return language === 'CN' ? '兼容性测试' : 'Compatibility test';
   if (key === 'offers_resolved') return language === 'CN' ? '购买渠道/Offer' : 'Offers';
@@ -370,6 +373,72 @@ function RecommendationsCard({
   );
 }
 
+function AnalysisSummaryView({ card, language }: { card: Card; language: 'EN' | 'CN' }) {
+  const payload = asObject(card.payload) || {};
+  const analysis = asObject(payload.analysis) || {};
+  const featuresRaw = asArray(analysis.features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+  const strategy = asString(analysis.strategy) || '';
+
+  const features = featuresRaw
+    .map((f) => ({
+      observation: asString(f.observation) || '',
+      confidence: (asString(f.confidence) || 'somewhat_sure') as 'pretty_sure' | 'somewhat_sure' | 'not_sure',
+    }))
+    .filter((f) => Boolean(f.observation))
+    .slice(0, 6);
+
+  const iconForConfidence = (c: string) => {
+    if (c === 'pretty_sure') return CheckCircle2;
+    if (c === 'not_sure') return HelpCircle;
+    return AlertCircle;
+  };
+
+  const labelForConfidence = (c: string) => {
+    if (language === 'CN') {
+      if (c === 'pretty_sure') return '较确定';
+      if (c === 'not_sure') return '不确定';
+      return '有一定把握';
+    }
+    if (c === 'pretty_sure') return 'pretty sure';
+    if (c === 'not_sure') return 'not sure';
+    return 'somewhat sure';
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
+        {language === 'CN'
+          ? '说明：照片目前仅用于“质检（清晰度/光线/滤镜）”，分析仍以你的自述与最近记录为主。'
+          : 'Note: photos are currently used for QC (lighting/blur/filters). The assessment is based on your profile + recent logs.'}
+      </div>
+
+      {features.length ? (
+        <div className="space-y-2">
+          {features.map((f, idx) => {
+            const Icon = iconForConfidence(f.confidence);
+            return (
+              <div key={`${idx}_${f.observation}`} className="flex items-start gap-2 rounded-2xl border border-border/60 bg-background/60 p-3">
+                <Icon className="mt-0.5 h-4 w-4 text-foreground/70" />
+                <div className="space-y-1">
+                  <div className="text-sm text-foreground">{f.observation}</div>
+                  <div className="text-[11px] text-muted-foreground">{labelForConfidence(f.confidence)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {strategy ? (
+        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3">
+          <div className="text-xs font-semibold text-foreground">{language === 'CN' ? '7 天策略' : '7-day plan'}</div>
+          <div className="mt-2 whitespace-pre-wrap text-sm text-foreground">{strategy}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BffCardView({ card, language, debug }: { card: Card; language: 'EN' | 'CN'; debug: boolean }) {
   if (!debug && (card.type === 'aurora_structured' || card.type === 'gate_notice')) return null;
 
@@ -406,6 +475,7 @@ function BffCardView({ card, language, debug }: { card: Card; language: 'EN' | '
       </div>
 
       {card.type === 'recommendations' ? <RecommendationsCard card={card} language={language} debug={debug} /> : null}
+      {card.type === 'analysis_summary' ? <AnalysisSummaryView card={card} language={language} /> : null}
 
       {card.type === 'profile' ? (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
@@ -445,7 +515,7 @@ function BffCardView({ card, language, debug }: { card: Card; language: 'EN' | '
         </div>
       ) : null}
 
-      {card.type !== 'recommendations' && card.type !== 'profile' && debug ? (
+      {card.type !== 'recommendations' && card.type !== 'profile' && card.type !== 'analysis_summary' && debug ? (
         <>
           <details className="rounded-2xl border border-border/50 bg-background/50 p-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
@@ -766,6 +836,19 @@ export default function BffChat() {
             body: JSON.stringify({ photo_id: photoId, slot_id: 'daylight' }),
           });
           applyEnvelope(confirmEnv);
+
+          const confirmCard = confirmEnv.cards.find((c) => c && c.type === 'photo_confirm');
+          const qcStatus = asString(confirmCard && (confirmCard.payload as any)?.qc_status);
+
+          if (qcStatus === 'passed') {
+            const analysisEnv = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+              method: 'POST',
+              body: JSON.stringify({
+                photos: [{ slot_id: 'daylight', photo_id: photoId, qc_status: qcStatus }],
+              }),
+            });
+            applyEnvelope(analysisEnv);
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -859,6 +942,15 @@ export default function BffChat() {
           >
             <Activity className="h-4 w-4" />
             {language === 'CN' ? '打卡' : 'Check-in'}
+          </button>
+          <button
+            className="chip-button"
+            onClick={handlePickPhoto}
+            disabled={isLoading}
+            title={language === 'CN' ? '上传照片' : 'Upload photo'}
+          >
+            <Camera className="h-4 w-4" />
+            {language === 'CN' ? '照片' : 'Photo'}
           </button>
           <button
             className="chip-button"
