@@ -59,6 +59,8 @@ const iconForCard = (type: string): IconType => {
   if (t === 'diagnosis_gate') return Activity;
   if (t === 'budget_gate') return Wallet;
   if (t === 'recommendations') return Sparkles;
+  if (t === 'profile') return User;
+  if (t.includes('photo')) return Camera;
   if (t.includes('product')) return Search;
   if (t.includes('dupe')) return Copy;
   if (t.includes('routine')) return Sparkles;
@@ -75,6 +77,9 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
   if (key === 'routine_simulation') return language === 'CN' ? '兼容性测试' : 'Compatibility test';
   if (key === 'offers_resolved') return language === 'CN' ? '购买渠道/Offer' : 'Offers';
+  if (key === 'profile') return language === 'CN' ? '肤况资料' : 'Profile';
+  if (key === 'photo_presign') return language === 'CN' ? '照片上传' : 'Photo upload';
+  if (key === 'photo_confirm') return language === 'CN' ? '照片质检' : 'Photo QC';
   if (key === 'aurora_structured') return language === 'CN' ? '结构化结果' : 'Structured result';
   if (key === 'gate_notice') return language === 'CN' ? '门控提示' : 'Gate notice';
   if (key === 'error') return language === 'CN' ? '错误' : 'Error';
@@ -163,7 +168,28 @@ function formatProfileLine(profile: Record<string, unknown> | null, language: 'E
     : `Skin: ${skinType} · Sensitivity: ${sensitivity} · Barrier: ${barrier} · Goals: ${goalsText}`;
 }
 
-function RecommendationsCard({ card, language }: { card: Card; language: 'EN' | 'CN' }) {
+function labelMissing(code: string, language: 'EN' | 'CN') {
+  const c = String(code || '').trim();
+  if (!c) return '';
+  const map: Record<string, { CN: string; EN: string }> = {
+    budget_unknown: { CN: '预算信息缺失', EN: 'Budget missing' },
+    routine_missing: { CN: '方案缺失', EN: 'Routine missing' },
+    over_budget: { CN: '可能超出预算', EN: 'May be over budget' },
+    evidence_missing: { CN: '证据不足', EN: 'Evidence missing' },
+    upstream_missing_or_unstructured: { CN: '上游返回缺失/不规范', EN: 'Upstream missing/unstructured' },
+  };
+  return map[c]?.[language] ?? c;
+}
+
+function RecommendationsCard({
+  card,
+  language,
+  debug,
+}: {
+  card: Card;
+  language: 'EN' | 'CN';
+  debug: boolean;
+}) {
   const payload = asObject(card.payload) || {};
   const items = asArray(payload.recommendations) as RecoItem[];
 
@@ -194,6 +220,16 @@ function RecommendationsCard({ card, language }: { card: Card; language: 'EN' | 
     const keyActives = asArray(evidencePack?.keyActives ?? evidencePack?.key_actives)
       .map((v) => asString(v))
       .filter(Boolean) as string[];
+    const comparisonNotes = asArray(evidencePack?.comparisonNotes ?? evidencePack?.comparison_notes)
+      .map((v) => asString(v))
+      .filter(Boolean) as string[];
+    const sensitivityFlags = asArray(evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags)
+      .map((v) => asString(v))
+      .filter(Boolean) as string[];
+    const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
+      .map((v) => asString(v))
+      .filter(Boolean) as string[];
+    const citations = asArray(evidencePack?.citations).map((v) => asString(v)).filter(Boolean) as string[];
 
     return (
       <div key={`${step}_${idx}`} className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm">
@@ -235,9 +271,66 @@ function RecommendationsCard({ card, language }: { card: Card; language: 'EN' | 
               <ChevronDown className="h-4 w-4" />
               {language === 'CN' ? '证据与注意事项' : 'Evidence & cautions'}
             </summary>
-            <pre className="mt-2 max-h-[260px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
-              {renderJson(evidencePack)}
-            </pre>
+
+            <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+              {comparisonNotes.length ? (
+                <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                  <div className="text-[11px] font-semibold text-foreground">
+                    {language === 'CN' ? '对比/取舍' : 'Tradeoffs'}
+                  </div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {comparisonNotes.slice(0, 4).map((n) => (
+                      <li key={n}>{n}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {sensitivityFlags.length ? (
+                <div className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-warning">
+                  <div className="text-[11px] font-semibold text-warning">
+                    {language === 'CN' ? '敏感风险' : 'Sensitivity risks'}
+                  </div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {sensitivityFlags.slice(0, 4).map((n) => (
+                      <li key={n}>{n}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {pairingRules.length ? (
+                <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                  <div className="text-[11px] font-semibold text-foreground">
+                    {language === 'CN' ? '搭配建议' : 'Pairing notes'}
+                  </div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {pairingRules.slice(0, 4).map((n) => (
+                      <li key={n}>{n}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {citations.length ? (
+                <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                  <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '引用' : 'Citations'}</div>
+                  <div className="mt-2 space-y-1">
+                    {citations.slice(0, 3).map((c) => (
+                      <div key={c} className="truncate">
+                        {c}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {debug ? (
+                <pre className="mt-2 max-h-[260px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
+                  {renderJson(evidencePack)}
+                </pre>
+              ) : null}
+            </div>
           </details>
         ) : null}
       </div>
@@ -266,19 +359,31 @@ function RecommendationsCard({ card, language }: { card: Card; language: 'EN' | 
       {showMissing.length ? (
         <div className="rounded-2xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
           {language === 'CN' ? '信息缺失：' : 'Missing info: '}
-          {showMissing.slice(0, 6).map((v) => String(v)).join(', ')}
+          {showMissing
+            .slice(0, 6)
+            .map((v) => labelMissing(String(v), language))
+            .filter(Boolean)
+            .join('、')}
         </div>
       ) : null}
     </div>
   );
 }
 
-function BffCardView({ card, language }: { card: Card; language: 'EN' | 'CN' }) {
+function BffCardView({ card, language, debug }: { card: Card; language: 'EN' | 'CN'; debug: boolean }) {
+  if (!debug && (card.type === 'aurora_structured' || card.type === 'gate_notice')) return null;
+
   const Icon = iconForCard(card.type);
   const title = titleForCard(card.type, language);
   const fieldMissingCount = Array.isArray(card.field_missing) ? card.field_missing.length : 0;
 
   const payloadObj = asObject(card.payload);
+  const profilePayload = asObject((payloadObj as any)?.profile);
+  const qcStatus = asString((payloadObj as any)?.qc_status);
+  const qcObj = asObject((payloadObj as any)?.qc);
+  const qcAdvice = asObject(qcObj?.advice);
+  const qcSummary = asString(qcAdvice?.summary) || null;
+  const qcSuggestions = asArray(qcAdvice?.suggestions).map((s) => asString(s)).filter(Boolean) as string[];
 
   return (
     <div className="chat-card space-y-3">
@@ -300,9 +405,47 @@ function BffCardView({ card, language }: { card: Card; language: 'EN' | 'CN' }) 
         ) : null}
       </div>
 
-      {card.type === 'recommendations' ? <RecommendationsCard card={card} language={language} /> : null}
+      {card.type === 'recommendations' ? <RecommendationsCard card={card} language={language} debug={debug} /> : null}
 
-      {card.type !== 'recommendations' ? (
+      {card.type === 'profile' ? (
+        <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
+          <div className="text-xs text-muted-foreground">
+            {language === 'CN' ? '已记录你的肤况。需要修改的话，点顶部「资料」。' : 'Saved. Tap “Profile” on the top bar to edit.'}
+          </div>
+          <div className="mt-2 text-sm font-medium text-foreground">
+            {formatProfileLine(profilePayload ?? null, language)}
+          </div>
+        </div>
+      ) : null}
+
+      {card.type === 'photo_confirm' ? (
+        <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
+          <div className="text-xs text-muted-foreground">{language === 'CN' ? '照片质检结果' : 'Photo QC result'}</div>
+          <div className="mt-2 text-sm font-semibold text-foreground">
+            {qcStatus
+              ? qcStatus === 'passed'
+                ? language === 'CN'
+                  ? '通过 ✅'
+                  : 'Passed ✅'
+                : language === 'CN'
+                  ? `需要重拍：${qcStatus}`
+                  : `Needs retry: ${qcStatus}`
+              : language === 'CN'
+                ? '质检中…'
+                : 'Checking…'}
+          </div>
+          {qcSummary ? <div className="mt-2 text-xs text-muted-foreground">{qcSummary}</div> : null}
+          {qcSuggestions.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+              {qcSuggestions.slice(0, 4).map((s) => (
+                <li key={s}>{s}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {card.type !== 'recommendations' && card.type !== 'profile' && debug ? (
         <>
           <details className="rounded-2xl border border-border/50 bg-background/50 p-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
@@ -328,6 +471,13 @@ export default function BffChat() {
   const [language, setLanguage] = useState<'EN' | 'CN'>('CN');
   const [headers, setHeaders] = useState(() => makeDefaultHeaders('CN'));
   const [sessionState, setSessionState] = useState<string>('idle');
+  const [debug] = useState<boolean>(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('debug') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [input, setInput] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -965,7 +1115,7 @@ export default function BffChat() {
             return (
               <div key={item.id} className="space-y-3">
                 {item.cards.map((card) => (
-                  <BffCardView key={card.card_id} card={card} language={language} />
+                  <BffCardView key={card.card_id} card={card} language={language} debug={debug} />
                 ))}
               </div>
             );
