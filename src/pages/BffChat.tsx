@@ -380,13 +380,70 @@ function RecommendationsCard({
   card,
   language,
   debug,
+  resolveSkuOffers,
 }: {
   card: Card;
   language: 'EN' | 'CN';
   debug: boolean;
+  resolveSkuOffers?: (skuId: string) => Promise<any>;
 }) {
+  const [offerCache, setOfferCache] = useState<Record<string, string>>({});
+  const [offersLoading, setOffersLoading] = useState<string | null>(null);
+
   const payload = asObject(card.payload) || {};
   const items = asArray(payload.recommendations) as RecoItem[];
+
+  const openFallback = useCallback((brand: string | null, name: string | null) => {
+    const q = [brand, name]
+      .map((v) => String(v || '').trim())
+      .filter(Boolean)
+      .join(' ');
+    const url = `https://www.google.com/search?q=${encodeURIComponent(q || 'skincare product')}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
+
+  const openExternal = useCallback(
+    async ({ skuId, brand, name }: { skuId: string; brand: string | null; name: string | null }) => {
+      if (!skuId) return openFallback(brand, name);
+      const cached = offerCache[skuId];
+      if (cached) {
+        window.open(cached, '_blank', 'noopener,noreferrer');
+        return;
+      }
+
+      if (!resolveSkuOffers) {
+        openFallback(brand, name);
+        return;
+      }
+
+      setOffersLoading(skuId);
+      try {
+        const resp = await resolveSkuOffers(skuId);
+        const offers = Array.isArray(resp?.offers)
+          ? resp.offers
+          : Array.isArray(resp?.data?.offers)
+            ? resp.data.offers
+            : [];
+
+        const firstWithUrl = offers.find((o: any) => {
+          const u = o?.affiliate_url || o?.affiliateUrl || o?.url;
+          return typeof u === 'string' && u.trim();
+        });
+        const url = firstWithUrl ? String(firstWithUrl.affiliate_url || firstWithUrl.affiliateUrl || firstWithUrl.url).trim() : '';
+        if (!url) {
+          openFallback(brand, name);
+          return;
+        }
+        setOfferCache((prev) => ({ ...prev, [skuId]: url }));
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch {
+        openFallback(brand, name);
+      } finally {
+        setOffersLoading(null);
+      }
+    },
+    [offerCache, openFallback, resolveSkuOffers],
+  );
 
   const groups = items.reduce(
     (acc, item) => {
@@ -409,6 +466,7 @@ function RecommendationsCard({
     const sku = asObject(item.sku) || asObject(item.product) || null;
     const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
     const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
+    const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
     const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
@@ -458,6 +516,20 @@ function RecommendationsCard({
               <li key={n}>{n}</li>
             ))}
           </ul>
+        ) : null}
+
+        {skuId ? (
+          <div className="mt-2">
+            <button
+              type="button"
+              className="chip-button"
+              disabled={offersLoading === skuId}
+              onClick={() => void openExternal({ skuId, brand, name })}
+            >
+              {language === 'CN' ? '外链购买' : 'External'}
+              {offersLoading === skuId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
+            </button>
+          </div>
         ) : null}
 
         {evidencePack ? (
@@ -626,12 +698,14 @@ function BffCardView({
   debug,
   session,
   onAction,
+  resolveSkuOffers,
 }: {
   card: Card;
   language: UiLanguage;
   debug: boolean;
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
+  resolveSkuOffers?: (skuId: string) => Promise<any>;
 }) {
   const cardType = String(card.type || '').toLowerCase();
   if (
@@ -725,7 +799,14 @@ function BffCardView({
         ) : null}
       </div>
 
-      {cardType === 'recommendations' ? <RecommendationsCard card={card} language={language} debug={debug} /> : null}
+      {cardType === 'recommendations' ? (
+        <RecommendationsCard
+          card={card}
+          language={language}
+          debug={debug}
+          resolveSkuOffers={resolveSkuOffers}
+        />
+      ) : null}
 
       {cardType === 'product_parse' ? (() => {
         const productRaw = asObject((payload as any).product);
@@ -1216,7 +1297,14 @@ export default function BffChat() {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards: env.cards });
     }
 
-    if (Array.isArray(env.suggested_chips) && env.suggested_chips.length) {
+    const suppressChips = Array.isArray(env.cards)
+      ? env.cards.some((c) => {
+          const t = String((c as any)?.type || '').toLowerCase();
+          return t === 'analysis_summary' || t === 'profile';
+        })
+      : false;
+
+    if (!suppressChips && Array.isArray(env.suggested_chips) && env.suggested_chips.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: env.suggested_chips });
     }
 
@@ -1674,6 +1762,21 @@ export default function BffChat() {
     };
   }, [headers.brief_id, headers.trace_id, flowState, sessionPhotos]);
 
+  const resolveSkuOffers = useCallback(
+    async (skuId: string) => {
+      const requestHeaders = { ...headers, lang: language };
+      return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({
+          operation: 'offers.resolve',
+          payload: { offers: { product: { sku_id: skuId }, market: 'US', tool: '*', limit: 5 } },
+          metadata: { source: 'chatbox' },
+        }),
+      });
+    },
+    [headers, language],
+  );
+
   return (
     <div className="chat-container">
       <header className="chat-header">
@@ -1975,7 +2078,15 @@ export default function BffChat() {
             return (
               <div key={item.id} className="space-y-3">
                 {item.cards.map((card) => (
-                  <BffCardView key={card.card_id} card={card} language={language} debug={debug} session={sessionForCards} onAction={onCardAction} />
+                  <BffCardView
+                    key={card.card_id}
+                    card={card}
+                    language={language}
+                    debug={debug}
+                    session={sessionForCards}
+                    onAction={onCardAction}
+                    resolveSkuOffers={resolveSkuOffers}
+                  />
                 ))}
               </div>
             );
