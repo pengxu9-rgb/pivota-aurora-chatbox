@@ -8,7 +8,7 @@ interface AnalysisSummaryCardProps {
     analysis: AnalysisResult;
     session: Session;
   };
-  onAction: (actionId: string) => void;
+  onAction: (actionId: string, data?: Record<string, any>) => void;
   language: Language;
 }
 
@@ -66,6 +66,12 @@ export function AnalysisSummaryCard({ payload, onAction, language }: AnalysisSum
 
       {/* Actions */}
       <div className="space-y-2">
+        <button
+          onClick={() => onAction('analysis_review_products')}
+          className="action-button action-button-secondary w-full"
+        >
+          {t('s5.btn.review_products', language)}
+        </button>
         <button
           onClick={() => onAction('analysis_continue')}
           className="action-button action-button-primary w-full"

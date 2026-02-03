@@ -3,10 +3,13 @@ import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgen
 import { bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
+import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
+import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
-import type { DiagnosisResult, FlowState, Language as UiLanguage, Session, SkinConcern, SkinType } from '@/lib/types';
+import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
+import { t } from '@/lib/i18n';
 import {
   Activity,
   ArrowRight,
@@ -41,6 +44,26 @@ const renderJson = (obj: unknown) => {
   } catch {
     return String(obj);
   }
+};
+
+const LANG_PREF_KEY = 'pivota_aurora_lang_pref_v1';
+
+const getInitialLanguage = (): UiLanguage => {
+  try {
+    const stored = window.localStorage.getItem(LANG_PREF_KEY);
+    if (stored === 'EN' || stored === 'CN') return stored;
+  } catch {
+    // ignore
+  }
+
+  try {
+    const nav = (navigator.language || '').toLowerCase();
+    if (nav.startsWith('zh')) return 'CN';
+  } catch {
+    // ignore
+  }
+
+  return 'EN';
 };
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -82,6 +105,9 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'budget_gate') return language === 'CN' ? '预算确认' : 'Budget';
   if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
   if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
+  if (key === 'product_parse') return language === 'CN' ? '产品解析' : 'Product parse';
+  if (key === 'product_analysis') return language === 'CN' ? '单品评估（Deep Scan）' : 'Product deep scan';
+  if (key === 'dupe_compare') return language === 'CN' ? '平替对比（Tradeoffs）' : 'Dupe compare (tradeoffs)';
   if (key === 'routine_simulation') return language === 'CN' ? '兼容性测试' : 'Compatibility test';
   if (key === 'offers_resolved') return language === 'CN' ? '购买渠道/Offer' : 'Offers';
   if (key === 'profile') return language === 'CN' ? '肤况资料' : 'Profile';
@@ -101,6 +127,35 @@ const asString = (v: unknown) => (typeof v === 'string' ? v : v == null ? null :
 const asNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+};
+
+const asNumberRecord = (v: unknown): Record<string, number> | undefined => {
+  const o = asObject(v);
+  if (!o) return undefined;
+  const out: Record<string, number> = {};
+  for (const [k, raw] of Object.entries(o)) {
+    const key = String(k || '').trim();
+    if (!key) continue;
+    const n = asNumber(raw);
+    if (n == null) continue;
+    out[key] = n;
+  }
+  return Object.keys(out).length ? out : undefined;
+};
+
+const uniqueStrings = (items: unknown): string[] => {
+  if (!Array.isArray(items)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of items) {
+    const v = String(raw ?? '').trim();
+    if (!v) continue;
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
 };
 
 const asSkinType = (v: unknown): SkinType | null => {
@@ -148,6 +203,91 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
     concerns,
     currentRoutine: 'basic',
     ...(barrierStatus ? { barrierStatus } : {}),
+  };
+}
+
+function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
+  const skuId =
+    asString(raw.sku_id ?? raw.skuId ?? raw.product_id ?? raw.productId) ||
+    `unknown_${Math.random().toString(16).slice(2)}`.slice(0, 24);
+  const brand = asString(raw.brand) || '';
+  const name = asString(raw.name) || asString(raw.display_name ?? raw.displayName) || '';
+  const category = asString(raw.category) || '';
+  const description = asString(raw.description) || '';
+  const image_url = asString(raw.image_url ?? raw.imageUrl) || '';
+  const size = asString(raw.size) || '';
+
+  const product: Product = {
+    sku_id: skuId,
+    brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown brand'),
+    name: name || (language === 'CN' ? '未知产品' : 'Unknown product'),
+    category: category || (language === 'CN' ? '未知品类' : 'Unknown'),
+    description,
+    image_url,
+    size,
+  };
+
+  const mechanism = asNumberRecord(raw.mechanism) || asNumberRecord((raw as any).mechanism_vector);
+  if (mechanism) product.mechanism = mechanism;
+
+  const socialStats = asObject((raw as any).social_stats) || asObject((raw as any).socialStats);
+  if (socialStats) product.social_stats = socialStats as any;
+
+  const evidencePack = asObject((raw as any).evidence_pack) || asObject((raw as any).evidencePack);
+  if (evidencePack) product.evidence_pack = evidencePack as any;
+
+  const ingredients = asObject((raw as any).ingredients);
+  if (ingredients) product.ingredients = ingredients as any;
+
+  const keyActives = uniqueStrings((raw as any).key_actives);
+  if (keyActives.length) product.key_actives = keyActives;
+
+  return product;
+}
+
+function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage) {
+  const r = raw ?? {};
+  const brand = asString(r.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+  const name = asString(r.name) || asString(r.display_name ?? r.displayName) || (language === 'CN' ? '未知产品' : 'Unknown product');
+  const imageUrl = asString((r as any).image_url ?? (r as any).imageUrl) || undefined;
+
+  let price: number | undefined;
+  let currency: string | undefined;
+  const offers = asArray((r as any).offers).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+  if (offers.length) {
+    price = asNumber(offers[0].price) ?? undefined;
+    currency = asString(offers[0].currency) ?? undefined;
+  }
+
+  const priceObj = asObject((r as any).price);
+  if (price == null && priceObj) {
+    const usd = asNumber(priceObj.usd ?? priceObj.USD);
+    const cny = asNumber(priceObj.cny ?? priceObj.CNY);
+    if (usd != null) {
+      price = usd;
+      currency = 'USD';
+    } else if (cny != null) {
+      price = cny;
+      currency = 'CNY';
+    }
+  }
+
+  if (price == null) price = asNumber((r as any).price) ?? undefined;
+  if (!currency) currency = asString((r as any).currency) ?? undefined;
+
+  return {
+    imageUrl,
+    brand,
+    name,
+    ...(typeof price === 'number' && Number.isFinite(price) ? { price } : {}),
+    ...(currency ? { currency } : {}),
+    ...(asNumberRecord((r as any).mechanism) ? { mechanism: asNumberRecord((r as any).mechanism) } : {}),
+    ...((asObject((r as any).experience) ? { experience: (r as any).experience } : {}) as any),
+    ...(uniqueStrings((r as any).risk_flags).length ? { risk_flags: uniqueStrings((r as any).risk_flags) } : {}),
+    ...((asObject((r as any).social_stats) ? { social_stats: (r as any).social_stats } : {}) as any),
+    ...(uniqueStrings((r as any).key_actives).length ? { key_actives: uniqueStrings((r as any).key_actives) } : {}),
+    ...((asObject((r as any).evidence_pack) ? { evidence_pack: (r as any).evidence_pack } : {}) as any),
+    ...((asObject((r as any).ingredients) ? { ingredients: (r as any).ingredients } : {}) as any),
   };
 }
 
@@ -523,7 +663,7 @@ function BffCardView({
       needs_risk_check: (analysisObj as any).needs_risk_check === true,
     };
 
-    return <AnalysisSummaryCard payload={{ analysis: analysis as any, session }} onAction={(id) => onAction(id)} language={language} />;
+    return <AnalysisSummaryCard payload={{ analysis: analysis as any, session }} onAction={(id, data) => onAction(id, data)} language={language} />;
   }
 
   if (cardType === 'profile') {
@@ -548,6 +688,23 @@ function BffCardView({
   const qcSummary = asString(qcAdvice?.summary) || null;
   const qcSuggestions = asArray(qcAdvice?.suggestions).map((s) => asString(s)).filter(Boolean) as string[];
 
+  const missingInfo = uniqueStrings((payload as any)?.missing_info);
+
+  const evidence = asObject((payload as any)?.evidence) || null;
+  const science = asObject(evidence?.science) || null;
+  const social = asObject(evidence?.social_signals || (evidence as any)?.socialSignals) || null;
+  const expertNotes = uniqueStrings(evidence?.expert_notes || (evidence as any)?.expertNotes);
+
+  const evidenceKeyIngredients = uniqueStrings(science?.key_ingredients || (science as any)?.keyIngredients).slice(0, 10);
+  const evidenceMechanisms = uniqueStrings(science?.mechanisms).slice(0, 8);
+  const evidenceFitNotes = uniqueStrings(science?.fit_notes || (science as any)?.fitNotes).slice(0, 6);
+  const evidenceRiskNotes = uniqueStrings(science?.risk_notes || (science as any)?.riskNotes).slice(0, 6);
+
+  const platformScores = asObject(social?.platform_scores || (social as any)?.platformScores) || null;
+  const socialPositive = uniqueStrings(social?.typical_positive || (social as any)?.typicalPositive).slice(0, 6);
+  const socialNegative = uniqueStrings(social?.typical_negative || (social as any)?.typicalNegative).slice(0, 6);
+  const socialRisks = uniqueStrings(social?.risk_for_groups || (social as any)?.riskForGroups).slice(0, 6);
+
   return (
     <div className="chat-card space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -569,6 +726,350 @@ function BffCardView({
       </div>
 
       {cardType === 'recommendations' ? <RecommendationsCard card={card} language={language} debug={debug} /> : null}
+
+      {cardType === 'product_parse' ? (() => {
+        const productRaw = asObject((payload as any).product);
+        const product = productRaw ? toUiProduct(productRaw, language) : null;
+        const confidence = asNumber((payload as any).confidence);
+        const parsedMissing = uniqueStrings((payload as any).missing_info);
+
+        return (
+          <div className="space-y-3">
+            {product ? (
+              <AuroraAnchorCard product={product} offers={[]} language={language} />
+            ) : (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
+                {language === 'CN' ? '未能解析出产品实体（上游缺失）。' : 'Failed to parse a product entity (upstream missing).'}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {typeof confidence === 'number' && Number.isFinite(confidence) ? (
+                <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                  {language === 'CN' ? `置信度 ${(confidence * 100).toFixed(0)}%` : `Confidence ${(confidence * 100).toFixed(0)}%`}
+                </span>
+              ) : null}
+              {parsedMissing.slice(0, 4).map((m) => (
+                <span
+                  key={m}
+                  className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground"
+                >
+                  {labelMissing(m, language as any) || m}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })() : null}
+
+      {cardType === 'product_analysis' ? (() => {
+        const assessment = asObject((payload as any).assessment);
+        const verdictRaw = asString(assessment?.verdict);
+        const verdict = verdictRaw ? verdictRaw.trim() : null;
+        const reasons = uniqueStrings(assessment?.reasons).slice(0, 6);
+        const anchorRaw = asObject((assessment as any)?.anchor_product || (assessment as any)?.anchorProduct);
+        const product = anchorRaw ? toUiProduct(anchorRaw, language) : null;
+        const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
+
+        const verdictStyle = (() => {
+          const v = String(verdict || '').toLowerCase();
+          if (v.includes('mismatch') || v.includes('not') || v.includes('avoid') || v.includes('veto')) return 'bg-rose-500/10 text-rose-600 border-rose-500/20';
+          if (v.includes('risky') || v.includes('caution') || v.includes('warn')) return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
+          if (v.includes('suitable') || v.includes('good') || v.includes('yes')) return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
+          return 'bg-muted/60 text-muted-foreground border-border/60';
+        })();
+
+        const renderHowToUse = () => {
+          if (howToUse == null) return null;
+          if (typeof howToUse === 'string') {
+            const s = howToUse.trim();
+            if (!s) return null;
+            return <div className="text-sm text-foreground whitespace-pre-wrap">{s}</div>;
+          }
+          const o = asObject(howToUse);
+          if (!o) return null;
+
+          const timing = asString((o as any).timing) || asString((o as any).time) || null;
+          const frequency = asString((o as any).frequency) || null;
+          const notes = uniqueStrings((o as any).notes).slice(0, 6);
+          const steps = uniqueStrings((o as any).steps).slice(0, 6);
+
+          if (!timing && !frequency && !notes.length && !steps.length) return null;
+
+          return (
+            <div className="space-y-2 text-sm text-foreground">
+              {(timing || frequency) ? (
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  {timing ? (
+                    <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1">
+                      {language === 'CN' ? `建议时段：${timing}` : `Timing: ${timing}`}
+                    </span>
+                  ) : null}
+                  {frequency ? (
+                    <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1">
+                      {language === 'CN' ? `频率：${frequency}` : `Frequency: ${frequency}`}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {steps.length ? (
+                <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {steps.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {notes.length ? (
+                <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {notes.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          );
+        };
+
+        return (
+          <div className="space-y-3">
+            {product ? <AuroraAnchorCard product={product} offers={[]} language={language} /> : null}
+
+            {verdict ? (
+              <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}>
+                {language === 'CN' ? '结论：' : 'Verdict: '} {verdict}
+              </div>
+            ) : null}
+
+            {reasons.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '为什么' : 'Why'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {renderHowToUse() ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '怎么用更安全' : 'How to use safely'}</div>
+                <div className="mt-2">{renderHowToUse()}</div>
+              </div>
+            ) : null}
+
+            {(evidenceKeyIngredients.length ||
+              evidenceMechanisms.length ||
+              evidenceFitNotes.length ||
+              evidenceRiskNotes.length ||
+              socialPositive.length ||
+              socialNegative.length ||
+              socialRisks.length ||
+              expertNotes.length ||
+              platformScores) ? (
+              <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+                  <span>{language === 'CN' ? '证据与注意事项' : 'Evidence & notes'}</span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
+                <div className="mt-3 space-y-3 text-sm text-foreground">
+                  {evidenceKeyIngredients.length ? (
+                    <div>
+                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '关键成分' : 'Key ingredients'}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {evidenceKeyIngredients.map((x) => (
+                          <span key={x} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
+                            {x}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {evidenceMechanisms.length ? (
+                    <div>
+                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '机制/作用' : 'Mechanisms'}</div>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                        {evidenceMechanisms.map((x) => (
+                          <li key={x}>{x}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {evidenceFitNotes.length ? (
+                    <div>
+                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '适配提示' : 'Fit notes'}</div>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                        {evidenceFitNotes.map((x) => (
+                          <li key={x}>{x}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {evidenceRiskNotes.length ? (
+                    <div>
+                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '风险点' : 'Risks'}</div>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                        {evidenceRiskNotes.map((x) => (
+                          <li key={x}>{x}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {platformScores ? (
+                    <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                      <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '平台信号' : 'Platform signals'}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        {Object.entries(platformScores).slice(0, 6).map(([k, v]) => (
+                          <span key={k} className="rounded-full border border-border/60 bg-background/60 px-2 py-1">
+                            {k}: {typeof v === 'number' ? v : String(v)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {(socialPositive.length || socialNegative.length || socialRisks.length) ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {socialPositive.length ? (
+                        <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                          <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '常见好评' : 'Typical positives'}</div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                            {socialPositive.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {socialNegative.length ? (
+                        <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                          <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '常见差评' : 'Typical negatives'}</div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                            {socialNegative.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {socialRisks.length ? (
+                        <div className="rounded-xl border border-border/50 bg-muted/40 p-3 sm:col-span-2">
+                          <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '对人群风险' : 'Risks for groups'}</div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                            {socialRisks.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {expertNotes.length ? (
+                    <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                      <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '专家/说明' : 'Expert notes'}</div>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                        {expertNotes.slice(0, 6).map((x) => (
+                          <li key={x}>{x}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
+
+            {missingInfo.length ? (
+              <div className="flex flex-wrap gap-2">
+                {missingInfo.slice(0, 6).map((m) => (
+                  <span
+                    key={m}
+                    className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground"
+                  >
+                    {labelMissing(m, language as any) || m}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      })() : null}
+
+      {cardType === 'dupe_compare' ? (() => {
+        const originalRaw = asObject((payload as any).original) || asObject((payload as any).original_product) || asObject((payload as any).originalProduct);
+        const dupeRaw = asObject((payload as any).dupe) || asObject((payload as any).dupe_product) || asObject((payload as any).dupeProduct);
+        const similarity = asNumber((payload as any).similarity);
+
+        const tradeoffs = uniqueStrings((payload as any).tradeoffs);
+        const tradeoffsDetail = asObject((payload as any).tradeoffs_detail || (payload as any).tradeoffsDetail) || null;
+
+        const missingActives = uniqueStrings(tradeoffsDetail?.missing_actives || (tradeoffsDetail as any)?.missingActives);
+        const addedBenefits = uniqueStrings(tradeoffsDetail?.added_benefits || (tradeoffsDetail as any)?.addedBenefits);
+        const textureDiff = uniqueStrings(tradeoffsDetail?.texture_finish_differences || (tradeoffsDetail as any)?.textureFinishDifferences);
+        const availabilityNote = asString(tradeoffsDetail?.availability_note || (tradeoffsDetail as any)?.availabilityNote);
+        const priceDeltaUsd = asNumber(tradeoffsDetail?.price_delta_usd || (tradeoffsDetail as any)?.priceDeltaUsd);
+
+        const tradeoffNoteParts = [
+          ...textureDiff,
+          ...(availabilityNote ? [availabilityNote] : []),
+          ...(priceDeltaUsd != null ? [`Price delta (USD): ${priceDeltaUsd}`] : []),
+        ].filter(Boolean);
+
+        const tradeoffNote = tradeoffNoteParts.length ? tradeoffNoteParts.slice(0, 2).join(' · ') : tradeoffs[0] || undefined;
+
+        const original = toDupeProduct(originalRaw, language);
+        const dupe = toDupeProduct(dupeRaw, language);
+
+        const labels =
+          language === 'CN'
+            ? {
+                similarity: '相似度',
+                tradeoffsTitle: '取舍分析',
+                evidenceTitle: '证据与信号',
+                scienceLabel: '科学',
+                socialLabel: '口碑',
+                keyActives: '关键成分',
+                riskFlags: '风险',
+                ingredientHighlights: '成分亮点',
+                citations: '引用',
+                tradeoffNote: '取舍',
+                missingActives: '缺失成分',
+                addedBenefits: '新增亮点',
+                switchToDupe: '选平替',
+                keepOriginal: '选原版',
+              }
+            : undefined;
+
+        return (
+          <div className="space-y-3">
+            <DupeComparisonCard
+              original={original as any}
+              dupe={dupe as any}
+              similarity={typeof similarity === 'number' && Number.isFinite(similarity) ? similarity : undefined}
+              tradeoffNote={tradeoffNote}
+              missingActives={missingActives}
+              addedBenefits={addedBenefits}
+              labels={labels as any}
+            />
+
+            {tradeoffs.length ? (
+              <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+                  <span>{language === 'CN' ? '更多取舍细节' : 'More tradeoffs'}</span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
+                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {tradeoffs.slice(0, 10).map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </div>
+        );
+      })() : null}
 
       {cardType === 'photo_confirm' ? (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
@@ -620,8 +1121,12 @@ function BffCardView({
 }
 
 export default function BffChat() {
-  const [language, setLanguage] = useState<'EN' | 'CN'>('CN');
-  const [headers, setHeaders] = useState(() => makeDefaultHeaders('CN'));
+  const initialLanguageRef = useRef<UiLanguage | null>(null);
+  if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
+  const initialLanguage = initialLanguageRef.current;
+
+  const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
+  const [headers, setHeaders] = useState(() => makeDefaultHeaders(initialLanguage));
   const [sessionState, setSessionState] = useState<string>('idle');
   const [debug] = useState<boolean>(() => {
     try {
@@ -661,6 +1166,14 @@ export default function BffChat() {
 
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, lang: language }));
+  }, [language]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LANG_PREF_KEY, language);
+    } catch {
+      // ignore
+    }
   }, [language]);
 
   useEffect(() => {
@@ -1007,6 +1520,31 @@ export default function BffChat() {
         return;
       }
 
+      if (actionId === 'profile_confirm') {
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '先不传照片，继续' : 'Continue without photos' },
+        ]);
+
+        setIsLoading(true);
+        try {
+          // Reflect progress immediately in the UI.
+          setSessionState('S4_ANALYSIS_LOADING');
+
+          const requestHeaders = { ...headers, lang: language };
+          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify({ use_photo: false, photos: [] }),
+          });
+          applyEnvelope(env);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       if (actionId === 'profile_update_concerns') {
         const concernsRaw = Array.isArray(data?.concerns) ? (data?.concerns as unknown[]) : [];
         const concerns = concernsRaw.map((c) => String(c || '').trim()).filter(Boolean);
@@ -1027,11 +1565,25 @@ export default function BffChat() {
         return;
       }
 
+      if (actionId === 'analysis_review_products') {
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'assistant',
+            kind: 'text',
+            content:
+              language === 'CN'
+                ? '把你现在正在用的产品按 AM/PM 列出来（洁面/活性/保湿/SPF，或直接贴链接/名字），我先帮你做兼容性与刺激风险检查，再决定要不要换/加。'
+                : 'Paste your current products by AM/PM (cleanser/actives/moisturizer/SPF, names or links). I’ll check conflicts and irritation risk first, then decide what to keep/change.',
+          },
+        ]);
+        return;
+      }
+
       const msg =
-        actionId === 'analysis_continue' || actionId === 'profile_confirm'
-          ? language === 'CN'
-            ? '继续'
-            : 'Continue'
+        actionId === 'analysis_continue'
+          ? null
           : actionId === 'analysis_gentler'
             ? language === 'CN'
               ? '给我更温和的方案'
@@ -1042,8 +1594,44 @@ export default function BffChat() {
                 : 'Make it simpler'
               : null;
 
+      if (actionId === 'analysis_continue') {
+        // Explicitly request recommendations via a chip trigger so the backend
+        // can safely allow recommendation cards (no accidental auto-push).
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: t('s5.btn.continue', language) },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'chip.action.reco_routine',
+          kind: 'chip',
+          data: {
+            reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
+          },
+        });
+        return;
+      }
+
       if (msg) {
         setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+        // Make gentler / simpler are explicit *preference* messages (not silent actions).
+        // We still send them as chips to keep the recommendation gate explicit.
+        if (actionId === 'analysis_gentler' || actionId === 'analysis_simple') {
+          const replyText =
+            actionId === 'analysis_gentler'
+              ? language === 'CN'
+                ? '生成一套更温和的早晚护肤 routine（减少刺激，优先修护）。'
+                : 'Build a gentler AM/PM routine (minimize irritation, barrier-first).'
+              : language === 'CN'
+                ? '生成一套更简单的早晚护肤 routine（步骤更少）。'
+                : 'Build the simplest AM/PM routine (fewer steps).';
+          await sendChat(undefined, {
+            action_id: 'chip.action.reco_routine',
+            kind: 'chip',
+            data: { reply_text: replyText },
+          });
+          return;
+        }
+
         await sendChat(msg);
         return;
       }

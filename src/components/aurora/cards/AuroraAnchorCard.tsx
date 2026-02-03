@@ -26,13 +26,13 @@ export function AuroraAnchorCard({
 }: AuroraAnchorCardProps) {
   const bestOffer = offers[0];
   
-  // Default mechanism vector
-  const vector = mechanismVector || {
-    oilControl: 65,
-    soothing: 80,
-    repair: 45,
-    brightening: 70,
-  };
+  const vector = mechanismVector || null;
+  const hasVector =
+    vector != null &&
+    typeof vector.oilControl === 'number' &&
+    typeof vector.soothing === 'number' &&
+    typeof vector.repair === 'number' &&
+    typeof vector.brightening === 'number';
 
   const vectorLabels = {
     oilControl: { EN: 'Oil Control', CN: '控油' },
@@ -57,11 +57,17 @@ export function AuroraAnchorCard({
         {/* Product Header */}
         <div className="flex gap-3">
           <div className="w-16 h-16 rounded-lg bg-muted overflow-hidden flex-shrink-0">
-            <img 
-              src={product.image_url} 
-              alt={product.name}
-              className="w-full h-full object-cover"
-            />
+            {product.image_url ? (
+              <img 
+                src={product.image_url} 
+                alt={product.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-sm font-semibold text-muted-foreground">
+                {(product.brand || product.name || 'P').slice(0, 1).toUpperCase()}
+              </div>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -75,7 +81,11 @@ export function AuroraAnchorCard({
             </p>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-base font-bold text-foreground font-mono-nums">
-                ${bestOffer?.price.toFixed(2)}
+                {typeof bestOffer?.price === 'number' && Number.isFinite(bestOffer.price)
+                  ? `$${bestOffer.price.toFixed(2)}`
+                  : language === 'EN'
+                    ? 'Price unknown'
+                    : '价格未知'}
               </span>
               {bestOffer?.original_price && (
                 <span className="text-xs text-muted-foreground line-through font-mono-nums">
@@ -87,38 +97,40 @@ export function AuroraAnchorCard({
         </div>
 
         {/* Mechanism Vector */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-1">
-            <Beaker className="w-3 h-3 text-primary" />
-            <span className="section-label">
-              {language === 'EN' ? 'MECHANISM VECTOR' : '机制向量'}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(vector).map(([key, value]) => (
-              <div key={key} className="flex items-center gap-2">
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[10px] text-muted-foreground">
-                      {vectorLabels[key as keyof typeof vectorLabels][language]}
-                    </span>
-                    <span className="text-[10px] font-mono-nums text-foreground">
-                      {value}
-                    </span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div 
-                      className={`h-full rounded-full ${
-                        value >= 70 ? 'bg-success' : value >= 40 ? 'bg-warning' : 'bg-muted-foreground'
-                      }`}
-                      style={{ width: `${value}%` }}
-                    />
+        {hasVector ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1">
+              <Beaker className="w-3 h-3 text-primary" />
+              <span className="section-label">
+                {language === 'EN' ? 'MECHANISM VECTOR' : '机制向量'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.entries(vector).map(([key, value]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[10px] text-muted-foreground">
+                        {vectorLabels[key as keyof typeof vectorLabels][language]}
+                      </span>
+                      <span className="text-[10px] font-mono-nums text-foreground">
+                        {value}
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full ${
+                          value >= 70 ? 'bg-success' : value >= 40 ? 'bg-warning' : 'bg-muted-foreground'
+                        }`}
+                        style={{ width: `${value}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {/* Risk Flags */}
         {vetoReason && (

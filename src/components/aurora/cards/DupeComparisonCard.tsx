@@ -426,14 +426,20 @@ export function DupeComparisonCard({
           </AccordionItem>
         </Accordion>
 
-        <div className="flex gap-2 pt-1">
-          <Button className="flex-1" onClick={onSwitchToDupe}>
-            {copy.switchToDupe}
-          </Button>
-          <Button variant="ghost" className="flex-1" onClick={onKeepOriginal}>
-            {copy.keepOriginal}
-          </Button>
-        </div>
+        {onSwitchToDupe || onKeepOriginal ? (
+          <div className="flex gap-2 pt-1">
+            {onSwitchToDupe ? (
+              <Button className="flex-1" onClick={onSwitchToDupe}>
+                {copy.switchToDupe}
+              </Button>
+            ) : null}
+            {onKeepOriginal ? (
+              <Button variant="ghost" className="flex-1" onClick={onKeepOriginal}>
+                {copy.keepOriginal}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
