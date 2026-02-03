@@ -5,6 +5,7 @@ import {
   Activity,
   ArrowRight,
   Beaker,
+  Camera,
   ChevronDown,
   Copy,
   FlaskConical,
@@ -15,6 +16,7 @@ import {
   Sparkles,
   User,
   Wallet,
+  X,
 } from 'lucide-react';
 
 type ChatItem =
@@ -83,6 +85,82 @@ type RecoItem = Record<string, unknown> & { slot?: string };
 const asArray = (v: unknown) => (Array.isArray(v) ? v : []);
 const asObject = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const asString = (v: unknown) => (typeof v === 'string' ? v : v == null ? null : String(v));
+const asNumber = (v: unknown) => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+type BootstrapInfo = {
+  profile: Record<string, unknown> | null;
+  recent_logs: Array<Record<string, unknown>>;
+  checkin_due: boolean | null;
+  is_returning: boolean | null;
+  db_ready: boolean | null;
+};
+
+const readBootstrapInfo = (env: V1Envelope): BootstrapInfo | null => {
+  const patch = env.session_patch && typeof env.session_patch === 'object' ? (env.session_patch as Record<string, unknown>) : null;
+  if (!patch) return null;
+  const profile = asObject(patch.profile);
+  const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+  const checkinDue = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
+  const isReturning = typeof patch.is_returning === 'boolean' ? patch.is_returning : null;
+  return {
+    profile: profile ?? null,
+    recent_logs: recentLogs,
+    checkin_due: checkinDue,
+    is_returning: isReturning,
+    db_ready: typeof patch.db_ready === 'boolean' ? patch.db_ready : null,
+  };
+};
+
+function Sheet({
+  open,
+  title,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60]">
+      <button
+        className="absolute inset-0 bg-black/35 backdrop-blur-sm"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-lg rounded-t-3xl border border-border/50 bg-card/90 p-4 shadow-elevated backdrop-blur-xl">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-foreground">{title}</div>
+          <button
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-3">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function formatProfileLine(profile: Record<string, unknown> | null, language: 'EN' | 'CN') {
+  if (!profile) return language === 'CN' ? '未填写肤况资料' : 'No profile yet';
+  const skinType = asString(profile.skinType) || '—';
+  const sensitivity = asString(profile.sensitivity) || '—';
+  const barrier = asString(profile.barrierStatus) || '—';
+  const goals = asArray(profile.goals).map((g) => asString(g)).filter(Boolean) as string[];
+  const goalsText = goals.length ? goals.slice(0, 3).join(', ') : '—';
+  return language === 'CN'
+    ? `肤质：${skinType} · 敏感：${sensitivity} · 屏障：${barrier} · 目标：${goalsText}`
+    : `Skin: ${skinType} · Sensitivity: ${sensitivity} · Barrier: ${barrier} · Goals: ${goalsText}`;
+}
 
 function RecommendationsCard({ card, language }: { card: Card; language: 'EN' | 'CN' }) {
   const payload = asObject(card.payload) || {};
@@ -255,6 +333,27 @@ export default function BffChat() {
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
+
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
+
+  const [profileDraft, setProfileDraft] = useState({
+    skinType: '',
+    sensitivity: '',
+    barrierStatus: '',
+    goals: [] as string[],
+    region: '',
+    budgetTier: '',
+  });
+
+  const [checkinDraft, setCheckinDraft] = useState({
+    redness: 0,
+    acne: 0,
+    hydration: 0,
+    notes: '',
+  });
 
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, lang: language }));
@@ -268,8 +367,27 @@ export default function BffChat() {
     setError(null);
 
     if (env.session_patch && typeof env.session_patch === 'object') {
+      const patch = env.session_patch as Record<string, unknown>;
       const next = (env.session_patch as Record<string, unknown>)['next_state'];
       if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
+
+      setBootstrapInfo((prev) => {
+        const merged: BootstrapInfo = prev
+          ? { ...prev }
+          : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+
+        const profile = asObject(patch.profile);
+        if (profile) merged.profile = profile;
+
+        const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+        if (recentLogs.length) merged.recent_logs = recentLogs;
+
+        if (typeof patch.checkin_due === 'boolean') merged.checkin_due = patch.checkin_due;
+        if (typeof patch.is_returning === 'boolean') merged.is_returning = patch.is_returning;
+        if (typeof patch.db_ready === 'boolean') merged.db_ready = patch.db_ready;
+
+        return merged;
+      });
     }
 
     const nextItems: ChatItem[] = [];
@@ -293,8 +411,10 @@ export default function BffChat() {
     try {
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
-      const profile = (env.session_patch as Record<string, unknown> | undefined)?.profile;
-      const isReturning = Boolean((env.session_patch as Record<string, unknown> | undefined)?.is_returning);
+      const info = readBootstrapInfo(env);
+      setBootstrapInfo(info);
+      const profile = info?.profile;
+      const isReturning = Boolean(info?.is_returning);
 
       const lang = language === 'CN' ? 'CN' : 'EN';
       const intro =
@@ -340,6 +460,12 @@ export default function BffChat() {
       if (!hasBootstrapped) {
         setItems([
           { id: nextId(), role: 'assistant', kind: 'text', content: intro },
+          {
+            id: nextId(),
+            role: 'assistant',
+            kind: 'text',
+            content: formatProfileLine(profile, language),
+          },
           { id: nextId(), role: 'assistant', kind: 'chips', chips: startChips },
         ]);
         setHasBootstrapped(true);
@@ -370,6 +496,142 @@ export default function BffChat() {
     bootstrap();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!profileSheetOpen) return;
+    const p = bootstrapInfo?.profile;
+    setProfileDraft({
+      skinType: asString(p?.skinType) ?? '',
+      sensitivity: asString(p?.sensitivity) ?? '',
+      barrierStatus: asString(p?.barrierStatus) ?? '',
+      goals: (asArray(p?.goals).map((g) => asString(g)).filter(Boolean) as string[]) ?? [],
+      region: asString(p?.region) ?? '',
+      budgetTier: asString(p?.budgetTier) ?? '',
+    });
+  }, [profileSheetOpen, bootstrapInfo]);
+
+  const saveProfile = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const patch: Record<string, unknown> = {};
+      if (profileDraft.skinType.trim()) patch.skinType = profileDraft.skinType.trim();
+      if (profileDraft.sensitivity.trim()) patch.sensitivity = profileDraft.sensitivity.trim();
+      if (profileDraft.barrierStatus.trim()) patch.barrierStatus = profileDraft.barrierStatus.trim();
+      if (profileDraft.region.trim()) patch.region = profileDraft.region.trim();
+      if (profileDraft.budgetTier.trim()) patch.budgetTier = profileDraft.budgetTier.trim();
+      if (profileDraft.goals.length) patch.goals = profileDraft.goals;
+
+      const requestHeaders = { ...headers, lang: language };
+      const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify(patch),
+      });
+
+      setItems((prev) => [
+        ...prev,
+        { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '更新肤况资料' : 'Update profile' },
+      ]);
+      applyEnvelope(env);
+      setProfileSheetOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyEnvelope, headers, language, profileDraft]);
+
+  const saveCheckin = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const payload: Record<string, unknown> = {
+        redness: Math.max(0, Math.min(5, Math.trunc(checkinDraft.redness))),
+        acne: Math.max(0, Math.min(5, Math.trunc(checkinDraft.acne))),
+        hydration: Math.max(0, Math.min(5, Math.trunc(checkinDraft.hydration))),
+      };
+      if (checkinDraft.notes.trim()) payload.notes = checkinDraft.notes.trim();
+
+      const requestHeaders = { ...headers, lang: language };
+      const env = await bffJson<V1Envelope>('/v1/tracker/log', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      setItems((prev) => [
+        ...prev,
+        { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '今日打卡' : 'Daily check-in' },
+      ]);
+      applyEnvelope(env);
+      setCheckinSheetOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyEnvelope, checkinDraft, headers, language]);
+
+  const handlePickPhoto = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const uploadPhoto = useCallback(
+    async (file: File) => {
+      setIsLoading(true);
+      try {
+        const requestHeaders = { ...headers, lang: language };
+        const presignEnv = await bffJson<V1Envelope>('/v1/photos/presign', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({
+            slot_id: 'daylight',
+            content_type: file.type || 'image/jpeg',
+            bytes: file.size,
+          }),
+        });
+        applyEnvelope(presignEnv);
+
+        const presignCard = presignEnv.cards.find((c) => c && c.type === 'photo_presign');
+        const photoId = asString(presignCard && (presignCard.payload as any)?.photo_id);
+        const upload = asObject(presignCard && (presignCard.payload as any)?.upload);
+        const uploadUrl = asString(upload && upload.url);
+        const uploadMethod = asString(upload && upload.method) || 'PUT';
+        const uploadHeaders = asObject(upload && upload.headers) || {};
+
+        if (photoId && uploadUrl) {
+          await fetch(uploadUrl, {
+            method: uploadMethod,
+            headers: Object.fromEntries(Object.entries(uploadHeaders).map(([k, v]) => [k, String(v)])),
+            body: file,
+          });
+        }
+
+        if (photoId) {
+          const confirmEnv = await bffJson<V1Envelope>('/v1/photos/confirm', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify({ photo_id: photoId, slot_id: 'daylight' }),
+          });
+          applyEnvelope(confirmEnv);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [applyEnvelope, headers, language],
+  );
+
+  const onPhotoSelected = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      setItems((prev) => [
+        ...prev,
+        { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '上传照片' : 'Upload a photo' },
+      ]);
+      await uploadPhoto(file);
+    },
+    [language, uploadPhoto],
+  );
 
   const sendChat = useCallback(
     async (message?: string, action?: V1Action) => {
@@ -433,6 +695,24 @@ export default function BffChat() {
 
         <div className="flex items-center gap-2">
           <button
+            className={`chip-button ${bootstrapInfo?.checkin_due ? 'chip-button-primary' : ''}`}
+            onClick={() => setCheckinSheetOpen(true)}
+            disabled={isLoading}
+            title={language === 'CN' ? '今日打卡' : 'Daily check-in'}
+          >
+            <Activity className="h-4 w-4" />
+            {language === 'CN' ? '打卡' : 'Check-in'}
+          </button>
+          <button
+            className="chip-button"
+            onClick={() => setProfileSheetOpen(true)}
+            disabled={isLoading}
+            title={language === 'CN' ? '编辑资料' : 'Edit profile'}
+          >
+            <User className="h-4 w-4" />
+            {language === 'CN' ? '资料' : 'Profile'}
+          </button>
+          <button
             className={`chip-button ${language === 'CN' ? 'chip-button-primary' : ''}`}
             onClick={() => setLanguage('CN')}
             disabled={isLoading}
@@ -464,6 +744,176 @@ export default function BffChat() {
 
       <main className="chat-messages scrollbar-hide">
         <div className="mx-auto max-w-lg space-y-4">
+          <Sheet
+            open={profileSheetOpen}
+            title={language === 'CN' ? '编辑肤况资料' : 'Edit profile'}
+            onClose={() => setProfileSheetOpen(false)}
+          >
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '肤质' : 'Skin type'}
+                  <select
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.skinType}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, skinType: e.target.value }))}
+                  >
+                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                    <option value="oily">{language === 'CN' ? '油性' : 'oily'}</option>
+                    <option value="dry">{language === 'CN' ? '干性' : 'dry'}</option>
+                    <option value="combination">{language === 'CN' ? '混合' : 'combination'}</option>
+                    <option value="normal">{language === 'CN' ? '中性' : 'normal'}</option>
+                    <option value="sensitive">{language === 'CN' ? '敏感' : 'sensitive'}</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '敏感程度' : 'Sensitivity'}
+                  <select
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.sensitivity}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, sensitivity: e.target.value }))}
+                  >
+                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                    <option value="low">{language === 'CN' ? '低' : 'low'}</option>
+                    <option value="medium">{language === 'CN' ? '中' : 'medium'}</option>
+                    <option value="high">{language === 'CN' ? '高' : 'high'}</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '屏障状态' : 'Barrier status'}
+                  <select
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.barrierStatus}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, barrierStatus: e.target.value }))}
+                  >
+                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                    <option value="healthy">{language === 'CN' ? '稳定' : 'healthy'}</option>
+                    <option value="impaired">{language === 'CN' ? '不稳定/刺痛' : 'impaired'}</option>
+                    <option value="unknown">{language === 'CN' ? '不确定' : 'unknown'}</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '预算' : 'Budget'}
+                  <select
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.budgetTier}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, budgetTier: e.target.value }))}
+                  >
+                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                    <option value="¥200">¥200</option>
+                    <option value="¥500">¥500</option>
+                    <option value="¥1000+">¥1000+</option>
+                    <option value="不确定">{language === 'CN' ? '不确定' : 'Not sure'}</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="space-y-1 text-xs text-muted-foreground">
+                {language === 'CN' ? '目标（可多选）' : 'Goals (multi-select)'}
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ['acne', language === 'CN' ? '控痘' : 'Acne'],
+                    ['redness', language === 'CN' ? '泛红/敏感' : 'Redness'],
+                    ['dark_spots', language === 'CN' ? '淡斑/痘印' : 'Dark spots'],
+                    ['dehydration', language === 'CN' ? '补水' : 'Hydration'],
+                    ['pores', language === 'CN' ? '毛孔' : 'Pores'],
+                    ['wrinkles', language === 'CN' ? '抗老' : 'Anti-aging'],
+                  ].map(([key, label]) => {
+                    const selected = profileDraft.goals.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`chip-button ${selected ? 'chip-button-primary' : ''}`}
+                        onClick={() =>
+                          setProfileDraft((p) => ({
+                            ...p,
+                            goals: selected ? p.goals.filter((g) => g !== key) : [...p.goals, key],
+                          }))
+                        }
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </label>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="chip-button"
+                  onClick={() => setProfileSheetOpen(false)}
+                  disabled={isLoading}
+                >
+                  {language === 'CN' ? '取消' : 'Cancel'}
+                </button>
+                <button type="button" className="chip-button chip-button-primary" onClick={saveProfile} disabled={isLoading}>
+                  {language === 'CN' ? '保存' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </Sheet>
+
+          <Sheet
+            open={checkinSheetOpen}
+            title={language === 'CN' ? '今日打卡' : 'Daily check-in'}
+            onClose={() => setCheckinSheetOpen(false)}
+          >
+            <div className="space-y-4">
+              {(
+                [
+                  ['redness', language === 'CN' ? '泛红' : 'Redness'],
+                  ['acne', language === 'CN' ? '痘痘' : 'Acne'],
+                  ['hydration', language === 'CN' ? '干燥/紧绷' : 'Dryness'],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{label}</span>
+                    <span className="font-medium text-foreground">{(checkinDraft as any)[key]}/5</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={5}
+                    step={1}
+                    value={(checkinDraft as any)[key]}
+                    onChange={(e) => {
+                      const n = asNumber(e.target.value) ?? 0;
+                      setCheckinDraft((p) => ({ ...p, [key]: Math.max(0, Math.min(5, Math.trunc(n))) } as any));
+                    }}
+                    className="w-full accent-[hsl(var(--primary))]"
+                  />
+                </div>
+              ))}
+
+              <label className="space-y-1 text-xs text-muted-foreground">
+                {language === 'CN' ? '备注（可选）' : 'Notes (optional)'}
+                <textarea
+                  className="min-h-[84px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
+                  value={checkinDraft.notes}
+                  onChange={(e) => setCheckinDraft((p) => ({ ...p, notes: e.target.value }))}
+                  placeholder={language === 'CN' ? '例如：今天有点刺痛/爆痘…' : 'e.g., stinging / breakout today…'}
+                />
+              </label>
+
+              <div className="flex gap-2">
+                <button type="button" className="chip-button" onClick={() => setCheckinSheetOpen(false)} disabled={isLoading}>
+                  {language === 'CN' ? '取消' : 'Cancel'}
+                </button>
+                <button type="button" className="chip-button chip-button-primary" onClick={saveCheckin} disabled={isLoading}>
+                  {language === 'CN' ? '保存' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </Sheet>
+
           {error ? (
             <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
               {error}
@@ -527,6 +977,16 @@ export default function BffChat() {
             void onSubmit();
           }}
         >
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+            onClick={handlePickPhoto}
+            disabled={isLoading}
+            title={language === 'CN' ? '上传照片' : 'Upload photo'}
+          >
+            <Camera className="h-5 w-5" />
+          </button>
+          <input ref={fileInputRef} className="hidden" type="file" accept="image/*" onChange={onPhotoSelected} />
           <input
             className="h-10 flex-1 bg-transparent px-3 text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
             value={input}
