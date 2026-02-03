@@ -1,6 +1,6 @@
 import React from 'react';
 import { Language } from '@/lib/types';
-import { Sun, Moon, AlertTriangle, Check } from 'lucide-react';
+import { Sun, Moon, AlertTriangle, Check, HelpCircle } from 'lucide-react';
 
 interface RoutineStep {
   category: string;
@@ -14,7 +14,8 @@ interface RoutineStep {
 interface AuroraRoutineCardProps {
   amSteps: RoutineStep[];
   pmSteps: RoutineStep[];
-  conflicts?: string[];
+  conflicts?: string[] | null;
+  compatibility?: 'known' | 'unknown';
   language: Language;
   onAction?: (actionId: string) => void;
 }
@@ -22,7 +23,8 @@ interface AuroraRoutineCardProps {
 export function AuroraRoutineCard({ 
   amSteps, 
   pmSteps, 
-  conflicts = [],
+  conflicts,
+  compatibility = 'unknown',
   language,
   onAction 
 }: AuroraRoutineCardProps) {
@@ -32,6 +34,8 @@ export function AuroraRoutineCard({
     moisturizer: { EN: 'Moisturizer', CN: '保湿' },
     sunscreen: { EN: 'SPF', CN: '防晒' },
   };
+
+  const conflictsList = Array.isArray(conflicts) ? conflicts : null;
 
   const renderStep = (step: RoutineStep, idx: number) => (
     <div 
@@ -72,7 +76,7 @@ export function AuroraRoutineCard({
       </div>
 
       {/* Conflicts Warning */}
-      {conflicts.length > 0 && (
+      {compatibility === 'known' && conflictsList && conflictsList.length > 0 && (
         <div className="p-3 rounded-lg bg-risk/10 border border-risk/20">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-4 h-4 text-risk" />
@@ -81,7 +85,7 @@ export function AuroraRoutineCard({
             </span>
           </div>
           <ul className="space-y-1">
-            {conflicts.map((conflict, idx) => (
+            {conflictsList.map((conflict, idx) => (
               <li key={idx} className="text-xs text-risk flex items-start gap-1">
                 <span>•</span>
                 <span>{conflict}</span>
@@ -124,7 +128,14 @@ export function AuroraRoutineCard({
       </div>
 
       {/* Compatibility Check */}
-      {conflicts.length === 0 && (
+      {compatibility === 'unknown' ? (
+        <div className="p-3 rounded-lg bg-muted/30 border border-border/50 flex items-center gap-2">
+          <HelpCircle className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">
+            {language === 'EN' ? 'Compatibility not tested yet.' : '兼容性：尚未测试。'}
+          </span>
+        </div>
+      ) : compatibility === 'known' && conflictsList && conflictsList.length === 0 ? (
         <div className="p-3 rounded-lg bg-success/10 border border-success/20 flex items-center gap-2">
           <Check className="w-4 h-4 text-success" />
           <span className="text-sm text-success">
@@ -134,7 +145,7 @@ export function AuroraRoutineCard({
             }
           </span>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

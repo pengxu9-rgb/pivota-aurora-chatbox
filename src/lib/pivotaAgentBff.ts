@@ -110,12 +110,17 @@ export const bffJson = async <TResponse>(
   init: RequestInit & { baseUrl?: string } = {}
 ): Promise<TResponse> => {
   const baseUrl = init.baseUrl ?? getPivotaAgentBaseUrl();
+  const isFormData =
+    typeof FormData !== 'undefined' &&
+    init.body != null &&
+    typeof init.body === 'object' &&
+    init.body instanceof FormData;
 
   const res = await fetch(joinUrl(baseUrl, path), {
     ...init,
     headers: {
       Accept: 'application/json',
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       'X-Aurora-UID': headers.aurora_uid ?? '',
       'X-Trace-ID': headers.trace_id,
       'X-Brief-ID': headers.brief_id,
@@ -131,4 +136,3 @@ export const bffJson = async <TResponse>(
 
   return body as TResponse;
 };
-

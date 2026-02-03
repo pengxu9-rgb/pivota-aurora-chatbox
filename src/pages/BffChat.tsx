@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
+import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
+import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
+import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
+import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
+import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
+import type { DiagnosisResult, FlowState, Language as UiLanguage, Session, SkinConcern, SkinType } from '@/lib/types';
 import {
   Activity,
-  AlertCircle,
   ArrowRight,
   Beaker,
   Camera,
-  CheckCircle2,
   ChevronDown,
   Copy,
   FlaskConical,
@@ -98,6 +102,54 @@ const asNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
 };
+
+const asSkinType = (v: unknown): SkinType | null => {
+  const s = asString(v);
+  if (!s) return null;
+  const norm = s.trim().toLowerCase();
+  if (norm === 'oily' || norm === 'dry' || norm === 'combination' || norm === 'normal' || norm === 'sensitive') return norm as SkinType;
+  return null;
+};
+
+const GOAL_TO_CONCERN: Record<string, SkinConcern> = {
+  acne: 'acne',
+  'dark spots': 'dark_spots',
+  dark_spots: 'dark_spots',
+  hyperpigmentation: 'dark_spots',
+  dullness: 'dullness',
+  wrinkles: 'wrinkles',
+  aging: 'wrinkles',
+  redness: 'redness',
+  pores: 'pores',
+  dehydration: 'dehydration',
+  repair: 'dehydration',
+  barrier: 'dehydration',
+};
+
+const asConcern = (v: unknown): SkinConcern | null => {
+  const s = asString(v);
+  if (!s) return null;
+  const norm = s.trim().toLowerCase();
+  return GOAL_TO_CONCERN[norm] ?? null;
+};
+
+function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisResult {
+  const skinType = asSkinType(profile?.skinType);
+  const goals = asArray(profile?.goals);
+  const concerns = goals.map((g) => asConcern(g)).filter(Boolean) as SkinConcern[];
+
+  const barrierRaw = asString(profile?.barrierStatus);
+  const barrier = barrierRaw ? barrierRaw.trim().toLowerCase() : '';
+  const barrierStatus: DiagnosisResult['barrierStatus'] =
+    barrier === 'healthy' || barrier === 'impaired' || barrier === 'unknown' ? (barrier as DiagnosisResult['barrierStatus']) : 'unknown';
+
+  return {
+    ...(skinType ? { skinType } : {}),
+    concerns,
+    currentRoutine: 'basic',
+    ...(barrierStatus ? { barrierStatus } : {}),
+  };
+}
 
 type BootstrapInfo = {
   profile: Record<string, unknown> | null;
@@ -353,11 +405,66 @@ function RecommendationsCard({
     );
   };
 
+  const normalizeCategory = (raw: string) => {
+    const s = String(raw || '').trim().toLowerCase();
+    if (!s) return 'treatment';
+    if (s.includes('cleanser') || s.includes('洁面')) return 'cleanser';
+    if (s.includes('spf') || s.includes('sunscreen') || s.includes('防晒')) return 'sunscreen';
+    if (s.includes('moistur') || s.includes('cream') || s.includes('lotion') || s.includes('保湿') || s.includes('面霜') || s.includes('乳液'))
+      return 'moisturizer';
+    if (s.includes('treatment') || s.includes('serum') || s.includes('精华') || s.includes('功效')) return 'treatment';
+    return raw;
+  };
+
+  const toRoutineSteps = (list: RecoItem[]) =>
+    list
+      .map((item, idx) => {
+        const sku = asObject(item.sku) || asObject(item.product) || null;
+        const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || '';
+        const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || '';
+        const step = asString(item.step) || asString(item.category) || '';
+        const typeRaw =
+          (asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
+        const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
+
+        if (!brand && !name) return null;
+        return {
+          category: normalizeCategory(step || ''),
+          product: { brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown'), name: name || (language === 'CN' ? '未知产品' : 'Unknown') },
+          type,
+          _idx: idx,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 12) as Array<{ category: string; product: { brand: string; name: string }; type: 'premium' | 'dupe'; _idx: number }>;
+
+  const amSteps = toRoutineSteps(groups.am);
+  const pmSteps = toRoutineSteps(groups.pm);
+
   return (
     <div className="space-y-3">
-      {renderSection('am', groups.am)}
-      {renderSection('pm', groups.pm)}
-      {renderSection('other', groups.other)}
+      {(amSteps.length || pmSteps.length) ? (
+        <AuroraRoutineCard
+          amSteps={amSteps}
+          pmSteps={pmSteps}
+          compatibility="unknown"
+          language={language}
+        />
+      ) : null}
+
+      {(groups.am.length || groups.pm.length || groups.other.length) ? (
+        <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+            <span>{language === 'CN' ? '查看详细步骤与证据' : 'View detailed steps & evidence'}</span>
+            <ChevronDown className="h-4 w-4" />
+          </summary>
+          <div className="mt-3 space-y-3">
+            {renderSection('am', groups.am)}
+            {renderSection('pm', groups.pm)}
+            {renderSection('other', groups.other)}
+          </div>
+        </details>
+      ) : null}
 
       {showMissing.length ? (
         <div className="rounded-2xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
@@ -373,83 +480,70 @@ function RecommendationsCard({
   );
 }
 
-function AnalysisSummaryView({ card, language }: { card: Card; language: 'EN' | 'CN' }) {
-  const payload = asObject(card.payload) || {};
-  const analysis = asObject(payload.analysis) || {};
-  const featuresRaw = asArray(analysis.features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-  const strategy = asString(analysis.strategy) || '';
+function BffCardView({
+  card,
+  language,
+  debug,
+  session,
+  onAction,
+}: {
+  card: Card;
+  language: UiLanguage;
+  debug: boolean;
+  session: Session;
+  onAction: (actionId: string, data?: Record<string, any>) => void;
+}) {
+  const cardType = String(card.type || '').toLowerCase();
+  if (
+    !debug &&
+    (cardType === 'aurora_structured' ||
+      cardType === 'gate_notice' ||
+      cardType === 'session_bootstrap' ||
+      cardType === 'diagnosis_gate' ||
+      cardType === 'budget_gate')
+  )
+    return null;
 
-  const features = featuresRaw
-    .map((f) => ({
-      observation: asString(f.observation) || '',
-      confidence: (asString(f.confidence) || 'somewhat_sure') as 'pretty_sure' | 'somewhat_sure' | 'not_sure',
-    }))
-    .filter((f) => Boolean(f.observation))
-    .slice(0, 6);
+  const payloadObj = asObject(card.payload);
+  const payload = payloadObj ?? (card.payload as any);
 
-  const iconForConfidence = (c: string) => {
-    if (c === 'pretty_sure') return CheckCircle2;
-    if (c === 'not_sure') return HelpCircle;
-    return AlertCircle;
-  };
+  if (cardType === 'analysis_summary') {
+    const analysisObj = asObject((payload as any).analysis) || {};
+    const featuresRaw = asArray((analysisObj as any).features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+    const features = featuresRaw
+      .map((f) => ({
+        observation: asString(f.observation) || '',
+        confidence: (asString(f.confidence) || 'somewhat_sure') as 'pretty_sure' | 'somewhat_sure' | 'not_sure',
+      }))
+      .filter((f) => Boolean(f.observation))
+      .slice(0, 8);
+    const analysis = {
+      features,
+      strategy: asString((analysisObj as any).strategy) || '',
+      needs_risk_check: (analysisObj as any).needs_risk_check === true,
+    };
 
-  const labelForConfidence = (c: string) => {
-    if (language === 'CN') {
-      if (c === 'pretty_sure') return '较确定';
-      if (c === 'not_sure') return '不确定';
-      return '有一定把握';
-    }
-    if (c === 'pretty_sure') return 'pretty sure';
-    if (c === 'not_sure') return 'not sure';
-    return 'somewhat sure';
-  };
+    return <AnalysisSummaryCard payload={{ analysis: analysis as any, session }} onAction={(id) => onAction(id)} language={language} />;
+  }
 
-  return (
-    <div className="space-y-3">
-      <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-        {language === 'CN'
-          ? '说明：照片目前仅用于“质检（清晰度/光线/滤镜）”，分析仍以你的自述与最近记录为主。'
-          : 'Note: photos are currently used for QC (lighting/blur/filters). The assessment is based on your profile + recent logs.'}
-      </div>
-
-      {features.length ? (
-        <div className="space-y-2">
-          {features.map((f, idx) => {
-            const Icon = iconForConfidence(f.confidence);
-            return (
-              <div key={`${idx}_${f.observation}`} className="flex items-start gap-2 rounded-2xl border border-border/60 bg-background/60 p-3">
-                <Icon className="mt-0.5 h-4 w-4 text-foreground/70" />
-                <div className="space-y-1">
-                  <div className="text-sm text-foreground">{f.observation}</div>
-                  <div className="text-[11px] text-muted-foreground">{labelForConfidence(f.confidence)}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {strategy ? (
-        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3">
-          <div className="text-xs font-semibold text-foreground">{language === 'CN' ? '7 天策略' : '7-day plan'}</div>
-          <div className="mt-2 whitespace-pre-wrap text-sm text-foreground">{strategy}</div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function BffCardView({ card, language, debug }: { card: Card; language: 'EN' | 'CN'; debug: boolean }) {
-  if (!debug && (card.type === 'aurora_structured' || card.type === 'gate_notice')) return null;
+  if (cardType === 'profile') {
+    const profilePayload = asObject((payload as any)?.profile) ?? asObject(payload) ?? null;
+    const diagnosis = toDiagnosisResult(profilePayload);
+    return (
+      <SkinIdentityCard
+        payload={{ diagnosis, avatarUrl: null, photoHint: true }}
+        onAction={(id, data) => onAction(id, data)}
+        language={language}
+      />
+    );
+  }
 
   const Icon = iconForCard(card.type);
   const title = titleForCard(card.type, language);
   const fieldMissingCount = Array.isArray(card.field_missing) ? card.field_missing.length : 0;
 
-  const payloadObj = asObject(card.payload);
-  const profilePayload = asObject((payloadObj as any)?.profile);
-  const qcStatus = asString((payloadObj as any)?.qc_status);
-  const qcObj = asObject((payloadObj as any)?.qc);
+  const qcStatus = asString((payload as any)?.qc_status);
+  const qcObj = asObject((payload as any)?.qc);
   const qcAdvice = asObject(qcObj?.advice);
   const qcSummary = asString(qcAdvice?.summary) || null;
   const qcSuggestions = asArray(qcAdvice?.suggestions).map((s) => asString(s)).filter(Boolean) as string[];
@@ -474,21 +568,9 @@ function BffCardView({ card, language, debug }: { card: Card; language: 'EN' | '
         ) : null}
       </div>
 
-      {card.type === 'recommendations' ? <RecommendationsCard card={card} language={language} debug={debug} /> : null}
-      {card.type === 'analysis_summary' ? <AnalysisSummaryView card={card} language={language} /> : null}
+      {cardType === 'recommendations' ? <RecommendationsCard card={card} language={language} debug={debug} /> : null}
 
-      {card.type === 'profile' ? (
-        <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
-          <div className="text-xs text-muted-foreground">
-            {language === 'CN' ? '已记录你的肤况。需要修改的话，点顶部「资料」。' : 'Saved. Tap “Profile” on the top bar to edit.'}
-          </div>
-          <div className="mt-2 text-sm font-medium text-foreground">
-            {formatProfileLine(profilePayload ?? null, language)}
-          </div>
-        </div>
-      ) : null}
-
-      {card.type === 'photo_confirm' ? (
+      {cardType === 'photo_confirm' ? (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
           <div className="text-xs text-muted-foreground">{language === 'CN' ? '照片质检结果' : 'Photo QC result'}</div>
           <div className="mt-2 text-sm font-semibold text-foreground">
@@ -515,7 +597,7 @@ function BffCardView({ card, language, debug }: { card: Card; language: 'EN' | '
         </div>
       ) : null}
 
-      {card.type !== 'recommendations' && card.type !== 'profile' && card.type !== 'analysis_summary' && debug ? (
+      {cardType !== 'recommendations' && cardType !== 'profile' && cardType !== 'analysis_summary' && debug ? (
         <>
           <details className="rounded-2xl border border-border/50 bg-background/50 p-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
@@ -554,11 +636,12 @@ export default function BffChat() {
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
 
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
+  const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
+  const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
 
   const [profileDraft, setProfileDraft] = useState({
     skinType: '',
@@ -708,6 +791,7 @@ export default function BffChat() {
     setError(null);
     setSessionState('idle');
     setItems([]);
+    setSessionPhotos({});
     setHasBootstrapped(false);
     void bootstrap();
   }, [bootstrap]);
@@ -797,58 +881,38 @@ export default function BffChat() {
   }, [applyEnvelope, checkinDraft, headers, language]);
 
   const handlePickPhoto = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+    setPhotoSheetOpen(true);
+  }, [setPhotoSheetOpen]);
 
-  const uploadPhoto = useCallback(
-    async (file: File) => {
+  const uploadPhotoViaProxy = useCallback(
+    async ({ file, slotId, consent }: { file: File; slotId: string; consent: boolean }) => {
       setIsLoading(true);
       try {
         const requestHeaders = { ...headers, lang: language };
-        const presignEnv = await bffJson<V1Envelope>('/v1/photos/presign', requestHeaders, {
+        const form = new FormData();
+        form.append('slot_id', slotId);
+        form.append('consent', consent ? 'true' : 'false');
+        form.append('photo', file, file.name || `photo_${slotId}.jpg`);
+
+        const confirmEnv = await bffJson<V1Envelope>('/v1/photos/upload', requestHeaders, {
           method: 'POST',
-          body: JSON.stringify({
-            slot_id: 'daylight',
-            content_type: file.type || 'image/jpeg',
-            bytes: file.size,
-          }),
+          body: form,
         });
-        applyEnvelope(presignEnv);
+        applyEnvelope(confirmEnv);
 
-        const presignCard = presignEnv.cards.find((c) => c && c.type === 'photo_presign');
-        const photoId = asString(presignCard && (presignCard.payload as any)?.photo_id);
-        const upload = asObject(presignCard && (presignCard.payload as any)?.upload);
-        const uploadUrl = asString(upload && upload.url);
-        const uploadMethod = asString(upload && upload.method) || 'PUT';
-        const uploadHeaders = asObject(upload && upload.headers) || {};
+        const confirmCard = confirmEnv.cards.find((c) => c && c.type === 'photo_confirm');
+        const qcStatus = asString(confirmCard && (confirmCard.payload as any)?.qc_status);
+        const photoId = asString(confirmCard && (confirmCard.payload as any)?.photo_id);
 
-        if (photoId && uploadUrl) {
-          await fetch(uploadUrl, {
-            method: uploadMethod,
-            headers: Object.fromEntries(Object.entries(uploadHeaders).map(([k, v]) => [k, String(v)])),
-            body: file,
-          });
-        }
-
-        if (photoId) {
-          const confirmEnv = await bffJson<V1Envelope>('/v1/photos/confirm', requestHeaders, {
+        if (qcStatus === 'passed' && photoId) {
+          const analysisEnv = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
             method: 'POST',
-            body: JSON.stringify({ photo_id: photoId, slot_id: 'daylight' }),
+            body: JSON.stringify({
+              use_photo: true,
+              photos: [{ slot_id: slotId, photo_id: photoId, qc_status: qcStatus }],
+            }),
           });
-          applyEnvelope(confirmEnv);
-
-          const confirmCard = confirmEnv.cards.find((c) => c && c.type === 'photo_confirm');
-          const qcStatus = asString(confirmCard && (confirmCard.payload as any)?.qc_status);
-
-          if (qcStatus === 'passed') {
-            const analysisEnv = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-              method: 'POST',
-              body: JSON.stringify({
-                photos: [{ slot_id: 'daylight', photo_id: photoId, qc_status: qcStatus }],
-              }),
-            });
-            applyEnvelope(analysisEnv);
-          }
+          applyEnvelope(analysisEnv);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -859,18 +923,55 @@ export default function BffChat() {
     [applyEnvelope, headers, language],
   );
 
-  const onPhotoSelected = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = '';
-      if (!file) return;
-      setItems((prev) => [
-        ...prev,
-        { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '上传照片' : 'Upload a photo' },
-      ]);
-      await uploadPhoto(file);
+  const onPhotoAction = useCallback(
+    async (actionId: string, data?: Record<string, any>) => {
+      if (actionId === 'photo_skip') {
+        setPhotoSheetOpen(false);
+        return;
+      }
+      if (actionId !== 'photo_upload') {
+        setError(language === 'CN' ? '暂不支持该照片操作。' : 'That photo action is not supported yet.');
+        return;
+      }
+
+      const consent = Boolean(data?.consent);
+      if (!consent) {
+        setError(language === 'CN' ? '需要勾选同意后才能上传。' : 'Please consent before uploading.');
+        return;
+      }
+
+      const photos = (data?.photos && typeof data.photos === 'object' ? data.photos : {}) as Record<string, any>;
+      const entries: Array<{ slotId: string; file: File }> = [];
+      if (photos.daylight?.file instanceof File) entries.push({ slotId: 'daylight', file: photos.daylight.file });
+      if (photos.indoor_white?.file instanceof File) entries.push({ slotId: 'indoor_white', file: photos.indoor_white.file });
+
+      if (!entries.length) return;
+      setSessionPhotos({ daylight: photos.daylight, indoor_white: photos.indoor_white });
+      setPhotoSheetOpen(false);
+
+      for (const entry of entries) {
+        const slotLabel =
+          entry.slotId === 'daylight'
+            ? language === 'CN'
+              ? '自然光'
+              : 'daylight'
+            : language === 'CN'
+              ? '室内白光'
+              : 'indoor white';
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? `上传照片（${slotLabel}）` : `Upload photo (${slotLabel})`,
+          },
+        ]);
+        // eslint-disable-next-line no-await-in-loop
+        await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
+      }
     },
-    [language, uploadPhoto],
+    [language, uploadPhotoViaProxy],
   );
 
   const sendChat = useCallback(
@@ -899,6 +1000,59 @@ export default function BffChat() {
     [applyEnvelope, headers, language, sessionState]
   );
 
+  const onCardAction = useCallback(
+    async (actionId: string, data?: Record<string, any>) => {
+      if (actionId === 'profile_upload_selfie') {
+        setPhotoSheetOpen(true);
+        return;
+      }
+
+      if (actionId === 'profile_update_concerns') {
+        const concernsRaw = Array.isArray(data?.concerns) ? (data?.concerns as unknown[]) : [];
+        const concerns = concernsRaw.map((c) => String(c || '').trim()).filter(Boolean);
+        const requestHeaders = { ...headers, lang: language };
+
+        setIsLoading(true);
+        try {
+          const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify({ goals: concerns }),
+          });
+          applyEnvelope(env);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      const msg =
+        actionId === 'analysis_continue' || actionId === 'profile_confirm'
+          ? language === 'CN'
+            ? '继续'
+            : 'Continue'
+          : actionId === 'analysis_gentler'
+            ? language === 'CN'
+              ? '给我更温和的方案'
+              : 'Make it gentler'
+            : actionId === 'analysis_simple'
+              ? language === 'CN'
+                ? '给我更简单的方案'
+                : 'Make it simpler'
+              : null;
+
+      if (msg) {
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+        await sendChat(msg);
+        return;
+      }
+
+      await sendChat(undefined, { action_id: actionId, kind: 'action', data });
+    },
+    [applyEnvelope, headers, language, sendChat],
+  );
+
   const onSubmit = useCallback(async () => {
     const msg = input.trim();
     if (!msg) return;
@@ -916,6 +1070,21 @@ export default function BffChat() {
   );
 
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
+  const flowState = useMemo(() => {
+    const s = String(sessionState || '').trim();
+    return ((s && s.startsWith('S')) ? s : 'S0_LANDING') as FlowState;
+  }, [sessionState]);
+  const sessionForCards = useMemo<Session>(() => {
+    return {
+      brief_id: headers.brief_id,
+      trace_id: headers.trace_id,
+      mode: 'live',
+      state: flowState,
+      clarification_count: 0,
+      photos: sessionPhotos,
+      selected_offers: {},
+    };
+  }, [headers.brief_id, headers.trace_id, flowState, sessionPhotos]);
 
   return (
     <div className="chat-container">
@@ -993,6 +1162,13 @@ export default function BffChat() {
 
       <main className="chat-messages scrollbar-hide">
         <div className="mx-auto max-w-lg space-y-4">
+          <Sheet
+            open={photoSheetOpen}
+            title={language === 'CN' ? '上传照片（更准确）' : 'Upload photos (recommended)'}
+            onClose={() => setPhotoSheetOpen(false)}
+          >
+            <PhotoUploadCard language={language} onAction={onPhotoAction} />
+          </Sheet>
           <Sheet
             open={profileSheetOpen}
             title={language === 'CN' ? '编辑肤况资料' : 'Edit profile'}
@@ -1169,6 +1345,10 @@ export default function BffChat() {
             </div>
           ) : null}
 
+          {String(sessionState || '').startsWith('S') ? (
+            <AuroraDiagnosisProgress currentState={flowState} language={language} />
+          ) : null}
+
           {items.map((item) => {
             if (item.kind === 'text') {
               const isUser = item.role === 'user';
@@ -1207,7 +1387,7 @@ export default function BffChat() {
             return (
               <div key={item.id} className="space-y-3">
                 {item.cards.map((card) => (
-                  <BffCardView key={card.card_id} card={card} language={language} debug={debug} />
+                  <BffCardView key={card.card_id} card={card} language={language} debug={debug} session={sessionForCards} onAction={onCardAction} />
                 ))}
               </div>
             );
@@ -1235,7 +1415,6 @@ export default function BffChat() {
           >
             <Camera className="h-5 w-5" />
           </button>
-          <input ref={fileInputRef} className="hidden" type="file" accept="image/*" onChange={onPhotoSelected} />
           <input
             className="h-10 flex-1 bg-transparent px-3 text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
             value={input}

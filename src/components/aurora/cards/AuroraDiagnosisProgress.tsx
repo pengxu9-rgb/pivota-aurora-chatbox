@@ -20,7 +20,7 @@ const STEPS: ProgressStep[] = [
   {
     id: 'input',
     icon: Terminal,
-    label: { EN: 'Profile', CN: '画像' },
+    label: { EN: 'Profile', CN: '资料' },
     states: ['S0_LANDING', 'S1_OPEN_INTENT', 'S2_DIAGNOSIS', 'S3_PHOTO_OPTION', 'S3a_PHOTO_QC'],
   },
   {
