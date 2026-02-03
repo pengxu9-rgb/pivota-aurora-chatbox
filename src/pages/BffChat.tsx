@@ -15,11 +15,14 @@ import {
   ArrowRight,
   Beaker,
   Camera,
+  CheckCircle2,
   ChevronDown,
   Copy,
+  ExternalLink,
   FlaskConical,
   Globe,
   HelpCircle,
+  AlertTriangle,
   RefreshCw,
   Search,
   Sparkles,
@@ -243,6 +246,44 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
   if (keyActives.length) product.key_actives = keyActives;
 
   return product;
+}
+
+function toUiOffer(raw: Record<string, unknown>): Offer {
+  const offer_id = asString(raw.offer_id ?? (raw as any).offerId) || `offer_${Math.random().toString(16).slice(2)}`.slice(0, 24);
+  const seller = asString(raw.seller) || '';
+  const currency = asString(raw.currency) || 'USD';
+
+  const price = asNumber(raw.price);
+  const originalPrice = asNumber(raw.original_price ?? (raw as any).originalPrice);
+  const shippingDays = asNumber(raw.shipping_days ?? (raw as any).shippingDays);
+  const reliability = asNumber(raw.reliability_score ?? (raw as any).reliabilityScore);
+
+  const badges = uniqueStrings(raw.badges)
+    .filter((b) => ['best_price', 'best_returns', 'fastest_shipping', 'high_reliability'].includes(b))
+    .slice(0, 6) as any;
+
+  const purchaseRouteRaw = asString(raw.purchase_route ?? (raw as any).purchaseRoute);
+  const affiliate_url = asString(raw.affiliate_url ?? (raw as any).affiliateUrl) || undefined;
+  const purchase_route = (purchaseRouteRaw === 'internal_checkout' || purchaseRouteRaw === 'affiliate_outbound'
+    ? purchaseRouteRaw
+    : affiliate_url
+      ? 'affiliate_outbound'
+      : 'internal_checkout') as Offer['purchase_route'];
+
+  return {
+    offer_id,
+    seller,
+    price: price == null ? Number.NaN : price,
+    currency,
+    ...(originalPrice != null ? { original_price: originalPrice } : {}),
+    shipping_days: shippingDays == null ? 0 : shippingDays,
+    returns_policy: asString(raw.returns_policy ?? (raw as any).returnsPolicy) || '',
+    reliability_score: reliability == null ? 0 : reliability,
+    badges,
+    in_stock: raw.in_stock === false ? false : true,
+    purchase_route,
+    ...(affiliate_url ? { affiliate_url } : {}),
+  };
 }
 
 function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage) {
@@ -807,6 +848,110 @@ function BffCardView({
           resolveSkuOffers={resolveSkuOffers}
         />
       ) : null}
+
+      {cardType === 'routine_simulation' ? (() => {
+        const safe = (payload as any)?.safe === true;
+        const summary = asString((payload as any)?.summary) || '';
+        const conflicts = asArray((payload as any)?.conflicts).map((c) => asObject(c)).filter(Boolean) as Array<Record<string, unknown>>;
+        const Icon = safe ? CheckCircle2 : AlertTriangle;
+        const tone = safe ? 'text-emerald-700 bg-emerald-500/10 border-emerald-500/20' : 'text-amber-700 bg-amber-500/10 border-amber-500/20';
+        return (
+          <div className="space-y-3">
+            <div className={`flex items-start gap-3 rounded-2xl border p-3 ${tone}`}>
+              <Icon className="h-5 w-5" />
+              <div className="space-y-1">
+                <div className="text-sm font-semibold">
+                  {safe
+                    ? language === 'CN'
+                      ? '看起来兼容 ✅'
+                      : 'Looks compatible ✅'
+                    : language === 'CN'
+                      ? '存在刺激/冲突风险'
+                      : 'Irritation/conflict risks detected'}
+                </div>
+                {summary ? <div className="text-xs text-muted-foreground">{summary}</div> : null}
+              </div>
+            </div>
+
+            {conflicts.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '冲突点' : 'Conflicts'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {conflicts.slice(0, 6).map((c, idx) => {
+                    const rule = asString(c.rule_id) || asString((c as any).ruleId) || '';
+                    const msg = asString(c.message) || '';
+                    const sev = asString(c.severity) || '';
+                    return (
+                      <li key={`${rule || 'c'}_${idx}`}>
+                        {msg}
+                        {(rule || sev) ? (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {rule ? `(${rule}${sev ? ` · ${sev}` : ''})` : sev ? `(${sev})` : ''}
+                          </span>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        );
+      })() : null}
+
+      {cardType === 'offers_resolved' ? (() => {
+        const items = asArray((payload as any)?.items).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+        if (!items.length) return null;
+
+        return (
+          <div className="space-y-3">
+            {items.slice(0, 8).map((item, idx) => {
+              const productRaw = asObject(item.product);
+              const offerRaw = asObject(item.offer);
+              if (!productRaw) return null;
+              const product = toUiProduct(productRaw, language);
+              const offer = offerRaw ? toUiOffer(offerRaw) : null;
+              const outboundUrl = offer?.purchase_route === 'affiliate_outbound' ? offer.affiliate_url : undefined;
+
+              return (
+                <div key={`${product.sku_id}_${idx}`} className="space-y-2">
+                  <AuroraAnchorCard product={product} offers={offer ? [offer] : []} language={language} />
+
+                  {outboundUrl ? (
+                    <button
+                      type="button"
+                      className="chip-button chip-button-primary w-full"
+                      onClick={() => onAction('affiliate_open', { url: outboundUrl, offer_id: offer?.offer_id })}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      {language === 'CN' ? '打开购买链接' : 'Open purchase link'}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })() : null}
+
+      {cardType === 'error' ? (() => {
+        const code = asString((payload as any)?.error) || 'UNKNOWN_ERROR';
+        const status = asNumber((payload as any)?.status);
+        const details = (payload as any)?.details ?? null;
+        return (
+          <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="font-semibold">
+              {code}
+              {typeof status === 'number' ? ` (HTTP ${status})` : ''}
+            </div>
+            {details ? (
+              <pre className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
+                {renderJson(details)}
+              </pre>
+            ) : null}
+          </div>
+        );
+      })() : null}
 
       {cardType === 'product_parse' ? (() => {
         const productRaw = asObject((payload as any).product);
@@ -1735,6 +1880,33 @@ export default function BffChat() {
 
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
+      if (actionId === 'affiliate_open') {
+        const url = typeof data?.url === 'string' ? data.url.trim() : '';
+        const offerId = typeof data?.offer_id === 'string' ? data.offer_id.trim() : undefined;
+        if (!url) return;
+
+        let opened = false;
+        try {
+          const w = window.open(url, '_blank', 'noopener,noreferrer');
+          opened = Boolean(w);
+          if (!opened) setError(language === 'CN' ? '浏览器拦截了弹窗，请允许后重试。' : 'Popup blocked by browser. Please allow popups and retry.');
+        } catch {
+          setError(language === 'CN' ? '打开链接失败。' : 'Failed to open link.');
+        }
+
+        // Best-effort tracking (do not render the returned card).
+        try {
+          const requestHeaders = { ...headers, lang: language };
+          await bffJson('/v1/affiliate/outcome', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify({ outcome: opened ? 'success' : 'failed', url, ...(offerId ? { offer_id: offerId } : {}) }),
+          });
+        } catch {
+          // ignore tracking errors
+        }
+        return;
+      }
+
       if (actionId === 'profile_upload_selfie') {
         setPhotoSheetOpen(true);
         return;
