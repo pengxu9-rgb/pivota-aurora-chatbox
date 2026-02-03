@@ -43,6 +43,7 @@ const iconForChip = (chipId: string): IconType => {
   const id = String(chipId || '').toLowerCase();
   if (id.startsWith('profile.')) return User;
   if (id.startsWith('chip.budget.')) return Wallet;
+  if (id.includes('diagnosis')) return Activity;
   if (id.includes('reco_products')) return Sparkles;
   if (id.includes('routine')) return Sparkles;
   if (id.includes('evaluate') || id.includes('analyze')) return Search;
@@ -423,6 +424,12 @@ export default function BffChat() {
           : `Hi — I’m your skincare partner. ${isReturning && profile ? 'Welcome back! ' : ''}What would you like to do?`;
 
       const startChips: SuggestedChip[] = [
+        {
+          chip_id: 'chip.start.diagnosis',
+          label: lang === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis',
+          kind: 'quick_reply',
+          data: { reply_text: lang === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis' },
+        },
         {
           chip_id: 'chip.start.reco_products',
           label: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
