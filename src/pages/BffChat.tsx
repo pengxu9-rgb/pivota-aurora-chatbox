@@ -1090,7 +1090,8 @@ function BffCardView({
     !debug &&
     (cardType === 'gate_notice' ||
       cardType === 'session_bootstrap' ||
-      cardType === 'budget_gate')
+      cardType === 'budget_gate' ||
+      cardType === 'profile')
   )
     return null;
 
