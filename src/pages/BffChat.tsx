@@ -1660,6 +1660,8 @@ export default function BffChat() {
   const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<Array<{ slot_id: string; photo_id: string; qc_status: string }>>([]);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
   const [awaitingRoutine, setAwaitingRoutine] = useState(false);
+  const [routineSheetOpen, setRoutineSheetOpen] = useState(false);
+  const [routineDraft, setRoutineDraft] = useState('');
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '', dupe: '' });
@@ -2409,6 +2411,12 @@ export default function BffChat() {
             : 'After uploading, to make this accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). You can also skip; I’ll give a low-confidence 7‑day baseline.';
         const chips: SuggestedChip[] = [
           {
+            chip_id: 'chip.intake.paste_routine',
+            label: language === 'CN' ? '粘贴 AM/PM 产品（更准）' : 'Paste AM/PM products (more accurate)',
+            kind: 'quick_reply',
+            data: {},
+          },
+          {
             chip_id: 'chip.intake.skip_analysis',
             label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
             kind: 'quick_reply',
@@ -2438,6 +2446,12 @@ export default function BffChat() {
           {
             chip_id: 'chip.intake.upload_photos',
             label: language === 'CN' ? '改为上传照片' : 'Upload photos instead',
+            kind: 'quick_reply',
+            data: {},
+          },
+          {
+            chip_id: 'chip.intake.paste_routine',
+            label: language === 'CN' ? '粘贴 AM/PM 产品（更准）' : 'Paste AM/PM products (more accurate)',
             kind: 'quick_reply',
             data: {},
           },
@@ -2478,8 +2492,11 @@ export default function BffChat() {
 
       if (actionId === 'analysis_review_products') {
         setAwaitingRoutine(true);
+        setRoutineDraft('');
+        setRoutineSheetOpen(true);
         setItems((prev) => [
           ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '评估我现在用的产品' : 'Review my current products' },
           {
             id: nextId(),
             role: 'assistant',
@@ -2554,13 +2571,40 @@ export default function BffChat() {
     [applyEnvelope, headers, language, sendChat],
   );
 
-  const onSubmit = useCallback(async () => {
-    const msg = input.trim();
-    if (!msg) return;
-    setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
-    setInput('');
+  const getSanitizedAnalysisPhotos = useCallback(() => {
+    return analysisPhotoRefs
+      .map((p) => ({
+        slot_id: String(p?.slot_id || '').trim(),
+        photo_id: String(p?.photo_id || '').trim(),
+        qc_status: String(p?.qc_status || '').trim(),
+      }))
+      .filter((p) => p.slot_id && p.photo_id)
+      .slice(0, 4);
+  }, [analysisPhotoRefs]);
 
-    if (awaitingRoutine) {
+  const runLowConfidenceSkinAnalysis = useCallback(async () => {
+    setAwaitingRoutine(false);
+    setIsLoading(true);
+    setError(null);
+    try {
+      setSessionState('S4_ANALYSIS_LOADING');
+      const requestHeaders = { ...headers, lang: language };
+      const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({ use_photo: false, photos: [] }),
+      });
+      applyEnvelope(env);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyEnvelope, headers, language]);
+
+  const runRoutineSkinAnalysis = useCallback(
+    async (routineText: string) => {
+      const msg = String(routineText || '').trim();
+      if (!msg) return;
       setIsLoading(true);
       setError(null);
       try {
@@ -2571,9 +2615,8 @@ export default function BffChat() {
         });
         applyEnvelope(envProfile);
 
-        // Reflect progress immediately in the UI.
         setSessionState('S4_ANALYSIS_LOADING');
-        const photos = analysisPhotoRefs.slice(0, 4);
+        const photos = getSanitizedAnalysisPhotos();
         const usePhoto = photos.length > 0;
         const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
           method: 'POST',
@@ -2586,11 +2629,23 @@ export default function BffChat() {
         setAwaitingRoutine(false);
         setIsLoading(false);
       }
+    },
+    [applyEnvelope, getSanitizedAnalysisPhotos, headers, language],
+  );
+
+  const onSubmit = useCallback(async () => {
+    const msg = input.trim();
+    if (!msg) return;
+    setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+    setInput('');
+
+    if (awaitingRoutine) {
+      await runRoutineSkinAnalysis(msg);
       return;
     }
 
     await sendChat(msg);
-  }, [applyEnvelope, awaitingRoutine, headers, input, language, sendChat, analysisPhotoRefs]);
+  }, [awaitingRoutine, input, runRoutineSkinAnalysis, sendChat]);
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
@@ -2600,26 +2655,15 @@ export default function BffChat() {
         setPhotoSheetOpen(true);
         return;
       }
+      if (id === 'chip.intake.paste_routine') {
+        setAwaitingRoutine(true);
+        setRoutineDraft('');
+        setRoutineSheetOpen(true);
+        return;
+      }
       if (id === 'chip.intake.skip_analysis') {
-        setAwaitingRoutine(false);
-        setIsLoading(true);
-        setError(null);
-        try {
-          // Reflect progress immediately in the UI.
-          setSessionState('S4_ANALYSIS_LOADING');
-          const requestHeaders = { ...headers, lang: language };
-          const photos = analysisPhotoRefs.slice(0, 4);
-          const usePhoto = photos.length > 0;
-          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({ use_photo: usePhoto, photos }),
-          });
-          applyEnvelope(env);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          setIsLoading(false);
-        }
+        setRoutineSheetOpen(false);
+        await runLowConfidenceSkinAnalysis();
         return;
       }
       if (id === 'chip.start.evaluate') {
@@ -2634,7 +2678,7 @@ export default function BffChat() {
       }
       await sendChat(undefined, { action_id: chip.chip_id, kind: 'chip', data: chip.data });
     },
-    [applyEnvelope, headers, language, sendChat, analysisPhotoRefs]
+    [runLowConfidenceSkinAnalysis, sendChat]
   );
 
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
@@ -2957,6 +3001,75 @@ export default function BffChat() {
             onClose={() => setPhotoSheetOpen(false)}
           >
             <PhotoUploadCard language={language} onAction={onPhotoAction} />
+          </Sheet>
+          <Sheet
+            open={routineSheetOpen}
+            title={language === 'CN' ? '粘贴你在用的 AM/PM 产品（更准）' : 'Paste your AM/PM products (more accurate)'}
+            onClose={() => setRoutineSheetOpen(false)}
+          >
+            <div className="space-y-3">
+              <div className="text-xs text-muted-foreground">
+                {language === 'CN'
+                  ? '强烈建议提供你最近在用的步骤/产品（名字或链接都行）。否则我只能给“低置信度”的通用 7 天建议，不做评分/不推推荐。'
+                  : 'Strongly recommended: share what you’re using now (names or links). Otherwise I’ll only give a low-confidence 7‑day baseline (no scoring, no recommendations).'}
+              </div>
+
+              <label className="space-y-1 text-xs text-muted-foreground">
+                {language === 'CN' ? '当前 routine（AM/PM）' : 'Current routine (AM/PM)'}
+                <textarea
+                  className="min-h-[140px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
+                  value={routineDraft}
+                  onChange={(e) => setRoutineDraft(e.target.value)}
+                  placeholder={
+                    language === 'CN'
+                      ? 'AM: 洁面…\nSPF…\n\nPM: 洁面…\n维A/酸…\n保湿…\n\n备注：有时会刺痛…'
+                      : 'AM: Cleanser…\nSPF…\n\nPM: Cleanser…\nRetinoid/acids…\nMoisturizer…\n\nNotes: sometimes stings…'
+                  }
+                  disabled={isLoading}
+                />
+              </label>
+
+              <div className="flex gap-2">
+                <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={isLoading}>
+                  {language === 'CN' ? '取消' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  className="chip-button"
+                  onClick={() => {
+                    setRoutineSheetOpen(false);
+                    setRoutineDraft('');
+                    setItems((prev) => [
+                      ...prev,
+                      {
+                        id: nextId(),
+                        role: 'user',
+                        kind: 'text',
+                        content: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
+                      },
+                    ]);
+                    void runLowConfidenceSkinAnalysis();
+                  }}
+                  disabled={isLoading}
+                >
+                  {language === 'CN' ? '先给基线' : 'Baseline only'}
+                </button>
+                <button
+                  type="button"
+                  className="chip-button chip-button-primary flex-1"
+                  disabled={isLoading || !routineDraft.trim()}
+                  onClick={() => {
+                    const text = routineDraft.trim();
+                    setRoutineSheetOpen(false);
+                    setRoutineDraft('');
+                    setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: text }]);
+                    void runRoutineSkinAnalysis(text);
+                  }}
+                >
+                  {language === 'CN' ? '保存并分析' : 'Save & analyze'}
+                </button>
+              </div>
+            </div>
           </Sheet>
           <Sheet
             open={productSheetOpen}
