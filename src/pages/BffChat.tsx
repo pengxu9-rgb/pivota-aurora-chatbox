@@ -224,6 +224,18 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
 
 type RecoItem = Record<string, unknown> & { slot?: string };
 
+const isEnvStressCard = (card: Card): boolean => {
+  const type = String(card?.type || '').trim().toLowerCase();
+  if (type === 'env_stress' || type === 'environment_stress') return true;
+
+  const payload = card?.payload;
+  const schema =
+    payload && typeof payload === 'object' && !Array.isArray(payload) && typeof (payload as any).schema_version === 'string'
+      ? String((payload as any).schema_version || '').trim().toLowerCase()
+      : '';
+  return Boolean(schema && schema.includes('env_stress'));
+};
+
 const asArray = (v: unknown) => (Array.isArray(v) ? v : []);
 const asObject = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const asString = (v: unknown) => (typeof v === 'string' ? v : v == null ? null : String(v));
@@ -1802,12 +1814,16 @@ export default function BffChat() {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: env.assistant_message.content });
     }
 
-    if (Array.isArray(env.cards) && env.cards.length) {
-      nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards: env.cards });
+    const cards = Array.isArray(env.cards)
+      ? env.cards.filter((c) => (debug ? true : !isEnvStressCard(c)))
+      : [];
+
+    if (cards.length) {
+      nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards });
     }
 
-    const suppressChips = Array.isArray(env.cards)
-      ? env.cards.some((c) => {
+    const suppressChips = cards.length
+      ? cards.some((c) => {
           const t = String((c as any)?.type || '').toLowerCase();
           return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
         })
@@ -1818,7 +1834,7 @@ export default function BffChat() {
     }
 
     if (nextItems.length) setItems((prev) => [...prev, ...nextItems]);
-  }, []);
+  }, [debug]);
 
   const bootstrap = useCallback(async () => {
     setIsLoading(true);
@@ -2726,8 +2742,25 @@ export default function BffChat() {
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
-      setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: chip.label }]);
       const id = String(chip.chip_id || '');
+      const userItem: ChatItem = { id: nextId(), role: 'user', kind: 'text', content: chip.label };
+
+      if (id === 'chip.start.diagnosis') {
+        setSessionState('S2_DIAGNOSIS');
+        setItems((prev) => [
+          ...prev,
+          userItem,
+          {
+            id: nextId(),
+            role: 'assistant',
+            kind: 'cards',
+            cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
+          },
+        ]);
+        return;
+      }
+
+      setItems((prev) => [...prev, userItem]);
       if (id === 'chip.intake.upload_photos') {
         setPhotoSheetOpen(true);
         return;
