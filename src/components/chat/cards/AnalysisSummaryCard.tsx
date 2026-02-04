@@ -5,6 +5,8 @@ type Props = {
   payload: {
     analysis: AnalysisResult;
     session: Session;
+    low_confidence?: boolean;
+    photos_provided?: boolean;
   };
   onAction: (actionId: string, data?: Record<string, any>) => void;
   language: Language;
@@ -25,7 +27,7 @@ function ConfidencePill({ label }: { label: 'High' | 'Likely' }) {
   );
 }
 
-export function AnalysisSummaryCard({ onAction }: Props) {
+export function AnalysisSummaryCard({ payload, onAction }: Props) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [quickCheck, setQuickCheck] = useState<'yes' | 'no' | null>(null);
 
@@ -66,12 +68,14 @@ export function AnalysisSummaryCard({ onAction }: Props) {
     setQuickCheck((prev) => (prev === value ? null : value));
   };
 
+  const lowConfidence = Boolean(payload.low_confidence);
+
   return (
     <article className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       {/* Header */}
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Skin summary</h2>
-        <p className="text-xs text-slate-500">Based on your answers + 1 photo</p>
+        <p className="text-xs text-slate-500">{payload.photos_provided ? 'Based on your answers + 1 photo' : 'Based on your answers'}</p>
       </div>
 
       <div className="mt-4 space-y-4">
@@ -175,27 +179,29 @@ export function AnalysisSummaryCard({ onAction }: Props) {
           <button
             type="button"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            onClick={() => onAction('analysis_continue')}
+            onClick={() => onAction(lowConfidence ? 'analysis_review_products' : 'analysis_continue')}
           >
-            See product recommendations
+            {lowConfidence ? 'Review my current products first' : 'See product recommendations'}
           </button>
 
-          <div className="flex items-center justify-center gap-3">
-            <button
-              type="button"
-              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              onClick={() => onAction('analysis_gentler')}
-            >
-              Make gentler
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              onClick={() => onAction('analysis_simple')}
-            >
-              Keep simple
-            </button>
-          </div>
+          {!lowConfidence ? (
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => onAction('analysis_gentler')}
+              >
+                Make gentler
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => onAction('analysis_simple')}
+              >
+                Keep simple
+              </button>
+            </div>
+          ) : null}
         </footer>
       </div>
     </article>
@@ -203,4 +209,3 @@ export function AnalysisSummaryCard({ onAction }: Props) {
 }
 
 export default AnalysisSummaryCard;
-

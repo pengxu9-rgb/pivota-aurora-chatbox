@@ -623,6 +623,32 @@ function RecommendationsCard({
                   asString((altProduct as any)?.productId) ||
                   '';
                 const tradeoffs = uniqueStrings((alt as any).tradeoffs).slice(0, 4);
+                const reasons = uniqueStrings((alt as any).reasons).slice(0, 2);
+                const reason = reasons.length
+                  ? reasons[0]
+                    .replace(/^pros:\s*/i, '')
+                    .replace(/^优势：\s*/i, '')
+                    .trim()
+                  : null;
+
+                const availability = uniqueStrings(asArray((altProduct as any)?.availability)).find(Boolean) || null;
+                const priceObj = asObject((altProduct as any)?.price);
+                const priceUnknown = Boolean(priceObj && (priceObj as any).unknown === true);
+                const priceUsd = priceObj ? asNumber((priceObj as any).usd) : null;
+                const priceCny = priceObj ? asNumber((priceObj as any).cny) : null;
+                const priceNumber = !priceObj ? asNumber((altProduct as any)?.price) : null;
+                const currencyRaw = asString((altProduct as any)?.currency) || null;
+                const currency = currencyRaw ? currencyRaw.toUpperCase() : null;
+                const currencySymbol = currency === 'CNY' || currency === 'RMB' ? '¥' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$';
+                const priceText = priceUnknown
+                  ? '—'
+                  : priceUsd != null
+                    ? `$${Math.round(priceUsd * 100) / 100}`
+                    : priceCny != null
+                      ? `¥${Math.round(priceCny)}`
+                      : priceNumber != null
+                        ? `${currencySymbol}${Math.round(priceNumber * 100) / 100}`
+                        : '—';
 
                 return (
                   <div key={`${kindLabel}_${j}_${altSkuId || altName || 'alt'}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
@@ -640,6 +666,14 @@ function RecommendationsCard({
                           {altBrand ? `${altBrand} ` : ''}
                           {altName || (language === 'CN' ? '未知产品' : 'Unknown product')}
                         </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="whitespace-nowrap">{priceText}</span>
+                          {availability ? (
+                            <span className="whitespace-nowrap rounded-full border border-border/60 bg-muted/60 px-2 py-0.5">
+                              {availability}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -650,6 +684,13 @@ function RecommendationsCard({
                         {language === 'CN' ? '购买' : 'Buy'}
                       </button>
                     </div>
+
+                    {reason ? (
+                      <div className="mt-2 text-xs text-foreground/90">
+                        <span className="font-semibold text-muted-foreground">{language === 'CN' ? '推荐理由：' : 'Why: '}</span>
+                        {reason}
+                      </div>
+                    ) : null}
 
                     {tradeoffs.length ? (
                       <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
@@ -871,6 +912,18 @@ function BffCardView({
   const payloadObj = asObject(card.payload);
   const payload = payloadObj ?? (card.payload as any);
 
+  if (cardType === 'recommendations') {
+    const intent = String((payload as any)?.intent || '').trim().toLowerCase();
+    if (intent === 'reco_products') {
+      const profile = bootstrapInfo?.profile && typeof bootstrapInfo.profile === 'object' ? bootstrapInfo.profile : null;
+      return (
+        <div className="chat-card">
+          <ProductPicksCard rawContent={{ ...(payloadObj || {}), profile }} />
+        </div>
+      );
+    }
+  }
+
   if (cardType === 'diagnosis_gate') {
     return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
   }
@@ -891,7 +944,20 @@ function BffCardView({
       needs_risk_check: (analysisObj as any).needs_risk_check === true,
     };
 
-    return <AnalysisSummaryCard payload={{ analysis: analysis as any, session }} onAction={(id, data) => onAction(id, data)} language={language} />;
+    const analysisSource = asString((payload as any).analysis_source) || '';
+    const missing = Array.isArray(card.field_missing) ? card.field_missing : [];
+    const lowConfidence =
+      analysisSource === 'baseline_low_confidence' ||
+      missing.some((m) => String((m as any)?.field || '').toLowerCase().includes('currentroutine'));
+    const photosProvided = (payload as any).photos_provided === true;
+
+    return (
+      <AnalysisSummaryCard
+        payload={{ analysis: analysis as any, session, low_confidence: lowConfidence, photos_provided: photosProvided }}
+        onAction={(id, data) => onAction(id, data)}
+        language={language}
+      />
+    );
   }
 
   if (cardType === 'profile') {
@@ -2165,6 +2231,7 @@ export default function BffChat() {
       }
 
       if (actionId === 'analysis_review_products') {
+        setAwaitingRoutine(true);
         setItems((prev) => [
           ...prev,
           {

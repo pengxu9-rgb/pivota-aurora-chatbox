@@ -106,6 +106,11 @@ function asString(v: unknown): string | null {
   return null;
 }
 
+function asNumber(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function asStringArray(v: unknown): string[] {
   if (Array.isArray(v)) return v.map((x) => asString(x)).filter(Boolean) as string[];
   const s = asString(v);
@@ -209,6 +214,33 @@ function parseActives(raw: string): string[] {
   return out;
 }
 
+function normalizeScore01Or100(value: unknown): number | null {
+  const n = asNumber(value);
+  if (n == null) return null;
+  const pct = n <= 1 ? n * 100 : n;
+  if (!Number.isFinite(pct)) return null;
+  return Math.max(0, Math.min(100, Math.round(pct)));
+}
+
+function formatStructuredPrice(product: Record<string, unknown> | null): string | null {
+  if (!product) return null;
+  const priceObj = product.price && typeof product.price === 'object' && !Array.isArray(product.price) ? (product.price as Record<string, unknown>) : null;
+  if (priceObj) {
+    const unknown = Boolean((priceObj as any).unknown === true);
+    if (unknown) return 'Price unknown';
+    const usd = asNumber((priceObj as any).usd);
+    const cny = asNumber((priceObj as any).cny);
+    if (usd != null) return `$${Math.round(usd * 100) / 100}`;
+    if (cny != null) return `¥${Math.round(cny)}`;
+  }
+
+  const n = asNumber((product as any).price);
+  if (n == null) return null;
+  const currency = String((product as any).currency || 'USD').toUpperCase();
+  const symbol = currency === 'CNY' || currency === 'RMB' ? '¥' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$';
+  return `${symbol}${Math.round(n * 100) / 100}`;
+}
+
 function parseProductPicks(input: string | Record<string, unknown>): ParsedProductPicks {
   const raw = typeof input === 'string' ? input : JSON.stringify(input);
 
@@ -216,6 +248,7 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
     const profileRaw = input.profile;
     const profileObj = profileRaw && typeof profileRaw === 'object' && !Array.isArray(profileRaw) ? (profileRaw as Record<string, unknown>) : null;
     const shortlistRaw = Array.isArray((input as any).shortlist) ? ((input as any).shortlist as unknown[]) : [];
+    const recoRaw = Array.isArray((input as any).recommendations) ? ((input as any).recommendations as unknown[]) : [];
 
     const structuredShortlist: ParsedProduct[] = shortlistRaw
       .map((it) => (it && typeof it === 'object' && !Array.isArray(it) ? (it as Record<string, unknown>) : null))
@@ -233,7 +266,83 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
       }))
       .map((p) => ({ ...p, score: Number.isFinite(p.score ?? NaN) ? Math.max(0, Math.min(100, Math.round(Number(p.score)))) : null }));
 
-    const categories = asStringArray((input as any).categories).map(normalizeCategoryLabel).filter(Boolean);
+    const derivedShortlist: ParsedProduct[] = recoRaw
+      .map((it) => (it && typeof it === 'object' && !Array.isArray(it) ? (it as Record<string, unknown>) : null))
+      .filter(Boolean)
+      .map((it, idx) => {
+        const sku =
+          it.sku && typeof it.sku === 'object' && !Array.isArray(it.sku)
+            ? (it.sku as Record<string, unknown>)
+            : it.product && typeof it.product === 'object' && !Array.isArray(it.product)
+              ? (it.product as Record<string, unknown>)
+              : null;
+
+        const brand = asString(sku?.brand) || asString((it as any).brand) || null;
+        const name =
+          asString((sku as any)?.display_name) ||
+          asString((sku as any)?.displayName) ||
+          asString(sku?.name) ||
+          asString((it as any).display_name) ||
+          asString((it as any).displayName) ||
+          asString((it as any).name) ||
+          null;
+
+        const score =
+          normalizeScore01Or100((it as any).score) ??
+          normalizeScore01Or100((it as any).total_score ?? (it as any).totalScore) ??
+          normalizeScore01Or100((it as any).fit_score ?? (it as any).fitScore) ??
+          normalizeScore01Or100((it as any).aurora_score ?? (it as any).auroraScore) ??
+          normalizeScore01Or100((sku as any)?.score) ??
+          normalizeScore01Or100((sku as any)?.aurora_score ?? (sku as any)?.auroraScore) ??
+          null;
+
+        const evidencePack =
+          (it as any).evidence_pack && typeof (it as any).evidence_pack === 'object' && !Array.isArray((it as any).evidence_pack)
+            ? ((it as any).evidence_pack as Record<string, unknown>)
+            : (it as any).evidencePack && typeof (it as any).evidencePack === 'object' && !Array.isArray((it as any).evidencePack)
+              ? ((it as any).evidencePack as Record<string, unknown>)
+              : (sku as any)?.evidence_pack && typeof (sku as any).evidence_pack === 'object' && !Array.isArray((sku as any).evidence_pack)
+                ? ((sku as any).evidence_pack as Record<string, unknown>)
+                : (sku as any)?.evidencePack && typeof (sku as any).evidencePack === 'object' && !Array.isArray((sku as any).evidencePack)
+                  ? ((sku as any).evidencePack as Record<string, unknown>)
+                  : null;
+
+        const keyActivesRaw = evidencePack ? ((evidencePack as any).keyActives ?? (evidencePack as any).key_actives) : null;
+        const keyActives = Array.isArray(keyActivesRaw) ? asStringArray(keyActivesRaw) : parseActives(String(keyActivesRaw ?? ''));
+
+        const sensitivityFlagsRaw = evidencePack ? ((evidencePack as any).sensitivityFlags ?? (evidencePack as any).sensitivity_flags) : null;
+        const sensitivityFlags = asStringArray(sensitivityFlagsRaw);
+        const sensitivityNote = sensitivityFlags.length ? sensitivityFlags.slice(0, 2).join(' · ') : null;
+
+        const availabilityRaw = Array.isArray((sku as any)?.availability) ? ((sku as any).availability as unknown[]) : (evidencePack as any)?.availability;
+        const availability = asStringArray(availabilityRaw)[0] || null;
+
+        const notes = asStringArray((it as any).notes).slice(0, 6);
+        const kbId =
+          asString((sku as any)?.product_id) ||
+          asString((sku as any)?.productId) ||
+          asString((sku as any)?.sku_id) ||
+          asString((sku as any)?.skuId) ||
+          null;
+
+        const displayName = [brand, name].filter(Boolean).join(' ').trim() || `Product ${idx + 1}`;
+        const priceText = formatStructuredPrice(sku);
+
+        return {
+          rank: idx + 1,
+          name: displayName,
+          priceText: priceText || null,
+          score,
+          availability: availability ? normalizeAvailabilityLabel(availability) : null,
+          keyActives,
+          sensitivityNote,
+          notes,
+          kbId,
+        } satisfies ParsedProduct;
+      });
+
+    const categories =
+      asStringArray((input as any).categories).map(normalizeCategoryLabel).filter(Boolean);
     const region = normalizeAvailabilityLabel(asString((input as any).region) || null);
 
     const profile: Profile | null = profileObj
@@ -249,13 +358,25 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
 
     const barrierImpaired = String(profile?.barrierStatus || '').toLowerCase() === 'impaired';
 
+    const shortlist = structuredShortlist.length ? structuredShortlist : derivedShortlist;
+    const inferredCategories = shortlist
+      .map((p) => {
+        const t = p.name.toLowerCase();
+        if (t.includes('spf') || t.includes('sunscreen')) return 'Sunscreen';
+        if (t.includes('cleanser')) return 'Cleanser';
+        if (t.includes('moist')) return 'Moisturizer';
+        if (t.includes('serum')) return 'Serum';
+        return '';
+      })
+      .filter(Boolean);
+
     return {
       profile,
       meta: null,
       region: region || profile?.region || null,
-      categories: categories.length ? categories : ['Serum', 'Treatment'],
+      categories: categories.length ? categories : inferredCategories.length ? Array.from(new Set(inferredCategories)).slice(0, 2) : ['Serum', 'Treatment'],
       riskBarrier: barrierImpaired,
-      shortlist: structuredShortlist,
+      shortlist,
       raw,
     };
   }
