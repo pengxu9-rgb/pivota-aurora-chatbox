@@ -14,6 +14,7 @@ import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import {
   Activity,
   ArrowRight,
@@ -915,7 +916,9 @@ function BffCardView({
   if (cardType === 'recommendations') {
     const intent = String((payload as any)?.intent || '').trim().toLowerCase();
     if (intent === 'reco_products') {
-      const profile = bootstrapInfo?.profile && typeof bootstrapInfo.profile === 'object' ? bootstrapInfo.profile : null;
+      const profileFromPayload = asObject((payload as any)?.profile);
+      const profileFromBootstrap = bootstrapInfo?.profile && typeof bootstrapInfo.profile === 'object' ? bootstrapInfo.profile : null;
+      const profile = profileFromPayload || profileFromBootstrap || null;
       return (
         <div className="chat-card">
           <ProductPicksCard rawContent={{ ...(payloadObj || {}), profile }} />
@@ -1590,6 +1593,12 @@ export default function BffChat() {
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
   const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
+  const [authSheetOpen, setAuthSheetOpen] = useState(false);
+  const [authSession, setAuthSession] = useState(() => loadAuroraAuthSession());
+  const [authStage, setAuthStage] = useState<'email' | 'code'>(() => (authSession ? 'code' : 'email'));
+  const [authDraft, setAuthDraft] = useState(() => ({ email: authSession?.email ?? '', code: '' }));
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
   const [awaitingRoutine, setAwaitingRoutine] = useState(false);
 
@@ -1615,6 +1624,10 @@ export default function BffChat() {
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, lang: language }));
   }, [language]);
+
+  useEffect(() => {
+    setHeaders((prev) => ({ ...prev, auth_token: authSession?.token }));
+  }, [authSession?.token]);
 
   useEffect(() => {
     try {
@@ -1848,6 +1861,93 @@ export default function BffChat() {
       setIsLoading(false);
     }
   }, [applyEnvelope, checkinDraft, headers, language]);
+
+  const refreshBootstrapInfo = useCallback(async () => {
+    try {
+      const requestHeaders = { ...headers, lang: language };
+      const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
+      const info = readBootstrapInfo(env);
+      if (info) setBootstrapInfo(info);
+    } catch {
+      // ignore
+    }
+  }, [headers, language]);
+
+  const startAuth = useCallback(async () => {
+    const email = authDraft.email.trim();
+    if (!email) {
+      setAuthError(language === 'CN' ? '请输入邮箱。' : 'Please enter your email.');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const requestHeaders = { ...headers, lang: language };
+      await bffJson<V1Envelope>('/v1/auth/start', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      setAuthStage('code');
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authDraft.email, headers, language]);
+
+  const verifyAuth = useCallback(async () => {
+    const email = authDraft.email.trim();
+    const code = authDraft.code.trim();
+    if (!email || !code) {
+      setAuthError(language === 'CN' ? '请输入邮箱和验证码。' : 'Please enter email + code.');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const requestHeaders = { ...headers, lang: language };
+      const env = await bffJson<V1Envelope>('/v1/auth/verify', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({ email, code }),
+      });
+
+      const sessionCard = Array.isArray(env.cards) ? env.cards.find((c) => c && c.type === 'auth_session') : null;
+      const token = asString(sessionCard && (sessionCard.payload as any)?.token) || '';
+      const userEmail = asString(sessionCard && (sessionCard.payload as any)?.user?.email) || email;
+      const expiresAt = asString(sessionCard && (sessionCard.payload as any)?.expires_at) || null;
+      if (!token) throw new Error('Missing auth token from server.');
+
+      const nextSession = { token, email: userEmail, expires_at: expiresAt };
+      saveAuroraAuthSession(nextSession);
+      setAuthSession(nextSession);
+      setAuthDraft((prev) => ({ ...prev, code: '' }));
+      setAuthSheetOpen(false);
+      await refreshBootstrapInfo();
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authDraft.code, authDraft.email, headers, language, refreshBootstrapInfo]);
+
+  const signOut = useCallback(async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const requestHeaders = { ...headers, lang: language };
+      await bffJson<V1Envelope>('/v1/auth/logout', requestHeaders, { method: 'POST' });
+    } catch {
+      // ignore
+    } finally {
+      clearAuroraAuthSession();
+      setAuthSession(null);
+      setAuthStage('email');
+      setAuthDraft({ email: '', code: '' });
+      setAuthSheetOpen(false);
+      setAuthLoading(false);
+      await refreshBootstrapInfo();
+    }
+  }, [headers, language, refreshBootstrapInfo]);
 
   const handlePickPhoto = useCallback(() => {
     setPhotoSheetOpen(true);

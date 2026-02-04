@@ -46,6 +46,7 @@ export type BffHeaders = {
   trace_id: string;
   brief_id: string;
   lang: Language;
+  auth_token?: string | null;
 };
 
 const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
@@ -125,6 +126,7 @@ export const bffJson = async <TResponse>(
       'X-Trace-ID': headers.trace_id,
       'X-Brief-ID': headers.brief_id,
       'X-Lang': headers.lang,
+      ...(headers.auth_token ? { Authorization: `Bearer ${headers.auth_token}` } : {}),
       ...(init.headers || {}),
     },
   });

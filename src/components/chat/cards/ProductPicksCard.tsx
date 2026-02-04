@@ -235,7 +235,7 @@ function formatStructuredPrice(product: Record<string, unknown> | null): string 
   }
 
   const n = asNumber((product as any).price);
-  if (n == null) return null;
+  if (n == null || n === 0) return null;
   const currency = String((product as any).currency || 'USD').toUpperCase();
   const symbol = currency === 'CNY' || currency === 'RMB' ? '¥' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$';
   return `${symbol}${Math.round(n * 100) / 100}`;
@@ -358,7 +358,43 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
 
     const barrierImpaired = String(profile?.barrierStatus || '').toLowerCase() === 'impaired';
 
-    const shortlist = structuredShortlist.length ? structuredShortlist : derivedShortlist;
+    const dedupedDerivedShortlist = (() => {
+      const out: ParsedProduct[] = [];
+      const seen = new Map<string, number>();
+
+      const merge = (a: ParsedProduct, b: ParsedProduct): ParsedProduct => {
+        const score =
+          typeof a.score === 'number' && typeof b.score === 'number'
+            ? Math.max(a.score, b.score)
+            : typeof a.score === 'number'
+              ? a.score
+              : typeof b.score === 'number'
+                ? b.score
+                : null;
+        const keyActives = Array.from(new Set([...a.keyActives, ...b.keyActives].map((x) => x.trim()).filter(Boolean))).slice(0, 10);
+        const notes = Array.from(new Set([...a.notes, ...b.notes].map((x) => x.trim()).filter(Boolean))).slice(0, 10);
+        const availability = a.availability || b.availability || null;
+        const priceText = (a.priceText && a.priceText !== 'Price unknown' ? a.priceText : null) || (b.priceText && b.priceText !== 'Price unknown' ? b.priceText : null) || a.priceText || b.priceText || null;
+        const sensitivityNote = a.sensitivityNote || b.sensitivityNote || null;
+        return { ...a, score, keyActives, notes, availability, priceText, sensitivityNote, kbId: a.kbId || b.kbId || null };
+      };
+
+      for (const item of derivedShortlist) {
+        const key = (item.kbId || item.name || '').trim().toLowerCase();
+        if (!key) continue;
+        const existingIdx = seen.get(key);
+        if (typeof existingIdx !== 'number') {
+          seen.set(key, out.length);
+          out.push(item);
+          continue;
+        }
+        out[existingIdx] = merge(out[existingIdx], item);
+      }
+
+      return out.map((p, idx) => ({ ...p, rank: idx + 1 }));
+    })();
+
+    const shortlist = structuredShortlist.length ? structuredShortlist : dedupedDerivedShortlist;
     const inferredCategories = shortlist
       .map((p) => {
         const t = p.name.toLowerCase();
@@ -520,12 +556,12 @@ function scoreSafest(item: ParsedProduct, { barrierImpaired }: { barrierImpaired
 }
 
 function buildWhyLine(item: ParsedProduct): string {
+  const note = item.notes.find(Boolean) || '';
+  if (note) return note.length > 140 ? `${note.slice(0, 137)}…` : note;
   const actives = item.keyActives.slice(0, 4);
   if (actives.length) return `Key actives: ${actives.slice(0, 2).join(', ')}.`;
   const sens = item.sensitivityNote ? item.sensitivityNote.split('|')[0]?.trim() : '';
-  if (sens) return sens.length > 120 ? `${sens.slice(0, 117)}…` : sens;
-  const note = item.notes.find(Boolean) || '';
-  if (note) return note.length > 120 ? `${note.slice(0, 117)}…` : note;
+  if (sens) return sens.length > 140 ? `${sens.slice(0, 137)}…` : sens;
   return 'Overall fit looks reasonable for your profile.';
 }
 
