@@ -27,6 +27,7 @@ import {
   Globe,
   HelpCircle,
   AlertTriangle,
+  ListChecks,
   RefreshCw,
   Search,
   Sparkles,
@@ -2846,6 +2847,18 @@ export default function BffChat() {
           >
             <User className="h-4 w-4" />
             {language === 'CN' ? '资料' : 'Profile'}
+          </button>
+          <button
+            className={`chip-button ${bootstrapInfo?.profile?.currentRoutine ? '' : 'chip-button-primary'}`}
+            onClick={() => {
+              setRoutineDraft(makeEmptyRoutineDraft());
+              setRoutineSheetOpen(true);
+            }}
+            disabled={isLoading}
+            title={language === 'CN' ? '填写在用流程' : 'Current routine'}
+          >
+            <ListChecks className="h-4 w-4" />
+            {language === 'CN' ? '在用' : 'Routine'}
           </button>
           <button
             className={`chip-button ${language === 'CN' ? 'chip-button-primary' : ''}`}
