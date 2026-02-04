@@ -1599,6 +1599,7 @@ export default function BffChat() {
   const [authDraft, setAuthDraft] = useState(() => ({ email: authSession?.email ?? '', code: '' }));
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<Array<{ slot_id: string; photo_id: string; qc_status: string }>>([]);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
   const [awaitingRoutine, setAwaitingRoutine] = useState(false);
 
@@ -1773,6 +1774,8 @@ export default function BffChat() {
     setError(null);
     setSessionState('idle');
     setItems([]);
+    setAwaitingRoutine(false);
+    setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setHasBootstrapped(false);
     void bootstrap();
@@ -1974,14 +1977,11 @@ export default function BffChat() {
         const photoId = asString(confirmCard && (confirmCard.payload as any)?.photo_id);
 
         if (qcStatus === 'passed' && photoId) {
-          const analysisEnv = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({
-              use_photo: true,
-              photos: [{ slot_id: slotId, photo_id: photoId, qc_status: qcStatus }],
-            }),
+          setAnalysisPhotoRefs((prev) => {
+            const next = prev.filter((p) => p.slot_id !== slotId);
+            next.push({ slot_id: slotId, photo_id: photoId, qc_status: qcStatus });
+            return next.slice(0, 4);
           });
-          applyEnvelope(analysisEnv);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -2273,7 +2273,26 @@ export default function BffChat() {
       }
 
       if (actionId === 'profile_upload_selfie') {
+        setAwaitingRoutine(true);
         setPhotoSheetOpen(true);
+
+        const prompt =
+          language === 'CN'
+            ? '上传照片后，为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也发我（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以直接跳过，我会先给低置信度的通用 7 天建议。'
+            : 'After uploading, to make this accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). You can also skip; I’ll give a low-confidence 7‑day baseline.';
+        const chips: SuggestedChip[] = [
+          {
+            chip_id: 'chip.intake.skip_analysis',
+            label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
+            kind: 'quick_reply',
+            data: {},
+          },
+        ];
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
+          { id: nextId(), role: 'assistant', kind: 'chips', chips },
+        ]);
         return;
       }
 
@@ -2427,9 +2446,11 @@ export default function BffChat() {
 
         // Reflect progress immediately in the UI.
         setSessionState('S4_ANALYSIS_LOADING');
+        const photos = analysisPhotoRefs.slice(0, 4);
+        const usePhoto = photos.length > 0;
         const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
           method: 'POST',
-          body: JSON.stringify({ use_photo: false, photos: [] }),
+          body: JSON.stringify({ use_photo: usePhoto, photos }),
         });
         applyEnvelope(envAnalysis);
       } catch (err) {
@@ -2442,14 +2463,13 @@ export default function BffChat() {
     }
 
     await sendChat(msg);
-  }, [applyEnvelope, awaitingRoutine, headers, input, language, sendChat]);
+  }, [applyEnvelope, awaitingRoutine, headers, input, language, sendChat, analysisPhotoRefs]);
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: chip.label }]);
       const id = String(chip.chip_id || '');
       if (id === 'chip.intake.upload_photos') {
-        setAwaitingRoutine(false);
         setPhotoSheetOpen(true);
         return;
       }
@@ -2461,9 +2481,11 @@ export default function BffChat() {
           // Reflect progress immediately in the UI.
           setSessionState('S4_ANALYSIS_LOADING');
           const requestHeaders = { ...headers, lang: language };
+          const photos = analysisPhotoRefs.slice(0, 4);
+          const usePhoto = photos.length > 0;
           const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
             method: 'POST',
-            body: JSON.stringify({ use_photo: false, photos: [] }),
+            body: JSON.stringify({ use_photo: usePhoto, photos }),
           });
           applyEnvelope(env);
         } catch (err) {
@@ -2485,7 +2507,7 @@ export default function BffChat() {
       }
       await sendChat(undefined, { action_id: chip.chip_id, kind: 'chip', data: chip.data });
     },
-    [applyEnvelope, headers, language, sendChat]
+    [applyEnvelope, headers, language, sendChat, analysisPhotoRefs]
   );
 
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
@@ -2537,6 +2559,20 @@ export default function BffChat() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            className={`chip-button ${authSession ? 'chip-button-primary' : ''}`}
+            onClick={() => {
+              setAuthError(null);
+              setAuthStage('email');
+              setAuthDraft((prev) => ({ ...prev, code: '' }));
+              setAuthSheetOpen(true);
+            }}
+            disabled={isLoading}
+            title={language === 'CN' ? '账户' : 'Account'}
+          >
+            <Wallet className="h-4 w-4" />
+            {authSession ? (language === 'CN' ? '账户' : 'Account') : language === 'CN' ? '登录' : 'Sign in'}
+          </button>
           <button
             className={`chip-button ${bootstrapInfo?.checkin_due ? 'chip-button-primary' : ''}`}
             onClick={() => setCheckinSheetOpen(true)}
@@ -2596,6 +2632,92 @@ export default function BffChat() {
 
       <main className="chat-messages scrollbar-hide">
         <div className="mx-auto max-w-lg space-y-4">
+          <Sheet
+            open={authSheetOpen}
+            title={language === 'CN' ? '登录 / 账户' : 'Sign in / Account'}
+            onClose={() => setAuthSheetOpen(false)}
+          >
+            <div className="space-y-3">
+              {authSession ? (
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">
+                    <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '已登录' : 'Signed in'}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{authSession.email}</div>
+                    {authSession.expires_at ? (
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {language === 'CN' ? '有效期至：' : 'Expires:'} {authSession.expires_at}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button type="button" className="chip-button chip-button-primary" onClick={() => void refreshBootstrapInfo()} disabled={authLoading}>
+                    {language === 'CN' ? '刷新资料' : 'Refresh profile'}
+                  </button>
+                  <button type="button" className="chip-button" onClick={() => void signOut()} disabled={authLoading}>
+                    {language === 'CN' ? '退出登录' : 'Sign out'}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-xs text-muted-foreground">
+                    {language === 'CN'
+                      ? '输入邮箱获取验证码（用于跨设备保存你的皮肤档案）。'
+                      : 'Enter your email to get a sign-in code (for cross-device profile).'}
+                  </div>
+
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    {language === 'CN' ? '邮箱' : 'Email'}
+                    <input
+                      className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                      value={authDraft.email}
+                      onChange={(e) => setAuthDraft((p) => ({ ...p, email: e.target.value }))}
+                      placeholder="name@email.com"
+                      disabled={authLoading}
+                      inputMode="email"
+                      autoComplete="email"
+                    />
+                  </label>
+
+                  {authStage === 'email' ? (
+                    <button type="button" className="chip-button chip-button-primary" onClick={() => void startAuth()} disabled={authLoading}>
+                      {authLoading ? (language === 'CN' ? '发送中…' : 'Sending…') : language === 'CN' ? '发送验证码' : 'Send code'}
+                    </button>
+                  ) : null}
+
+                  {authStage === 'code' ? (
+                    <div className="space-y-3">
+                      <label className="space-y-1 text-xs text-muted-foreground">
+                        {language === 'CN' ? '验证码' : 'Code'}
+                        <input
+                          className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={authDraft.code}
+                          onChange={(e) => setAuthDraft((p) => ({ ...p, code: e.target.value }))}
+                          placeholder={language === 'CN' ? '6 位数字' : '6-digit code'}
+                          disabled={authLoading}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="button" className="chip-button" onClick={() => setAuthStage('email')} disabled={authLoading}>
+                          {language === 'CN' ? '返回' : 'Back'}
+                        </button>
+                        <button
+                          type="button"
+                          className="chip-button chip-button-primary flex-1"
+                          onClick={() => void verifyAuth()}
+                          disabled={authLoading || !authDraft.code.trim()}
+                        >
+                          {authLoading ? (language === 'CN' ? '验证中…' : 'Verifying…') : language === 'CN' ? '验证登录' : 'Verify'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {authError ? <div className="text-xs text-red-600">{authError}</div> : null}
+                </div>
+              )}
+            </div>
+          </Sheet>
           <Sheet
             open={photoSheetOpen}
             title={language === 'CN' ? '上传照片（更准确）' : 'Upload photos (recommended)'}
