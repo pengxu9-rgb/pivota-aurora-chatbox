@@ -317,7 +317,9 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
         const availabilityRaw = Array.isArray((sku as any)?.availability) ? ((sku as any).availability as unknown[]) : (evidencePack as any)?.availability;
         const availability = asStringArray(availabilityRaw)[0] || null;
 
-        const notes = asStringArray((it as any).notes).slice(0, 6);
+        const reasons = asStringArray((it as any).reasons).slice(0, 6);
+        const notesBase = asStringArray((it as any).notes).slice(0, 8);
+        const notes = Array.from(new Set([...reasons, ...notesBase].map((x) => x.trim()).filter(Boolean))).slice(0, 10);
         const kbId =
           asString((sku as any)?.product_id) ||
           asString((sku as any)?.productId) ||
