@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
-import { bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
+import { bffJson, makeDefaultHeaders, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import { buildEnvStressUiModelFromInputV1, toEnvStressInputV1 } from '@/lib/auroraEnvStress';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
@@ -52,6 +52,16 @@ const renderJson = (obj: unknown) => {
   } catch {
     return String(obj);
   }
+};
+
+const toBffErrorMessage = (err: unknown): string => {
+  if (err instanceof PivotaAgentBffError) {
+    const body = err.responseBody as any;
+    const msg = body?.assistant_message?.content;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+    return err.message;
+  }
+  return err instanceof Error ? err.message : String(err);
 };
 
 const LANG_PREF_KEY = 'pivota_aurora_lang_pref_v1';
@@ -416,8 +426,14 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     budget_unknown: { CN: '预算信息缺失', EN: 'Budget missing' },
     routine_missing: { CN: '方案缺失', EN: 'Routine missing' },
     over_budget: { CN: '可能超出预算', EN: 'May be over budget' },
+    price_unknown: { CN: '价格未知', EN: 'Price unknown' },
+    availability_unknown: { CN: '可购买渠道/地区未知', EN: 'Availability unknown' },
+    recent_logs_missing: { CN: '缺少最近 7 天肤况记录', EN: 'No recent 7-day skin logs' },
+    itinerary_unknown: { CN: '缺少行程/环境信息', EN: 'No itinerary / upcoming plan context' },
     evidence_missing: { CN: '证据不足', EN: 'Evidence missing' },
     upstream_missing_or_unstructured: { CN: '上游返回缺失/不规范', EN: 'Upstream missing/unstructured' },
+    upstream_missing_or_empty: { CN: '上游返回为空', EN: 'Upstream empty' },
+    alternatives_partial: { CN: '部分步骤缺少平替/相似选项', EN: 'Alternatives missing for some steps' },
   };
   return map[c]?.[language] ?? c;
 }
@@ -783,8 +799,26 @@ function RecommendationsCard({
     );
   };
 
-  const showMissing =
-    Array.isArray(payload.missing_info) && payload.missing_info.length ? (payload.missing_info as unknown[]) : [];
+  const warningLike = new Set([
+    'over_budget',
+    'price_unknown',
+    'availability_unknown',
+    'recent_logs_missing',
+    'itinerary_unknown',
+    'analysis_missing',
+    'evidence_missing',
+    'upstream_missing_or_unstructured',
+    'upstream_missing_or_empty',
+    'alternatives_partial',
+  ]);
+
+  const rawMissing = uniqueStrings(
+    Array.isArray(payload.missing_info) && payload.missing_info.length ? (payload.missing_info as unknown[]) : [],
+  );
+  const rawWarnings = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
+
+  const showWarnings = uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))]).slice(0, 6);
+  const showMissing = rawMissing.filter((c) => !warningLike.has(String(c))).slice(0, 6);
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
     if (!list.length) return null;
@@ -877,6 +911,16 @@ function RecommendationsCard({
             .map((v) => labelMissing(String(v), language))
             .filter(Boolean)
             .join('、')}
+        </div>
+      ) : null}
+
+      {showWarnings.length ? (
+        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+          {language === 'CN' ? '提示：' : 'Note: '}
+          {showWarnings
+            .map((v) => labelMissing(String(v), language))
+            .filter((v) => Boolean(v) && v !== String(v).trim())
+            .join(' · ')}
         </div>
       ) : null}
     </div>
@@ -1595,10 +1639,18 @@ export default function BffChat() {
   const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
   const [authSheetOpen, setAuthSheetOpen] = useState(false);
   const [authSession, setAuthSession] = useState(() => loadAuroraAuthSession());
-  const [authStage, setAuthStage] = useState<'email' | 'code'>(() => (authSession ? 'code' : 'email'));
-  const [authDraft, setAuthDraft] = useState(() => ({ email: authSession?.email ?? '', code: '' }));
+  const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
+  const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
+  const [authDraft, setAuthDraft] = useState(() => ({
+    email: authSession?.email ?? '',
+    code: '',
+    password: '',
+    newPassword: '',
+    newPasswordConfirm: '',
+  }));
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<Array<{ slot_id: string; photo_id: string; qc_status: string }>>([]);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
   const [awaitingRoutine, setAwaitingRoutine] = useState(false);
@@ -1884,6 +1936,7 @@ export default function BffChat() {
     }
     setAuthLoading(true);
     setAuthError(null);
+    setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
       await bffJson<V1Envelope>('/v1/auth/start', requestHeaders, {
@@ -1892,7 +1945,7 @@ export default function BffChat() {
       });
       setAuthStage('code');
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : String(err));
+      setAuthError(toBffErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
@@ -1907,6 +1960,7 @@ export default function BffChat() {
     }
     setAuthLoading(true);
     setAuthError(null);
+    setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/auth/verify', requestHeaders, {
@@ -1927,15 +1981,82 @@ export default function BffChat() {
       setAuthSheetOpen(false);
       await refreshBootstrapInfo();
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : String(err));
+      setAuthError(toBffErrorMessage(err));
     } finally {
       setAuthLoading(false);
     }
   }, [authDraft.code, authDraft.email, headers, language, refreshBootstrapInfo]);
 
+  const passwordLogin = useCallback(async () => {
+    const email = authDraft.email.trim();
+    const password = authDraft.password;
+    if (!email || !password) {
+      setAuthError(language === 'CN' ? '请输入邮箱和密码。' : 'Please enter email + password.');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      const requestHeaders = { ...headers, lang: language };
+      const env = await bffJson<V1Envelope>('/v1/auth/password/login', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+
+      const sessionCard = Array.isArray(env.cards) ? env.cards.find((c) => c && c.type === 'auth_session') : null;
+      const token = asString(sessionCard && (sessionCard.payload as any)?.token) || '';
+      const userEmail = asString(sessionCard && (sessionCard.payload as any)?.user?.email) || email;
+      const expiresAt = asString(sessionCard && (sessionCard.payload as any)?.expires_at) || null;
+      if (!token) throw new Error('Missing auth token from server.');
+
+      const nextSession = { token, email: userEmail, expires_at: expiresAt };
+      saveAuroraAuthSession(nextSession);
+      setAuthSession(nextSession);
+      setAuthDraft((prev) => ({ ...prev, password: '' }));
+      setAuthSheetOpen(false);
+      await refreshBootstrapInfo();
+    } catch (err) {
+      setAuthError(toBffErrorMessage(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authDraft.email, authDraft.password, headers, language, refreshBootstrapInfo]);
+
+  const savePassword = useCallback(async () => {
+    const password = authDraft.newPassword;
+    const confirm = authDraft.newPasswordConfirm;
+    if (!password || password.length < 8) {
+      setAuthError(language === 'CN' ? '密码至少 8 位。' : 'Password must be at least 8 characters.');
+      return;
+    }
+    if (password !== confirm) {
+      setAuthError(language === 'CN' ? '两次输入的密码不一致。' : "Passwords don't match.");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      const requestHeaders = { ...headers, lang: language };
+      await bffJson<V1Envelope>('/v1/auth/password/set', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      });
+
+      setAuthDraft((prev) => ({ ...prev, newPassword: '', newPasswordConfirm: '' }));
+      setAuthNotice(language === 'CN' ? '密码已设置。' : 'Password set.');
+    } catch (err) {
+      setAuthError(toBffErrorMessage(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [authDraft.newPassword, authDraft.newPasswordConfirm, headers, language]);
+
   const signOut = useCallback(async () => {
     setAuthLoading(true);
     setAuthError(null);
+    setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
       await bffJson<V1Envelope>('/v1/auth/logout', requestHeaders, { method: 'POST' });
@@ -1945,7 +2066,7 @@ export default function BffChat() {
       clearAuroraAuthSession();
       setAuthSession(null);
       setAuthStage('email');
-      setAuthDraft({ email: '', code: '' });
+      setAuthDraft({ email: '', code: '', password: '', newPassword: '', newPasswordConfirm: '' });
       setAuthSheetOpen(false);
       setAuthLoading(false);
       await refreshBootstrapInfo();
@@ -2563,8 +2684,9 @@ export default function BffChat() {
             className={`chip-button ${authSession ? 'chip-button-primary' : ''}`}
             onClick={() => {
               setAuthError(null);
+              setAuthNotice(null);
               setAuthStage('email');
-              setAuthDraft((prev) => ({ ...prev, code: '' }));
+              setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
               setAuthSheetOpen(true);
             }}
             disabled={isLoading}
@@ -2649,19 +2771,96 @@ export default function BffChat() {
                       </div>
                     ) : null}
                   </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/40 p-3">
+                    <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '密码登录' : 'Password sign-in'}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {language === 'CN'
+                        ? '可选：设置/更新密码，下次可直接用邮箱 + 密码登录（验证码仍可用）。'
+                        : 'Optional: set/update a password so you can sign in with email + password next time (OTP still works).'}
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      <label className="space-y-1 text-xs text-muted-foreground">
+                        {language === 'CN' ? '新密码（至少 8 位）' : 'New password (min 8 chars)'}
+                        <input
+                          className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={authDraft.newPassword}
+                          onChange={(e) => setAuthDraft((p) => ({ ...p, newPassword: e.target.value }))}
+                          placeholder={language === 'CN' ? '输入新密码' : 'Enter new password'}
+                          disabled={authLoading}
+                          type="password"
+                          autoComplete="new-password"
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs text-muted-foreground">
+                        {language === 'CN' ? '确认密码' : 'Confirm password'}
+                        <input
+                          className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={authDraft.newPasswordConfirm}
+                          onChange={(e) => setAuthDraft((p) => ({ ...p, newPasswordConfirm: e.target.value }))}
+                          placeholder={language === 'CN' ? '再次输入' : 'Re-enter'}
+                          disabled={authLoading}
+                          type="password"
+                          autoComplete="new-password"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="chip-button chip-button-primary"
+                        onClick={() => void savePassword()}
+                        disabled={authLoading || !authDraft.newPassword || !authDraft.newPasswordConfirm}
+                      >
+                        {authLoading ? (language === 'CN' ? '保存中…' : 'Saving…') : language === 'CN' ? '保存密码' : 'Save password'}
+                      </button>
+                      {authNotice ? <div className="text-xs text-emerald-700">{authNotice}</div> : null}
+                    </div>
+                  </div>
                   <button type="button" className="chip-button chip-button-primary" onClick={() => void refreshBootstrapInfo()} disabled={authLoading}>
                     {language === 'CN' ? '刷新资料' : 'Refresh profile'}
                   </button>
                   <button type="button" className="chip-button" onClick={() => void signOut()} disabled={authLoading}>
                     {language === 'CN' ? '退出登录' : 'Sign out'}
                   </button>
+                  {authError ? <div className="text-xs text-red-600">{authError}</div> : null}
                 </div>
               ) : (
                 <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className={`chip-button ${authMode === 'code' ? 'chip-button-primary' : ''}`}
+                      onClick={() => {
+                        setAuthMode('code');
+                        setAuthStage('email');
+                        setAuthError(null);
+                        setAuthNotice(null);
+                        setAuthDraft((p) => ({ ...p, code: '', password: '' }));
+                      }}
+                      disabled={authLoading}
+                    >
+                      {language === 'CN' ? '验证码' : 'Email code'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`chip-button ${authMode === 'password' ? 'chip-button-primary' : ''}`}
+                      onClick={() => {
+                        setAuthMode('password');
+                        setAuthError(null);
+                        setAuthNotice(null);
+                        setAuthDraft((p) => ({ ...p, code: '' }));
+                      }}
+                      disabled={authLoading}
+                    >
+                      {language === 'CN' ? '密码' : 'Password'}
+                    </button>
+                  </div>
                   <div className="text-xs text-muted-foreground">
-                    {language === 'CN'
-                      ? '输入邮箱获取验证码（用于跨设备保存你的皮肤档案）。'
-                      : 'Enter your email to get a sign-in code (for cross-device profile).'}
+                    {authMode === 'password'
+                      ? language === 'CN'
+                        ? '用邮箱 + 密码登录。如果还没设置密码，请先用验证码登录后在账户里设置。'
+                        : "Sign in with email + password. If you haven't set a password, use email code first, then set one in Account."
+                      : language === 'CN'
+                        ? '输入邮箱获取验证码（用于跨设备保存你的皮肤档案）。'
+                        : 'Enter your email to get a sign-in code (for cross-device profile).'}
                   </div>
 
                   <label className="space-y-1 text-xs text-muted-foreground">
@@ -2677,43 +2876,71 @@ export default function BffChat() {
                     />
                   </label>
 
-                  {authStage === 'email' ? (
-                    <button type="button" className="chip-button chip-button-primary" onClick={() => void startAuth()} disabled={authLoading}>
-                      {authLoading ? (language === 'CN' ? '发送中…' : 'Sending…') : language === 'CN' ? '发送验证码' : 'Send code'}
-                    </button>
-                  ) : null}
-
-                  {authStage === 'code' ? (
+                  {authMode === 'password' ? (
                     <div className="space-y-3">
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '验证码' : 'Code'}
+                        {language === 'CN' ? '密码' : 'Password'}
                         <input
                           className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={authDraft.code}
-                          onChange={(e) => setAuthDraft((p) => ({ ...p, code: e.target.value }))}
-                          placeholder={language === 'CN' ? '6 位数字' : '6-digit code'}
+                          value={authDraft.password}
+                          onChange={(e) => setAuthDraft((p) => ({ ...p, password: e.target.value }))}
+                          placeholder={language === 'CN' ? '输入密码' : 'Enter password'}
                           disabled={authLoading}
-                          inputMode="numeric"
-                          autoComplete="one-time-code"
+                          type="password"
+                          autoComplete="current-password"
                         />
                       </label>
-                      <div className="flex gap-2">
-                        <button type="button" className="chip-button" onClick={() => setAuthStage('email')} disabled={authLoading}>
-                          {language === 'CN' ? '返回' : 'Back'}
-                        </button>
-                        <button
-                          type="button"
-                          className="chip-button chip-button-primary flex-1"
-                          onClick={() => void verifyAuth()}
-                          disabled={authLoading || !authDraft.code.trim()}
-                        >
-                          {authLoading ? (language === 'CN' ? '验证中…' : 'Verifying…') : language === 'CN' ? '验证登录' : 'Verify'}
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        className="chip-button chip-button-primary"
+                        onClick={() => void passwordLogin()}
+                        disabled={authLoading || !authDraft.email.trim() || !authDraft.password}
+                      >
+                        {authLoading ? (language === 'CN' ? '登录中…' : 'Signing in…') : language === 'CN' ? '密码登录' : 'Sign in'}
+                      </button>
                     </div>
-                  ) : null}
+                  ) : (
+                    <>
+                      {authStage === 'email' ? (
+                        <button type="button" className="chip-button chip-button-primary" onClick={() => void startAuth()} disabled={authLoading}>
+                          {authLoading ? (language === 'CN' ? '发送中…' : 'Sending…') : language === 'CN' ? '发送验证码' : 'Send code'}
+                        </button>
+                      ) : null}
+
+                      {authStage === 'code' ? (
+                        <div className="space-y-3">
+                          <label className="space-y-1 text-xs text-muted-foreground">
+                            {language === 'CN' ? '验证码' : 'Code'}
+                            <input
+                              className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                              value={authDraft.code}
+                              onChange={(e) => setAuthDraft((p) => ({ ...p, code: e.target.value }))}
+                              placeholder={language === 'CN' ? '6 位数字' : '6-digit code'}
+                              disabled={authLoading}
+                              inputMode="numeric"
+                              autoComplete="one-time-code"
+                            />
+                          </label>
+                          <div className="flex gap-2">
+                            <button type="button" className="chip-button" onClick={() => setAuthStage('email')} disabled={authLoading}>
+                              {language === 'CN' ? '返回' : 'Back'}
+                            </button>
+                            <button
+                              type="button"
+                              className="chip-button chip-button-primary flex-1"
+                              onClick={() => void verifyAuth()}
+                              disabled={authLoading || !authDraft.code.trim()}
+                            >
+                              {authLoading ? (language === 'CN' ? '验证中…' : 'Verifying…') : language === 'CN' ? '验证登录' : 'Verify'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
 
                   {authError ? <div className="text-xs text-red-600">{authError}</div> : null}
+                  {authNotice ? <div className="text-xs text-emerald-700">{authNotice}</div> : null}
                 </div>
               )}
             </div>
