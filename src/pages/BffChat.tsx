@@ -1046,6 +1046,7 @@ function BffCardView({
   resolveSkuOffers?: (skuId: string) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
 }) {
+  if (!debug && isEnvStressCard(card)) return null;
   const cardType = String(card.type || '').toLowerCase();
   if (
     !debug &&
@@ -1834,6 +1835,19 @@ export default function BffChat() {
     if (nextItems.length) setItems((prev) => [...prev, ...nextItems]);
   }, [debug]);
 
+  const tryApplyEnvelopeFromBffError = useCallback(
+    (err: unknown) => {
+      if (!(err instanceof PivotaAgentBffError)) return false;
+      const body = err.responseBody;
+      if (!body || typeof body !== 'object') return false;
+      const env = body as any;
+      if (typeof env.request_id !== 'string' || !Array.isArray(env.cards)) return false;
+      applyEnvelope(env as V1Envelope);
+      return true;
+    },
+    [applyEnvelope],
+  );
+
   const bootstrap = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -1906,11 +1920,11 @@ export default function BffChat() {
         setHasBootstrapped(true);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [hasBootstrapped, headers, language]);
+  }, [hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
 
   const startNewChat = useCallback(() => {
     setError(null);
@@ -1980,11 +1994,11 @@ export default function BffChat() {
       applyEnvelope(env);
       setProfileSheetOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [applyEnvelope, headers, language, profileDraft]);
+  }, [applyEnvelope, headers, language, profileDraft, tryApplyEnvelopeFromBffError]);
 
   const saveCheckin = useCallback(async () => {
     setIsLoading(true);
@@ -2009,11 +2023,11 @@ export default function BffChat() {
       applyEnvelope(env);
       setCheckinSheetOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [applyEnvelope, checkinDraft, headers, language]);
+  }, [applyEnvelope, checkinDraft, headers, language, tryApplyEnvelopeFromBffError]);
 
   const refreshBootstrapInfo = useCallback(async () => {
     try {
@@ -2203,7 +2217,7 @@ export default function BffChat() {
           });
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setIsLoading(false);
       }
@@ -2280,7 +2294,7 @@ export default function BffChat() {
         });
         applyEnvelope(env);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setIsLoading(false);
       }
@@ -2337,7 +2351,7 @@ export default function BffChat() {
         applyEnvelope(analyzeEnv);
         setSessionState('P2_PRODUCT_RESULT');
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setIsLoading(false);
       }
@@ -2407,7 +2421,7 @@ export default function BffChat() {
         applyEnvelope(compareEnv);
         setSessionState('P2_PRODUCT_RESULT');
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setIsLoading(false);
       }
@@ -2457,7 +2471,7 @@ export default function BffChat() {
           applyEnvelope(env);
           setSessionState('S3_PHOTO_OPTION');
         } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
+          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
           setIsLoading(false);
         }
@@ -2571,7 +2585,7 @@ export default function BffChat() {
           });
           applyEnvelope(env);
         } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
+          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
           setIsLoading(false);
         }
@@ -2677,15 +2691,15 @@ export default function BffChat() {
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
         method: 'POST',
-        body: JSON.stringify({ use_photo: false, photos: [] }),
+        body: JSON.stringify({ use_photo: false }),
       });
       applyEnvelope(env);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [applyEnvelope, headers, language]);
+  }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
 
   const runRoutineSkinAnalysis = useCallback(
     async (routineInput: string | Record<string, unknown>) => {
@@ -2698,34 +2712,45 @@ export default function BffChat() {
       if (!routine || (typeof routine === 'string' && !routine.trim())) return;
       setIsLoading(true);
       setError(null);
+      const requestHeaders = { ...headers, lang: language };
+      const profile = bootstrapInfo?.profile;
+      const patch: Record<string, unknown> = { currentRoutine: routine };
+      // Workaround: some deployed BFF versions fail to persist JSONB arrays unless explicitly present in the patch.
+      if (profile && Array.isArray((profile as any).goals)) patch.goals = (profile as any).goals;
+      if (profile && Array.isArray((profile as any).contraindications)) patch.contraindications = (profile as any).contraindications;
+
+      // Best-effort persist (do not block analysis if storage is unavailable).
       try {
-        const requestHeaders = { ...headers, lang: language };
-        const profile = bootstrapInfo?.profile;
-        const patch: Record<string, unknown> = { currentRoutine: routine };
-        // Workaround: some deployed BFF versions fail to persist JSONB arrays unless explicitly present in the patch.
-        if (profile && Array.isArray((profile as any).goals)) patch.goals = (profile as any).goals;
-        if (profile && Array.isArray((profile as any).contraindications)) patch.contraindications = (profile as any).contraindications;
         const envProfile = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
           method: 'POST',
           body: JSON.stringify(patch),
         });
         applyEnvelope(envProfile);
+      } catch (err) {
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+      }
 
+      try {
         setSessionState('S4_ANALYSIS_LOADING');
         const photos = getSanitizedAnalysisPhotos();
         const usePhoto = photos.length > 0;
+        const body: Record<string, unknown> = {
+          use_photo: usePhoto,
+          currentRoutine: routine,
+          ...(usePhoto ? { photos } : {}),
+        };
         const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
           method: 'POST',
-          body: JSON.stringify({ use_photo: usePhoto, photos }),
+          body: JSON.stringify(body),
         });
         applyEnvelope(envAnalysis);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setIsLoading(false);
       }
     },
-    [applyEnvelope, bootstrapInfo?.profile, getSanitizedAnalysisPhotos, headers, language],
+    [applyEnvelope, bootstrapInfo?.profile, getSanitizedAnalysisPhotos, headers, language, tryApplyEnvelopeFromBffError],
   );
 
   const onSubmit = useCallback(async () => {
