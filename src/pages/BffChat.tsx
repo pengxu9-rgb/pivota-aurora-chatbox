@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
-import { buildEnvStressUiModelFromInputV1, toEnvStressInputV1 } from '@/lib/auroraEnvStress';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
@@ -10,7 +9,6 @@ import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
-import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
@@ -1016,23 +1014,6 @@ function BffCardView({
   if (cardType === 'profile') {
     const profilePayload = asObject((payload as any)?.profile) ?? asObject(payload) ?? null;
     const diagnosis = toDiagnosisResult(profilePayload);
-    let envStress: ReturnType<typeof buildEnvStressUiModelFromInputV1> | null = null;
-    try {
-      const input = toEnvStressInputV1({
-        profile: (bootstrapInfo?.profile ?? profilePayload) ?? null,
-        recent_logs: bootstrapInfo?.recent_logs ?? [],
-      });
-      envStress = buildEnvStressUiModelFromInputV1(input);
-    } catch (err) {
-      console.warn('[aurora.ui] failed to compute env_stress model', err);
-      envStress = {
-        schema_version: 'aurora.ui.env_stress.v1',
-        ess: null,
-        tier: null,
-        radar: [],
-        notes: ['EnvStress unavailable (failed to compute).'],
-      };
-    }
     return (
       <div className="space-y-3">
         <SkinIdentityCard
@@ -1040,7 +1021,6 @@ function BffCardView({
           onAction={(id, data) => onAction(id, data)}
           language={language}
         />
-        <EnvStressCard payload={envStress} language={language} />
       </div>
     );
   }
@@ -1673,6 +1653,7 @@ export default function BffChat() {
     goals: [] as string[],
     region: '',
     budgetTier: '',
+    itinerary: '',
   });
 
   const [checkinDraft, setCheckinDraft] = useState({
@@ -1856,6 +1837,13 @@ export default function BffChat() {
   useEffect(() => {
     if (!profileSheetOpen) return;
     const p = bootstrapInfo?.profile;
+    const itineraryRaw = (p as any)?.itinerary;
+    const itineraryText =
+      typeof itineraryRaw === 'string'
+        ? itineraryRaw
+        : itineraryRaw && typeof itineraryRaw === 'object'
+          ? JSON.stringify(itineraryRaw)
+          : '';
     setProfileDraft({
       skinType: asString(p?.skinType) ?? '',
       sensitivity: asString(p?.sensitivity) ?? '',
@@ -1863,6 +1851,7 @@ export default function BffChat() {
       goals: (asArray(p?.goals).map((g) => asString(g)).filter(Boolean) as string[]) ?? [],
       region: asString(p?.region) ?? '',
       budgetTier: asString(p?.budgetTier) ?? '',
+      itinerary: itineraryText ?? '',
     });
   }, [profileSheetOpen, bootstrapInfo]);
 
@@ -1875,6 +1864,7 @@ export default function BffChat() {
       if (profileDraft.barrierStatus.trim()) patch.barrierStatus = profileDraft.barrierStatus.trim();
       if (profileDraft.region.trim()) patch.region = profileDraft.region.trim();
       if (profileDraft.budgetTier.trim()) patch.budgetTier = profileDraft.budgetTier.trim();
+      if (profileDraft.itinerary.trim()) patch.itinerary = profileDraft.itinerary.trim().slice(0, 2000);
       if (profileDraft.goals.length) patch.goals = profileDraft.goals;
 
       const requestHeaders = { ...headers, lang: language };
@@ -3259,6 +3249,20 @@ export default function BffChat() {
                     );
                   })}
                 </div>
+              </label>
+
+              <label className="space-y-1 text-xs text-muted-foreground">
+                {language === 'CN' ? '行程/环境（可选）' : 'Upcoming plan (optional)'}
+                <textarea
+                  className="min-h-[88px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                  value={profileDraft.itinerary}
+                  onChange={(e) => setProfileDraft((p) => ({ ...p, itinerary: e.target.value }))}
+                  placeholder={
+                    language === 'CN'
+                      ? '例如：下周出差/旅行（偏干冷/偏潮热），白天户外多；或“最近熬夜/晒太阳多”…'
+                      : 'e.g., travel next week (cold/dry or hot/humid), lots of outdoor time; or “late nights / more sun”…'
+                  }
+                />
               </label>
 
               <div className="flex gap-2">
