@@ -75,7 +75,7 @@ export function AnalysisSummaryCard({ payload, onAction }: Props) {
       {/* Header */}
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">Skin summary</h2>
-        <p className="text-xs text-slate-500">{payload.photos_provided ? 'Based on your answers + 1 photo' : 'Based on your answers'}</p>
+        <p className="text-xs text-slate-500">Based on your answers + 1 photo</p>
       </div>
 
       <div className="mt-4 space-y-4">
@@ -181,27 +181,25 @@ export function AnalysisSummaryCard({ payload, onAction }: Props) {
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
             onClick={() => onAction(lowConfidence ? 'analysis_review_products' : 'analysis_continue')}
           >
-            {lowConfidence ? 'Review my current products first' : 'See product recommendations'}
+            See product recommendations
           </button>
 
-          {!lowConfidence ? (
-            <div className="flex items-center justify-center gap-3">
-              <button
-                type="button"
-                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                onClick={() => onAction('analysis_gentler')}
-              >
-                Make gentler
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                onClick={() => onAction('analysis_simple')}
-              >
-                Keep simple
-              </button>
-            </div>
-          ) : null}
+          <div className="flex items-center justify-center gap-3">
+            <button
+              type="button"
+              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              onClick={() => onAction('analysis_gentler')}
+            >
+              Make gentler
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              onClick={() => onAction('analysis_simple')}
+            >
+              Keep simple
+            </button>
+          </div>
         </footer>
       </div>
     </article>

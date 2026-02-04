@@ -1090,12 +1090,12 @@ function BffCardView({
     !debug &&
     (cardType === 'gate_notice' ||
       cardType === 'session_bootstrap' ||
-      cardType === 'budget_gate' ||
-      cardType === 'profile')
+      cardType === 'budget_gate')
   )
     return null;
 
   if (!debug && cardType === 'aurora_structured' && structuredCitations.length === 0) return null;
+  if (!debug && isEnvStressCard(card)) return null;
 
   if (cardType === 'aurora_structured') {
     return (
@@ -1877,7 +1877,8 @@ export default function BffChat() {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: env.assistant_message.content });
     }
 
-    const cards = Array.isArray(env.cards) ? env.cards : [];
+    const rawCards = Array.isArray(env.cards) ? env.cards : [];
+    const cards = debug ? rawCards : rawCards.filter((c) => !isEnvStressCard(c));
 
     if (cards.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards });
@@ -2775,22 +2776,6 @@ export default function BffChat() {
       setIsLoading(true);
       setError(null);
       const requestHeaders = { ...headers, lang: language };
-      const profile = bootstrapInfo?.profile;
-      const patch: Record<string, unknown> = { currentRoutine: routine };
-      // Workaround: some deployed BFF versions fail to persist JSONB arrays unless explicitly present in the patch.
-      if (profile && Array.isArray((profile as any).goals)) patch.goals = (profile as any).goals;
-      if (profile && Array.isArray((profile as any).contraindications)) patch.contraindications = (profile as any).contraindications;
-
-      // Best-effort persist (do not block analysis if storage is unavailable).
-      try {
-        const envProfile = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(patch),
-        });
-        applyEnvelope(envProfile);
-      } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
-      }
 
       try {
         setSessionState('S4_ANALYSIS_LOADING');
@@ -2812,7 +2797,7 @@ export default function BffChat() {
         setIsLoading(false);
       }
     },
-    [applyEnvelope, bootstrapInfo?.profile, getSanitizedAnalysisPhotos, headers, language, tryApplyEnvelopeFromBffError],
+    [applyEnvelope, getSanitizedAnalysisPhotos, headers, language, tryApplyEnvelopeFromBffError],
   );
 
   const onSubmit = useCallback(async () => {
