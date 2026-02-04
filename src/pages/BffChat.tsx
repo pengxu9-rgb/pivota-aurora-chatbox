@@ -3557,7 +3557,7 @@ export default function BffChat() {
             </div>
           ) : null}
 
-          {String(sessionState || '').startsWith('S') && !diagnosisProgressDismissed ? (
+          {debug && String(sessionState || '').startsWith('S') && !diagnosisProgressDismissed ? (
             <AuroraDiagnosisProgress
               currentState={flowState}
               language={language}
