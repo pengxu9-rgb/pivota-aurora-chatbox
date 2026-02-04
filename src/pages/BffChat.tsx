@@ -5,6 +5,7 @@ import { buildEnvStressUiModelFromInputV1, toEnvStressInputV1 } from '@/lib/auro
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
+import { looksLikeProductPicksRawText, ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
@@ -436,6 +437,8 @@ function RecommendationsCard({
 
   const payload = asObject(card.payload) || {};
   const items = asArray(payload.recommendations) as RecoItem[];
+  const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
+  const [detailsOpen, setDetailsOpen] = useState(() => hasAnyAlternatives);
 
   const openFallback = useCallback((brand: string | null, name: string | null) => {
     const q = [brand, name]
@@ -446,7 +449,7 @@ function RecommendationsCard({
     window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
 
-  const openExternal = useCallback(
+  const openPurchase = useCallback(
     async ({ skuId, brand, name }: { skuId: string; brand: string | null; name: string | null }) => {
       if (!skuId) return openFallback(brand, name);
       const cached = offerCache[skuId];
@@ -469,11 +472,25 @@ function RecommendationsCard({
             ? resp.data.offers
             : [];
 
-        const firstWithUrl = offers.find((o: any) => {
-          const u = o?.affiliate_url || o?.affiliateUrl || o?.url;
-          return typeof u === 'string' && u.trim();
-        });
-        const url = firstWithUrl ? String(firstWithUrl.affiliate_url || firstWithUrl.affiliateUrl || firstWithUrl.url).trim() : '';
+        const normalizeUrl = (raw: any) => (typeof raw === 'string' && raw.trim() ? raw.trim() : null);
+        const readCheckoutUrl = (o: any) =>
+          normalizeUrl(o?.checkout_url ?? o?.checkoutUrl ?? o?.purchase_url ?? o?.purchaseUrl ?? o?.internal_checkout_url ?? o?.internalCheckoutUrl);
+        const readAffiliateUrl = (o: any) =>
+          normalizeUrl(o?.affiliate_url ?? o?.affiliateUrl ?? o?.external_redirect_url ?? o?.externalRedirectUrl ?? o?.external_url ?? o?.externalUrl);
+        const readGenericUrl = (o: any) => normalizeUrl(o?.url);
+        const readPurchaseRoute = (o: any) => String(o?.purchase_route ?? o?.purchaseRoute ?? '').trim().toLowerCase();
+        const hasInternalPayload = (o: any) => Boolean(o?.internal_checkout ?? o?.internalCheckout);
+
+        const isInternal = (o: any) => readPurchaseRoute(o) === 'internal_checkout' || hasInternalPayload(o) || Boolean(readCheckoutUrl(o));
+        const isExternal = (o: any) => readPurchaseRoute(o) === 'affiliate_outbound' || Boolean(readAffiliateUrl(o));
+
+        const internalOffer = offers.find((o: any) => isInternal(o) && (readCheckoutUrl(o) || readGenericUrl(o)));
+        const externalOffer = offers.find((o: any) => isExternal(o) && (readAffiliateUrl(o) || readGenericUrl(o)));
+
+        const chosen = internalOffer || externalOffer || offers.find((o: any) => readAffiliateUrl(o) || readCheckoutUrl(o) || readGenericUrl(o)) || null;
+        const url = chosen
+          ? readCheckoutUrl(chosen) || readAffiliateUrl(chosen) || readGenericUrl(chosen) || ''
+          : '';
         if (!url) {
           openFallback(brand, name);
           return;
@@ -576,9 +593,9 @@ function RecommendationsCard({
               type="button"
               className="chip-button"
               disabled={offersLoading === skuId}
-              onClick={() => void openExternal({ skuId, brand, name })}
+              onClick={() => void openPurchase({ skuId, brand, name })}
             >
-              {language === 'CN' ? '外链购买' : 'External'}
+              {language === 'CN' ? '购买' : 'Buy'}
               {offersLoading === skuId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
             </button>
           </div>
@@ -628,9 +645,9 @@ function RecommendationsCard({
                         type="button"
                         className="chip-button"
                         disabled={Boolean(altSkuId) && offersLoading === altSkuId}
-                        onClick={() => void openExternal({ skuId: altSkuId, brand: altBrand, name: altName })}
+                        onClick={() => void openPurchase({ skuId: altSkuId, brand: altBrand, name: altName })}
                       >
-                        {language === 'CN' ? '外链购买' : 'External'}
+                        {language === 'CN' ? '购买' : 'Buy'}
                       </button>
                     </div>
 
@@ -785,9 +802,21 @@ function RecommendationsCard({
       ) : null}
 
       {(groups.am.length || groups.pm.length || groups.other.length) ? (
-        <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+        <details
+          className="rounded-2xl border border-border/60 bg-background/60 p-3"
+          open={detailsOpen}
+          onToggle={(e) => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}
+        >
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-            <span>{language === 'CN' ? '查看详细步骤与证据' : 'View detailed steps & evidence'}</span>
+            <span>
+              {hasAnyAlternatives
+                ? language === 'CN'
+                  ? '查看详细步骤（含相似/平替/升级选择）'
+                  : 'View detailed steps (incl. alternatives)'
+                : language === 'CN'
+                  ? '查看详细步骤与证据'
+                  : 'View detailed steps & evidence'}
+            </span>
             <ChevronDown className="h-4 w-4" />
           </summary>
           <div className="mt-3 space-y-3">
@@ -2680,6 +2709,14 @@ export default function BffChat() {
           {items.map((item) => {
             if (item.kind === 'text') {
               const isUser = item.role === 'user';
+              const isProductPicks = !isUser && looksLikeProductPicksRawText(item.content);
+              if (isProductPicks) {
+                return (
+                  <div key={item.id} className="chat-card">
+                    <ProductPicksCard rawContent={item.content} />
+                  </div>
+                );
+              }
               return (
                 <div key={item.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                   <div className={isUser ? 'message-bubble-user whitespace-pre-wrap' : 'message-bubble-assistant whitespace-pre-wrap'}>
