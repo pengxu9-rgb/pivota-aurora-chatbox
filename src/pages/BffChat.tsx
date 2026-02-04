@@ -7,6 +7,7 @@ import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { looksLikeProductPicksRawText, ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
+import { AuroraLoadingCard } from '@/components/aurora/cards/AuroraLoadingCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
@@ -3579,7 +3580,7 @@ export default function BffChat() {
             );
           })}
 
-          {isLoading ? <div className="text-xs text-muted-foreground">{language === 'EN' ? 'Loading…' : '加载中…'}</div> : null}
+          {isLoading ? <AuroraLoadingCard language={language} /> : null}
           <div ref={bottomRef} />
         </div>
       </main>
