@@ -819,6 +819,15 @@ function RecommendationsCard({
 
   const showWarnings = uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))]).slice(0, 6);
   const showMissing = rawMissing.filter((c) => !warningLike.has(String(c))).slice(0, 6);
+  const warningLabels = showWarnings
+    .map((code) => {
+      const label = labelMissing(code, language);
+      if (!label) return null;
+      if (!debug && label === code) return null;
+      return label;
+    })
+    .filter(Boolean)
+    .join(' · ');
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
     if (!list.length) return null;
@@ -914,13 +923,10 @@ function RecommendationsCard({
         </div>
       ) : null}
 
-      {showWarnings.length ? (
+      {showWarnings.length && (debug || warningLabels) ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           {language === 'CN' ? '提示：' : 'Note: '}
-          {showWarnings
-            .map((v) => labelMissing(String(v), language))
-            .filter((v) => Boolean(v) && v !== String(v).trim())
-            .join(' · ')}
+          {warningLabels || showWarnings.join(' · ')}
         </div>
       ) : null}
     </div>
