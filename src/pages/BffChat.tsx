@@ -7,9 +7,13 @@ import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { looksLikeProductPicksRawText, ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard } from '@/components/aurora/cards/AuroraLoadingCard';
+import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
+import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
+import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
+import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
@@ -224,15 +228,44 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
 type RecoItem = Record<string, unknown> & { slot?: string };
 
 const isEnvStressCard = (card: Card): boolean => {
-  const type = String(card?.type || '').trim().toLowerCase();
+  const norm = (input: string) =>
+    String(input || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+  const type = norm(String(card?.type || ''));
+  if (!type) return false;
   if (type === 'env_stress' || type === 'environment_stress') return true;
+  if (type.includes('env_stress') || type.includes('environment_stress')) return true;
 
   const payload = card?.payload;
   const schema =
     payload && typeof payload === 'object' && !Array.isArray(payload) && typeof (payload as any).schema_version === 'string'
-      ? String((payload as any).schema_version || '').trim().toLowerCase()
+      ? norm(String((payload as any).schema_version || ''))
       : '';
-  return Boolean(schema && schema.includes('env_stress'));
+  return Boolean(schema && (schema.includes('env_stress') || schema.includes('environment_stress')));
+};
+
+const isConflictHeatmapCard = (card: Card): boolean => {
+  const norm = (input: string) =>
+    String(input || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+  const type = norm(String(card?.type || ''));
+  if (type === 'conflict_heatmap' || type === 'heatmap') return true;
+  if (type.includes('conflict_heatmap')) return true;
+
+  const payload = card?.payload;
+  const schema =
+    payload && typeof payload === 'object' && !Array.isArray(payload) && typeof (payload as any).schema_version === 'string'
+      ? norm(String((payload as any).schema_version || ''))
+      : '';
+  return Boolean(schema && schema.includes('conflict_heatmap'));
 };
 
 const asArray = (v: unknown) => (Array.isArray(v) ? v : []);
@@ -1046,19 +1079,49 @@ function BffCardView({
   resolveSkuOffers?: (skuId: string) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
 }) {
-  if (!debug && isEnvStressCard(card)) return null;
   const cardType = String(card.type || '').toLowerCase();
+
+  const payloadObj = asObject(card.payload);
+  const payload = payloadObj ?? (card.payload as any);
+
+  const structuredCitations = cardType === 'aurora_structured' ? extractExternalVerificationCitations(payload) : [];
+
   if (
     !debug &&
-    (cardType === 'aurora_structured' ||
-      cardType === 'gate_notice' ||
+    (cardType === 'gate_notice' ||
       cardType === 'session_bootstrap' ||
       cardType === 'budget_gate')
   )
     return null;
 
-  const payloadObj = asObject(card.payload);
-  const payload = payloadObj ?? (card.payload as any);
+  if (!debug && cardType === 'aurora_structured' && structuredCitations.length === 0) return null;
+
+  if (cardType === 'aurora_structured') {
+    return (
+      <div className="space-y-3">
+        <AuroraReferencesCard citations={structuredCitations} language={language} />
+        {debug ? (
+          <details className="rounded-2xl border border-border/50 bg-background/50 p-3">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+              <span>{language === 'CN' ? '结构化详情' : 'Structured details'}</span>
+              <ChevronDown className="h-4 w-4" />
+            </summary>
+            <pre className="mt-2 max-h-[420px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
+              {renderJson(payloadObj ?? card.payload)}
+            </pre>
+          </details>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (isEnvStressCard(card)) {
+    return <EnvStressCard payload={payload} language={language} />;
+  }
+
+  if (isConflictHeatmapCard(card)) {
+    return <ConflictHeatmapCard payload={payload} language={language} />;
+  }
 
   if (cardType === 'recommendations') {
     const intent = String((payload as any)?.intent || '').trim().toLowerCase();
@@ -1813,9 +1876,7 @@ export default function BffChat() {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: env.assistant_message.content });
     }
 
-    const cards = Array.isArray(env.cards)
-      ? env.cards.filter((c) => (debug ? true : !isEnvStressCard(c)))
-      : [];
+    const cards = Array.isArray(env.cards) ? env.cards : [];
 
     if (cards.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards });
