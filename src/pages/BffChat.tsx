@@ -6,7 +6,6 @@ import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { looksLikeProductPicksRawText, ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
-import { AuroraDiagnosisProgress } from '@/components/aurora/cards/AuroraDiagnosisProgress';
 import { AuroraLoadingCard } from '@/components/aurora/cards/AuroraLoadingCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
@@ -1711,7 +1710,6 @@ export default function BffChat() {
   });
   const [input, setInput] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
-  const [diagnosisProgressDismissed, setDiagnosisProgressDismissed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
@@ -1918,7 +1916,6 @@ export default function BffChat() {
     setError(null);
     setSessionState('idle');
     setItems([]);
-    setDiagnosisProgressDismissed(false);
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setHasBootstrapped(false);
@@ -3555,14 +3552,6 @@ export default function BffChat() {
             <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
-          ) : null}
-
-          {debug && String(sessionState || '').startsWith('S') && !diagnosisProgressDismissed ? (
-            <AuroraDiagnosisProgress
-              currentState={flowState}
-              language={language}
-              onDismiss={() => setDiagnosisProgressDismissed(true)}
-            />
           ) : null}
 
           {items.map((item) => {
