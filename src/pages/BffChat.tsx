@@ -39,6 +39,91 @@ type ChatItem =
   | { id: string; role: 'assistant'; kind: 'cards'; cards: Card[] }
   | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] };
 
+type RoutineDraft = {
+  am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
+  pm: { cleanser: string; treatment: string; moisturizer: string };
+  notes: string;
+};
+
+const makeEmptyRoutineDraft = (): RoutineDraft => ({
+  am: { cleanser: '', treatment: '', moisturizer: '', spf: '' },
+  pm: { cleanser: '', treatment: '', moisturizer: '' },
+  notes: '',
+});
+
+const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
+  const values = [
+    draft.am.cleanser,
+    draft.am.treatment,
+    draft.am.moisturizer,
+    draft.am.spf,
+    draft.pm.cleanser,
+    draft.pm.treatment,
+    draft.pm.moisturizer,
+    draft.notes,
+  ];
+  return values.some((v) => Boolean(String(v || '').trim()));
+};
+
+const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
+  const am: Array<{ step: string; product: string }> = [];
+  const pm: Array<{ step: string; product: string }> = [];
+
+  const pushStep = (list: Array<{ step: string; product: string }>, step: string, value: string) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    list.push({ step, product: v.slice(0, 500) });
+  };
+
+  pushStep(am, 'cleanser', draft.am.cleanser);
+  pushStep(am, 'treatment', draft.am.treatment);
+  pushStep(am, 'moisturizer', draft.am.moisturizer);
+  pushStep(am, 'spf', draft.am.spf);
+
+  pushStep(pm, 'cleanser', draft.pm.cleanser);
+  pushStep(pm, 'treatment', draft.pm.treatment);
+  pushStep(pm, 'moisturizer', draft.pm.moisturizer);
+
+  const notes = String(draft.notes || '').trim();
+
+  return {
+    schema_version: 'aurora.routine_intake.v1',
+    am,
+    pm,
+    ...(notes ? { notes: notes.slice(0, 1200) } : {}),
+  } as const;
+};
+
+const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) => {
+  const lines: string[] = [];
+
+  const add = (label: string, value: string) => {
+    const v = String(value || '').trim();
+    if (!v) return;
+    lines.push(`${label}: ${v}`);
+  };
+
+  lines.push('AM');
+  add('Cleanser', draft.am.cleanser);
+  add('Treatment', draft.am.treatment);
+  add('Moisturizer', draft.am.moisturizer);
+  add('SPF', draft.am.spf);
+
+  lines.push('');
+  lines.push('PM');
+  add('Cleanser', draft.pm.cleanser);
+  add('Treatment', draft.pm.treatment);
+  add('Moisturizer', draft.pm.moisturizer);
+
+  const notes = String(draft.notes || '').trim();
+  if (notes) {
+    lines.push('');
+    lines.push(language === 'CN' ? `备注: ${notes}` : `Notes: ${notes}`);
+  }
+
+  return lines.join('\n').trim();
+};
+
 const nextId = (() => {
   let n = 0;
   return () => `m_${Date.now()}_${++n}`;
@@ -1612,6 +1697,7 @@ export default function BffChat() {
   });
   const [input, setInput] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
+  const [diagnosisProgressDismissed, setDiagnosisProgressDismissed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
@@ -1639,9 +1725,8 @@ export default function BffChat() {
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<Array<{ slot_id: string; photo_id: string; qc_status: string }>>([]);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
-  const [awaitingRoutine, setAwaitingRoutine] = useState(false);
   const [routineSheetOpen, setRoutineSheetOpen] = useState(false);
-  const [routineDraft, setRoutineDraft] = useState('');
+  const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '', dupe: '' });
@@ -1815,7 +1900,7 @@ export default function BffChat() {
     setError(null);
     setSessionState('idle');
     setItems([]);
-    setAwaitingRoutine(false);
+    setDiagnosisProgressDismissed(false);
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setHasBootstrapped(false);
@@ -2392,7 +2477,6 @@ export default function BffChat() {
       }
 
       if (actionId === 'profile_upload_selfie') {
-        setAwaitingRoutine(true);
         setPhotoSheetOpen(true);
 
         const prompt =
@@ -2402,7 +2486,7 @@ export default function BffChat() {
         const chips: SuggestedChip[] = [
           {
             chip_id: 'chip.intake.paste_routine',
-            label: language === 'CN' ? '粘贴 AM/PM 产品（更准）' : 'Paste AM/PM products (more accurate)',
+            label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
             kind: 'quick_reply',
             data: {},
           },
@@ -2427,7 +2511,6 @@ export default function BffChat() {
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '先不传照片，继续' : 'Continue without photos' },
         ]);
 
-        setAwaitingRoutine(true);
         const prompt =
           language === 'CN'
             ? '为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也发我（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以直接跳过，我会先给低置信度的通用 7 天建议。'
@@ -2441,7 +2524,7 @@ export default function BffChat() {
           },
           {
             chip_id: 'chip.intake.paste_routine',
-            label: language === 'CN' ? '粘贴 AM/PM 产品（更准）' : 'Paste AM/PM products (more accurate)',
+            label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
             kind: 'quick_reply',
             data: {},
           },
@@ -2481,8 +2564,7 @@ export default function BffChat() {
       }
 
       if (actionId === 'analysis_review_products') {
-        setAwaitingRoutine(true);
-        setRoutineDraft('');
+        setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineSheetOpen(true);
         setItems((prev) => [
           ...prev,
@@ -2493,8 +2575,8 @@ export default function BffChat() {
             kind: 'text',
             content:
               language === 'CN'
-                ? '把你现在正在用的产品按 AM/PM 列出来（洁面/活性/保湿/SPF，或直接贴链接/名字），我先帮你做兼容性与刺激风险检查，再决定要不要换/加。'
-                : 'Paste your current products by AM/PM (cleanser/actives/moisturizer/SPF, names or links). I’ll check conflicts and irritation risk first, then decide what to keep/change.',
+                ? '把你现在正在用的产品按 AM/PM 填一下（洁面/活性/保湿/SPF，名字或链接都行），我先帮你做兼容性与刺激风险检查，再决定要不要换/加。'
+                : 'Fill in your AM/PM products (cleanser/actives/moisturizer/SPF, names or links). I’ll check conflicts and irritation risk first, then decide what to keep/change.',
           },
         ]);
         return;
@@ -2573,7 +2655,6 @@ export default function BffChat() {
   }, [analysisPhotoRefs]);
 
   const runLowConfidenceSkinAnalysis = useCallback(async () => {
-    setAwaitingRoutine(false);
     setIsLoading(true);
     setError(null);
     try {
@@ -2592,16 +2673,26 @@ export default function BffChat() {
   }, [applyEnvelope, headers, language]);
 
   const runRoutineSkinAnalysis = useCallback(
-    async (routineText: string) => {
-      const msg = String(routineText || '').trim();
-      if (!msg) return;
+    async (routineInput: string | Record<string, unknown>) => {
+      const routine =
+        typeof routineInput === 'string'
+          ? String(routineInput || '').trim()
+          : routineInput && typeof routineInput === 'object'
+            ? routineInput
+            : null;
+      if (!routine || (typeof routine === 'string' && !routine.trim())) return;
       setIsLoading(true);
       setError(null);
       try {
         const requestHeaders = { ...headers, lang: language };
+        const profile = bootstrapInfo?.profile;
+        const patch: Record<string, unknown> = { currentRoutine: routine };
+        // Workaround: some deployed BFF versions fail to persist JSONB arrays unless explicitly present in the patch.
+        if (profile && Array.isArray((profile as any).goals)) patch.goals = (profile as any).goals;
+        if (profile && Array.isArray((profile as any).contraindications)) patch.contraindications = (profile as any).contraindications;
         const envProfile = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
           method: 'POST',
-          body: JSON.stringify({ currentRoutine: msg }),
+          body: JSON.stringify(patch),
         });
         applyEnvelope(envProfile);
 
@@ -2616,11 +2707,10 @@ export default function BffChat() {
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setAwaitingRoutine(false);
         setIsLoading(false);
       }
     },
-    [applyEnvelope, getSanitizedAnalysisPhotos, headers, language],
+    [applyEnvelope, bootstrapInfo?.profile, getSanitizedAnalysisPhotos, headers, language],
   );
 
   const onSubmit = useCallback(async () => {
@@ -2629,13 +2719,8 @@ export default function BffChat() {
     setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
     setInput('');
 
-    if (awaitingRoutine) {
-      await runRoutineSkinAnalysis(msg);
-      return;
-    }
-
     await sendChat(msg);
-  }, [awaitingRoutine, input, runRoutineSkinAnalysis, sendChat]);
+  }, [input, sendChat]);
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
@@ -2646,8 +2731,7 @@ export default function BffChat() {
         return;
       }
       if (id === 'chip.intake.paste_routine') {
-        setAwaitingRoutine(true);
-        setRoutineDraft('');
+        setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineSheetOpen(true);
         return;
       }
@@ -2994,7 +3078,7 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={routineSheetOpen}
-            title={language === 'CN' ? '粘贴你在用的 AM/PM 产品（更准）' : 'Paste your AM/PM products (more accurate)'}
+            title={language === 'CN' ? '填写你在用的 AM/PM 产品（更准）' : 'Add your AM/PM products (more accurate)'}
             onClose={() => setRoutineSheetOpen(false)}
           >
             <div className="space-y-3">
@@ -3004,20 +3088,104 @@ export default function BffChat() {
                   : 'Strongly recommended: share what you’re using now (names or links). Otherwise I’ll only give a low-confidence 7‑day baseline (no scoring, no recommendations).'}
               </div>
 
-              <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '当前 routine（AM/PM）' : 'Current routine (AM/PM)'}
-                <textarea
-                  className="min-h-[140px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
-                  value={routineDraft}
-                  onChange={(e) => setRoutineDraft(e.target.value)}
-                  placeholder={
-                    language === 'CN'
-                      ? 'AM: 洁面…\nSPF…\n\nPM: 洁面…\n维A/酸…\n保湿…\n\n备注：有时会刺痛…'
-                      : 'AM: Cleanser…\nSPF…\n\nPM: Cleanser…\nRetinoid/acids…\nMoisturizer…\n\nNotes: sometimes stings…'
-                  }
-                  disabled={isLoading}
-                />
-              </label>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
+                  <div className="text-xs font-semibold text-foreground">{language === 'CN' ? '早上（AM）' : 'Morning (AM)'}</div>
+                  <div className="mt-2 grid gap-2">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '洁面' : 'Cleanser'}
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={routineDraft.am.cleanser}
+                        onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
+                        placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
+                        disabled={isLoading}
+                      />
+                    </label>
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={routineDraft.am.treatment}
+                        onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
+                        placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
+                        disabled={isLoading}
+                      />
+                    </label>
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={routineDraft.am.moisturizer}
+                        onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
+                        placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                        disabled={isLoading}
+                      />
+                    </label>
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={routineDraft.am.spf}
+                        onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
+                        placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
+                        disabled={isLoading}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
+                  <div className="text-xs font-semibold text-foreground">{language === 'CN' ? '晚上（PM）' : 'Evening (PM)'}</div>
+                  <div className="mt-2 grid gap-2">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '洁面' : 'Cleanser'}
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={routineDraft.pm.cleanser}
+                        onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
+                        placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
+                        disabled={isLoading}
+                      />
+                    </label>
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={routineDraft.pm.treatment}
+                        onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
+                        placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
+                        disabled={isLoading}
+                      />
+                    </label>
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={routineDraft.pm.moisturizer}
+                        onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
+                        placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                        disabled={isLoading}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '备注（可选）' : 'Notes (optional)'}
+                  <textarea
+                    className="min-h-[90px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
+                    value={routineDraft.notes}
+                    onChange={(e) => setRoutineDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                    placeholder={
+                      language === 'CN'
+                        ? '例如：用了 retinol 会刺痛；最近泛红…'
+                        : 'e.g., stings after retinol; recent redness…'
+                    }
+                    disabled={isLoading}
+                  />
+                </label>
+              </div>
 
               <div className="flex gap-2">
                 <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={isLoading}>
@@ -3028,7 +3196,7 @@ export default function BffChat() {
                   className="chip-button"
                   onClick={() => {
                     setRoutineSheetOpen(false);
-                    setRoutineDraft('');
+                    setRoutineDraft(makeEmptyRoutineDraft());
                     setItems((prev) => [
                       ...prev,
                       {
@@ -3047,13 +3215,14 @@ export default function BffChat() {
                 <button
                   type="button"
                   className="chip-button chip-button-primary flex-1"
-                  disabled={isLoading || !routineDraft.trim()}
+                  disabled={isLoading || !hasAnyRoutineDraftInput(routineDraft)}
                   onClick={() => {
-                    const text = routineDraft.trim();
+                    const payload = buildCurrentRoutinePayloadFromDraft(routineDraft);
+                    const text = routineDraftToDisplayText(routineDraft, language);
                     setRoutineSheetOpen(false);
-                    setRoutineDraft('');
+                    setRoutineDraft(makeEmptyRoutineDraft());
                     setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: text }]);
-                    void runRoutineSkinAnalysis(text);
+                    void runRoutineSkinAnalysis(payload);
                   }}
                 >
                   {language === 'CN' ? '保存并分析' : 'Save & analyze'}
@@ -3341,8 +3510,12 @@ export default function BffChat() {
             </div>
           ) : null}
 
-          {String(sessionState || '').startsWith('S') ? (
-            <AuroraDiagnosisProgress currentState={flowState} language={language} />
+          {String(sessionState || '').startsWith('S') && !diagnosisProgressDismissed ? (
+            <AuroraDiagnosisProgress
+              currentState={flowState}
+              language={language}
+              onDismiss={() => setDiagnosisProgressDismissed(true)}
+            />
           ) : null}
 
           {items.map((item) => {
