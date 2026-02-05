@@ -805,9 +805,6 @@ export function ProductPicksCard({
         </div>
       </div>
 
-      {false ? (
-        <pre className="max-h-[220px] overflow-auto rounded-lg bg-muted p-3 text-xs text-slate-700">{parsed.raw}</pre>
-      ) : null}
     </div>
   );
 }
