@@ -2,53 +2,89 @@ import React, { useState, useEffect } from 'react';
 import { Language } from '@/lib/types';
 import { Loader2 } from 'lucide-react';
 
+export type AuroraLoadingIntent = 'default' | 'environment';
+
 interface AuroraLoadingCardProps {
   onSkip?: () => void;
   language: Language;
+  intent?: AuroraLoadingIntent;
 }
 
-const LOADING_MESSAGES = {
-  EN: [
-    'Analyzing Skin Profile...',
-    'Searching Ingredient Database...',
-    'Checking Safety Protocols...',
-    'Matching Product Vectors...',
-    'Optimizing Budget...',
-  ],
-  CN: [
-    '分析肤质档案...',
-    '搜索成分数据库...',
-    '检查安全协议...',
-    '匹配产品向量...',
-    '优化预算...',
-  ],
+const LOADING_MESSAGES: Record<AuroraLoadingIntent, Record<Language, string[]>> = {
+  default: {
+    EN: [
+      'Analyzing Skin Profile...',
+      'Searching Ingredient Database...',
+      'Checking Safety Protocols...',
+      'Matching Product Vectors...',
+      'Optimizing Budget...',
+    ],
+    CN: [
+      '分析肤质档案...',
+      '搜索成分数据库...',
+      '检查安全协议...',
+      '匹配产品向量...',
+      '优化预算...',
+    ],
+  },
+  environment: {
+    EN: [
+      'Analyzing Environment Stress...',
+      'Detecting Weather Scenario...',
+      'Generating Protective Tips...',
+      'Tailoring Advice to Your Profile...',
+      'Preparing Product-type Suggestions...',
+    ],
+    CN: [
+      '评估环境压力...',
+      '识别天气场景...',
+      '生成防护要点...',
+      '结合你的肤况个性化建议...',
+      '整理可用的产品类型...',
+    ],
+  },
 };
 
-const STATUS_PILLS = {
-  EN: {
-    profile: '✓ Profile loaded',
-    kb: '✓ Knowledge base ready',
-    safety: 'Safety checks running',
+const STATUS_PILLS: Record<AuroraLoadingIntent, Record<Language, { profile: string; kb: string; safety: string }>> = {
+  default: {
+    EN: {
+      profile: '✓ Profile loaded',
+      kb: '✓ Knowledge base ready',
+      safety: 'Safety checks running',
+    },
+    CN: {
+      profile: '✓ 已加载画像',
+      kb: '✓ 知识库就绪',
+      safety: '正在进行安全检查',
+    },
   },
-  CN: {
-    profile: '✓ 已加载画像',
-    kb: '✓ 知识库就绪',
-    safety: '正在进行安全检查',
+  environment: {
+    EN: {
+      profile: '✓ Profile loaded',
+      kb: '✓ Environment model ready',
+      safety: 'Comfort checks running',
+    },
+    CN: {
+      profile: '✓ 已加载画像',
+      kb: '✓ 环境模型就绪',
+      safety: '正在进行舒适度/刺激检查',
+    },
   },
 } as const;
 
-export function AuroraLoadingCard({ onSkip, language }: AuroraLoadingCardProps) {
+export function AuroraLoadingCard({ onSkip, language, intent = 'default' }: AuroraLoadingCardProps) {
   const [messageIndex, setMessageIndex] = useState(0);
-  const messages = LOADING_MESSAGES[language];
-  const pills = STATUS_PILLS[language];
+  const messages = LOADING_MESSAGES[intent][language];
+  const pills = STATUS_PILLS[intent][language];
 
   useEffect(() => {
+    setMessageIndex(0);
     const interval = setInterval(() => {
       setMessageIndex((prev) => (prev + 1) % messages.length);
     }, 2000);
     
     return () => clearInterval(interval);
-  }, [messages.length]);
+  }, [messages.length, intent]);
 
   return (
     <div className="chat-card-elevated">

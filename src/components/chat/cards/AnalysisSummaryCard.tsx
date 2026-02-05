@@ -184,11 +184,9 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
   }, [payload.analysis?.strategy]);
 
   const toggleQuick = (value: 'yes' | 'no') => {
-    setQuickCheck((prev) => {
-      const next = prev === value ? null : value;
-      if (next) onAction('analysis_quick_check', { value: next });
-      return next;
-    });
+    const next = quickCheck === value ? null : value;
+    setQuickCheck(next);
+    if (next) onAction('analysis_quick_check', { value: next });
   };
 
   const subtitle = useMemo(() => describePhotoBasis({ photosProvided, photoQc }), [photosProvided, photoQc]);

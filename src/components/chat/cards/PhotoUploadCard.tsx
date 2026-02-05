@@ -6,9 +6,10 @@ import { Camera, X, Sun, Lightbulb } from 'lucide-react';
 interface PhotoUploadCardProps {
   onAction: (actionId: string, data?: Record<string, any>) => void;
   language: Language;
+  uploading?: boolean;
 }
 
-export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
+export function PhotoUploadCard({ onAction, language, uploading = false }: PhotoUploadCardProps) {
   const [photos, setPhotos] = useState<{
     daylight?: { file: File; preview: string };
     indoor_white?: { file: File; preview: string };
@@ -19,6 +20,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
   const indoorInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (slot: 'daylight' | 'indoor_white', file: File) => {
+    if (uploading) return;
     const reader = new FileReader();
     reader.onload = (e) => {
       setPhotos(prev => ({
@@ -30,6 +32,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
   };
 
   const removePhoto = (slot: 'daylight' | 'indoor_white') => {
+    if (uploading) return;
     setPhotos(prev => {
       const next = { ...prev };
       delete next[slot];
@@ -38,6 +41,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
   };
 
   const handleUpload = () => {
+    if (uploading) return;
     const photoSlots: { daylight?: PhotoSlot; indoor_white?: PhotoSlot } = {};
     
     if (photos.daylight) {
@@ -73,7 +77,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
           </label>
           <div
             className={`photo-slot ${photos.daylight ? 'photo-slot-filled' : ''}`}
-            onClick={() => !photos.daylight && daylightInputRef.current?.click()}
+            onClick={() => !uploading && !photos.daylight && daylightInputRef.current?.click()}
           >
             {photos.daylight ? (
               <>
@@ -105,6 +109,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
             accept="image/*"
             capture="user"
             className="hidden"
+            disabled={uploading}
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFileChange('daylight', file);
@@ -120,7 +125,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
           </label>
           <div
             className={`photo-slot ${photos.indoor_white ? 'photo-slot-filled' : ''}`}
-            onClick={() => !photos.indoor_white && indoorInputRef.current?.click()}
+            onClick={() => !uploading && !photos.indoor_white && indoorInputRef.current?.click()}
           >
             {photos.indoor_white ? (
               <>
@@ -152,6 +157,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
             accept="image/*"
             capture="user"
             className="hidden"
+            disabled={uploading}
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFileChange('indoor_white', file);
@@ -166,6 +172,7 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
           checked={consent}
           onChange={(e) => setConsent(e.target.checked)}
           className="mt-0.5"
+          disabled={uploading}
         />
         <span>{t('s3.consent', language)}</span>
       </label>
@@ -174,22 +181,24 @@ export function PhotoUploadCard({ onAction, language }: PhotoUploadCardProps) {
         {hasPhotos && (
           <button
             onClick={handleUpload}
-            disabled={!consent}
+            disabled={!consent || uploading}
             className="action-button action-button-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t('s3.btn.upload', language)}
+            {uploading ? (language === 'CN' ? '上传中…' : 'Uploading…') : t('s3.btn.upload', language)}
           </button>
         )}
         <div className="flex gap-2">
           <button
             onClick={() => onAction('photo_skip')}
             className="action-button action-button-secondary flex-1"
+            disabled={uploading}
           >
             {t('s3.btn.skip', language)}
           </button>
           <button
             onClick={() => onAction('photo_use_sample_sample_set_A')}
             className="action-button action-button-ghost flex-1"
+            disabled={uploading}
           >
             {t('s3.btn.sample', language)}
           </button>

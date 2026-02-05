@@ -169,6 +169,22 @@ function extractKbIdFromText(text: string): string | null {
   return m ? m[1] : null;
 }
 
+function stripInternalKbRefs(text: string): string {
+  const t = String(text || '').trim();
+  if (!t) return '';
+
+  const stripped = t
+    .replace(/\bkb:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{8,})\b/gi, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  if (!stripped) return '';
+  if (/^(evidence|citation|citations|source)[:：]?\s*$/i.test(stripped)) return '';
+  if (/^(证据|引用|来源)[:：]?\s*$/.test(stripped)) return '';
+  return stripped;
+}
+
 function parseActives(raw: string): string[] {
   const t = String(raw || '').trim();
   if (!t) return [];
@@ -260,8 +276,8 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
         score: typeof (it as any).score === 'number' ? (it as any).score : Number((it as any).score),
         availability: asString((it as any).availability) || null,
         keyActives: parseActives(String((it as any).keyActives ?? (it as any).key_actives ?? '')),
-        sensitivityNote: asString((it as any).sensitivity) || null,
-        notes: asStringArray((it as any).notes),
+        sensitivityNote: stripInternalKbRefs(asString((it as any).sensitivity) || '') || null,
+        notes: asStringArray((it as any).notes).map(stripInternalKbRefs).filter(Boolean),
         kbId: asString((it as any).kbId ?? (it as any).kb_id) || null,
       }))
       .map((p) => ({ ...p, score: Number.isFinite(p.score ?? NaN) ? Math.max(0, Math.min(100, Math.round(Number(p.score)))) : null }));
@@ -312,14 +328,16 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
 
         const sensitivityFlagsRaw = evidencePack ? ((evidencePack as any).sensitivityFlags ?? (evidencePack as any).sensitivity_flags) : null;
         const sensitivityFlags = asStringArray(sensitivityFlagsRaw);
-        const sensitivityNote = sensitivityFlags.length ? sensitivityFlags.slice(0, 2).join(' · ') : null;
+        const sensitivityNote = sensitivityFlags.length ? stripInternalKbRefs(sensitivityFlags.slice(0, 2).join(' · ')) || null : null;
 
         const availabilityRaw = Array.isArray((sku as any)?.availability) ? ((sku as any).availability as unknown[]) : (evidencePack as any)?.availability;
         const availability = asStringArray(availabilityRaw)[0] || null;
 
         const reasons = asStringArray((it as any).reasons).slice(0, 6);
         const notesBase = asStringArray((it as any).notes).slice(0, 8);
-        const notes = Array.from(new Set([...reasons, ...notesBase].map((x) => x.trim()).filter(Boolean))).slice(0, 10);
+        const notes = Array.from(
+          new Set([...reasons, ...notesBase].map((x) => stripInternalKbRefs(x)).filter(Boolean)),
+        ).slice(0, 10);
         const kbId =
           asString((sku as any)?.product_id) ||
           asString((sku as any)?.productId) ||
@@ -514,7 +532,7 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
 
     const sensLine = trimmed.match(/^\s*-\s*Sensitivity\s*:\s*(.+)$/i);
     if (sensLine) {
-      current.sensitivityNote = String(sensLine[1] || '').trim() || null;
+      current.sensitivityNote = stripInternalKbRefs(String(sensLine[1] || '')) || null;
       continue;
     }
 
@@ -524,7 +542,10 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
       continue;
     }
 
-    if (trimmed.startsWith('-')) current.notes.push(trimmed.replace(/^\s*-\s*/, '').trim());
+    if (trimmed.startsWith('-')) {
+      const next = stripInternalKbRefs(trimmed.replace(/^\s*-\s*/, '').trim());
+      if (next) current.notes.push(next);
+    }
   }
   pushCurrent();
 
