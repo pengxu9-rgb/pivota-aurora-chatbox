@@ -1095,7 +1095,6 @@ function BffCardView({
     return null;
 
   if (!debug && cardType === 'aurora_structured' && structuredCitations.length === 0) return null;
-  if (!debug && isEnvStressCard(card)) return null;
 
   if (cardType === 'aurora_structured') {
     return (
@@ -1878,7 +1877,7 @@ export default function BffChat() {
     }
 
     const rawCards = Array.isArray(env.cards) ? env.cards : [];
-    const cards = debug ? rawCards : rawCards.filter((c) => !isEnvStressCard(c));
+    const cards = rawCards;
 
     if (cards.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards });
@@ -2349,6 +2348,7 @@ export default function BffChat() {
           ...(message ? { message } : {}),
           ...(action ? { action } : {}),
           language,
+          ...(debug ? { debug: true } : {}),
         };
 
         const env = await bffJson<V1Envelope>('/v1/chat', requestHeaders, {
