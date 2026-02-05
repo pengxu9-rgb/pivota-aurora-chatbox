@@ -1118,6 +1118,7 @@ function BffCardView({
   }
 
   if (isEnvStressCard(card)) {
+    if (!debug) return null;
     return <EnvStressCard payload={payload} language={language} />;
   }
 
@@ -2317,7 +2318,37 @@ export default function BffChat() {
     async (actionId: string, data?: Record<string, any>) => {
       if (actionId === 'photo_skip') {
         setPhotoSheetOpen(false);
+        const shouldPrompt = promptRoutineAfterPhoto;
         setPromptRoutineAfterPhoto(false);
+        if (shouldPrompt) {
+          setItems((prev) => [
+            ...prev,
+            { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过照片' : 'Skip photos' },
+          ]);
+          const prompt =
+            language === 'CN'
+              ? '没关系 ✅ 为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也补充一下（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以先跳过，我会给低置信度的通用 7 天基线（不做评分/不推推荐）。'
+              : "No worries ✅ To make this accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). Or you can skip and I’ll give a low-confidence 7‑day baseline (no scoring, no recommendations).";
+          const chips: SuggestedChip[] = [
+            {
+              chip_id: 'chip.intake.paste_routine',
+              label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
+              kind: 'quick_reply',
+              data: {},
+            },
+            {
+              chip_id: 'chip.intake.skip_analysis',
+              label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
+              kind: 'quick_reply',
+              data: {},
+            },
+          ];
+          setItems((prev) => [
+            ...prev,
+            { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
+            { id: nextId(), role: 'assistant', kind: 'chips', chips },
+          ]);
+        }
         return;
       }
       if (actionId !== 'photo_upload') {
@@ -2635,12 +2666,6 @@ export default function BffChat() {
             ? '为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也发我（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以直接跳过，我会先给低置信度的通用 7 天建议。'
             : 'To make this analysis accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). You can also skip; I’ll give a low-confidence 7‑day baseline.';
         const chips: SuggestedChip[] = [
-          {
-            chip_id: 'chip.intake.upload_photos',
-            label: language === 'CN' ? '改为上传照片' : 'Upload photos instead',
-            kind: 'quick_reply',
-            data: {},
-          },
           {
             chip_id: 'chip.intake.paste_routine',
             label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
