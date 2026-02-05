@@ -1118,7 +1118,6 @@ function BffCardView({
   }
 
   if (isEnvStressCard(card)) {
-    if (!debug) return null;
     return <EnvStressCard payload={payload} language={language} />;
   }
 
