@@ -520,7 +520,7 @@ function Sheet({
         onClick={onClose}
       />
       <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-lg overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
-        <div className="flex max-h-[85vh] flex-col">
+        <div className="flex max-h-[85vh] max-h-[85dvh] flex-col">
           <div className="flex items-center justify-between px-4 pb-3 pt-4">
             <div className="text-sm font-semibold text-foreground">{title}</div>
             <button
@@ -1118,6 +1118,9 @@ function BffCardView({
   }
 
   if (isEnvStressCard(card)) {
+    // Env stress is a separate module (weather / itinerary). Hide by default to avoid
+    // confusing users during skin diagnosis / analysis flows.
+    if (!debug) return null;
     return <EnvStressCard payload={payload} language={language} />;
   }
 
@@ -2368,7 +2371,6 @@ export default function BffChat() {
 
       if (!entries.length) return;
       setSessionPhotos({ daylight: photos.daylight, indoor_white: photos.indoor_white });
-      setPhotoSheetOpen(false);
 
       for (const entry of entries) {
         const slotLabel =
@@ -2392,6 +2394,7 @@ export default function BffChat() {
         await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
       }
 
+      setPhotoSheetOpen(false);
       if (promptRoutineAfterPhoto) {
         setPromptRoutineAfterPhoto(false);
         const prompt =
@@ -2737,6 +2740,17 @@ export default function BffChat() {
               ? '没有（最近没有刺痛/泛红）'
               : 'No — no stinging/redness recently';
         setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+
+        const immediate =
+          value === 'yes'
+            ? language === 'CN'
+              ? '收到 ✅ 我会按“屏障优先”来给建议，先避免叠加强活性。'
+              : 'Got it ✅ I’ll keep this barrier-first and avoid stacking strong actives for now.'
+            : language === 'CN'
+              ? '好的 ✅ 我会更放心一些推进，但仍会从低频、单一活性开始。'
+              : 'Great ✅ We can be a bit more proactive, but still start low-frequency with one active at a time.';
+        setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'text', content: immediate }]);
+
         const msg =
           value === 'yes'
             ? language === 'CN'
@@ -3267,6 +3281,7 @@ export default function BffChat() {
             open={photoSheetOpen}
             title={language === 'CN' ? '上传照片（更准确）' : 'Upload photos (recommended)'}
             onClose={() => {
+              if (isLoading) return;
               setPhotoSheetOpen(false);
               setPromptRoutineAfterPhoto(false);
             }}
@@ -3281,18 +3296,18 @@ export default function BffChat() {
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
                 {language === 'CN'
-                  ? '强烈建议提供你最近在用的步骤/产品（名字或链接都行）。否则我只能给“低置信度”的通用 7 天建议，不做评分/不推推荐。'
-                  : 'Strongly recommended: share what you’re using now (names or links). Otherwise I’ll only give a low-confidence 7‑day baseline (no scoring, no recommendations).'}
+                  ? '强烈建议填写你最近在用的 AM/PM 产品/步骤；否则只给低置信度 7 天基线（不评分/不推推荐）。'
+                  : 'Strongly recommended: add your current AM/PM products. Otherwise you’ll only get a low-confidence 7‑day baseline (no scoring, no recommendations).'}
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3 pb-24">
                 <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
                   <div className="text-xs font-semibold text-foreground">{language === 'CN' ? '早上（AM）' : 'Morning (AM)'}</div>
                   <div className="mt-2 grid gap-2">
                     <label className="space-y-1 text-xs text-muted-foreground">
                       {language === 'CN' ? '洁面' : 'Cleanser'}
                       <input
-                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                         value={routineDraft.am.cleanser}
                         onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
                         placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
@@ -3302,7 +3317,7 @@ export default function BffChat() {
                     <label className="space-y-1 text-xs text-muted-foreground">
                       {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
                       <input
-                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                         value={routineDraft.am.treatment}
                         onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
                         placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
@@ -3312,7 +3327,7 @@ export default function BffChat() {
                     <label className="space-y-1 text-xs text-muted-foreground">
                       {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
                       <input
-                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                         value={routineDraft.am.moisturizer}
                         onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
                         placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
@@ -3322,7 +3337,7 @@ export default function BffChat() {
                     <label className="space-y-1 text-xs text-muted-foreground">
                       {language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
                       <input
-                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                         value={routineDraft.am.spf}
                         onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
                         placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
@@ -3338,7 +3353,7 @@ export default function BffChat() {
                     <label className="space-y-1 text-xs text-muted-foreground">
                       {language === 'CN' ? '洁面' : 'Cleanser'}
                       <input
-                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                         value={routineDraft.pm.cleanser}
                         onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
                         placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
@@ -3348,7 +3363,7 @@ export default function BffChat() {
                     <label className="space-y-1 text-xs text-muted-foreground">
                       {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
                       <input
-                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                         value={routineDraft.pm.treatment}
                         onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
                         placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
@@ -3358,7 +3373,7 @@ export default function BffChat() {
                     <label className="space-y-1 text-xs text-muted-foreground">
                       {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
                       <input
-                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                         value={routineDraft.pm.moisturizer}
                         onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
                         placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
@@ -3371,7 +3386,7 @@ export default function BffChat() {
                 <label className="space-y-1 text-xs text-muted-foreground">
                   {language === 'CN' ? '备注（可选）' : 'Notes (optional)'}
                   <textarea
-                    className="min-h-[90px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
+                    className="min-h-[72px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
                     value={routineDraft.notes}
                     onChange={(e) => setRoutineDraft((prev) => ({ ...prev, notes: e.target.value }))}
                     placeholder={
@@ -3384,7 +3399,8 @@ export default function BffChat() {
                 </label>
               </div>
 
-              <div className="flex gap-2">
+              <div className="sticky bottom-0 -mx-4 border-t border-border/40 bg-card/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
+                <div className="flex gap-2">
                 <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={isLoading}>
                   {language === 'CN' ? '取消' : 'Cancel'}
                 </button>
@@ -3424,6 +3440,7 @@ export default function BffChat() {
                 >
                   {language === 'CN' ? '保存并分析' : 'Save & analyze'}
                 </button>
+                </div>
               </div>
             </div>
           </Sheet>
