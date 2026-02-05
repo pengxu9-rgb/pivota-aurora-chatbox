@@ -604,7 +604,6 @@ function ProductList({
       {items.map((item) => {
         const expanded = Boolean(open[item.rank]);
         const detailsId = `pp_details_${item.rank}`;
-        const kbShort = parseShortKbId(item.kbId);
         const actives = item.keyActives.slice(0, 4);
         const caution = buildCautionLine(item, { barrierImpaired });
         const why = buildWhyLine(item);
@@ -660,7 +659,6 @@ function ProductList({
               >
                 Details
               </button>
-              {kbShort ? <code className="text-xs text-slate-500">kb:{kbShort}</code> : null}
             </div>
 
             <div id={detailsId} hidden={!expanded} className="space-y-2">

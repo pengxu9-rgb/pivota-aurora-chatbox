@@ -276,6 +276,17 @@ const asNumber = (v: unknown) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const isInternalKbCitationId = (raw: string): boolean => {
+  const v = String(raw || '').trim();
+  if (!v) return false;
+  const lower = v.toLowerCase();
+  if (lower.startsWith('kb:')) return true;
+  if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v)) return true;
+  return false;
+};
+
+const isLikelyUrl = (raw: string): boolean => /^https?:\/\//i.test(String(raw || '').trim());
+
 const asNumberRecord = (v: unknown): Record<string, number> | undefined => {
   const o = asObject(v);
   if (!o) return undefined;
@@ -693,6 +704,8 @@ function RecommendationsCard({
       .map((v) => asString(v))
       .filter(Boolean) as string[];
     const citations = asArray(evidencePack?.citations).map((v) => asString(v)).filter(Boolean) as string[];
+    const internalCitations = citations.filter((c) => isInternalKbCitationId(c));
+    const externalCitations = citations.filter((c) => !isInternalKbCitationId(c));
 
     const labelKind = (kindRaw: string | null) => {
       const k = String(kindRaw || '').trim().toLowerCase();
@@ -908,13 +921,44 @@ function RecommendationsCard({
               {citations.length ? (
                 <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
                   <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '引用' : 'Citations'}</div>
-                  <div className="mt-2 space-y-1">
-                    {citations.slice(0, 3).map((c) => (
-                      <div key={c} className="truncate">
-                        {c}
+                  {!debug ? (
+                    externalCitations.length ? (
+                      <div className="mt-2 space-y-1">
+                        {externalCitations.slice(0, 3).map((c) =>
+                          isLikelyUrl(c) ? (
+                            <a
+                              key={c}
+                              href={c}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 truncate text-primary underline-offset-4 hover:underline"
+                            >
+                              <span className="truncate">{c}</span>
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                            </a>
+                          ) : (
+                            <div key={c} className="truncate">
+                              {c}
+                            </div>
+                          ),
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    ) : internalCitations.length ? (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {language === 'CN'
+                          ? `已参考 Aurora 知识库（内部）· ${internalCitations.length} 条`
+                          : `Referenced Aurora KB (internal) · ${internalCitations.length}`}
+                      </div>
+                    ) : null
+                  ) : (
+                    <div className="mt-2 space-y-1">
+                      {citations.slice(0, 3).map((c) => (
+                        <div key={c} className="truncate font-mono">
+                          {c}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : null}
 
@@ -1118,9 +1162,6 @@ function BffCardView({
   }
 
   if (isEnvStressCard(card)) {
-    // Env stress is a separate module (weather / itinerary). Hide by default to avoid
-    // confusing users during skin diagnosis / analysis flows.
-    if (!debug) return null;
     return <EnvStressCard payload={payload} language={language} />;
   }
 

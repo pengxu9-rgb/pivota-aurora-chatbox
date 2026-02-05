@@ -80,6 +80,15 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function isInternalKbCitationId(raw: string): boolean {
+  const v = String(raw || '').trim();
+  if (!v) return false;
+  const lower = v.toLowerCase();
+  if (lower.startsWith('kb:')) return true;
+  if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v)) return true;
+  return false;
+}
+
 function normalizePercentFrom01(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null;
   // Support either 0-1 or 0-100 inputs.
@@ -256,8 +265,14 @@ export function DupeComparisonCard({
   const dupeHighlights = useMemo(() => extractIngredientHighlights(dupe), [dupe]);
   const originalSocial = useMemo(() => socialSnapshot(original), [original]);
   const dupeSocial = useMemo(() => socialSnapshot(dupe), [dupe]);
-  const originalCitations = useMemo(() => uniqueStrings(original.evidence_pack?.citations).slice(0, 4), [original]);
-  const dupeCitations = useMemo(() => uniqueStrings(dupe.evidence_pack?.citations).slice(0, 4), [dupe]);
+  const originalCitations = useMemo(
+    () => uniqueStrings(original.evidence_pack?.citations).filter((c) => !isInternalKbCitationId(c)).slice(0, 4),
+    [original],
+  );
+  const dupeCitations = useMemo(
+    () => uniqueStrings(dupe.evidence_pack?.citations).filter((c) => !isInternalKbCitationId(c)).slice(0, 4),
+    [dupe],
+  );
 
   return (
     <Card className={cn('w-full bg-white/90 backdrop-blur-sm border-border/70 shadow-card', className)}>
