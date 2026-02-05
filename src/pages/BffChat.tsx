@@ -519,18 +519,20 @@ function Sheet({
         aria-label="Close"
         onClick={onClose}
       />
-      <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-lg rounded-t-3xl border border-border/50 bg-card/90 p-4 shadow-elevated backdrop-blur-xl">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-foreground">{title}</div>
-          <button
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-lg overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
+        <div className="flex max-h-[85vh] flex-col">
+          <div className="flex items-center justify-between px-4 pb-3 pt-4">
+            <div className="text-sm font-semibold text-foreground">{title}</div>
+            <button
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">{children}</div>
         </div>
-        <div className="mt-3">{children}</div>
       </div>
     </div>
   );
@@ -1158,6 +1160,7 @@ function BffCardView({
     };
 
     const analysisSource = asString((payload as any).analysis_source) || '';
+    const photoQc = asArray((payload as any).photo_qc).map((v) => asString(v)).filter(Boolean) as string[];
     const missing = Array.isArray(card.field_missing) ? card.field_missing : [];
     const lowConfidence =
       analysisSource === 'baseline_low_confidence' ||
@@ -1166,7 +1169,14 @@ function BffCardView({
 
     return (
       <AnalysisSummaryCard
-        payload={{ analysis: analysis as any, session, low_confidence: lowConfidence, photos_provided: photosProvided }}
+        payload={{
+          analysis: analysis as any,
+          session,
+          low_confidence: lowConfidence,
+          photos_provided: photosProvided,
+          photo_qc: photoQc,
+          analysis_source: analysisSource,
+        }}
         onAction={(id, data) => onAction(id, data)}
         language={language}
       />
@@ -1772,6 +1782,20 @@ export default function BffChat() {
       return false;
     }
   });
+  const [anchorProductId] = useState<string>(() => {
+    try {
+      return String(new URLSearchParams(window.location.search).get('anchor_product_id') || '').trim();
+    } catch {
+      return '';
+    }
+  });
+  const [anchorProductUrl] = useState<string>(() => {
+    try {
+      return String(new URLSearchParams(window.location.search).get('anchor_product_url') || '').trim();
+    } catch {
+      return '';
+    }
+  });
   const [input, setInput] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -1801,6 +1825,7 @@ export default function BffChat() {
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<Array<{ slot_id: string; photo_id: string; qc_status: string }>>([]);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
+  const [promptRoutineAfterPhoto, setPromptRoutineAfterPhoto] = useState(false);
   const [routineSheetOpen, setRoutineSheetOpen] = useState(false);
   const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
 
@@ -2248,6 +2273,7 @@ export default function BffChat() {
   }, [headers, language, refreshBootstrapInfo]);
 
   const handlePickPhoto = useCallback(() => {
+    setPromptRoutineAfterPhoto(false);
     setPhotoSheetOpen(true);
   }, [setPhotoSheetOpen]);
 
@@ -2291,6 +2317,7 @@ export default function BffChat() {
     async (actionId: string, data?: Record<string, any>) => {
       if (actionId === 'photo_skip') {
         setPhotoSheetOpen(false);
+        setPromptRoutineAfterPhoto(false);
         return;
       }
       if (actionId !== 'photo_upload') {
@@ -2334,8 +2361,35 @@ export default function BffChat() {
         // eslint-disable-next-line no-await-in-loop
         await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
       }
+
+      if (promptRoutineAfterPhoto) {
+        setPromptRoutineAfterPhoto(false);
+        const prompt =
+          language === 'CN'
+            ? '照片已收到 ✅ 为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也补充一下（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以先跳过，我会给低置信度的通用 7 天基线（不做评分/不推推荐）。'
+            : "Photo received ✅ To make this accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). Or you can skip and I’ll give a low-confidence 7‑day baseline (no scoring, no recommendations).";
+        const chips: SuggestedChip[] = [
+          {
+            chip_id: 'chip.intake.paste_routine',
+            label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
+            kind: 'quick_reply',
+            data: {},
+          },
+          {
+            chip_id: 'chip.intake.skip_analysis',
+            label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
+            kind: 'quick_reply',
+            data: {},
+          },
+        ];
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
+          { id: nextId(), role: 'assistant', kind: 'chips', chips },
+        ]);
+      }
     },
-    [language, uploadPhotoViaProxy],
+    [language, promptRoutineAfterPhoto, uploadPhotoViaProxy],
   );
 
   const sendChat = useCallback(
@@ -2349,6 +2403,8 @@ export default function BffChat() {
           ...(action ? { action } : {}),
           language,
           ...(debug ? { debug: true } : {}),
+          ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+          ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
 
         const env = await bffJson<V1Envelope>('/v1/chat', requestHeaders, {
@@ -2362,7 +2418,7 @@ export default function BffChat() {
         setIsLoading(false);
       }
     },
-    [applyEnvelope, headers, language, sessionState]
+    [anchorProductId, anchorProductUrl, applyEnvelope, debug, headers, language, sessionState]
   );
 
   const parseMaybeUrl = useCallback((text: string) => {
@@ -2519,25 +2575,19 @@ export default function BffChat() {
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '分析我的皮肤' : 'Analyze my skin' },
         ]);
 
-        setIsLoading(true);
-        try {
-          const requestHeaders = { ...headers, lang: language };
-          const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({
+        setSessionState('S3_PHOTO_OPTION');
+        await sendChat(undefined, {
+          action_id: 'profile.patch',
+          kind: 'action',
+          data: {
+            profile_patch: {
               skinType,
               barrierStatus,
               sensitivity,
               goals: concerns.slice(0, 3),
-            }),
-          });
-          applyEnvelope(env);
-          setSessionState('S3_PHOTO_OPTION');
-        } catch (err) {
-          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          setIsLoading(false);
-        }
+            },
+          },
+        });
         return;
       }
 
@@ -2569,31 +2619,8 @@ export default function BffChat() {
       }
 
       if (actionId === 'profile_upload_selfie') {
+        setPromptRoutineAfterPhoto(true);
         setPhotoSheetOpen(true);
-
-        const prompt =
-          language === 'CN'
-            ? '上传照片后，为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也发我（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以直接跳过，我会先给低置信度的通用 7 天建议。'
-            : 'After uploading, to make this accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). You can also skip; I’ll give a low-confidence 7‑day baseline.';
-        const chips: SuggestedChip[] = [
-          {
-            chip_id: 'chip.intake.paste_routine',
-            label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
-            kind: 'quick_reply',
-            data: {},
-          },
-          {
-            chip_id: 'chip.intake.skip_analysis',
-            label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
-            kind: 'quick_reply',
-            data: {},
-          },
-        ];
-        setItems((prev) => [
-          ...prev,
-          { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
-          { id: nextId(), role: 'assistant', kind: 'chips', chips },
-        ]);
         return;
       }
 
@@ -2671,6 +2698,30 @@ export default function BffChat() {
                 : 'Fill in your AM/PM products (cleanser/actives/moisturizer/SPF, names or links). I’ll check conflicts and irritation risk first, then decide what to keep/change.',
           },
         ]);
+        return;
+      }
+
+      if (actionId === 'analysis_quick_check') {
+        const value = typeof data?.value === 'string' ? data.value.trim().toLowerCase() : '';
+        if (value !== 'yes' && value !== 'no') return;
+        const userText =
+          value === 'yes'
+            ? language === 'CN'
+              ? '有（最近刺痛/泛红）'
+              : 'Yes — stinging/redness recently'
+            : language === 'CN'
+              ? '没有（最近没有刺痛/泛红）'
+              : 'No — no stinging/redness recently';
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+        const msg =
+          value === 'yes'
+            ? language === 'CN'
+              ? '我最近有刺痛/泛红。'
+              : 'I have stinging/redness recently.'
+            : language === 'CN'
+              ? '我最近没有刺痛/泛红。'
+              : "No stinging/redness recently.";
+        await sendChat(msg);
         return;
       }
 
@@ -2752,9 +2803,11 @@ export default function BffChat() {
     try {
       setSessionState('S4_ANALYSIS_LOADING');
       const requestHeaders = { ...headers, lang: language };
+      const photos = getSanitizedAnalysisPhotos();
+      const usePhoto = photos.length > 0;
       const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
         method: 'POST',
-        body: JSON.stringify({ use_photo: false }),
+        body: JSON.stringify({ use_photo: usePhoto, ...(usePhoto ? { photos } : {}) }),
       });
       applyEnvelope(env);
     } catch (err) {
@@ -2762,7 +2815,7 @@ export default function BffChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [applyEnvelope, getSanitizedAnalysisPhotos, headers, language, tryApplyEnvelopeFromBffError]);
 
   const runRoutineSkinAnalysis = useCallback(
     async (routineInput: string | Record<string, unknown>) => {
@@ -2831,6 +2884,7 @@ export default function BffChat() {
 
       setItems((prev) => [...prev, userItem]);
       if (id === 'chip.intake.upload_photos') {
+        setPromptRoutineAfterPhoto(true);
         setPhotoSheetOpen(true);
         return;
       }
@@ -3188,7 +3242,10 @@ export default function BffChat() {
           <Sheet
             open={photoSheetOpen}
             title={language === 'CN' ? '上传照片（更准确）' : 'Upload photos (recommended)'}
-            onClose={() => setPhotoSheetOpen(false)}
+            onClose={() => {
+              setPhotoSheetOpen(false);
+              setPromptRoutineAfterPhoto(false);
+            }}
           >
             <PhotoUploadCard language={language} onAction={onPhotoAction} />
           </Sheet>

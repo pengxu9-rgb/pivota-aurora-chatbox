@@ -49,18 +49,6 @@ export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
 
   return (
     <div className="chat-card space-y-4">
-      {/* Progress indicator */}
-      <div className="flex gap-1">
-        {[1, 2, 3].map((s) => (
-          <div 
-            key={s} 
-            className={`h-1 flex-1 rounded-full transition-colors ${
-              s <= step ? 'bg-primary' : 'bg-muted'
-            }`}
-          />
-        ))}
-      </div>
-
       {/* Step 1: Skin Type */}
       {step === 1 && (
         <div className="space-y-3">
