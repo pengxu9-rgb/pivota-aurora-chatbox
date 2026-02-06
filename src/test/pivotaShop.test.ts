@@ -24,6 +24,16 @@ describe('pivotaShop', () => {
       expect(extractPdpTargetFromOffersResolveResponse(resp)).toEqual({ product_id: 'prod_4', merchant_id: 'merch_4' });
     });
 
+    it('extracts merchant.id + product.id', () => {
+      const resp = { product: { id: 'prod_5', merchant: { id: 'merch_5' } }, offers: [] };
+      expect(extractPdpTargetFromOffersResolveResponse(resp)).toEqual({ product_id: 'prod_5', merchant_id: 'merch_5' });
+    });
+
+    it('extracts from offer.product + offer.merchant', () => {
+      const resp = { offers: [{ product: { id: 'prod_6' }, merchant: { id: 'merch_6' } }] };
+      expect(extractPdpTargetFromOffersResolveResponse(resp)).toEqual({ product_id: 'prod_6', merchant_id: 'merch_6' });
+    });
+
     it('returns null when no target present', () => {
       const resp = { offers: [{ url: 'https://example.com' }] };
       expect(extractPdpTargetFromOffersResolveResponse(resp)).toBeNull();
@@ -42,4 +52,3 @@ describe('pivotaShop', () => {
     });
   });
 });
-

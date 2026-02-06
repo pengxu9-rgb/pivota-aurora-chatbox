@@ -44,6 +44,7 @@ import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } 
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
 import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
+import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
 import {
   Activity,
   ArrowRight,
@@ -815,13 +816,15 @@ function RecommendationsCard({
   card,
   language,
   debug,
-  resolveSkuOffers,
+  resolveOffers,
+  onOpenPdp,
   analyticsCtx,
 }: {
   card: Card;
   language: 'EN' | 'CN';
   debug: boolean;
-  resolveSkuOffers?: (skuId: string) => Promise<any>;
+  resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
+  onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
 }) {
   const [offerCache, setOfferCache] = useState<
@@ -860,6 +863,7 @@ function RecommendationsCard({
       merchantId,
       brand,
       name,
+      fallbackUrl,
       position,
     }: {
       skuId?: string | null;
@@ -867,10 +871,19 @@ function RecommendationsCard({
       merchantId?: string | null;
       brand: string | null;
       name: string | null;
+      fallbackUrl?: string | null;
       position?: number;
     }) => {
       const anchorId = String(productId || skuId || '').trim();
-      if (!anchorId) return openFallback(brand, name);
+      const fallback = String(fallbackUrl || '').trim();
+      if (!anchorId) {
+        if (fallback && isLikelyUrl(fallback)) {
+          window.open(fallback, '_blank', 'noopener,noreferrer');
+          return;
+        }
+        return openFallback(brand, name);
+      }
+      const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
 
       const cached = offerCache[anchorId];
       if (cached) {
@@ -898,12 +911,16 @@ function RecommendationsCard({
             emitUiInternalCheckoutClicked(analyticsCtx, { from_card_id: card.card_id });
           }
         }
-        window.open(cached.url, '_blank', 'noopener,noreferrer');
+        if (cached.route === 'pdp' && onOpenPdp) {
+          onOpenPdp({ url: cached.url, ...(title ? { title } : {}) });
+        } else {
+          window.open(cached.url, '_blank', 'noopener,noreferrer');
+        }
         return;
       }
 
-      // PDP-first: if backend product_id is present, always open PDP.
-      if (productId) {
+      // PDP-first: if we have both ids, open PDP immediately (in-app drawer).
+      if (productId && merchantId) {
         const pdpUrl = buildPdpUrl({
           product_id: productId,
           merchant_id: merchantId ?? null,
@@ -925,23 +942,30 @@ function RecommendationsCard({
             sku_type: 'product_id',
           });
         }
-        window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+        if (onOpenPdp) {
+          onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
+        } else {
+          window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+        }
         return;
       }
 
-      if (!resolveSkuOffers) {
+      if (!resolveOffers) {
         openFallback(brand, name);
         return;
       }
 
-      if (!skuId) {
+      if (!skuId && !productId) {
         openFallback(brand, name);
         return;
       }
 
       setOffersLoading(anchorId);
       try {
-        const resp = await resolveSkuOffers(skuId);
+        const resp = await resolveOffers({
+          ...(productId ? { product_id: productId } : skuId ? { sku_id: skuId } : {}),
+          ...(merchantId ? { merchant_id: merchantId } : {}),
+        });
         const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
         const offers = Array.isArray(resp?.offers)
           ? resp.offers
@@ -996,15 +1020,20 @@ function RecommendationsCard({
               product_id: pdpTarget.product_id,
               merchant_id: pdpTarget.merchant_id ?? null,
               card_position: position ?? 0,
-              sku_type: 'sku_id',
+              sku_type: productId ? 'product_id' : 'sku_id',
             });
           }
-          window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+          if (onOpenPdp) {
+            onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
+          } else {
+            window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+          }
           return;
         }
 
-        const url = externalUrl || internalUrl || fallbackUrl || '';
-        const route: 'outbound' | 'internal' = externalUrl ? 'outbound' : internalUrl ? 'internal' : fallbackRoute;
+        const directFallbackUrl = fallback && isLikelyUrl(fallback) ? fallback : '';
+        const url = externalUrl || internalUrl || fallbackUrl || directFallbackUrl || '';
+        const route: 'outbound' | 'internal' = externalUrl ? 'outbound' : internalUrl ? 'internal' : directFallbackUrl ? 'outbound' : fallbackRoute;
         if (!url) {
           openFallback(brand, name);
           return;
@@ -1019,11 +1048,12 @@ function RecommendationsCard({
                 return '';
               }
             })();
+            const skuType = skuId ? 'sku_id_missing_backend' : productId ? 'product_id_missing_backend' : 'missing_backend';
             emitUiOutboundOpened(analyticsCtx, {
               merchant_domain: merchantDomain,
               card_position: position ?? 0,
-              sku_type: 'sku_id_missing_backend',
-              sku_id: skuId,
+              sku_type: skuType,
+              ...(skuId ? { sku_id: skuId } : productId ? { product_id: productId } : {}),
               reason: 'no_pdp_target',
             });
           } else {
@@ -1037,7 +1067,7 @@ function RecommendationsCard({
         setOffersLoading(null);
       }
     },
-    [analyticsCtx, card.card_id, offerCache, openFallback, resolveSkuOffers],
+    [analyticsCtx, card.card_id, offerCache, onOpenPdp, openFallback, resolveOffers],
   );
 
   const groups = items.reduce(
@@ -1062,8 +1092,21 @@ function RecommendationsCard({
     const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
     const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
-    const productId = asString((sku as any)?.product_id) || asString((sku as any)?.productId) || null;
-    const merchantId = asString((sku as any)?.merchant_id) || asString((sku as any)?.merchantId) || null;
+    const productId = asString((sku as any)?.product_id) || asString((sku as any)?.productId) || asString((sku as any)?.id) || null;
+    const merchantId =
+      asString((sku as any)?.merchant_id) ||
+      asString((sku as any)?.merchantId) ||
+      asString((sku as any)?.merchant?.id) ||
+      asString((sku as any)?.merchant?.merchant_id) ||
+      asString((sku as any)?.merchant?.merchantId) ||
+      null;
+    const itemUrl =
+      asString((sku as any)?.affiliate_url) ||
+      asString((sku as any)?.affiliateUrl) ||
+      asString((sku as any)?.external_url) ||
+      asString((sku as any)?.externalUrl) ||
+      asString((sku as any)?.url) ||
+      null;
     const anchorId = productId || skuId || null;
     const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
@@ -1132,7 +1175,7 @@ function RecommendationsCard({
               type="button"
               className="chip-button"
               disabled={offersLoading === anchorId}
-              onClick={() => void openPurchase({ skuId, productId, merchantId, brand, name, position: idx + 1 })}
+              onClick={() => void openPurchase({ skuId, productId, merchantId, brand, name, fallbackUrl: itemUrl, position: idx + 1 })}
             >
               {language === 'CN' ? '查看详情' : 'View details'}
               {offersLoading === anchorId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
@@ -1159,8 +1202,22 @@ function RecommendationsCard({
                   asString((altProduct as any)?.sku_id) ||
                   asString((altProduct as any)?.skuId) ||
                   null;
-                const altProductId = asString((altProduct as any)?.product_id) || asString((altProduct as any)?.productId) || null;
-                const altMerchantId = asString((altProduct as any)?.merchant_id) || asString((altProduct as any)?.merchantId) || null;
+                const altProductId =
+                  asString((altProduct as any)?.product_id) || asString((altProduct as any)?.productId) || asString((altProduct as any)?.id) || null;
+                const altMerchantId =
+                  asString((altProduct as any)?.merchant_id) ||
+                  asString((altProduct as any)?.merchantId) ||
+                  asString((altProduct as any)?.merchant?.id) ||
+                  asString((altProduct as any)?.merchant?.merchant_id) ||
+                  asString((altProduct as any)?.merchant?.merchantId) ||
+                  null;
+                const altUrl =
+                  asString((altProduct as any)?.affiliate_url) ||
+                  asString((altProduct as any)?.affiliateUrl) ||
+                  asString((altProduct as any)?.external_url) ||
+                  asString((altProduct as any)?.externalUrl) ||
+                  asString((altProduct as any)?.url) ||
+                  null;
                 const altAnchorId = altProductId || altSkuId || '';
                 const tradeoffs = uniqueStrings((alt as any).tradeoffs).slice(0, 4);
                 const reasons = uniqueStrings((alt as any).reasons).slice(0, 2);
@@ -1219,7 +1276,7 @@ function RecommendationsCard({
                         type="button"
                       className="chip-button"
                       disabled={Boolean(altAnchorId) && offersLoading === altAnchorId}
-                      onClick={() => void openPurchase({ skuId: altSkuId, productId: altProductId, merchantId: altMerchantId, brand: altBrand, name: altName, position: idx + 1 })}
+                      onClick={() => void openPurchase({ skuId: altSkuId, productId: altProductId, merchantId: altMerchantId, brand: altBrand, name: altName, fallbackUrl: altUrl, position: idx + 1 })}
                     >
                         {language === 'CN' ? '查看详情' : 'View details'}
                       </button>
@@ -1501,9 +1558,10 @@ function BffCardView({
   debug,
   session,
   onAction,
-  resolveSkuOffers,
+  resolveOffers,
   bootstrapInfo,
   onOpenCheckin,
+  onOpenPdp,
   analyticsCtx,
 }: {
   card: Card;
@@ -1511,9 +1569,10 @@ function BffCardView({
   debug: boolean;
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
-  resolveSkuOffers?: (skuId: string) => Promise<any>;
+  resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
   onOpenCheckin?: () => void;
+  onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
 }) {
   const cardType = String(card.type || '').toLowerCase();
@@ -1670,7 +1729,8 @@ function BffCardView({
           card={card}
           language={language}
           debug={debug}
-          resolveSkuOffers={resolveSkuOffers}
+          resolveOffers={resolveOffers}
+          onOpenPdp={onOpenPdp}
           analyticsCtx={analyticsCtx}
         />
       ) : null}
@@ -2243,6 +2303,10 @@ export default function BffChat() {
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
 
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [pdpDrawerOpen, setPdpDrawerOpen] = useState(false);
+  const [pdpDrawerUrl, setPdpDrawerUrl] = useState<string | null>(null);
+  const [pdpDrawerTitle, setPdpDrawerTitle] = useState<string>('');
+  const [pdpDrawerSnapPoint, setPdpDrawerSnapPoint] = useState<number | string | null>(0.65);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
@@ -2303,6 +2367,15 @@ export default function BffChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [items, isLoading]);
+
+  const openPdpDrawer = useCallback((args: { url: string; title?: string }) => {
+    const url = String(args.url || '').trim();
+    if (!url) return;
+    setPdpDrawerUrl(url);
+    setPdpDrawerTitle(String(args.title || '').trim());
+    setPdpDrawerSnapPoint(0.65);
+    setPdpDrawerOpen(true);
+  }, []);
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
     setError(null);
@@ -3414,6 +3487,66 @@ export default function BffChat() {
     [agentState, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
   );
 
+  const onProductPicksPrimary = useCallback(async () => {
+    if (isLoading) return;
+    const fromState = agentState;
+    const actionId = 'product_picks_primary';
+    const ctx: AnalyticsContext = {
+      brief_id: headers.brief_id,
+      trace_id: headers.trace_id,
+      aurora_uid: headers.aurora_uid,
+      lang: toLangPref(language),
+      state: fromState,
+    };
+
+    const validation = validateRequestedTransition({
+      from_state: fromState,
+      trigger_source: 'action',
+      trigger_id: actionId,
+      requested_next_state: 'RECO_GATE',
+    });
+    if (!validation.ok) {
+      setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
+      return;
+    }
+
+    if (validation.next_state !== fromState) {
+      emitAgentStateEntered(
+        { ...ctx, state: validation.next_state },
+        { state_name: validation.next_state, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+      );
+      setAgentStateSafe(validation.next_state);
+    }
+
+    emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'action', prior_value_moment: 'product_picks' });
+
+    setItems((prev) => [
+      ...prev,
+      {
+        id: nextId(),
+        role: 'user',
+        kind: 'text',
+        content: language === 'CN' ? '查看产品推荐' : 'See product recommendations',
+      },
+    ]);
+
+    const replyText =
+      language === 'CN' ? '推荐一些产品（并给出可购买的链接/入口）。' : 'Recommend a few products (with purchasable links/CTAs).';
+
+    await sendChat(
+      undefined,
+      {
+        action_id: 'chip.start.reco_products',
+        kind: 'chip',
+        data: { reply_text: replyText, include_alternatives: true },
+      },
+      {
+        client_state: fromState,
+        requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: validation.next_state },
+      },
+    );
+  }, [agentState, headers, isLoading, language, sendChat, setAgentStateSafe]);
+
   const getSanitizedAnalysisPhotos = useCallback(() => {
     return analysisPhotoRefs
       .map((p) => ({
@@ -3810,14 +3943,25 @@ export default function BffChat() {
     };
   }, [headers.brief_id, headers.trace_id, flowState, sessionPhotos]);
 
-  const resolveSkuOffers = useCallback(
-    async (skuId: string) => {
+  const resolveOffers = useCallback(
+    async (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => {
+      const skuId = String(args.sku_id || '').trim();
+      const productId = String(args.product_id || '').trim();
+      const merchantId = String(args.merchant_id || '').trim();
+      const product: Record<string, string> = {
+        ...(skuId ? { sku_id: skuId } : {}),
+        ...(productId ? { product_id: productId } : {}),
+        ...(merchantId ? { merchant_id: merchantId } : {}),
+      };
+      if (!Object.keys(product).length) {
+        throw new Error('offers.resolve requires sku_id or product_id');
+      }
       const requestHeaders = { ...headers, lang: language };
       return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
         method: 'POST',
         body: JSON.stringify({
           operation: 'offers.resolve',
-          payload: { offers: { product: { sku_id: skuId }, market: 'US', tool: '*', limit: 5 } },
+          payload: { offers: { product, market: 'US', tool: '*', limit: 5 } },
           metadata: { source: 'chatbox' },
         }),
       });
@@ -4603,13 +4747,18 @@ export default function BffChat() {
           ) : null}
 
           {items.map((item) => {
-	            if (item.kind === 'text') {
-	              const isUser = item.role === 'user';
-	              const isProductPicks = !isUser && looksLikeProductPicksRawText(item.content);
-	              if (isProductPicks) {
+            if (item.kind === 'text') {
+              const isUser = item.role === 'user';
+              const isProductPicks = !isUser && looksLikeProductPicksRawText(item.content);
+              if (isProductPicks) {
 	                return (
                   <div key={item.id} className="chat-card">
-                    <ProductPicksCard rawContent={item.content} />
+                    <ProductPicksCard
+                      rawContent={item.content}
+                      onPrimaryClick={() => void onProductPicksPrimary()}
+                      onMakeGentler={() => void onCardAction('analysis_gentler')}
+                      onKeepSimple={() => void onCardAction('analysis_simple')}
+                    />
                   </div>
                 );
               }
@@ -4669,9 +4818,10 @@ export default function BffChat() {
                     debug={debug}
                     session={sessionForCards}
                     onAction={onCardAction}
-                    resolveSkuOffers={resolveSkuOffers}
+                    resolveOffers={resolveOffers}
                     bootstrapInfo={bootstrapInfo}
                     onOpenCheckin={() => setCheckinSheetOpen(true)}
+                    onOpenPdp={openPdpDrawer}
                     analyticsCtx={{
                       brief_id: headers.brief_id,
                       trace_id: headers.trace_id,
@@ -4731,6 +4881,53 @@ export default function BffChat() {
           </button>
         </form>
       </footer>
+
+      <Drawer
+        open={pdpDrawerOpen}
+        onOpenChange={(open) => {
+          setPdpDrawerOpen(open);
+          if (!open) {
+            setPdpDrawerUrl(null);
+            setPdpDrawerTitle('');
+            setPdpDrawerSnapPoint(0.65);
+          }
+        }}
+        snapPoints={[0.6, 0.95]}
+        activeSnapPoint={pdpDrawerSnapPoint}
+        setActiveSnapPoint={setPdpDrawerSnapPoint}
+        fadeFromIndex={0}
+      >
+        <DrawerContent className="mt-0 h-[92dvh] max-h-[92dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
+            <div className="text-sm font-semibold text-foreground">
+              {pdpDrawerTitle || (language === 'CN' ? '商品详情' : 'Product details')}
+            </div>
+            <DrawerClose asChild>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+                aria-label={language === 'CN' ? '关闭商品' : 'Close product'}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </DrawerClose>
+          </div>
+
+          {pdpDrawerUrl ? (
+            <div className="flex-1 overflow-hidden rounded-t-2xl border-t border-border/50 bg-background">
+              <iframe
+                key={pdpDrawerUrl}
+                src={pdpDrawerUrl}
+                title={pdpDrawerTitle || (language === 'CN' ? '商品详情' : 'Product details')}
+                className="h-full w-full"
+                data-vaul-no-drag
+              />
+            </div>
+          ) : (
+            <div className="flex-1 px-4 py-6 text-sm text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</div>
+          )}
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
