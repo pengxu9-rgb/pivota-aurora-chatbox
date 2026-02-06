@@ -21,6 +21,9 @@ Set these in Vercel (or locally via `.env.local`):
 # pivota-agent BFF (Railway)
 VITE_PIVOTA_AGENT_URL=https://pivota-agent-production.up.railway.app
 
+# Pivota shopping UI (PDP + checkout)
+VITE_PIVOTA_SHOP_URL=https://agent.pivota.cc
+
 # Back-compat (used when VITE_PIVOTA_AGENT_URL is unset)
 VITE_SHOP_GATEWAY_URL=https://pivota-agent-production.up.railway.app
 

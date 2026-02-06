@@ -30,6 +30,7 @@ import {
   emitUiInternalCheckoutClicked,
   emitUiLanguageSwitched,
   emitUiOutboundOpened,
+  emitUiPdpOpened,
   emitUiRecosRequested,
   emitUiReturnVisit,
   emitUiSessionStarted,
@@ -41,6 +42,7 @@ import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product
 import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
+import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import {
   Activity,
@@ -822,7 +824,17 @@ function RecommendationsCard({
   resolveSkuOffers?: (skuId: string) => Promise<any>;
   analyticsCtx?: AnalyticsContext;
 }) {
-  const [offerCache, setOfferCache] = useState<Record<string, { url: string; route: 'outbound' | 'internal' }>>({});
+  const [offerCache, setOfferCache] = useState<
+    Record<
+      string,
+      {
+        url: string;
+        route: 'outbound' | 'internal' | 'pdp';
+        product_id?: string;
+        merchant_id?: string | null;
+      }
+    >
+  >({});
   const [offersLoading, setOffersLoading] = useState<string | null>(null);
 
   const payload = asObject(card.payload) || {};
@@ -847,7 +859,16 @@ function RecommendationsCard({
       const cached = offerCache[skuId];
       if (cached) {
         if (analyticsCtx) {
-          if (cached.route === 'outbound') {
+          if (cached.route === 'pdp') {
+            if (cached.product_id) {
+              emitUiPdpOpened(analyticsCtx, {
+                product_id: cached.product_id,
+                merchant_id: cached.merchant_id ?? null,
+                card_position: position ?? 0,
+                sku_type: 'sku_id',
+              });
+            }
+          } else if (cached.route === 'outbound') {
             const merchantDomain = (() => {
               try {
                 return new URL(cached.url).hostname || '';
@@ -872,6 +893,7 @@ function RecommendationsCard({
       setOffersLoading(skuId);
       try {
         const resp = await resolveSkuOffers(skuId);
+        const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
         const offers = Array.isArray(resp?.offers)
           ? resp.offers
           : Array.isArray(resp?.data?.offers)
@@ -906,6 +928,32 @@ function RecommendationsCard({
         const fallbackRoute: 'outbound' | 'internal' =
           fallbackOffer && readCheckoutUrl(fallbackOffer) && !readAffiliateUrl(fallbackOffer) ? 'internal' : 'outbound';
 
+        if (pdpTarget?.product_id) {
+          const pdpUrl = buildPdpUrl({
+            product_id: pdpTarget.product_id,
+            merchant_id: pdpTarget.merchant_id ?? null,
+          });
+          setOfferCache((prev) => ({
+            ...prev,
+            [skuId]: {
+              url: pdpUrl,
+              route: 'pdp',
+              product_id: pdpTarget.product_id,
+              merchant_id: pdpTarget.merchant_id ?? null,
+            },
+          }));
+          if (analyticsCtx) {
+            emitUiPdpOpened(analyticsCtx, {
+              product_id: pdpTarget.product_id,
+              merchant_id: pdpTarget.merchant_id ?? null,
+              card_position: position ?? 0,
+              sku_type: 'sku_id',
+            });
+          }
+          window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+          return;
+        }
+
         const url = externalUrl || internalUrl || fallbackUrl || '';
         const route: 'outbound' | 'internal' = externalUrl ? 'outbound' : internalUrl ? 'internal' : fallbackRoute;
         if (!url) {
@@ -922,7 +970,13 @@ function RecommendationsCard({
                 return '';
               }
             })();
-            emitUiOutboundOpened(analyticsCtx, { merchant_domain: merchantDomain, card_position: position ?? 0, sku_type: 'sku_id' });
+            emitUiOutboundOpened(analyticsCtx, {
+              merchant_domain: merchantDomain,
+              card_position: position ?? 0,
+              sku_type: 'sku_id_missing_backend',
+              sku_id: skuId,
+              reason: 'no_pdp_target',
+            });
           } else {
             emitUiInternalCheckoutClicked(analyticsCtx, { from_card_id: card.card_id });
           }
@@ -934,7 +988,7 @@ function RecommendationsCard({
         setOffersLoading(null);
       }
     },
-    [offerCache, openFallback, resolveSkuOffers],
+    [analyticsCtx, card.card_id, offerCache, openFallback, resolveSkuOffers],
   );
 
   const groups = items.reduce(
@@ -1028,7 +1082,7 @@ function RecommendationsCard({
               disabled={offersLoading === skuId}
               onClick={() => void openPurchase({ skuId, brand, name, position: idx + 1 })}
             >
-              {language === 'CN' ? '购买' : 'Buy'}
+              {language === 'CN' ? '查看详情' : 'View details'}
               {offersLoading === skuId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
             </button>
           </div>
@@ -1110,11 +1164,11 @@ function RecommendationsCard({
                       </div>
                       <button
                         type="button"
-                        className="chip-button"
-                        disabled={Boolean(altSkuId) && offersLoading === altSkuId}
-                        onClick={() => void openPurchase({ skuId: altSkuId, brand: altBrand, name: altName, position: idx + 1 })}
-                      >
-                        {language === 'CN' ? '购买' : 'Buy'}
+                      className="chip-button"
+                      disabled={Boolean(altSkuId) && offersLoading === altSkuId}
+                      onClick={() => void openPurchase({ skuId: altSkuId, brand: altBrand, name: altName, position: idx + 1 })}
+                    >
+                        {language === 'CN' ? '查看详情' : 'View details'}
                       </button>
                     </div>
 

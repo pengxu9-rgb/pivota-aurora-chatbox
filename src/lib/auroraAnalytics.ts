@@ -71,8 +71,18 @@ export const emitUiOutboundOpened = (
     merchant_domain: string;
     card_position: number;
     sku_type: string;
-  }
+  } & Record<string, unknown>
 ) => emitWithContext('ui_outbound_opened', ctx, props);
+
+export const emitUiPdpOpened = (
+  ctx: AnalyticsContext,
+  props: {
+    product_id: string;
+    merchant_id?: string | null;
+    card_position: number;
+    sku_type: string;
+  } & Record<string, unknown>
+) => emitWithContext('ui_pdp_opened', ctx, props);
 
 export const emitUiInternalCheckoutClicked = (
   ctx: AnalyticsContext,
