@@ -5,7 +5,6 @@ import { Globe } from 'lucide-react';
 import { EnvStressRadar } from '@/components/aurora/charts/EnvStressRadar';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import type { EnvStressUiModelV1 } from '@/lib/auroraEnvStress';
 import { normalizeEnvStressUiModelV1 } from '@/lib/auroraUiContracts';
 import { cn } from '@/lib/utils';
 import type { Language } from '@/lib/types';
@@ -15,7 +14,7 @@ export function EnvStressCard({
   language,
   onOpenCheckin,
 }: {
-  payload: EnvStressUiModelV1 | null;
+  payload: unknown;
   language: Language;
   onOpenCheckin?: () => void;
 }) {
@@ -24,8 +23,6 @@ export function EnvStressCard({
   useEffect(() => {
     if (didWarn) console.warn('[aurora.ui] env_stress model normalized (clamp/NaN policy applied)');
   }, [didWarn]);
-
-  if (!payload) return null;
 
   const ess = model?.ess;
   const tier = model?.tier;
@@ -87,8 +84,8 @@ export function EnvStressCard({
             <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
               {model?.notes?.[0] ??
                 (language === 'EN'
-                  ? 'Not enough data to compute ESS yet.'
-                  : '当前数据不足，暂无法计算 ESS。')}
+                  ? 'Environment stress is unavailable for this reply.'
+                  : '本次回复未拿到环境压力数据。')}
             </div>
           )}
 

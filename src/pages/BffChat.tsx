@@ -854,10 +854,27 @@ function RecommendationsCard({
   }, []);
 
   const openPurchase = useCallback(
-    async ({ skuId, brand, name, position }: { skuId: string; brand: string | null; name: string | null; position?: number }) => {
-      if (!skuId) return openFallback(brand, name);
-      const cached = offerCache[skuId];
+    async ({
+      skuId,
+      productId,
+      merchantId,
+      brand,
+      name,
+      position,
+    }: {
+      skuId?: string | null;
+      productId?: string | null;
+      merchantId?: string | null;
+      brand: string | null;
+      name: string | null;
+      position?: number;
+    }) => {
+      const anchorId = String(productId || skuId || '').trim();
+      if (!anchorId) return openFallback(brand, name);
+
+      const cached = offerCache[anchorId];
       if (cached) {
+        const skuType = productId ? 'product_id' : 'sku_id';
         if (analyticsCtx) {
           if (cached.route === 'pdp') {
             if (cached.product_id) {
@@ -865,7 +882,7 @@ function RecommendationsCard({
                 product_id: cached.product_id,
                 merchant_id: cached.merchant_id ?? null,
                 card_position: position ?? 0,
-                sku_type: 'sku_id',
+                sku_type: skuType,
               });
             }
           } else if (cached.route === 'outbound') {
@@ -876,7 +893,7 @@ function RecommendationsCard({
                 return '';
               }
             })();
-            emitUiOutboundOpened(analyticsCtx, { merchant_domain: merchantDomain, card_position: position ?? 0, sku_type: 'sku_id' });
+            emitUiOutboundOpened(analyticsCtx, { merchant_domain: merchantDomain, card_position: position ?? 0, sku_type: skuType });
           } else {
             emitUiInternalCheckoutClicked(analyticsCtx, { from_card_id: card.card_id });
           }
@@ -885,12 +902,44 @@ function RecommendationsCard({
         return;
       }
 
+      // PDP-first: if backend product_id is present, always open PDP.
+      if (productId) {
+        const pdpUrl = buildPdpUrl({
+          product_id: productId,
+          merchant_id: merchantId ?? null,
+        });
+        setOfferCache((prev) => ({
+          ...prev,
+          [anchorId]: {
+            url: pdpUrl,
+            route: 'pdp',
+            product_id: productId,
+            merchant_id: merchantId ?? null,
+          },
+        }));
+        if (analyticsCtx) {
+          emitUiPdpOpened(analyticsCtx, {
+            product_id: productId,
+            merchant_id: merchantId ?? null,
+            card_position: position ?? 0,
+            sku_type: 'product_id',
+          });
+        }
+        window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+
       if (!resolveSkuOffers) {
         openFallback(brand, name);
         return;
       }
 
-      setOffersLoading(skuId);
+      if (!skuId) {
+        openFallback(brand, name);
+        return;
+      }
+
+      setOffersLoading(anchorId);
       try {
         const resp = await resolveSkuOffers(skuId);
         const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
@@ -935,7 +984,7 @@ function RecommendationsCard({
           });
           setOfferCache((prev) => ({
             ...prev,
-            [skuId]: {
+            [anchorId]: {
               url: pdpUrl,
               route: 'pdp',
               product_id: pdpTarget.product_id,
@@ -960,7 +1009,7 @@ function RecommendationsCard({
           openFallback(brand, name);
           return;
         }
-        setOfferCache((prev) => ({ ...prev, [skuId]: { url, route } }));
+        setOfferCache((prev) => ({ ...prev, [anchorId]: { url, route } }));
         if (analyticsCtx) {
           if (route === 'outbound') {
             const merchantDomain = (() => {
@@ -1013,6 +1062,9 @@ function RecommendationsCard({
     const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
     const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
+    const productId = asString((sku as any)?.product_id) || asString((sku as any)?.productId) || null;
+    const merchantId = asString((sku as any)?.merchant_id) || asString((sku as any)?.merchantId) || null;
+    const anchorId = productId || skuId || null;
     const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
@@ -1074,16 +1126,16 @@ function RecommendationsCard({
           </ul>
         ) : null}
 
-        {skuId ? (
+        {anchorId ? (
           <div className="mt-2">
             <button
               type="button"
               className="chip-button"
-              disabled={offersLoading === skuId}
-              onClick={() => void openPurchase({ skuId, brand, name, position: idx + 1 })}
+              disabled={offersLoading === anchorId}
+              onClick={() => void openPurchase({ skuId, productId, merchantId, brand, name, position: idx + 1 })}
             >
               {language === 'CN' ? '查看详情' : 'View details'}
-              {offersLoading === skuId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
+              {offersLoading === anchorId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
             </button>
           </div>
         ) : null}
@@ -1106,9 +1158,10 @@ function RecommendationsCard({
                 const altSkuId =
                   asString((altProduct as any)?.sku_id) ||
                   asString((altProduct as any)?.skuId) ||
-                  asString((altProduct as any)?.product_id) ||
-                  asString((altProduct as any)?.productId) ||
-                  '';
+                  null;
+                const altProductId = asString((altProduct as any)?.product_id) || asString((altProduct as any)?.productId) || null;
+                const altMerchantId = asString((altProduct as any)?.merchant_id) || asString((altProduct as any)?.merchantId) || null;
+                const altAnchorId = altProductId || altSkuId || '';
                 const tradeoffs = uniqueStrings((alt as any).tradeoffs).slice(0, 4);
                 const reasons = uniqueStrings((alt as any).reasons).slice(0, 2);
                 const reason = reasons.length
@@ -1165,8 +1218,8 @@ function RecommendationsCard({
                       <button
                         type="button"
                       className="chip-button"
-                      disabled={Boolean(altSkuId) && offersLoading === altSkuId}
-                      onClick={() => void openPurchase({ skuId: altSkuId, brand: altBrand, name: altName, position: idx + 1 })}
+                      disabled={Boolean(altAnchorId) && offersLoading === altAnchorId}
+                      onClick={() => void openPurchase({ skuId: altSkuId, productId: altProductId, merchantId: altMerchantId, brand: altBrand, name: altName, position: idx + 1 })}
                     >
                         {language === 'CN' ? '查看详情' : 'View details'}
                       </button>
@@ -1504,7 +1557,6 @@ function BffCardView({
   }
 
   if (isConflictHeatmapCard(card)) {
-    if (!debug) return null;
     return <ConflictHeatmapCard payload={payload} language={language} />;
   }
 
@@ -1672,7 +1724,7 @@ function BffCardView({
                     return (
                       <li key={`${rule || 'c'}_${idx}`}>
                         {msg}
-                        {(rule || sev) ? (
+                        {debug && (rule || sev) ? (
                           <span className="ml-2 text-xs text-muted-foreground">
                             {rule ? `(${rule}${sev ? ` · ${sev}` : ''})` : sev ? `(${sev})` : ''}
                           </span>
