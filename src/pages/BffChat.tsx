@@ -4,6 +4,8 @@ import { bffJson, makeDefaultHeaders, PivotaAgentBffError } from '@/lib/pivotaAg
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
+import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
+import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
 import { looksLikeProductPicksRawText, ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard, type AuroraLoadingIntent } from '@/components/aurora/cards/AuroraLoadingCard';
@@ -14,9 +16,32 @@ import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
+import {
+  inferTextExplicitTransition,
+  normalizeAgentState,
+  validateRequestedTransition,
+  type AgentState,
+  type RequestedTransition,
+} from '@/lib/agentStateMachine';
+import {
+  emitAgentProfileQuestionAnswered,
+  emitAgentStateEntered,
+  emitUiChipClicked,
+  emitUiInternalCheckoutClicked,
+  emitUiLanguageSwitched,
+  emitUiOutboundOpened,
+  emitUiRecosRequested,
+  emitUiReturnVisit,
+  emitUiSessionStarted,
+  type AnalyticsContext,
+} from '@/lib/auroraAnalytics';
+import { type GlowBootstrapSummary, fetchGlowSessionBootstrap } from '@/lib/glowSessionBootstrap';
+import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
+import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
+import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import {
   Activity,
   ArrowRight,
@@ -42,7 +67,8 @@ import {
 type ChatItem =
   | { id: string; role: 'user' | 'assistant'; kind: 'text'; content: string }
   | { id: string; role: 'assistant'; kind: 'cards'; cards: Card[] }
-  | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] };
+  | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
+  | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: GlowBootstrapSummary | null };
 
 type RoutineDraft = {
   am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
@@ -152,24 +178,190 @@ const toBffErrorMessage = (err: unknown): string => {
   return err instanceof Error ? err.message : String(err);
 };
 
-const LANG_PREF_KEY = 'pivota_aurora_lang_pref_v1';
+type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
 
-const getInitialLanguage = (): UiLanguage => {
-  try {
-    const stored = window.localStorage.getItem(LANG_PREF_KEY);
-    if (stored === 'EN' || stored === 'CN') return stored;
-  } catch {
-    // ignore
+const FF_RETURN_WELCOME = (() => {
+  const raw = String(import.meta.env.VITE_FF_RETURN_WELCOME ?? 'true')
+    .trim()
+    .toLowerCase();
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+})();
+
+const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
+
+const getInitialLanguage = (): UiLanguage => (getLangPref() === 'cn' ? 'CN' : 'EN');
+
+const buildReturnWelcomeChips = (language: UiLanguage): SuggestedChip[] => {
+  const isCN = language === 'CN';
+  return [
+    {
+      chip_id: 'chip_keep_chatting',
+      label: isCN ? '继续同一套' : 'Continue as-is',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_update_products',
+      label: isCN ? '我换/加了产品' : 'I added/changed products',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_checkin_now',
+      label: isCN ? '两周复盘' : '2-week check-in',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_eval_single_product',
+      label: isCN ? '评估单品/链接' : 'Check a product/link',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_get_recos',
+      label: isCN ? '获取产品推荐' : 'Get product recommendations',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_start_diagnosis',
+      label: isCN ? '开始皮肤诊断' : 'Start skin diagnosis',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+  ];
+};
+
+const buildQuickProfileExitChips = (language: UiLanguage): SuggestedChip[] => {
+  const isCN = language === 'CN';
+  return [
+    {
+      chip_id: 'chip_eval_routine',
+      label: isCN ? '评估现有产品/流程' : 'Review my current routine',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_eval_single_product',
+      label: isCN ? '评估单品/链接' : 'Check a product/link',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_start_diagnosis',
+      label: isCN ? '开始皮肤诊断' : 'Start skin diagnosis',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+    {
+      chip_id: 'chip_keep_chatting',
+      label: isCN ? '继续聊天' : 'Keep chatting',
+      kind: 'quick_reply',
+      data: { trigger_source: 'chip' },
+    },
+  ];
+};
+
+const buildQuickProfileAdvice = (language: UiLanguage, profile: QuickProfileProfilePatch): string => {
+  const isCN = language === 'CN';
+  const goal = profile.goal_primary;
+  const sens = profile.sensitivity_flag;
+  const routine = profile.routine_complexity;
+  const rx = profile.rx_flag;
+
+  const lines: string[] = [];
+  lines.push(isCN ? '小建议（基于你刚刚的选择，可能不完整）：' : 'Quick tip (based on what you shared — may be incomplete):');
+
+  if (goal === 'breakouts') {
+    lines.push(
+      isCN
+        ? '• 先做减法 7 天：温和洁面 + 保湿；早上坚持 SPF。'
+        : '• Simplify for 7 days: gentle cleanser + moisturizer; always SPF in the morning.',
+    );
+    lines.push(
+      isCN
+        ? '• 想加一个控痘单品：从低频开始（每周 2–3 次），一次只加一个。'
+        : '• If adding an acne active, start low frequency (2–3x/week) and introduce one at a time.',
+    );
+  } else if (goal === 'brightening') {
+    lines.push(
+      isCN
+        ? '• 提亮优先：早上维C/烟酰胺择一，晚上主打保湿修护；早上 SPF 是“提亮加速器”。'
+        : '• For brightening: pick one (vitamin C or niacinamide) in the AM, keep PM soothing; SPF is non-negotiable.',
+    );
+  } else if (goal === 'antiaging') {
+    lines.push(
+      isCN
+        ? '• 抗老优先：先把“保湿 + SPF”打稳，再考虑晚间低频引入维A类。'
+        : '• For anti-aging: lock in moisturizer + SPF first, then consider a low-frequency retinoid at night.',
+    );
+  } else if (goal === 'barrier') {
+    lines.push(
+      isCN
+        ? '• 修护屏障：先停/减刺激（酸、去角质、强清洁），用“温和洁面 + 神经酰胺/修护型保湿”。'
+        : '• For barrier repair: pause irritants (acids/exfoliation/harsh cleansing) and focus on a gentle cleanser + ceramide moisturizer.',
+    );
+  } else if (goal === 'spf') {
+    lines.push(
+      isCN ? '• 防晒优先：每天足量、可复涂的广谱 SPF，比“多叠活性”更有效。' : '• SPF-first: daily broad-spectrum sunscreen beats stacking actives.',
+    );
+  } else {
+    lines.push(
+      isCN ? '• 我们可以先从“温和洁面 + 保湿 + SPF”开始，再按你的目标加一件最关键的东西。' : '• We can start with cleanser + moisturizer + SPF, then add one key item based on your goal.',
+    );
   }
 
-  try {
-    const nav = (navigator.language || '').toLowerCase();
-    if (nav.startsWith('zh')) return 'CN';
-  } catch {
-    // ignore
+  if (routine === '6+') {
+    lines.push(isCN ? '• 你步骤较多：建议先把步骤压到 3–5 步，更容易判断“到底哪一步有效/刺激”。' : '• If you use 6+ steps: consider trimming to 3–5 to see what actually helps (or irritates).');
+  }
+  if (sens === 'yes' || sens === 'unsure') {
+    lines.push(isCN ? '• 偏敏感：一次只加一个新东西，先做局部测试（patch test）。' : '• If sensitive: add one new thing at a time and patch test first.');
+  }
+  if (rx === 'yes') {
+    lines.push(isCN ? '• 在用处方/维A：避免叠加太多酸类/刺激成分；如有不适以医生建议为准。' : '• If on prescription/retinoids: avoid stacking multiple strong actives; follow your clinician if irritation happens.');
   }
 
-  return 'EN';
+  lines.push(isCN ? '下一步你想先做什么？' : 'What would you like to do next?');
+  return lines.join('\n');
+};
+
+const nextAgentStateForChip = (chipId: string): AgentState | null => {
+  const id = String(chipId || '').trim();
+  if (!id) return null;
+
+  switch (id) {
+    case 'chip_keep_chatting':
+      return 'IDLE_CHAT';
+    case 'chip_quick_profile':
+      return 'QUICK_PROFILE';
+    case 'chip_update_products':
+      return 'ROUTINE_INTAKE';
+    case 'chip_eval_routine':
+      return 'ROUTINE_INTAKE';
+    case 'chip_checkin_now':
+      return 'CHECKIN_FLOW';
+    case 'chip_eval_single_product':
+      return 'PRODUCT_LINK_EVAL';
+    case 'chip_get_recos':
+      return 'RECO_GATE';
+    case 'chip_start_diagnosis':
+      return 'DIAG_PROFILE';
+
+    // Back-compat chip ids used by the current bff flow
+    case 'chip.start.diagnosis':
+      return 'DIAG_PROFILE';
+    case 'chip.start.evaluate':
+      return 'PRODUCT_LINK_EVAL';
+    case 'chip.start.routine':
+      return 'RECO_GATE';
+    case 'chip.start.reco_products':
+      return 'RECO_GATE';
+    case 'chip.action.reco_routine':
+      return 'RECO_GATE';
+    default:
+      return null;
+  }
 };
 
 type IconType = React.ComponentType<{ className?: string }>;
@@ -622,13 +814,15 @@ function RecommendationsCard({
   language,
   debug,
   resolveSkuOffers,
+  analyticsCtx,
 }: {
   card: Card;
   language: 'EN' | 'CN';
   debug: boolean;
   resolveSkuOffers?: (skuId: string) => Promise<any>;
+  analyticsCtx?: AnalyticsContext;
 }) {
-  const [offerCache, setOfferCache] = useState<Record<string, string>>({});
+  const [offerCache, setOfferCache] = useState<Record<string, { url: string; route: 'outbound' | 'internal' }>>({});
   const [offersLoading, setOffersLoading] = useState<string | null>(null);
 
   const payload = asObject(card.payload) || {};
@@ -648,11 +842,25 @@ function RecommendationsCard({
   }, []);
 
   const openPurchase = useCallback(
-    async ({ skuId, brand, name }: { skuId: string; brand: string | null; name: string | null }) => {
+    async ({ skuId, brand, name, position }: { skuId: string; brand: string | null; name: string | null; position?: number }) => {
       if (!skuId) return openFallback(brand, name);
       const cached = offerCache[skuId];
       if (cached) {
-        window.open(cached, '_blank', 'noopener,noreferrer');
+        if (analyticsCtx) {
+          if (cached.route === 'outbound') {
+            const merchantDomain = (() => {
+              try {
+                return new URL(cached.url).hostname || '';
+              } catch {
+                return '';
+              }
+            })();
+            emitUiOutboundOpened(analyticsCtx, { merchant_domain: merchantDomain, card_position: position ?? 0, sku_type: 'sku_id' });
+          } else {
+            emitUiInternalCheckoutClicked(analyticsCtx, { from_card_id: card.card_id });
+          }
+        }
+        window.open(cached.url, '_blank', 'noopener,noreferrer');
         return;
       }
 
@@ -685,15 +893,40 @@ function RecommendationsCard({
         const internalOffer = offers.find((o: any) => isInternal(o) && (readCheckoutUrl(o) || readGenericUrl(o)));
         const externalOffer = offers.find((o: any) => isExternal(o) && (readAffiliateUrl(o) || readGenericUrl(o)));
 
-        const chosen = internalOffer || externalOffer || offers.find((o: any) => readAffiliateUrl(o) || readCheckoutUrl(o) || readGenericUrl(o)) || null;
-        const url = chosen
-          ? readCheckoutUrl(chosen) || readAffiliateUrl(chosen) || readGenericUrl(chosen) || ''
-          : '';
+        const externalUrl = externalOffer ? (readAffiliateUrl(externalOffer) || readGenericUrl(externalOffer) || '') : '';
+        const internalUrl = internalOffer ? (readCheckoutUrl(internalOffer) || readGenericUrl(internalOffer) || '') : '';
+
+        const fallbackOffer =
+          offers.find((o: any) => readAffiliateUrl(o)) ||
+          offers.find((o: any) => readCheckoutUrl(o)) ||
+          offers.find((o: any) => readGenericUrl(o)) ||
+          null;
+
+        const fallbackUrl = fallbackOffer ? (readAffiliateUrl(fallbackOffer) || readCheckoutUrl(fallbackOffer) || readGenericUrl(fallbackOffer) || '') : '';
+        const fallbackRoute: 'outbound' | 'internal' =
+          fallbackOffer && readCheckoutUrl(fallbackOffer) && !readAffiliateUrl(fallbackOffer) ? 'internal' : 'outbound';
+
+        const url = externalUrl || internalUrl || fallbackUrl || '';
+        const route: 'outbound' | 'internal' = externalUrl ? 'outbound' : internalUrl ? 'internal' : fallbackRoute;
         if (!url) {
           openFallback(brand, name);
           return;
         }
-        setOfferCache((prev) => ({ ...prev, [skuId]: url }));
+        setOfferCache((prev) => ({ ...prev, [skuId]: { url, route } }));
+        if (analyticsCtx) {
+          if (route === 'outbound') {
+            const merchantDomain = (() => {
+              try {
+                return new URL(url).hostname || '';
+              } catch {
+                return '';
+              }
+            })();
+            emitUiOutboundOpened(analyticsCtx, { merchant_domain: merchantDomain, card_position: position ?? 0, sku_type: 'sku_id' });
+          } else {
+            emitUiInternalCheckoutClicked(analyticsCtx, { from_card_id: card.card_id });
+          }
+        }
         window.open(url, '_blank', 'noopener,noreferrer');
       } catch {
         openFallback(brand, name);
@@ -793,7 +1026,7 @@ function RecommendationsCard({
               type="button"
               className="chip-button"
               disabled={offersLoading === skuId}
-              onClick={() => void openPurchase({ skuId, brand, name })}
+              onClick={() => void openPurchase({ skuId, brand, name, position: idx + 1 })}
             >
               {language === 'CN' ? '购买' : 'Buy'}
               {offersLoading === skuId ? <span className="ml-2 text-xs text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
@@ -879,7 +1112,7 @@ function RecommendationsCard({
                         type="button"
                         className="chip-button"
                         disabled={Boolean(altSkuId) && offersLoading === altSkuId}
-                        onClick={() => void openPurchase({ skuId: altSkuId, brand: altBrand, name: altName })}
+                        onClick={() => void openPurchase({ skuId: altSkuId, brand: altBrand, name: altName, position: idx + 1 })}
                       >
                         {language === 'CN' ? '购买' : 'Buy'}
                       </button>
@@ -1164,6 +1397,7 @@ function BffCardView({
   resolveSkuOffers,
   bootstrapInfo,
   onOpenCheckin,
+  analyticsCtx,
 }: {
   card: Card;
   language: UiLanguage;
@@ -1173,6 +1407,7 @@ function BffCardView({
   resolveSkuOffers?: (skuId: string) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
   onOpenCheckin?: () => void;
+  analyticsCtx?: AnalyticsContext;
 }) {
   const cardType = String(card.type || '').toLowerCase();
 
@@ -1344,6 +1579,7 @@ function BffCardView({
           language={language}
           debug={debug}
           resolveSkuOffers={resolveSkuOffers}
+          analyticsCtx={analyticsCtx}
         />
       ) : null}
 
@@ -1869,6 +2105,18 @@ export default function BffChat() {
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [headers, setHeaders] = useState(() => makeDefaultHeaders(initialLanguage));
   const [sessionState, setSessionState] = useState<string>('idle');
+  const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
+  const agentStateRef = useRef<AgentState>('IDLE_CHAT');
+  useEffect(() => {
+    agentStateRef.current = agentState;
+  }, [agentState]);
+  const setAgentStateSafe = useCallback((next: AgentState) => {
+    agentStateRef.current = next;
+    setAgentState(next);
+  }, []);
+  const [quickProfileStep, setQuickProfileStep] = useState<QuickProfileStep>('skin_feel');
+  const [quickProfileDraft, setQuickProfileDraft] = useState<QuickProfileProfilePatch>({});
+  const [quickProfileBusy, setQuickProfileBusy] = useState(false);
   const [debug] = useState<boolean>(() => {
     try {
       return new URLSearchParams(window.location.search).get('debug') === '1';
@@ -1897,6 +2145,8 @@ export default function BffChat() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
+  const sessionStartedEmittedRef = useRef(false);
+  const returnVisitEmittedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
 
@@ -1955,11 +2205,7 @@ export default function BffChat() {
   }, [authSession?.token]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(LANG_PREF_KEY, language);
-    } catch {
-      // ignore
-    }
+    setLangPref(toLangPref(language));
   }, [language]);
 
   useEffect(() => {
@@ -1999,7 +2245,7 @@ export default function BffChat() {
     }
 
     const rawCards = Array.isArray(env.cards) ? env.cards : [];
-    const cards = rawCards;
+    const cards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
 
     if (cards.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards });
@@ -2017,7 +2263,7 @@ export default function BffChat() {
     }
 
     if (nextItems.length) setItems((prev) => [...prev, ...nextItems]);
-  }, [debug]);
+  }, []);
 
   const tryApplyEnvelopeFromBffError = useCallback(
     (err: unknown) => {
@@ -2036,19 +2282,75 @@ export default function BffChat() {
     setIsLoading(true);
     try {
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
+      const langPref = toLangPref(language);
+      const glowPromise = fetchGlowSessionBootstrap({
+        auroraUid: headers.aurora_uid,
+        lang: langPref,
+        briefId: headers.brief_id,
+        traceId: headers.trace_id,
+      }).catch((err) => {
+        console.warn('[Glow bootstrap] failed', err);
+        return null;
+      });
+
+      const envPromise = bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
+      const [glow, env] = await Promise.all([glowPromise, envPromise]);
       const info = readBootstrapInfo(env);
       setBootstrapInfo(info);
       const profile = info?.profile;
-      const isReturning = Boolean(info?.is_returning);
+      const isReturning = Boolean(glow?.is_returning);
+
+      const analyticsCtx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: langPref,
+        state: agentState,
+      };
+
+      if (!sessionStartedEmittedRef.current) {
+        sessionStartedEmittedRef.current = true;
+        emitUiSessionStarted(analyticsCtx, {
+          referrer: (() => {
+            try {
+              return document.referrer || undefined;
+            } catch {
+              return undefined;
+            }
+          })(),
+          device: (() => {
+            try {
+              return navigator.userAgent || undefined;
+            } catch {
+              return undefined;
+            }
+          })(),
+          is_returning: isReturning,
+        });
+      }
+
+      if (isReturning && glow?.summary && !returnVisitEmittedRef.current) {
+        returnVisitEmittedRef.current = true;
+        emitUiReturnVisit(analyticsCtx, {
+          days_since_last: glow.summary.days_since_last ?? 0,
+          has_active_plan: glow.artifacts_present.has_plan,
+          has_checkin_due: Boolean(glow.summary.checkin_due),
+        });
+      }
 
       const lang = language === 'CN' ? 'CN' : 'EN';
       const intro =
         lang === 'CN'
-          ? `你好，我是你的护肤搭子。${isReturning && profile ? '欢迎回来！' : ''}你想先做什么？`
-          : `Hi — I’m your skincare partner. ${isReturning && profile ? 'Welcome back! ' : ''}What would you like to do?`;
+          ? `你好，我是你的护肤搭子。${isReturning ? '欢迎回来！' : ''}你想先做什么？`
+          : `Hi — I’m your skincare partner. ${isReturning ? 'Welcome back! ' : ''}What would you like to do?`;
 
       const startChips: SuggestedChip[] = [
+        {
+          chip_id: 'chip_quick_profile',
+          label: lang === 'CN' ? '30秒快速画像' : '30-sec quick profile',
+          kind: 'quick_reply',
+          data: { trigger_source: 'chip' },
+        },
         {
           chip_id: 'chip.start.diagnosis',
           label: lang === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis',
@@ -2091,16 +2393,23 @@ export default function BffChat() {
       ];
 
       if (!hasBootstrapped) {
-        setItems([
-          { id: nextId(), role: 'assistant', kind: 'text', content: intro },
-          {
-            id: nextId(),
-            role: 'assistant',
-            kind: 'text',
-            content: formatProfileLine(profile, language),
-          },
-          { id: nextId(), role: 'assistant', kind: 'chips', chips: startChips },
-        ]);
+        if (FF_RETURN_WELCOME && isReturning) {
+          setItems([
+            { id: nextId(), role: 'assistant', kind: 'text', content: intro },
+            { id: nextId(), role: 'assistant', kind: 'return_welcome', summary: glow?.summary ?? null },
+          ]);
+        } else {
+          setItems([
+            { id: nextId(), role: 'assistant', kind: 'text', content: intro },
+            {
+              id: nextId(),
+              role: 'assistant',
+              kind: 'text',
+              content: formatProfileLine(profile, language),
+            },
+            { id: nextId(), role: 'assistant', kind: 'chips', chips: startChips },
+          ]);
+        }
         setHasBootstrapped(true);
       }
     } catch (err) {
@@ -2108,22 +2417,27 @@ export default function BffChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [agentState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
 
   const startNewChat = useCallback(() => {
     setError(null);
     setSessionState('idle');
+    setAgentStateSafe('IDLE_CHAT');
+    setQuickProfileStep('skin_feel');
+    setQuickProfileDraft({});
+    setQuickProfileBusy(false);
     setItems([]);
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setHasBootstrapped(false);
     void bootstrap();
-  }, [bootstrap]);
+  }, [bootstrap, setAgentStateSafe]);
 
   useEffect(() => {
     if (!hasBootstrapped) return;
     // If the user toggles language before interacting, restart so the intro/chips match.
-    if (items.length <= 2) startNewChat();
+    const hasUserInteracted = items.some((it) => it.role === 'user');
+    if (!hasUserInteracted) startNewChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language]);
 
@@ -2520,7 +2834,14 @@ export default function BffChat() {
   );
 
   const sendChat = useCallback(
-    async (message?: string, action?: V1Action) => {
+    async (
+      message?: string,
+      action?: V1Action,
+      opts?: {
+        client_state?: AgentState;
+        requested_transition?: RequestedTransition | null;
+      },
+    ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
       setIsLoading(true);
       try {
@@ -2530,6 +2851,8 @@ export default function BffChat() {
           ...(message ? { message } : {}),
           ...(action ? { action } : {}),
           language,
+          client_state: normalizeAgentState(opts?.client_state ?? agentState),
+          ...(opts?.requested_transition ? { requested_transition: opts.requested_transition } : {}),
           ...(debug ? { debug: true } : {}),
           ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
@@ -2547,7 +2870,7 @@ export default function BffChat() {
         setLoadingIntent('default');
       }
     },
-    [anchorProductId, anchorProductUrl, applyEnvelope, debug, headers, language, sessionState]
+    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, debug, headers, language, sessionState]
   );
 
   const parseMaybeUrl = useCallback((text: string) => {
@@ -2725,6 +3048,22 @@ export default function BffChat() {
         const offerId = typeof data?.offer_id === 'string' ? data.offer_id.trim() : undefined;
         if (!url) return;
 
+        const outboundCtx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: agentState,
+        };
+        const merchantDomain = (() => {
+          try {
+            return new URL(url).hostname || '';
+          } catch {
+            return '';
+          }
+        })();
+        emitUiOutboundOpened(outboundCtx, { merchant_domain: merchantDomain, card_position: 0, sku_type: 'unknown' });
+
         let opened = false;
         try {
           const w = window.open(url, '_blank', 'noopener,noreferrer');
@@ -2876,6 +3215,34 @@ export default function BffChat() {
       if (actionId === 'analysis_continue') {
         // Explicitly request recommendations via a chip trigger so the backend
         // can safely allow recommendation cards (no accidental auto-push).
+        const fromState = agentState;
+        const ctx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: fromState,
+        };
+        const validation = validateRequestedTransition({
+          from_state: fromState,
+          trigger_source: 'action',
+          trigger_id: actionId,
+          requested_next_state: 'RECO_GATE',
+        });
+        if (!validation.ok) {
+          setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
+          return;
+        }
+        if (validation.next_state !== fromState) {
+          emitAgentStateEntered(
+            { ...ctx, state: validation.next_state },
+            { state_name: validation.next_state, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+          );
+          setAgentStateSafe(validation.next_state);
+        }
+        if (validation.next_state === 'RECO_GATE') {
+          emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
+        }
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: t('s5.btn.continue', language) },
@@ -2887,6 +3254,9 @@ export default function BffChat() {
             reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
             include_alternatives: true,
           },
+        }, {
+          client_state: fromState,
+          requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: validation.next_state },
         });
         return;
       }
@@ -2896,6 +3266,34 @@ export default function BffChat() {
         // Make gentler / simpler are explicit *preference* messages (not silent actions).
         // We still send them as chips to keep the recommendation gate explicit.
         if (actionId === 'analysis_gentler' || actionId === 'analysis_simple') {
+          const fromState = agentState;
+          const ctx: AnalyticsContext = {
+            brief_id: headers.brief_id,
+            trace_id: headers.trace_id,
+            aurora_uid: headers.aurora_uid,
+            lang: toLangPref(language),
+            state: fromState,
+          };
+          const validation = validateRequestedTransition({
+            from_state: fromState,
+            trigger_source: 'action',
+            trigger_id: actionId,
+            requested_next_state: 'RECO_GATE',
+          });
+          if (!validation.ok) {
+            setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
+            return;
+          }
+          if (validation.next_state !== fromState) {
+            emitAgentStateEntered(
+              { ...ctx, state: validation.next_state },
+              { state_name: validation.next_state, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+            );
+            setAgentStateSafe(validation.next_state);
+          }
+          if (validation.next_state === 'RECO_GATE') {
+            emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
+          }
           const replyText =
             actionId === 'analysis_gentler'
               ? language === 'CN'
@@ -2908,6 +3306,9 @@ export default function BffChat() {
             action_id: 'chip.action.reco_routine',
             kind: 'chip',
             data: { reply_text: replyText, include_alternatives: true },
+          }, {
+            client_state: fromState,
+            requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: validation.next_state },
           });
           return;
         }
@@ -2918,7 +3319,7 @@ export default function BffChat() {
 
       await sendChat(undefined, { action_id: actionId, kind: 'action', data });
     },
-    [applyEnvelope, headers, language, sendChat],
+    [agentState, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
   );
 
   const getSanitizedAnalysisPhotos = useCallback(() => {
@@ -2989,21 +3390,227 @@ export default function BffChat() {
   const onSubmit = useCallback(async () => {
     const msg = input.trim();
     if (!msg) return;
-    setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+    const isTextExplicitQuickProfile = (() => {
+      const t = msg.trim().toLowerCase();
+      if (!t) return false;
+      if (t.includes('quick profile') || t.includes('30-sec quick profile') || t.includes('30 sec quick profile')) return true;
+      if (t.includes('快速画像')) return true;
+      if (t.includes('30秒') && t.includes('画像')) return true;
+      if (t.includes('30秒快速画像') || t.includes('30 秒快速画像')) return true;
+      return false;
+    })();
+
+    if (isTextExplicitQuickProfile) {
+      const fromState = agentState;
+      const toState: AgentState = 'QUICK_PROFILE';
+      const ctx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: toLangPref(language),
+        state: fromState,
+      };
+      emitAgentStateEntered({ ...ctx, state: toState }, { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: msg.slice(0, 120) });
+      setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+      setQuickProfileStep('skin_feel');
+      setQuickProfileDraft({});
+      setAgentStateSafe(toState);
+      setInput('');
+      return;
+    }
+
+    const inferred = inferTextExplicitTransition(msg, language);
+    if (inferred) {
+      const fromState = agentState;
+      const validation = validateRequestedTransition({
+        from_state: fromState,
+        trigger_source: 'text_explicit',
+        trigger_id: inferred.trigger_id,
+        requested_next_state: inferred.requested_next_state,
+      });
+
+      if (validation.ok && validation.next_state !== fromState) {
+        const toState = validation.next_state;
+        const ctx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: fromState,
+        };
+        emitAgentStateEntered(
+          { ...ctx, state: toState },
+          { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: inferred.trigger_id },
+        );
+        if (toState === 'RECO_GATE') {
+          emitUiRecosRequested({ ...ctx, state: toState }, { entry_point: 'text_explicit', prior_value_moment: null });
+        }
+        setAgentStateSafe(toState);
+        setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+        setInput('');
+        await sendChat(msg, undefined, {
+          client_state: fromState,
+          requested_transition: {
+            trigger_source: 'text_explicit',
+            trigger_id: inferred.trigger_id,
+            requested_next_state: toState,
+          },
+        });
+        return;
+      }
+    }
+
+    if (agentState === 'QUICK_PROFILE') {
+      setAgentStateSafe('IDLE_CHAT');
+    }
+
+    setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
     setInput('');
 
     await sendChat(msg);
-  }, [input, sendChat]);
+  }, [agentState, headers, input, language, sendChat]);
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
-      const id = String(chip.chip_id || '');
+      const id = String(chip.chip_id || '').trim();
+      const qpRaw = (chip.data as any)?.quick_profile;
+      const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
+      const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
+
+      const fromState = agentState;
+      const langPref = toLangPref(language);
+      const requestedToState: AgentState = (() => {
+        if (qpQuestionId === 'skip') return 'IDLE_CHAT';
+        if (qpQuestionId === 'opt_in_more' && qpAnswer === 'no') return 'IDLE_CHAT';
+        if (qpQuestionId === 'rx_flag') return 'IDLE_CHAT';
+        return nextAgentStateForChip(id) ?? fromState;
+      })();
+      const toState = requestedToState;
+
+      const ctx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: langPref,
+        state: fromState,
+      };
+
+      emitUiChipClicked(ctx, { chip_id: id, from_state: fromState, to_state: toState });
+
+      const stripReturnWelcome = (prev: ChatItem[]) => prev.filter((it) => it.kind !== 'return_welcome');
+
+      if (qpQuestionId && qpAnswer) {
+        emitAgentProfileQuestionAnswered(ctx, { question_id: qpQuestionId, answer_type: qpAnswer });
+
+        const finishQuickProfile = (args: { didSkip: boolean; draft: QuickProfileProfilePatch }) => {
+          setAgentStateSafe('IDLE_CHAT');
+          setQuickProfileStep('skin_feel');
+          setQuickProfileDraft(args.draft);
+          const content = args.didSkip
+            ? (language === 'CN'
+                ? '好的，先不做快速画像。你想先做什么？'
+                : "No problem — we can do the quick profile later. What would you like to do?")
+            : buildQuickProfileAdvice(language, args.draft);
+          setItems((prev) => [
+            ...stripReturnWelcome(prev),
+            { id: nextId(), role: 'assistant', kind: 'text', content },
+            { id: nextId(), role: 'assistant', kind: 'chips', chips: buildQuickProfileExitChips(language) },
+          ]);
+        };
+
+        if (qpQuestionId === 'skip') {
+          finishQuickProfile({ didSkip: true, draft: quickProfileDraft });
+          return;
+        }
+
+        if (qpQuestionId === 'opt_in_more') {
+          if (qpAnswer === 'yes') setQuickProfileStep('routine_complexity');
+          else finishQuickProfile({ didSkip: false, draft: quickProfileDraft });
+          return;
+        }
+
+        if (quickProfileBusy) return;
+
+        let profilePatch: QuickProfileProfilePatch | null = null;
+        if (qpQuestionId === 'skin_feel' && ['oily', 'dry', 'combination', 'unsure'].includes(qpAnswer)) {
+          profilePatch = { skin_feel: qpAnswer as any };
+        } else if (qpQuestionId === 'goal_primary' && ['breakouts', 'brightening', 'antiaging', 'barrier', 'spf', 'other'].includes(qpAnswer)) {
+          profilePatch = { goal_primary: qpAnswer as any };
+        } else if (qpQuestionId === 'sensitivity_flag' && ['yes', 'no', 'unsure'].includes(qpAnswer)) {
+          profilePatch = { sensitivity_flag: qpAnswer as any };
+        } else if (qpQuestionId === 'routine_complexity' && ['0-2', '3-5', '6+'].includes(qpAnswer)) {
+          profilePatch = { routine_complexity: qpAnswer as any };
+        } else if (qpQuestionId === 'rx_flag' && ['yes', 'no', 'unsure'].includes(qpAnswer)) {
+          profilePatch = { rx_flag: qpAnswer as any };
+        }
+
+        if (!profilePatch) return;
+
+        setQuickProfileBusy(true);
+        try {
+          await patchGlowSessionProfile(
+            { brief_id: headers.brief_id, trace_id: headers.trace_id },
+            profilePatch,
+          );
+
+          const nextDraft: QuickProfileProfilePatch = { ...quickProfileDraft, ...profilePatch };
+          setQuickProfileDraft(nextDraft);
+
+          if (qpQuestionId === 'skin_feel') setQuickProfileStep('goal_primary');
+          else if (qpQuestionId === 'goal_primary') setQuickProfileStep('sensitivity_flag');
+          else if (qpQuestionId === 'sensitivity_flag') setQuickProfileStep('opt_in_more');
+          else if (qpQuestionId === 'routine_complexity') setQuickProfileStep('rx_flag');
+          else if (qpQuestionId === 'rx_flag') finishQuickProfile({ didSkip: false, draft: nextDraft });
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setQuickProfileBusy(false);
+        }
+
+        return;
+      }
+
+      let requestedTransition: RequestedTransition | null = null;
+        if (toState !== fromState) {
+          const validation = validateRequestedTransition({
+            from_state: fromState,
+            trigger_source: 'chip',
+            trigger_id: id,
+            requested_next_state: toState,
+        });
+        if (!validation.ok) {
+          setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
+          return;
+        }
+        requestedTransition = { trigger_source: 'chip', trigger_id: id, requested_next_state: validation.next_state };
+        emitAgentStateEntered(
+          { ...ctx, state: validation.next_state },
+          { state_name: validation.next_state, from_state: fromState, trigger_source: 'chip', trigger_id: id },
+        );
+        if (validation.next_state === 'RECO_GATE') {
+          emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'chip', prior_value_moment: null });
+        }
+        setAgentStateSafe(validation.next_state);
+      }
+
       const userItem: ChatItem = { id: nextId(), role: 'user', kind: 'text', content: chip.label };
 
-      if (id === 'chip.start.diagnosis') {
+      if (id === 'chip_keep_chatting') {
+        setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+        return;
+      }
+
+      if (id === 'chip_quick_profile') {
+        setQuickProfileStep('skin_feel');
+        setQuickProfileDraft({});
+        setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+        return;
+      }
+
+      if (id === 'chip_start_diagnosis' || id === 'chip.start.diagnosis') {
         setSessionState('S2_DIAGNOSIS');
         setItems((prev) => [
-          ...prev,
+          ...stripReturnWelcome(prev),
           userItem,
           {
             id: nextId(),
@@ -3015,7 +3622,33 @@ export default function BffChat() {
         return;
       }
 
-      setItems((prev) => [...prev, userItem]);
+      setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+
+      if (id === 'chip_update_products') {
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
+        return;
+      }
+
+      if (id === 'chip_eval_routine') {
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
+        return;
+      }
+
+      if (id === 'chip_checkin_now') {
+        setCheckinSheetOpen(true);
+        return;
+      }
+
+      if (id === 'chip_eval_single_product') {
+        setProductDraft('');
+        setProductSheetOpen(true);
+        return;
+      }
+
       if (id === 'chip.intake.upload_photos') {
         setPromptRoutineAfterPhoto(true);
         setPhotoSheetOpen(true);
@@ -3042,9 +3675,30 @@ export default function BffChat() {
         setDupeSheetOpen(true);
         return;
       }
-      await sendChat(undefined, { action_id: chip.chip_id, kind: 'chip', data: chip.data });
+
+      await sendChat(
+        undefined,
+        { action_id: chip.chip_id, kind: 'chip', data: chip.data },
+        { client_state: fromState, requested_transition: requestedTransition },
+      );
     },
-    [runLowConfidenceSkinAnalysis, sendChat]
+    [agentState, headers, language, quickProfileBusy, quickProfileDraft, runLowConfidenceSkinAnalysis, sendChat]
+  );
+
+  const switchLanguage = useCallback(
+    (next: UiLanguage) => {
+      if (next === language) return;
+      const ctx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: toLangPref(language),
+        state: agentState,
+      };
+      emitUiLanguageSwitched(ctx, { from_lang: toLangPref(language), to_lang: toLangPref(next) });
+      setLanguage(next);
+    },
+    [agentState, headers, language],
   );
 
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
@@ -3153,7 +3807,7 @@ export default function BffChat() {
           </button>
           <button
             className={`chip-button ${language === 'CN' ? 'chip-button-primary' : ''}`}
-            onClick={() => setLanguage('CN')}
+            onClick={() => switchLanguage('CN')}
             disabled={isLoading}
             title="中文"
           >
@@ -3162,7 +3816,7 @@ export default function BffChat() {
           </button>
           <button
             className={`chip-button ${language === 'EN' ? 'chip-button-primary' : ''}`}
-            onClick={() => setLanguage('EN')}
+            onClick={() => switchLanguage('EN')}
             disabled={isLoading}
             title="English"
           >
@@ -3857,11 +4511,11 @@ export default function BffChat() {
           ) : null}
 
           {items.map((item) => {
-            if (item.kind === 'text') {
-              const isUser = item.role === 'user';
-              const isProductPicks = !isUser && looksLikeProductPicksRawText(item.content);
-              if (isProductPicks) {
-                return (
+	            if (item.kind === 'text') {
+	              const isUser = item.role === 'user';
+	              const isProductPicks = !isUser && looksLikeProductPicksRawText(item.content);
+	              if (isProductPicks) {
+	                return (
                   <div key={item.id} className="chat-card">
                     <ProductPicksCard rawContent={item.content} />
                   </div>
@@ -3873,14 +4527,28 @@ export default function BffChat() {
                     {item.content}
                   </div>
                 </div>
-              );
-            }
+	              );
+	            }
 
-            if (item.kind === 'chips') {
-              return (
-                <div key={item.id} className="chat-card">
-                  <div className="flex flex-wrap gap-2">
-                    {item.chips.map((chip) => {
+	            if (item.kind === 'return_welcome') {
+	              return (
+	                <div key={item.id} className="chat-card">
+	                  <ReturnWelcomeCard
+	                    language={language}
+	                    summary={item.summary}
+	                    chips={buildReturnWelcomeChips(language)}
+	                    onChip={(chip) => onChip(chip)}
+	                    disabled={isLoading}
+	                  />
+	                </div>
+	              );
+	            }
+
+	            if (item.kind === 'chips') {
+	              return (
+	                <div key={item.id} className="chat-card">
+	                  <div className="flex flex-wrap gap-2">
+	                    {item.chips.map((chip) => {
                       const Icon = iconForChip(chip.chip_id);
                       return (
                         <button
@@ -3899,10 +4567,10 @@ export default function BffChat() {
               );
             }
 
-            return (
-              <div key={item.id} className="space-y-3">
-                {item.cards.map((card) => (
-                  <BffCardView
+	            return (
+	              <div key={item.id} className="space-y-3">
+	                {item.cards.map((card) => (
+	                  <BffCardView
                     key={card.card_id}
                     card={card}
                     language={language}
@@ -3912,16 +4580,34 @@ export default function BffChat() {
                     resolveSkuOffers={resolveSkuOffers}
                     bootstrapInfo={bootstrapInfo}
                     onOpenCheckin={() => setCheckinSheetOpen(true)}
+                    analyticsCtx={{
+                      brief_id: headers.brief_id,
+                      trace_id: headers.trace_id,
+                      aurora_uid: headers.aurora_uid,
+                      lang: toLangPref(language),
+                      state: agentState,
+                    }}
                   />
                 ))}
               </div>
-            );
-          })}
+	            );
+	          })}
 
-          {isLoading ? <AuroraLoadingCard language={language} intent={loadingIntent} /> : null}
-          <div ref={bottomRef} />
-        </div>
-      </main>
+	          {agentState === 'QUICK_PROFILE' ? (
+	            <div className="chat-card">
+	              <QuickProfileFlow
+	                language={language}
+	                step={quickProfileStep}
+	                disabled={isLoading || quickProfileBusy}
+	                onChip={(chip) => onChip(chip)}
+	              />
+	            </div>
+	          ) : null}
+
+	          {isLoading ? <AuroraLoadingCard language={language} intent={loadingIntent} /> : null}
+	          <div ref={bottomRef} />
+	        </div>
+	      </main>
 
       <footer className="chat-input-container">
         <form

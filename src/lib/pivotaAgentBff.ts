@@ -122,10 +122,11 @@ export const bffJson = async <TResponse>(
     headers: {
       Accept: 'application/json',
       ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      'X-Aurora-UID': headers.aurora_uid ?? '',
+      'X-Aurora-Uid': headers.aurora_uid ?? '',
       'X-Trace-ID': headers.trace_id,
       'X-Brief-ID': headers.brief_id,
       'X-Lang': headers.lang,
+      'X-Aurora-Lang': headers.lang === 'CN' ? 'cn' : 'en',
       ...(headers.auth_token ? { Authorization: `Bearer ${headers.auth_token}` } : {}),
       ...(init.headers || {}),
     },

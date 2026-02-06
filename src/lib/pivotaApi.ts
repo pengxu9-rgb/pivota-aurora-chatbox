@@ -1,5 +1,5 @@
 import type { Session } from './types';
-import { getAuroraUid } from './persistence';
+import { getAuroraUid, getLangPref } from './persistence';
 
 export class PivotaApiError extends Error {
   readonly status: number;
@@ -73,7 +73,11 @@ const cloneFormData = (form: FormData) => {
 
 const getAuroraUidHeader = () => {
   const uid = getAuroraUid();
-  return uid ? { 'X-Aurora-UID': uid } : {};
+  return uid ? { 'X-Aurora-Uid': uid } : {};
+};
+
+const getAuroraLangHeader = () => {
+  return { 'X-Aurora-Lang': getLangPref() };
 };
 
 export const pivotaJson = async <TResponse>(
@@ -94,6 +98,7 @@ export const pivotaJson = async <TResponse>(
       'X-Brief-ID': session.brief_id,
       'X-Trace-ID': session.trace_id,
       ...getAuroraUidHeader(),
+      ...getAuroraLangHeader(),
       ...(init.headers || {}),
     },
   });
@@ -142,6 +147,7 @@ export const pivotaUpload = async <TResponse>(
           'X-Brief-ID': session.brief_id,
           'X-Trace-ID': session.trace_id,
           ...getAuroraUidHeader(),
+          ...getAuroraLangHeader(),
           ...(init.headers || {}),
         },
       });
