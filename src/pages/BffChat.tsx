@@ -1560,20 +1560,6 @@ function BffCardView({
     return <ConflictHeatmapCard payload={payload} language={language} />;
   }
 
-  if (cardType === 'recommendations') {
-    const intent = String((payload as any)?.intent || '').trim().toLowerCase();
-    if (intent === 'reco_products') {
-      const profileFromPayload = asObject((payload as any)?.profile);
-      const profileFromBootstrap = bootstrapInfo?.profile && typeof bootstrapInfo.profile === 'object' ? bootstrapInfo.profile : null;
-      const profile = profileFromPayload || profileFromBootstrap || null;
-      return (
-        <div className="chat-card">
-          <ProductPicksCard rawContent={{ ...(payloadObj || {}), profile }} />
-        </div>
-      );
-    }
-  }
-
   if (cardType === 'diagnosis_gate') {
     return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
   }
