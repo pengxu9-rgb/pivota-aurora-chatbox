@@ -10,7 +10,15 @@ import { normalizeEnvStressUiModelV1 } from '@/lib/auroraUiContracts';
 import { cn } from '@/lib/utils';
 import type { Language } from '@/lib/types';
 
-export function EnvStressCard({ payload, language }: { payload: EnvStressUiModelV1 | null; language: Language }) {
+export function EnvStressCard({
+  payload,
+  language,
+  onOpenCheckin,
+}: {
+  payload: EnvStressUiModelV1 | null;
+  language: Language;
+  onOpenCheckin?: () => void;
+}) {
   const { model, didWarn } = normalizeEnvStressUiModelV1(payload);
 
   useEffect(() => {
@@ -21,6 +29,7 @@ export function EnvStressCard({ payload, language }: { payload: EnvStressUiModel
 
   const ess = model?.ess;
   const tier = model?.tier;
+  const missingRecentLogs = Boolean(model?.notes?.some((n) => typeof n === 'string' && n.includes('recent_logs')));
 
   return (
     <motion.div
@@ -92,9 +101,33 @@ export function EnvStressCard({ payload, language }: { payload: EnvStressUiModel
               ))}
             </ul>
           ) : null}
+
+          {missingRecentLogs && onOpenCheckin ? (
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="font-medium text-foreground/90">
+                    {language === 'CN' ? '想要更准？先做一次今日打卡。' : 'Want a more accurate signal? Add a quick check-in.'}
+                  </div>
+                  <div>
+                    {language === 'CN'
+                      ? '我们会用你近 7 天的趋势来调整建议。'
+                      : 'We’ll use your last-7-day trend to tailor advice.'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="chip-button chip-button-primary"
+                  onClick={onOpenCheckin}
+                  aria-label={language === 'CN' ? '打开今日打卡' : 'Open daily check-in'}
+                >
+                  {language === 'CN' ? '去打卡' : 'Check-in'}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </motion.div>
   );
 }
-

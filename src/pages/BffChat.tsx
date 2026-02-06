@@ -634,6 +634,8 @@ function RecommendationsCard({
   const payload = asObject(card.payload) || {};
   const items = asArray(payload.recommendations) as RecoItem[];
   const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
+  const hasMissingAlternatives =
+    hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
   const [detailsOpen, setDetailsOpen] = useState(() => hasAnyAlternatives);
 
   const openFallback = useCallback((brand: string | null, name: string | null) => {
@@ -1124,6 +1126,14 @@ function RecommendationsCard({
         </details>
       ) : null}
 
+      {hasMissingAlternatives ? (
+        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+          {language === 'CN'
+            ? '提示：部分步骤暂时没有找到“相似/平替/升级选择”（上游未返回）。'
+            : 'Note: alternatives are not available for some steps yet (upstream did not return).'}
+        </div>
+      ) : null}
+
       {showMissing.length ? (
         <div className="rounded-2xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
           {language === 'CN' ? '信息缺失：' : 'Missing info: '}
@@ -1153,6 +1163,7 @@ function BffCardView({
   onAction,
   resolveSkuOffers,
   bootstrapInfo,
+  onOpenCheckin,
 }: {
   card: Card;
   language: UiLanguage;
@@ -1161,6 +1172,7 @@ function BffCardView({
   onAction: (actionId: string, data?: Record<string, any>) => void;
   resolveSkuOffers?: (skuId: string) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
+  onOpenCheckin?: () => void;
 }) {
   const cardType = String(card.type || '').toLowerCase();
 
@@ -1199,10 +1211,11 @@ function BffCardView({
   }
 
   if (isEnvStressCard(card)) {
-    return <EnvStressCard payload={payload} language={language} />;
+    return <EnvStressCard payload={payload} language={language} onOpenCheckin={onOpenCheckin} />;
   }
 
   if (isConflictHeatmapCard(card)) {
+    if (!debug) return null;
     return <ConflictHeatmapCard payload={payload} language={language} />;
   }
 
@@ -3898,6 +3911,7 @@ export default function BffChat() {
                     onAction={onCardAction}
                     resolveSkuOffers={resolveSkuOffers}
                     bootstrapInfo={bootstrapInfo}
+                    onOpenCheckin={() => setCheckinSheetOpen(true)}
                   />
                 ))}
               </div>
