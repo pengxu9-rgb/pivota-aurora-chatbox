@@ -123,9 +123,28 @@ export const inferTextExplicitTransition = (
 
   const matchesAny = (patterns: RegExp[]) => patterns.some((re) => re.test(raw) || re.test(text));
 
-  const wantsDiagnosis = isCN
-    ? matchesAny([/诊断/])
-    : matchesAny([/diagnose my skin/i]);
+  // Keep diagnosis start explicit (EN-first, CN-second) so we don't accidentally enter diagnosis
+  // for unrelated queries (e.g. product questions containing “诊断”).
+  const looksLikeExplicitDiagnosisStart = (value: string): boolean => {
+    const t = String(value || '').trim();
+    if (!t) return false;
+    const lower = t.toLowerCase();
+
+    // EN-first: explicit allowlist only.
+    const wantsDiagnosisEN =
+      /\b(start|begin|run)\b.{0,40}\b(skin\s*)?(diagnos(?:e|is)?|analys(?:e|is)|analyz(?:e)?|assessment|scan|check)\b/.test(lower) ||
+      /\b(diagnos(?:e|is)?|analys(?:e|is)|analyz(?:e)?|assessment|scan|check)\b.{0,40}\bmy\s*(skin|face)\b/.test(lower) ||
+      /\b(skin|face)\b.{0,40}\b(diagnos(?:e|is)?|analys(?:e|is)|analyz(?:e)?|assessment|scan|check)\b/.test(lower) ||
+      /\bskin\s*profile\b/.test(lower);
+    if (wantsDiagnosisEN) return true;
+
+    // CN-second: require both a skin subject + an explicit diagnosis/analysis verb.
+    const hasSkinCN = /(皮肤|肤质|肤况|面部|脸部|脸)/.test(t);
+    const hasDiagnosisCN = /(诊断|分析|检测|评估|测一测|测试)/.test(t);
+    return hasSkinCN && hasDiagnosisCN;
+  };
+
+  const wantsDiagnosis = looksLikeExplicitDiagnosisStart(raw);
 
   if (wantsDiagnosis) return { requested_next_state: 'DIAG_PROFILE', trigger_id: raw.slice(0, 120) };
 
@@ -140,4 +159,3 @@ export const inferTextExplicitTransition = (
 
   return null;
 };
-
