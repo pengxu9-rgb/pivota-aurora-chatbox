@@ -214,6 +214,13 @@ export function CompatibilityInsightsCard({
     suggestionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  // Must be declared before any hook dependency arrays reference them (avoid TDZ runtime crashes).
+  const triggerSource = useMemo(() => deriveTriggerSource(meta?.events), [meta?.events]);
+  const bffRequestId = meta?.request_id ?? null;
+  const bffTraceId = meta?.trace_id ?? null;
+  const schemaVersion = heatmapModel?.schema_version ?? null;
+  const heatmapState = heatmapModel?.state ?? null;
+
   const heatmapCells = Array.isArray(heatmapModel?.cells?.items) ? heatmapModel.cells.items : [];
   const cellMap = useMemo(() => {
     const map = new Map<string, (typeof heatmapCells)[number]>();
@@ -417,11 +424,6 @@ export function CompatibilityInsightsCard({
         (heatmapModel.axes?.cols?.max_items === 16 && heatmapModel.axes?.cols?.items?.length === 16)),
   );
 
-  const triggerSource = useMemo(() => deriveTriggerSource(meta?.events), [meta?.events]);
-  const bffRequestId = meta?.request_id ?? null;
-  const bffTraceId = meta?.trace_id ?? null;
-  const schemaVersion = heatmapModel?.schema_version ?? null;
-  const heatmapState = heatmapModel?.state ?? null;
   const numCellsNonzero = useMemo(
     () => heatmapCells.filter((c) => (c.severity ?? 0) > 0).length,
     [heatmapCells],
