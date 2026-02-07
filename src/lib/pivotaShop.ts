@@ -156,6 +156,34 @@ export const extractPdpTargetFromProductsSearchResponse = (
   return { product_id: picked.product_id, ...(picked.merchant_id ? { merchant_id: picked.merchant_id } : {}) };
 };
 
+export const extractPdpTargetFromProductsResolveResponse = (input: unknown): PdpTarget | null => {
+  const resp = asObject(input);
+  if (!resp) return null;
+
+  const ref =
+    asObject((resp as any).product_ref) ||
+    asObject((resp as any).productRef) ||
+    asObject((resp as any).data?.product_ref) ||
+    asObject((resp as any).data?.productRef) ||
+    null;
+
+  const productId =
+    asNonEmptyString((ref as any)?.product_id) ||
+    asNonEmptyString((ref as any)?.productId) ||
+    asNonEmptyString((resp as any).product_id) ||
+    asNonEmptyString((resp as any).productId) ||
+    null;
+  const merchantId =
+    asNonEmptyString((ref as any)?.merchant_id) ||
+    asNonEmptyString((ref as any)?.merchantId) ||
+    asNonEmptyString((resp as any).merchant_id) ||
+    asNonEmptyString((resp as any).merchantId) ||
+    null;
+
+  if (!productId) return null;
+  return { product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) };
+};
+
 export const buildPdpUrl = (args: { product_id: string; merchant_id?: string | null; baseUrl?: string }): string => {
   const baseUrl = normalizeBaseUrl(args.baseUrl ?? getPivotaShopBaseUrl());
   const productId = encodeURIComponent(String(args.product_id || '').trim());

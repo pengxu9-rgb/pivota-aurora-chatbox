@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse, extractPdpTargetFromProductsSearchResponse } from '@/lib/pivotaShop';
+import {
+  buildPdpUrl,
+  extractPdpTargetFromOffersResolveResponse,
+  extractPdpTargetFromProductsResolveResponse,
+  extractPdpTargetFromProductsSearchResponse,
+} from '@/lib/pivotaShop';
 
 describe('pivotaShop', () => {
   describe('extractPdpTargetFromOffersResolveResponse', () => {
@@ -78,6 +83,23 @@ describe('pivotaShop', () => {
 
     it('returns null when empty', () => {
       expect(extractPdpTargetFromProductsSearchResponse({ products: [] })).toBeNull();
+    });
+  });
+
+  describe('extractPdpTargetFromProductsResolveResponse', () => {
+    it('extracts from product_ref', () => {
+      const resp = { resolved: true, product_ref: { product_id: 'prod_1', merchant_id: 'merch_1' } };
+      expect(extractPdpTargetFromProductsResolveResponse(resp)).toEqual({ product_id: 'prod_1', merchant_id: 'merch_1' });
+    });
+
+    it('extracts from productRef', () => {
+      const resp = { resolved: true, productRef: { productId: 'prod_2', merchantId: 'merch_2' } };
+      expect(extractPdpTargetFromProductsResolveResponse(resp)).toEqual({ product_id: 'prod_2', merchant_id: 'merch_2' });
+    });
+
+    it('returns null when missing product id', () => {
+      const resp = { resolved: false, product_ref: null };
+      expect(extractPdpTargetFromProductsResolveResponse(resp)).toBeNull();
     });
   });
 });

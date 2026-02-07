@@ -44,7 +44,12 @@ import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product
 import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
-import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse, extractPdpTargetFromProductsSearchResponse } from '@/lib/pivotaShop';
+import { toast } from '@/components/ui/use-toast';
+import {
+  buildPdpUrl,
+  extractPdpTargetFromOffersResolveResponse,
+  extractPdpTargetFromProductsResolveResponse,
+} from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
 import {
@@ -853,7 +858,7 @@ function RecommendationsCard({
   language,
   debug,
   resolveOffers,
-  searchProducts,
+  resolveProductRef,
   onOpenPdp,
   analyticsCtx,
 }: {
@@ -861,7 +866,7 @@ function RecommendationsCard({
   language: 'EN' | 'CN';
   debug: boolean;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
-  searchProducts?: (args: { query: string; limit?: number }) => Promise<any>;
+  resolveProductRef?: (args: { query: string; lang: 'en' | 'cn' }) => Promise<any>;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
 }) {
@@ -889,10 +894,17 @@ function RecommendationsCard({
     const q = [brand, name]
       .map((v) => String(v || '').trim())
       .filter(Boolean)
-      .join(' ');
-    const url = `https://www.google.com/search?q=${encodeURIComponent(q || 'skincare product')}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }, []);
+      .join(' ')
+      .trim();
+    const label = q || (language === 'CN' ? '该商品' : 'This product');
+    toast({
+      title: language === 'CN' ? '暂时无法打开商品详情' : 'Unable to open product details',
+      description:
+        language === 'CN'
+          ? `我们还没在商品库中找到「${label}」。建议稍后重试，或换一个商品。`
+          : `We couldn’t find “${label}” in the catalog yet. Try again later or pick a different item.`,
+    });
+  }, [language]);
 
   const openPurchase = useCallback(
     async ({
@@ -955,6 +967,35 @@ function RecommendationsCard({
         }
       };
 
+      const openOutboundUrl = (rawUrl: string, args?: { reason?: string }) => {
+        const url = String(rawUrl || '').trim();
+        if (!url) return;
+
+        setOfferCache((prev) => ({ ...prev, [anchorKey]: { url, route: 'outbound' } }));
+        if (analyticsCtx) {
+          const merchantDomain = (() => {
+            try {
+              return new URL(url).hostname || '';
+            } catch {
+              return '';
+            }
+          })();
+          const outboundSkuType = skuId
+            ? 'sku_id_missing_backend'
+            : productId
+              ? 'product_id_missing_backend'
+              : 'missing_backend';
+          emitUiOutboundOpened(analyticsCtx, {
+            merchant_domain: merchantDomain,
+            card_position: position ?? 0,
+            sku_type: outboundSkuType,
+            ...(skuId ? { sku_id: skuId } : productId ? { product_id: productId } : {}),
+            ...(args?.reason ? { reason: args.reason } : {}),
+          });
+        }
+        window.open(url, '_blank', 'noopener,noreferrer');
+      };
+
       const cached = offerCache[anchorKey];
       if (cached) {
         if (analyticsCtx) {
@@ -994,180 +1035,51 @@ function RecommendationsCard({
         return;
       }
 
-      const normalizeSearchQuery = (raw: string): string => {
-        const s = String(raw || '').trim();
-        if (!s) return '';
-        return s
-          .replace(/[%+()［］【】]/g, ' ')
-          .replace(/[0-9]+/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 96);
-      };
-
-      const tryCatalogSearchForPdp = async (): Promise<{ product_id: string; merchant_id?: string | null } | null> => {
-        if (!searchProducts) return null;
-        const candidates = [
-          query,
-          title,
-          normalizeSearchQuery(title),
-        ]
-          .map((v) => String(v || '').trim())
-          .filter(Boolean);
-        const unique = Array.from(new Set(candidates)).slice(0, 3);
-        for (const q of unique) {
-          // eslint-disable-next-line no-await-in-loop
-          const resp = await searchProducts({ query: q, limit: 6 });
-          const pdpTarget = extractPdpTargetFromProductsSearchResponse(resp, { prefer_brand: brand });
-          if (pdpTarget?.product_id) return { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null };
-        }
+      const tryResolveProductRef = async (): Promise<{ product_id: string; merchant_id?: string | null } | null> => {
+        if (!resolveProductRef) return null;
+        const q = title || query;
+        if (!q) return null;
+        const resp = await resolveProductRef({ query: q, lang: language === 'CN' ? 'cn' : 'en' });
+        const pdpTarget = extractPdpTargetFromProductsResolveResponse(resp);
+        if (pdpTarget?.product_id) return { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null };
         return null;
       };
 
-      // If we have no ids at all, we can still open PDP by searching the catalog by name.
-      if (!skuId && !productId) {
-        setOffersLoading(anchorKey);
-        try {
-          const pdpTarget = await tryCatalogSearchForPdp();
-          if (pdpTarget?.product_id) {
-            openPdpTarget(pdpTarget);
-            return;
-          }
-        } catch {
-          // ignore
-        } finally {
-          setOffersLoading(null);
-        }
-
-        if (fallback && isLikelyUrl(fallback)) {
-          window.open(fallback, '_blank', 'noopener,noreferrer');
-          return;
-        }
-        openFallback(brand, name);
-        return;
-      }
-
-      // For id-only recos (common when upstream is not grounded to our catalog),
-      // resolve offers first; if no PDP target, fall back to a name search.
-      if (!resolveOffers) {
-        setOffersLoading(anchorKey);
-        try {
-          const pdpTarget = await tryCatalogSearchForPdp();
-          if (pdpTarget?.product_id) {
-            openPdpTarget(pdpTarget);
-            return;
-          }
-        } catch {
-          // ignore
-        } finally {
-          setOffersLoading(null);
-        }
-        if (fallback && isLikelyUrl(fallback)) {
-          window.open(fallback, '_blank', 'noopener,noreferrer');
-          return;
-        }
-        openFallback(brand, name);
-        return;
-      }
-
       setOffersLoading(anchorKey);
       try {
-        const resp = await resolveOffers({
-          ...(productId ? { product_id: productId } : skuId ? { sku_id: skuId } : {}),
-          ...(merchantId ? { merchant_id: merchantId } : {}),
-        });
-        const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
-        const offers = Array.isArray(resp?.offers)
-          ? resp.offers
-          : Array.isArray(resp?.data?.offers)
-            ? resp.data.offers
-            : [];
-
-        const normalizeUrl = (raw: any) => (typeof raw === 'string' && raw.trim() ? raw.trim() : null);
-        const readCheckoutUrl = (o: any) =>
-          normalizeUrl(o?.checkout_url ?? o?.checkoutUrl ?? o?.purchase_url ?? o?.purchaseUrl ?? o?.internal_checkout_url ?? o?.internalCheckoutUrl);
-        const readAffiliateUrl = (o: any) =>
-          normalizeUrl(o?.affiliate_url ?? o?.affiliateUrl ?? o?.external_redirect_url ?? o?.externalRedirectUrl ?? o?.external_url ?? o?.externalUrl);
-        const readGenericUrl = (o: any) => normalizeUrl(o?.url);
-        const readPurchaseRoute = (o: any) => String(o?.purchase_route ?? o?.purchaseRoute ?? '').trim().toLowerCase();
-        const hasInternalPayload = (o: any) => Boolean(o?.internal_checkout ?? o?.internalCheckout);
-
-        const isInternal = (o: any) => readPurchaseRoute(o) === 'internal_checkout' || hasInternalPayload(o) || Boolean(readCheckoutUrl(o));
-        const isExternal = (o: any) => readPurchaseRoute(o) === 'affiliate_outbound' || Boolean(readAffiliateUrl(o));
-
-        const internalOffer = offers.find((o: any) => isInternal(o) && (readCheckoutUrl(o) || readGenericUrl(o)));
-        const externalOffer = offers.find((o: any) => isExternal(o) && (readAffiliateUrl(o) || readGenericUrl(o)));
-
-        const externalUrl = externalOffer ? (readAffiliateUrl(externalOffer) || readGenericUrl(externalOffer) || '') : '';
-        const internalUrl = internalOffer ? (readCheckoutUrl(internalOffer) || readGenericUrl(internalOffer) || '') : '';
-
-        const fallbackOffer =
-          offers.find((o: any) => readAffiliateUrl(o)) ||
-          offers.find((o: any) => readCheckoutUrl(o)) ||
-          offers.find((o: any) => readGenericUrl(o)) ||
-          null;
-
-        const fallbackUrl = fallbackOffer ? (readAffiliateUrl(fallbackOffer) || readCheckoutUrl(fallbackOffer) || readGenericUrl(fallbackOffer) || '') : '';
-        const fallbackRoute: 'outbound' | 'internal' =
-          fallbackOffer && readCheckoutUrl(fallbackOffer) && !readAffiliateUrl(fallbackOffer) ? 'internal' : 'outbound';
-
-        if (pdpTarget?.product_id) {
-          openPdpTarget({ product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null });
+        // 1) Best-effort: resolve to a PDP-openable product_ref (preferred; no Google fallback).
+        const resolved = await tryResolveProductRef();
+        if (resolved?.product_id) {
+          openPdpTarget(resolved);
           return;
         }
 
-        const directFallbackUrl = fallback && isLikelyUrl(fallback) ? fallback : '';
-        const url = externalUrl || internalUrl || fallbackUrl || directFallbackUrl || '';
-        const route: 'outbound' | 'internal' = externalUrl ? 'outbound' : internalUrl ? 'internal' : directFallbackUrl ? 'outbound' : fallbackRoute;
-
-        // PDP-first: when upstream isn't grounded, we might still find this product in our catalog.
-        try {
-          const catalogTarget = await tryCatalogSearchForPdp();
-          if (catalogTarget?.product_id) {
-            openPdpTarget(catalogTarget);
+        // 2) Next: offers.resolve (only if we actually have ids).
+        if (resolveOffers && (skuId || productId)) {
+          const resp = await resolveOffers({
+            ...(productId ? { product_id: productId } : skuId ? { sku_id: skuId } : {}),
+            ...(merchantId ? { merchant_id: merchantId } : {}),
+          });
+          const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
+          if (pdpTarget?.product_id) {
+            openPdpTarget({ product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null });
             return;
           }
-        } catch {
-          // ignore
         }
-
-        if (!url) {
-          openFallback(brand, name);
-          return;
-        }
-        setOfferCache((prev) => ({ ...prev, [anchorKey]: { url, route } }));
-        if (analyticsCtx) {
-          if (route === 'outbound') {
-            const merchantDomain = (() => {
-              try {
-                return new URL(url).hostname || '';
-              } catch {
-                return '';
-              }
-            })();
-            const outboundSkuType =
-              skuId ? 'sku_id_missing_backend'
-                : productId ? 'product_id_missing_backend'
-                  : 'missing_backend';
-            emitUiOutboundOpened(analyticsCtx, {
-              merchant_domain: merchantDomain,
-              card_position: position ?? 0,
-              sku_type: outboundSkuType,
-              ...(skuId ? { sku_id: skuId } : productId ? { product_id: productId } : {}),
-              reason: 'no_pdp_target',
-            });
-          } else {
-            emitUiInternalCheckoutClicked(analyticsCtx, { from_card_id: card.card_id });
-          }
-        }
-        window.open(url, '_blank', 'noopener,noreferrer');
       } catch {
-        openFallback(brand, name);
+        // ignore
       } finally {
         setOffersLoading(null);
       }
+
+      // 3) If still not resolvable, allow explicit upstream links only (no Google fallback).
+      if (fallback && isLikelyUrl(fallback)) {
+        openOutboundUrl(fallback, { reason: 'no_pdp_target' });
+        return;
+      }
+      openFallback(brand, name);
     },
-    [analyticsCtx, card.card_id, offerCache, onOpenPdp, openFallback, resolveOffers, searchProducts],
+    [analyticsCtx, card.card_id, language, offerCache, onOpenPdp, openFallback, resolveOffers, resolveProductRef],
   );
 
   const groups = items.reduce(
@@ -1667,7 +1579,7 @@ function BffCardView({
   session,
   onAction,
   resolveOffers,
-  searchProducts,
+  resolveProductRef,
   bootstrapInfo,
   onOpenCheckin,
   onOpenPdp,
@@ -1679,7 +1591,7 @@ function BffCardView({
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
-  searchProducts?: (args: { query: string; limit?: number }) => Promise<any>;
+  resolveProductRef?: (args: { query: string; lang: 'en' | 'cn' }) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
   onOpenCheckin?: () => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
@@ -1840,7 +1752,7 @@ function BffCardView({
           language={language}
           debug={debug}
           resolveOffers={resolveOffers}
-          searchProducts={searchProducts}
+          resolveProductRef={resolveProductRef}
           onOpenPdp={onOpenPdp}
           analyticsCtx={analyticsCtx}
         />
@@ -4085,19 +3997,24 @@ export default function BffChat() {
     [headers, language],
   );
 
-  const searchProducts = useCallback(
-    async ({ query, limit = 6 }: { query: string; limit?: number }) => {
+  const resolveProductRef = useCallback(
+    async ({ query, lang }: { query: string; lang: 'en' | 'cn' }) => {
       const q = String(query || '').trim();
-      if (!q) throw new Error('products.search requires query');
+      if (!q) throw new Error('products.resolve requires query');
       const requestHeaders = { ...headers, lang: language };
-      const qs = new URLSearchParams({
-        query: q,
-        search_all_merchants: 'true',
-        in_stock_only: 'false',
-        limit: String(Math.max(1, Math.min(12, Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 6))),
-        offset: '0',
+      return await bffJson<any>('/agent/v1/products/resolve', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({
+          query: q,
+          lang,
+          caller: 'aurora_chatbox',
+          session_id: headers.brief_id,
+          options: {
+            timeout_ms: 3200,
+            allow_external_seed: false,
+          },
+        }),
       });
-      return await bffJson<any>(`/agent/v1/products/search?${qs.toString()}`, requestHeaders, { method: 'GET' });
     },
     [headers, language],
   );
@@ -4990,7 +4907,7 @@ export default function BffChat() {
                           session={sessionForCards}
                           onAction={onCardAction}
                           resolveOffers={resolveOffers}
-                          searchProducts={searchProducts}
+                          resolveProductRef={resolveProductRef}
                           bootstrapInfo={bootstrapInfo}
                           onOpenCheckin={() => setCheckinSheetOpen(true)}
                           onOpenPdp={openPdpDrawer}
