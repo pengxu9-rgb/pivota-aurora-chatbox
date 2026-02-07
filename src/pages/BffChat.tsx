@@ -994,13 +994,34 @@ function RecommendationsCard({
         return;
       }
 
+      const normalizeSearchQuery = (raw: string): string => {
+        const s = String(raw || '').trim();
+        if (!s) return '';
+        return s
+          .replace(/[%+()［］【】]/g, ' ')
+          .replace(/[0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 96);
+      };
+
       const tryCatalogSearchForPdp = async (): Promise<{ product_id: string; merchant_id?: string | null } | null> => {
         if (!searchProducts) return null;
-        if (!query) return null;
-        const resp = await searchProducts({ query, limit: 6 });
-        const pdpTarget = extractPdpTargetFromProductsSearchResponse(resp, { prefer_brand: brand });
-        if (!pdpTarget?.product_id) return null;
-        return { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null };
+        const candidates = [
+          query,
+          title,
+          normalizeSearchQuery(title),
+        ]
+          .map((v) => String(v || '').trim())
+          .filter(Boolean);
+        const unique = Array.from(new Set(candidates)).slice(0, 3);
+        for (const q of unique) {
+          // eslint-disable-next-line no-await-in-loop
+          const resp = await searchProducts({ query: q, limit: 6 });
+          const pdpTarget = extractPdpTargetFromProductsSearchResponse(resp, { prefer_brand: brand });
+          if (pdpTarget?.product_id) return { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null };
+        }
+        return null;
       };
 
       // If we have no ids at all, we can still open PDP by searching the catalog by name.
