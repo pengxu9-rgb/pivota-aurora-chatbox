@@ -13,9 +13,11 @@ import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferences
 import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
+import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
+import { humanizeKbNote } from '@/lib/auroraKbHumanize';
 import {
   inferTextExplicitTransition,
   normalizeAgentState,
@@ -69,7 +71,7 @@ import {
 
 type ChatItem =
   | { id: string; role: 'user' | 'assistant'; kind: 'text'; content: string }
-  | { id: string; role: 'assistant'; kind: 'cards'; cards: Card[] }
+  | { id: string; role: 'assistant'; kind: 'cards'; cards: Card[]; meta?: Pick<V1Envelope, 'request_id' | 'trace_id' | 'events'> }
   | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
   | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: GlowBootstrapSummary | null };
 
@@ -461,6 +463,16 @@ const isConflictHeatmapCard = (card: Card): boolean => {
       ? norm(String((payload as any).schema_version || ''))
       : '';
   return Boolean(schema && schema.includes('conflict_heatmap'));
+};
+
+const isRoutineSimulationCard = (card: Card): boolean => {
+  const norm = (input: string) =>
+    String(input || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  return norm(String(card?.type || '')) === 'routine_simulation';
 };
 
 const asArray = (v: unknown) => (Array.isArray(v) ? v : []);
@@ -1334,9 +1346,11 @@ function RecommendationsCard({
                     {language === 'CN' ? '敏感风险' : 'Sensitivity risks'}
                   </div>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
-                    {sensitivityFlags.slice(0, 4).map((n) => (
-                      <li key={n}>{n}</li>
-                    ))}
+                    {sensitivityFlags.slice(0, 4).map((n, idx) => {
+                      const label = humanizeKbNote(n, language);
+                      if (!label) return null;
+                      return <li key={`${n}_${idx}`}>{label}</li>;
+                    })}
                   </ul>
                 </div>
               ) : null}
@@ -1616,7 +1630,7 @@ function BffCardView({
   }
 
   if (isConflictHeatmapCard(card)) {
-    return <ConflictHeatmapCard payload={payload} language={language} />;
+    return <ConflictHeatmapCard payload={payload} language={language} debug={debug} />;
   }
 
   if (cardType === 'diagnosis_gate') {
@@ -2413,7 +2427,13 @@ export default function BffChat() {
     const cards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
 
     if (cards.length) {
-      nextItems.push({ id: nextId(), role: 'assistant', kind: 'cards', cards });
+      nextItems.push({
+        id: nextId(),
+        role: 'assistant',
+        kind: 'cards',
+        cards,
+        meta: { request_id: env.request_id, trace_id: env.trace_id, events: env.events },
+      });
     }
 
     const suppressChips = cards.length
@@ -4803,36 +4823,65 @@ export default function BffChat() {
                         </button>
                       );
                     })}
-                  </div>
-                </div>
+	                  </div>
+	                </div>
               );
             }
 
-	            return (
-	              <div key={item.id} className="space-y-3">
-	                {item.cards.map((card) => (
-	                  <BffCardView
-                    key={card.card_id}
-                    card={card}
-                    language={language}
-                    debug={debug}
-                    session={sessionForCards}
-                    onAction={onCardAction}
-                    resolveOffers={resolveOffers}
-                    bootstrapInfo={bootstrapInfo}
-                    onOpenCheckin={() => setCheckinSheetOpen(true)}
-                    onOpenPdp={openPdpDrawer}
-                    analyticsCtx={{
-                      brief_id: headers.brief_id,
-                      trace_id: headers.trace_id,
-                      aurora_uid: headers.aurora_uid,
-                      lang: toLangPref(language),
-                      state: agentState,
-                    }}
-                  />
-                ))}
-              </div>
-	            );
+              if (item.kind === 'cards') {
+                const cards = Array.isArray(item.cards) ? item.cards : [];
+                const simIndex = cards.findIndex((c) => isRoutineSimulationCard(c));
+                const heatmapIndex = cards.findIndex((c) => isConflictHeatmapCard(c));
+                const hasPair = simIndex >= 0 && heatmapIndex >= 0;
+                const insertAt = hasPair ? Math.min(simIndex, heatmapIndex) : -1;
+
+                return (
+                  <div key={item.id} className="space-y-3">
+                    {cards.flatMap((card, idx) => {
+                      if (hasPair && (idx === simIndex || idx === heatmapIndex)) {
+                        if (idx !== insertAt) return [];
+                        const simCard = cards[simIndex];
+                        const heatmapCard = cards[heatmapIndex];
+                        return [
+                          <div key={`compat_${simCard.card_id}_${heatmapCard.card_id}`} className="chat-card">
+                            <CompatibilityInsightsCard
+                              routineSimulationPayload={simCard.payload}
+                              conflictHeatmapPayload={heatmapCard.payload}
+                              language={language}
+                              debug={debug}
+                              meta={item.meta}
+                            />
+                          </div>,
+                        ];
+                      }
+
+                      return [
+                        <BffCardView
+                          key={card.card_id}
+                          card={card}
+                          language={language}
+                          debug={debug}
+                          session={sessionForCards}
+                          onAction={onCardAction}
+                          resolveOffers={resolveOffers}
+                          bootstrapInfo={bootstrapInfo}
+                          onOpenCheckin={() => setCheckinSheetOpen(true)}
+                          onOpenPdp={openPdpDrawer}
+                          analyticsCtx={{
+                            brief_id: headers.brief_id,
+                            trace_id: headers.trace_id,
+                            aurora_uid: headers.aurora_uid,
+                            lang: toLangPref(language),
+                            state: agentState,
+                          }}
+                        />,
+                      ];
+                    })}
+                  </div>
+                );
+              }
+
+              return null;
 	          })}
 
 	          {agentState === 'QUICK_PROFILE' ? (

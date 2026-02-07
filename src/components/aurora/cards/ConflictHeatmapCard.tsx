@@ -11,7 +11,15 @@ const EMPTY_ITEMS: any[] = [];
 type HeatmapModel = NonNullable<ReturnType<typeof normalizeConflictHeatmapUiModelV1>>;
 type HeatmapCell = HeatmapModel['cells']['items'][number];
 
-export function ConflictHeatmapCard({ payload, language }: { payload: unknown; language: Language }) {
+export function ConflictHeatmapCard({
+  payload,
+  language,
+  debug = false,
+}: {
+  payload: unknown;
+  language: Language;
+  debug?: boolean;
+}) {
   const model = normalizeConflictHeatmapUiModelV1(payload);
   const cells = (model?.cells?.items ?? EMPTY_ITEMS) as HeatmapCell[];
 
@@ -227,7 +235,7 @@ export function ConflictHeatmapCard({ payload, language }: { payload: unknown; l
             </div>
           ) : null}
 
-          <div className="text-[11px] text-muted-foreground">{model.schema_version}</div>
+          {debug ? <div className="text-[11px] text-muted-foreground">{model.schema_version}</div> : null}
         </CardContent>
       </Card>
     </motion.div>
