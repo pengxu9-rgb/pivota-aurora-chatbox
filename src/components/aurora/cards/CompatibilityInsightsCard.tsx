@@ -111,7 +111,8 @@ export function CompatibilityInsightsCard({
     [conflictHeatmapPayload, locale, routineSimulationPayload],
   );
 
-  const safe = routineSimulationPayload.safe === true || heatmapModel?.state === 'no_conflicts';
+  // Source of truth: the merged/normalized set. Simulation/heatmap can disagree; we treat `normalized.length` as canonical.
+  const safe = normalized.length === 0;
   const totalConflicts = normalized.length;
   const maxSeverity = normalized.reduce((acc, c) => Math.max(acc, severityRank(c.severity)), 0);
 
@@ -316,6 +317,11 @@ export function CompatibilityInsightsCard({
   const detailsTitle = language === 'CN' ? '冲突详情' : 'Conflict details';
 
   const heatmapAvailable = Boolean(heatmapModel && stepLabels.length);
+  const showingMaxStepsHint = Boolean(
+    heatmapModel &&
+      ((heatmapModel.axes?.rows?.max_items === 16 && heatmapModel.axes?.rows?.items?.length === 16) ||
+        (heatmapModel.axes?.cols?.max_items === 16 && heatmapModel.axes?.cols?.items?.length === 16)),
+  );
 
   return (
     <motion.div
@@ -629,6 +635,11 @@ export function CompatibilityInsightsCard({
                   </div>
 
                   {footerNote ? <div className="mt-3 text-[11px] text-muted-foreground">{footerNote}</div> : null}
+                  {showingMaxStepsHint ? (
+                    <div className="mt-2 text-[11px] text-muted-foreground">
+                      {language === 'CN' ? '仅展示前 16 步（V1 限制）。' : 'Showing only the first 16 steps (v1 limit).'}
+                    </div>
+                  ) : null}
 
                   {heatmapModel?.unmapped_conflicts?.length ? (
                     <div className="mt-3 rounded-xl border border-border/60 bg-background/60 p-3">
@@ -708,4 +719,3 @@ export function CompatibilityInsightsCard({
     </motion.div>
   );
 }
-
