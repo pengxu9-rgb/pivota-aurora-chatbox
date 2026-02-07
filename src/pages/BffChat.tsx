@@ -4850,6 +4850,13 @@ export default function BffChat() {
                               language={language}
                               debug={debug}
                               meta={item.meta}
+                              analyticsCtx={{
+                                brief_id: headers.brief_id,
+                                trace_id: headers.trace_id,
+                                aurora_uid: headers.aurora_uid,
+                                lang: toLangPref(language),
+                                state: agentState,
+                              }}
                             />
                           </div>,
                         ];

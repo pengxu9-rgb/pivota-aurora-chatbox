@@ -108,3 +108,41 @@ export const emitAgentProfileQuestionAnswered = (
     answer_type: string;
   },
 ) => emitWithContext('agent_profile_question_answered', ctx, props);
+
+export const emitAuroraConflictHeatmapImpression = (
+  ctx: AnalyticsContext,
+  props: {
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+    schema_version?: string | null;
+    heatmap_state?: string | null;
+    trigger_source?: string | null;
+    num_steps?: number;
+    num_cells_nonzero?: number;
+    num_unmapped_conflicts?: number;
+    max_severity?: number;
+    routine_simulation_safe?: boolean | null;
+    routine_conflict_count?: number | null;
+    normalized_conflict_count?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_conflict_heatmap_impression', ctx, props);
+
+export const emitAuroraConflictHeatmapCellTap = (
+  ctx: AnalyticsContext,
+  props: {
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+    schema_version?: string | null;
+    heatmap_state?: string | null;
+    trigger_source?: string | null;
+    row_index: number;
+    col_index: number;
+    severity?: number;
+    rule_ids?: string[];
+    step_a?: string;
+    step_b?: string;
+    selected_conflict_id?: string | null;
+    match_quality?: string | null;
+    num_steps?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_conflict_heatmap_cell_tap', ctx, props);

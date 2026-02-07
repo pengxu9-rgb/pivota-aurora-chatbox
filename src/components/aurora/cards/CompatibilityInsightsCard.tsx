@@ -13,6 +13,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/u
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import type { Language } from '@/lib/types';
+import { emitAuroraConflictHeatmapCellTap, emitAuroraConflictHeatmapImpression, type AnalyticsContext } from '@/lib/auroraAnalytics';
 import { normalizeConflictHeatmapUiModelV1 } from '@/lib/auroraUiContracts';
 import { normalizeConflicts, tI18n, type NormalizedConflict, type NormalizedConflictSeverity } from '@/lib/conflictNormalize';
 
@@ -97,18 +98,33 @@ function safeText(value: string | null | undefined): string {
   return t;
 }
 
+function deriveTriggerSource(events: Array<Record<string, unknown>> | undefined): string | null {
+  if (!Array.isArray(events)) return null;
+  for (const raw of events) {
+    if (!raw || typeof raw !== 'object') continue;
+    const ts = (raw as any).trigger_source;
+    if (typeof ts === 'string') {
+      const v = ts.trim();
+      if (v) return v;
+    }
+  }
+  return null;
+}
+
 export function CompatibilityInsightsCard({
   routineSimulationPayload,
   conflictHeatmapPayload,
   language,
   debug,
   meta,
+  analyticsCtx,
 }: {
   routineSimulationPayload: Record<string, unknown>;
   conflictHeatmapPayload: unknown;
   language: Language;
   debug: boolean;
   meta?: EnvelopeMeta;
+  analyticsCtx?: AnalyticsContext;
 }) {
   const locale = language === 'CN' ? 'zh' : 'en';
   const heatmapModel = useMemo(() => normalizeConflictHeatmapUiModelV1(conflictHeatmapPayload), [conflictHeatmapPayload]);
@@ -212,10 +228,38 @@ export function CompatibilityInsightsCard({
       const b = Math.max(row, col);
       const candidates = normalized.filter((c) => c.steps.a === a && c.steps.b === b);
       const picked = candidates.sort((x, y) => severityRank(y.severity) - severityRank(x.severity) || x.id.localeCompare(y.id))[0];
+
+      if (analyticsCtx) {
+        const key = `${a}|${b}`;
+        const cell = cellMap.get(key) ?? null;
+        const severity = Number(cell?.severity ?? 0) || 0;
+        const ruleIds = Array.isArray((cell as any)?.rule_ids) ? ((cell as any).rule_ids as unknown[]) : [];
+        const ruleIdsStr = ruleIds.map((r) => String(r || '').trim()).filter(Boolean).slice(0, 6);
+        const aLabel = stepLabels.find((s) => s.index === a)?.full ?? (language === 'CN' ? `步骤 ${a + 1}` : `Step ${a + 1}`);
+        const bLabel = stepLabels.find((s) => s.index === b)?.full ?? (language === 'CN' ? `步骤 ${b + 1}` : `Step ${b + 1}`);
+
+        emitAuroraConflictHeatmapCellTap(analyticsCtx, {
+          request_id: bffRequestId,
+          bff_trace_id: bffTraceId,
+          schema_version: schemaVersion,
+          heatmap_state: heatmapState,
+          trigger_source: triggerSource,
+          row_index: a,
+          col_index: b,
+          severity,
+          rule_ids: ruleIdsStr,
+          step_a: aLabel,
+          step_b: bLabel,
+          selected_conflict_id: picked?.id ?? null,
+          match_quality: picked?.meta?.matchQuality ?? null,
+          num_steps: stepLabels.length,
+        });
+      }
+
       if (picked) openDetailsFor(picked.id);
       else setDetailsOpen(true);
     },
-    [normalized, openDetailsFor],
+    [analyticsCtx, bffRequestId, bffTraceId, cellMap, heatmapState, language, normalized, openDetailsFor, schemaVersion, stepLabels, triggerSource],
   );
 
   const title = safeText(tI18n(heatmapModel?.title_i18n, locale)) || (language === 'CN' ? '冲突检测' : 'Conflict check');
@@ -372,6 +416,48 @@ export function CompatibilityInsightsCard({
       ((heatmapModel.axes?.rows?.max_items === 16 && heatmapModel.axes?.rows?.items?.length === 16) ||
         (heatmapModel.axes?.cols?.max_items === 16 && heatmapModel.axes?.cols?.items?.length === 16)),
   );
+
+  const triggerSource = useMemo(() => deriveTriggerSource(meta?.events), [meta?.events]);
+  const bffRequestId = meta?.request_id ?? null;
+  const bffTraceId = meta?.trace_id ?? null;
+  const schemaVersion = heatmapModel?.schema_version ?? null;
+  const heatmapState = heatmapModel?.state ?? null;
+  const numCellsNonzero = useMemo(
+    () => heatmapCells.filter((c) => (c.severity ?? 0) > 0).length,
+    [heatmapCells],
+  );
+  const maxSeverityHeatmap = useMemo(
+    () => heatmapCells.reduce((acc, c) => Math.max(acc, Number(c.severity ?? 0) || 0), 0),
+    [heatmapCells],
+  );
+  const numUnmapped = heatmapModel?.unmapped_conflicts?.length ?? 0;
+  const routineSimulationSafeRaw = (routineSimulationPayload as any)?.safe === true;
+  const routineConflictCountRaw = Array.isArray((routineSimulationPayload as any)?.conflicts)
+    ? ((routineSimulationPayload as any).conflicts as unknown[]).length
+    : null;
+
+  const impressionKey = `${bffRequestId || 'no_request'}|${schemaVersion || 'no_schema'}`;
+  const impressionSentRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (!analyticsCtx) return;
+    if (impressionSentRef.current === impressionKey) return;
+    impressionSentRef.current = impressionKey;
+
+    emitAuroraConflictHeatmapImpression(analyticsCtx, {
+      request_id: bffRequestId,
+      bff_trace_id: bffTraceId,
+      schema_version: schemaVersion,
+      heatmap_state: heatmapState,
+      trigger_source: triggerSource,
+      num_steps: stepLabels.length,
+      num_cells_nonzero: numCellsNonzero,
+      num_unmapped_conflicts: numUnmapped,
+      max_severity: maxSeverityHeatmap,
+      routine_simulation_safe: routineSimulationSafeRaw,
+      routine_conflict_count: routineConflictCountRaw,
+      normalized_conflict_count: normalized.length,
+    });
+  }, [analyticsCtx, bffRequestId, bffTraceId, heatmapState, impressionKey, maxSeverityHeatmap, numCellsNonzero, numUnmapped, normalized.length, routineConflictCountRaw, routineSimulationSafeRaw, schemaVersion, stepLabels.length, triggerSource]);
 
   return (
     <motion.div
