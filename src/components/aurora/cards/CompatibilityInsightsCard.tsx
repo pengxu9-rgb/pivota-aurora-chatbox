@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle, CheckCircle2, ClipboardCopy, Filter, Grid3X3, ListChecks } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCopy, Filter, Grid3X3, Info, ListChecks } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -62,6 +63,19 @@ function severityTone(sev: number) {
   if (sev === 2) return 'bg-orange-500/70 border-orange-600/40';
   if (sev === 1) return 'bg-amber-500/50 border-amber-600/30';
   return 'bg-muted/30 border-border/40';
+}
+
+function cellMark(sev: number) {
+  if (sev >= 3) return 'B';
+  if (sev === 2) return '!';
+  if (sev === 1) return 'L';
+  return '';
+}
+
+function truncateText(value: string, max: number) {
+  const t = safeText(value);
+  if (t.length <= max) return t;
+  return `${t.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 function dedupeStrings(values: string[]): string[] {
@@ -141,6 +155,18 @@ export function CompatibilityInsightsCard({
   }, [language, locale, steps]);
 
   const [selectedConflictId, setSelectedConflictId] = useState<string | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<null | { row: number; col: number }>(null);
+
+  // Default selection: highest severity (block>warn>low). Keep selection stable; reset when the new response doesn't contain the old id.
+  useEffect(() => {
+    if (!normalized.length) {
+      if (selectedConflictId !== null) setSelectedConflictId(null);
+      return;
+    }
+    const exists = selectedConflictId ? normalized.some((c) => c.id === selectedConflictId) : false;
+    if (!exists) setSelectedConflictId(normalized[0].id);
+  }, [normalized, selectedConflictId]);
+
   const selected = useMemo(
     () => (selectedConflictId ? normalized.find((c) => c.id === selectedConflictId) ?? null : null),
     [normalized, selectedConflictId],
@@ -157,6 +183,9 @@ export function CompatibilityInsightsCard({
   }, []);
 
   const selectedPair = selected ? { a: selected.steps.a, b: selected.steps.b } : null;
+  const focusPair = hoveredCell ?? (selectedPair ? { row: selectedPair.a, col: selectedPair.b } : null);
+  const focusRow = focusPair?.row ?? null;
+  const focusCol = focusPair?.col ?? null;
 
   const recommendationsTop = useMemo(() => {
     const all = normalized.flatMap((c) => (Array.isArray(c.recommendations) ? c.recommendations : []));
@@ -194,6 +223,11 @@ export function CompatibilityInsightsCard({
     (language === 'CN' ? '结论 → 建议 → 详情 → 证据（热力图）' : 'Conclusion → Recommendations → Details → Evidence');
 
   const footerNote = safeText(tI18n(heatmapModel?.footer_note_i18n, locale));
+
+  const readGuideText =
+    language === 'CN'
+      ? '读法：行=步骤A，列=步骤B。色块表示同晚叠加风险。点击色块查看原因与调整建议。'
+      : 'How to read: rows = step A, columns = step B. Colors show same-night layering risk. Click a cell for why & fixes.';
 
   const summaryTitle = safe || totalConflicts === 0
     ? language === 'CN'
@@ -284,23 +318,23 @@ export function CompatibilityInsightsCard({
           </div>
         ) : null}
 
-        <details className="rounded-xl border border-border/60 bg-background/60 p-3">
-          <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
-            {language === 'CN' ? '规则 ID（调试）' : 'Rule IDs (debug)'}
-          </summary>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {c.ruleIds.map((rid) => (
-              <span key={rid} className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
-                {rid}
-              </span>
-            ))}
-          </div>
-          {debug ? (
+        {debug ? (
+          <details className="rounded-xl border border-border/60 bg-background/60 p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
+              {language === 'CN' ? '规则 ID（调试）' : 'Rule IDs (debug)'}
+            </summary>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {c.ruleIds.map((rid) => (
+                <span key={rid} className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+                  {rid}
+                </span>
+              ))}
+            </div>
             <div className="mt-2 text-[11px] text-muted-foreground">
               match: <span className="font-mono">{c.meta?.matchQuality ?? 'none'}</span>
             </div>
-          ) : null}
-        </details>
+          </details>
+        ) : null}
       </div>
     );
   };
@@ -314,7 +348,19 @@ export function CompatibilityInsightsCard({
 
   const ctaLabel = language === 'CN' ? '查看如何调整' : 'View how to adjust';
 
-  const detailsTitle = language === 'CN' ? '冲突详情' : 'Conflict details';
+  const detailsTitle = selected
+    ? language === 'CN'
+      ? `${selected.steps.aShortLabel || selected.steps.aLabel} × ${selected.steps.bShortLabel || selected.steps.bLabel}（${severityLabel(
+          selected.severity,
+          language,
+        )}）`
+      : `${selected.steps.aShortLabel || selected.steps.aLabel} × ${selected.steps.bShortLabel || selected.steps.bLabel} (${severityLabel(
+          selected.severity,
+          language,
+        )})`
+    : language === 'CN'
+      ? '冲突详情'
+      : 'Conflict details';
 
   const heatmapAvailable = Boolean(heatmapModel && stepLabels.length);
   const showingMaxStepsHint = Boolean(
@@ -504,21 +550,23 @@ export function CompatibilityInsightsCard({
                             </div>
                           ) : null}
 
-                          <details className="rounded-xl border border-border/60 bg-background/60 p-3">
-                            <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
-                              {language === 'CN' ? '规则 ID（调试）' : 'Rule IDs (debug)'}
-                            </summary>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {c.ruleIds.map((rid) => (
-                                <span
-                                  key={rid}
-                                  className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground"
-                                >
-                                  {rid}
-                                </span>
-                              ))}
-                            </div>
-                          </details>
+                          {debug ? (
+                            <details className="rounded-xl border border-border/60 bg-background/60 p-3">
+                              <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
+                                {language === 'CN' ? '规则 ID（调试）' : 'Rule IDs (debug)'}
+                              </summary>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {c.ruleIds.map((rid) => (
+                                  <span
+                                    key={rid}
+                                    className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground"
+                                  >
+                                    {rid}
+                                  </span>
+                                ))}
+                              </div>
+                            </details>
+                          ) : null}
                         </div>
                       </AccordionContent>
                     </AccordionItem>
@@ -529,8 +577,29 @@ export function CompatibilityInsightsCard({
           ) : null}
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '证据（热力图）' : 'Evidence (heatmap)'}</div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '证据（热力图）' : 'Evidence (heatmap)'}</div>
+                <div className="mt-1 hidden sm:block text-xs text-muted-foreground">{readGuideText}</div>
+                <div className="mt-1 sm:hidden">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-xs text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                        aria-label={language === 'CN' ? '查看读法提示' : 'Open read guide'}
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                        <span>{language === 'CN' ? '读法' : 'How to read'}</span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80">
+                      <div className="text-xs leading-relaxed text-muted-foreground">{readGuideText}</div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                 {heatmapLegendLabels.map((label, idx) => (
                   <div key={`${idx}_${label}`} className="flex items-center gap-1">
@@ -548,6 +617,84 @@ export function CompatibilityInsightsCard({
             ) : (
               <TooltipProvider delayDuration={120}>
                 <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                  {totalConflicts ? (
+                    <div className="mb-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/60 p-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="font-semibold text-foreground/90">{language === 'CN' ? '当前解读' : 'Current'}:</span>
+                          {selected ? (
+                            <>
+                              <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                                {selected.steps.aShortLabel || selected.steps.aLabel}
+                              </span>
+                              <span className="text-muted-foreground/60">×</span>
+                              <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                                {selected.steps.bShortLabel || selected.steps.bLabel}
+                              </span>
+                              <Badge variant={severityBadgeVariant(selected.severity)}>{severityLabel(selected.severity, language)}</Badge>
+                            </>
+                          ) : (
+                            <span>{language === 'CN' ? '点击色块查看详情' : 'Click a cell to view details'}</span>
+                          )}
+                        </div>
+                        {selected ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDetailsOpen(true)}
+                            aria-label={language === 'CN' ? '打开当前详情' : 'Open current details'}
+                          >
+                            {language === 'CN' ? '查看' : 'View'}
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      {selectedPair && !cellMap.has(`${selectedPair.a}|${selectedPair.b}`) ? (
+                        <div className="text-[11px] text-muted-foreground">
+                          {language === 'CN' ? '该冲突暂时没有矩阵证据。' : 'No matrix evidence for this conflict.'}
+                        </div>
+                      ) : null}
+
+                      {normalized.length <= 3 ? (
+                        <div className="rounded-xl border border-border/60 bg-background/60 p-2">
+                          <div className="text-[11px] font-semibold text-muted-foreground">
+                            {language === 'CN' ? '证据摘要（点选查看）' : 'Evidence summary (tap to view)'}
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            {normalized.slice(0, 3).map((c) => {
+                              const stepA = c.steps.aShortLabel || c.steps.aLabel;
+                              const stepB = c.steps.bShortLabel || c.steps.bLabel;
+                              const titleLine = c.headline || c.message || (language === 'CN' ? '冲突' : 'Conflict');
+                              return (
+                                <button
+                                  key={`ev_${c.id}`}
+                                  type="button"
+                                  onClick={() => openDetailsFor(c.id)}
+                                  className={cn(
+                                    'flex w-full items-start justify-between gap-2 rounded-lg border border-border/50 bg-background px-2 py-2 text-left transition-colors',
+                                    'hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background',
+                                  )}
+                                  aria-label={language === 'CN' ? '打开证据详情' : 'Open evidence details'}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge variant={severityBadgeVariant(c.severity)}>{severityLabel(c.severity, language)}</Badge>
+                                      <span className="text-xs font-semibold text-foreground">
+                                        {stepA} × {stepB}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-muted-foreground">{truncateText(titleLine, 120)}</div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   <div className="overflow-auto">
                     <table className="w-full border-separate border-spacing-1">
                       <thead>
@@ -558,7 +705,10 @@ export function CompatibilityInsightsCard({
                           {stepLabels.map((s) => (
                             <th
                               key={`h_${s.key}`}
-                              className="px-2 py-1 text-center text-[10px] font-semibold text-muted-foreground"
+                              className={cn(
+                                'px-2 py-1 text-center text-[10px] font-semibold text-muted-foreground',
+                                focusCol === s.index ? 'rounded-md bg-muted/30 text-foreground' : '',
+                              )}
                               title={s.full}
                             >
                               <span className="inline-block max-w-[7rem] truncate">{s.label}</span>
@@ -570,7 +720,10 @@ export function CompatibilityInsightsCard({
                         {stepLabels.map((row) => (
                           <tr key={`row_${row.key}`}>
                             <th
-                              className="sticky left-0 z-10 bg-background/60 px-2 py-1 text-left text-[10px] font-semibold text-muted-foreground backdrop-blur"
+                              className={cn(
+                                'sticky left-0 z-10 bg-background/60 px-2 py-1 text-left text-[10px] font-semibold text-muted-foreground backdrop-blur',
+                                focusRow === row.index ? 'rounded-md bg-muted/30 text-foreground' : '',
+                              )}
                               title={row.full}
                             >
                               <span className="inline-block max-w-[7rem] truncate">{row.label}</span>
@@ -585,7 +738,9 @@ export function CompatibilityInsightsCard({
 
                               const headline = cell ? safeText(tI18n(cell.headline_i18n, locale)) : '';
                               const why = cell ? safeText(tI18n(cell.why_i18n, locale)) : '';
-                              const tooltipText = [headline, why].filter(Boolean).join(' — ').slice(0, 220);
+                              const whyShort = truncateText(why, 160);
+                              const sevLabel = heatmapLegendLabels[Math.min(3, Math.max(0, severity))] || String(severity);
+                              const mark = cellMark(severity);
 
                               const button = (
                                 <button
@@ -594,18 +749,37 @@ export function CompatibilityInsightsCard({
                                   onClick={() => onCellPick(row.index, col.index)}
                                   className={cn(
                                     'h-6 w-6 rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
+                                    'flex items-center justify-center text-[10px] font-bold select-none',
                                     severityTone(severity),
-                                    activeByFilter ? 'hover:opacity-90' : 'opacity-40 cursor-default',
+                                    severity >= 2 ? 'text-white drop-shadow-sm' : severity === 1 ? 'text-foreground/80' : 'text-transparent',
+                                    activeByFilter ? 'cursor-pointer hover:opacity-90 hover:shadow-sm' : 'opacity-30 cursor-default',
                                     isSelected ? 'ring-2 ring-primary/70 ring-offset-1 ring-offset-background' : '',
                                   )}
+                                  onFocus={() => setHoveredCell({ row: row.index, col: col.index })}
+                                  onBlur={() => setHoveredCell(null)}
                                   aria-label={
-                                    severity > 0 ? `${row.full} × ${col.full}: ${headline || 'conflict'}` : `${row.full} × ${col.full}`
+                                    severity > 0
+                                      ? `${row.full} × ${col.full}: ${sevLabel}. ${headline || (language === 'CN' ? '冲突' : 'Conflict')}. ${
+                                          language === 'CN' ? '点击查看详情' : 'Click for details'
+                                        }.`
+                                      : `${row.full} × ${col.full}`
                                   }
-                                />
+                                  aria-pressed={Boolean(isSelected)}
+                                >
+                                  {mark}
+                                </button>
                               );
 
                               return (
-                                <td key={`c_${row.key}_${col.key}`} className="px-1 py-1">
+                                <td
+                                  key={`c_${row.key}_${col.key}`}
+                                  className={cn(
+                                    'px-1 py-1',
+                                    isUpper && (focusRow === row.index || focusCol === col.index) ? 'rounded-md bg-muted/20' : '',
+                                  )}
+                                  onMouseEnter={() => (isUpper ? setHoveredCell({ row: row.index, col: col.index }) : null)}
+                                  onMouseLeave={() => setHoveredCell(null)}
+                                >
                                   {isUpper ? (
                                     severity > 0 ? (
                                       <Tooltip>
@@ -614,13 +788,27 @@ export function CompatibilityInsightsCard({
                                           <div className="text-xs font-semibold">{headline || (language === 'CN' ? '冲突' : 'Conflict')}</div>
                                           <div className="mt-1 text-[11px] text-muted-foreground">
                                             {language === 'CN' ? '严重度：' : 'Severity: '}
-                                            {heatmapLegendLabels[Math.min(3, Math.max(0, severity))] || severity}
+                                            {sevLabel}
                                           </div>
-                                          {tooltipText ? <div className="mt-1 text-[11px]">{tooltipText}</div> : null}
+                                          {whyShort ? <div className="mt-1 text-[11px] leading-relaxed">{whyShort}</div> : null}
+                                          <div className="mt-2 text-[11px] font-semibold text-muted-foreground">
+                                            {language === 'CN' ? '点击查看原因与建议' : 'Click for why & fixes'}
+                                          </div>
                                         </TooltipContent>
                                       </Tooltip>
                                     ) : (
-                                      button
+                                      <button
+                                        type="button"
+                                        disabled
+                                        className={cn(
+                                          'h-6 w-6 rounded border transition-colors',
+                                          'flex items-center justify-center text-[10px] font-bold select-none',
+                                          severityTone(severity),
+                                          'text-transparent opacity-30 cursor-default',
+                                          isSelected ? 'ring-2 ring-primary/70 ring-offset-1 ring-offset-background' : '',
+                                        )}
+                                        aria-label={`${row.full} × ${col.full}`}
+                                      />
                                     )
                                   ) : (
                                     <div className="h-6 w-6" />
