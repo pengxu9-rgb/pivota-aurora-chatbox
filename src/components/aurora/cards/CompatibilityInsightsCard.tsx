@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
@@ -363,6 +364,9 @@ export function CompatibilityInsightsCard({
       : 'Conflict details';
 
   const heatmapAvailable = Boolean(heatmapModel && stepLabels.length);
+  const shouldDefaultOpenEvidence = Boolean(!safe && (normalized.length > 3 || stepLabels.length > 6));
+  const [evidenceOpen, setEvidenceOpen] = useState<boolean>(() => shouldDefaultOpenEvidence);
+  const canShowMatrixEvidence = Boolean(heatmapAvailable && heatmapCells.some((c) => (c.severity ?? 0) > 0));
   const showingMaxStepsHint = Boolean(
     heatmapModel &&
       ((heatmapModel.axes?.rows?.max_items === 16 && heatmapModel.axes?.rows?.items?.length === 16) ||
@@ -695,7 +699,36 @@ export function CompatibilityInsightsCard({
                     </div>
                   ) : null}
 
-                  <div className="overflow-auto">
+                  {!canShowMatrixEvidence ? (
+                    <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
+                      {language === 'CN'
+                        ? '没有矩阵证据可展示（没有可着色的风险格子）。请查看上方“当前解读/建议/详情”。'
+                        : 'No matrix evidence to show (no risk cells). Use the “Current/Recommendations/Details” above.'}
+                    </div>
+                  ) : (
+                    <Collapsible open={evidenceOpen} onOpenChange={setEvidenceOpen}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">
+                          {language === 'CN' ? '矩阵证据（可选）' : 'Matrix evidence (optional)'}
+                        </div>
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-label={
+                              evidenceOpen
+                                ? (language === 'CN' ? '收起矩阵证据' : 'Hide matrix evidence')
+                                : (language === 'CN' ? '展开矩阵证据' : 'Show matrix evidence')
+                            }
+                          >
+                            {evidenceOpen ? (language === 'CN' ? '收起矩阵' : 'Hide matrix') : (language === 'CN' ? '展开矩阵' : 'Show matrix')}
+                          </Button>
+                        </CollapsibleTrigger>
+                      </div>
+
+                      <CollapsibleContent className="mt-2">
+                        <div className="overflow-auto">
                     <table className="w-full border-separate border-spacing-1">
                       <thead>
                         <tr>
@@ -844,6 +877,9 @@ export function CompatibilityInsightsCard({
                       </ul>
                     </div>
                   ) : null}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
                 </div>
               </TooltipProvider>
             )}
