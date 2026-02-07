@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 import type { SuggestedChip } from '@/lib/pivotaAgentBff';
 import type { Language } from '@/lib/types';
-import type { GlowBootstrapSummary } from '@/lib/glowSessionBootstrap';
+import type { ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 
 type Props = {
   language: Language;
-  summary: GlowBootstrapSummary | null;
+  summary: ReturnWelcomeSummary | null;
   chips: SuggestedChip[];
   onChip: (chip: SuggestedChip) => void;
   disabled?: boolean;

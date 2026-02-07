@@ -38,7 +38,7 @@ import {
   emitUiSessionStarted,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
-import { type GlowBootstrapSummary, fetchGlowSessionBootstrap } from '@/lib/glowSessionBootstrap';
+import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
@@ -73,7 +73,7 @@ type ChatItem =
   | { id: string; role: 'user' | 'assistant'; kind: 'text'; content: string }
   | { id: string; role: 'assistant'; kind: 'cards'; cards: Card[]; meta?: Pick<V1Envelope, 'request_id' | 'trace_id' | 'events'> }
   | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
-  | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: GlowBootstrapSummary | null };
+  | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: ReturnWelcomeSummary | null };
 
 type RoutineDraft = {
   am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
@@ -2567,22 +2567,17 @@ export default function BffChat() {
     try {
       const requestHeaders = { ...headers, lang: language };
       const langPref = toLangPref(language);
-      const glowPromise = fetchGlowSessionBootstrap({
-        auroraUid: headers.aurora_uid,
-        lang: langPref,
-        briefId: headers.brief_id,
-        traceId: headers.trace_id,
-      }).catch((err) => {
-        console.warn('[Glow bootstrap] failed', err);
-        return null;
-      });
-
-      const envPromise = bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
-      const [glow, env] = await Promise.all([glowPromise, envPromise]);
+      const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
       const info = readBootstrapInfo(env);
       setBootstrapInfo(info);
       const profile = info?.profile;
-      const isReturning = Boolean(glow?.is_returning);
+      const isReturning = Boolean(info?.is_returning);
+      const returnWelcomeSummary = buildReturnWelcomeSummary({
+        profile,
+        recent_logs: info?.recent_logs ?? [],
+        checkin_due: info?.checkin_due,
+        language,
+      });
 
       const analyticsCtx: AnalyticsContext = {
         brief_id: headers.brief_id,
@@ -2613,12 +2608,14 @@ export default function BffChat() {
         });
       }
 
-      if (isReturning && glow?.summary && !returnVisitEmittedRef.current) {
+      if (isReturning && !returnVisitEmittedRef.current) {
         returnVisitEmittedRef.current = true;
+        const currentRoutine = profile ? (profile as any).currentRoutine : null;
         emitUiReturnVisit(analyticsCtx, {
-          days_since_last: glow.summary.days_since_last ?? 0,
-          has_active_plan: glow.artifacts_present.has_plan,
-          has_checkin_due: Boolean(glow.summary.checkin_due),
+          days_since_last: returnWelcomeSummary.days_since_last ?? 0,
+          has_active_plan:
+            typeof currentRoutine === 'string' ? Boolean(currentRoutine.trim()) : Boolean(currentRoutine),
+          has_checkin_due: Boolean(info?.checkin_due),
         });
       }
 
@@ -2680,7 +2677,7 @@ export default function BffChat() {
         if (FF_RETURN_WELCOME && isReturning) {
           setItems([
             { id: nextId(), role: 'assistant', kind: 'text', content: intro },
-            { id: nextId(), role: 'assistant', kind: 'return_welcome', summary: glow?.summary ?? null },
+            { id: nextId(), role: 'assistant', kind: 'return_welcome', summary: returnWelcomeSummary },
           ]);
         } else {
           setItems([
@@ -4135,7 +4132,13 @@ export default function BffChat() {
             title={language === 'CN' ? '账户' : 'Account'}
           >
             <Wallet className="h-4 w-4" />
-            {authSession ? (language === 'CN' ? '账户' : 'Account') : language === 'CN' ? '登录' : 'Sign in'}
+            {authSession || bootstrapInfo?.profile || bootstrapInfo?.is_returning
+              ? language === 'CN'
+                ? '账户'
+                : 'Account'
+              : language === 'CN'
+                ? '登录'
+                : 'Sign in'}
           </button>
           <button
             className={`chip-button ${bootstrapInfo?.checkin_due ? 'chip-button-primary' : ''}`}
