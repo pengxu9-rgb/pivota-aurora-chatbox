@@ -1,5 +1,14 @@
 import { AnalyticsEvent } from './types';
-import { getApiBaseUrl } from './pivotaApi';
+import { getPivotaAgentBaseUrl } from './pivotaAgentBff';
+
+const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
+
+const buildEventsIngestUrl = (baseUrl: string) => {
+  const normalized = normalizeBaseUrl(baseUrl);
+  if (!normalized) return undefined;
+  if (/\/v1$/i.test(normalized) || /\/v1\//i.test(normalized)) return `${normalized.replace(/\/+$/, '')}/events`;
+  return `${normalized}/v1/events`;
+};
 
 class AnalyticsStore {
   private events: AnalyticsEvent[] = [];
@@ -75,10 +84,8 @@ class AnalyticsStore {
     if (this.flushInFlight) return;
     if (!this.pending.length) return;
 
-    const baseUrl = getApiBaseUrl();
-    if (!baseUrl) return;
-
-    const url = `${baseUrl.replace(/\/+$/, '')}/events`;
+    const url = buildEventsIngestUrl(getPivotaAgentBaseUrl());
+    if (!url) return;
     const batch = this.pending.splice(0, this.batchSize);
 
     this.flushInFlight = true;
