@@ -928,6 +928,16 @@ function RecommendationsCard({
       const query = String(productId || skuId || title || '').trim();
       const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
+      if (debug) {
+        // eslint-disable-next-line no-console
+        console.info('[RecoViewDetails] click', {
+          title,
+          skuId,
+          productId,
+          merchantId,
+          fallbackUrl: fallback || null,
+        });
+      }
       if (!anchorKey) {
         if (fallback && isLikelyUrl(fallback)) {
           window.open(fallback, '_blank', 'noopener,noreferrer');
@@ -970,6 +980,28 @@ function RecommendationsCard({
       const openOutboundUrl = (rawUrl: string, args?: { reason?: string }) => {
         const url = String(rawUrl || '').trim();
         if (!url) return;
+
+        const isDisallowedFallbackOutbound = (() => {
+          try {
+            const u = new URL(url);
+            const host = u.hostname.toLowerCase();
+            const path = u.pathname.toLowerCase();
+            const isGoogle = host === 'google.com' || host.endsWith('.google.com') || host.endsWith('.google.cn') || host === 'google.cn';
+            if (isGoogle && (path === '/search' || path === '/url')) return true;
+            return false;
+          } catch {
+            return false;
+          }
+        })();
+
+        if (isDisallowedFallbackOutbound) {
+          if (debug) {
+            // eslint-disable-next-line no-console
+            console.info('[RecoViewDetails] blocked outbound fallback url', { url });
+          }
+          openFallback(brand, name);
+          return;
+        }
 
         setOfferCache((prev) => ({ ...prev, [anchorKey]: { url, route: 'outbound' } }));
         if (analyticsCtx) {
@@ -1049,22 +1081,43 @@ function RecommendationsCard({
       try {
         // 1) Best-effort: resolve to a PDP-openable product_ref (preferred; no Google fallback).
         const resolved = await tryResolveProductRef();
+        if (debug) {
+          // eslint-disable-next-line no-console
+          console.info('[RecoViewDetails] resolver result', { resolved });
+        }
         if (resolved?.product_id) {
           openPdpTarget(resolved);
           return;
         }
 
         // 2) Next: offers.resolve (only if we actually have ids).
-        if (resolveOffers && (skuId || productId)) {
+        const looksLikeUuid = (value: string | null | undefined): boolean =>
+          typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
+
+        // UUID-like ids are not PDP-openable in our shop; offers.resolve will not help.
+        const shouldTryOffersResolve =
+          Boolean(resolveOffers) &&
+          (Boolean(skuId) || Boolean(productId)) &&
+          !looksLikeUuid(productId) &&
+          !looksLikeUuid(skuId);
+
+        if (shouldTryOffersResolve) {
           const resp = await resolveOffers({
             ...(productId ? { product_id: productId } : skuId ? { sku_id: skuId } : {}),
             ...(merchantId ? { merchant_id: merchantId } : {}),
           });
           const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
+          if (debug) {
+            // eslint-disable-next-line no-console
+            console.info('[RecoViewDetails] offers.resolve pdpTarget', { pdpTarget });
+          }
           if (pdpTarget?.product_id) {
             openPdpTarget({ product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null });
             return;
           }
+        } else if (debug && (skuId || productId)) {
+          // eslint-disable-next-line no-console
+          console.info('[RecoViewDetails] skip offers.resolve', { skuId, productId });
         }
       } catch {
         // ignore
@@ -1079,7 +1132,7 @@ function RecommendationsCard({
       }
       openFallback(brand, name);
     },
-    [analyticsCtx, card.card_id, language, offerCache, onOpenPdp, openFallback, resolveOffers, resolveProductRef],
+    [analyticsCtx, card.card_id, debug, language, offerCache, onOpenPdp, openFallback, resolveOffers, resolveProductRef],
   );
 
   const groups = items.reduce(
