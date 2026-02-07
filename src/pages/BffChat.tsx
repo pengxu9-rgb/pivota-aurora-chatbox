@@ -913,7 +913,7 @@ function RecommendationsCard({
       position?: number;
     }) => {
       const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
-      const query = title;
+      const query = String(productId || skuId || title || '').trim();
       const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
       if (!anchorKey) {
