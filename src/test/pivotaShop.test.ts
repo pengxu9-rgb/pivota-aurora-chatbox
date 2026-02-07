@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse } from '@/lib/pivotaShop';
+import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse, extractPdpTargetFromProductsSearchResponse } from '@/lib/pivotaShop';
 
 describe('pivotaShop', () => {
   describe('extractPdpTargetFromOffersResolveResponse', () => {
@@ -49,6 +49,35 @@ describe('pivotaShop', () => {
     it('omits merchant_id when missing', () => {
       const url = buildPdpUrl({ baseUrl: 'https://agent.pivota.cc/', product_id: 'prod_2' });
       expect(url).toBe('https://agent.pivota.cc/products/prod_2?entry=aurora_chatbox');
+    });
+  });
+
+  describe('extractPdpTargetFromProductsSearchResponse', () => {
+    it('extracts from products[] (root)', () => {
+      const resp = { products: [{ product_id: 'prod_1', merchant_id: 'merch_1' }] };
+      expect(extractPdpTargetFromProductsSearchResponse(resp)).toEqual({ product_id: 'prod_1', merchant_id: 'merch_1' });
+    });
+
+    it('extracts from data.products[]', () => {
+      const resp = { data: { products: [{ id: 'prod_2', merchant: { id: 'merch_2' } }] } };
+      expect(extractPdpTargetFromProductsSearchResponse(resp)).toEqual({ product_id: 'prod_2', merchant_id: 'merch_2' });
+    });
+
+    it('prefers brand match when provided', () => {
+      const resp = {
+        products: [
+          { product_id: 'prod_a', merchant_id: 'merch_a', brand: 'Other' },
+          { product_id: 'prod_b', merchant_id: 'merch_b', brand: 'The Ordinary' },
+        ],
+      };
+      expect(extractPdpTargetFromProductsSearchResponse(resp, { prefer_brand: 'the ordinary' })).toEqual({
+        product_id: 'prod_b',
+        merchant_id: 'merch_b',
+      });
+    });
+
+    it('returns null when empty', () => {
+      expect(extractPdpTargetFromProductsSearchResponse({ products: [] })).toBeNull();
     });
   });
 });

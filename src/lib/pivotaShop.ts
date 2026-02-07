@@ -110,6 +110,52 @@ export const extractPdpTargetFromOffersResolveResponse = (input: unknown): PdpTa
   return null;
 };
 
+export const extractPdpTargetFromProductsSearchResponse = (
+  input: unknown,
+  opts: { prefer_brand?: string | null } = {},
+): PdpTarget | null => {
+  const resp = asObject(input);
+  if (!resp) return null;
+
+  const productsRaw =
+    Array.isArray(resp.products) ? resp.products
+      : Array.isArray(resp.data?.products) ? resp.data.products
+        : Array.isArray((resp as any).result?.products) ? (resp as any).result.products
+          : [];
+  const products = productsRaw.map(asObject).filter(Boolean) as Array<Record<string, any>>;
+
+  const normalizeBrand = (v: unknown) => String(typeof v === 'string' ? v : '').trim().toLowerCase();
+  const preferBrand = normalizeBrand(opts.prefer_brand);
+
+  const candidates = products
+    .map((p) => {
+      const productId =
+        asNonEmptyString(p.product_id) ||
+        asNonEmptyString(p.productId) ||
+        asNonEmptyString(p.id) ||
+        null;
+      const merchantId =
+        asNonEmptyString(p.merchant_id) ||
+        asNonEmptyString(p.merchantId) ||
+        asNonEmptyString(p.merchant?.id) ||
+        null;
+      const brand = normalizeBrand(p.brand ?? (p as any).brand_name ?? (p as any).brandName);
+      return productId ? { product_id: productId, merchant_id: merchantId, brand } : null;
+    })
+    .filter(Boolean) as Array<{ product_id: string; merchant_id: string | null; brand: string }>;
+
+  if (!candidates.length) return null;
+
+  const picked =
+    (preferBrand
+      ? candidates.find((c) => c.brand === preferBrand || c.brand.includes(preferBrand) || preferBrand.includes(c.brand))
+      : null) ||
+    candidates.find((c) => Boolean(c.merchant_id)) ||
+    candidates[0];
+
+  return { product_id: picked.product_id, ...(picked.merchant_id ? { merchant_id: picked.merchant_id } : {}) };
+};
+
 export const buildPdpUrl = (args: { product_id: string; merchant_id?: string | null; baseUrl?: string }): string => {
   const baseUrl = normalizeBaseUrl(args.baseUrl ?? getPivotaShopBaseUrl());
   const productId = encodeURIComponent(String(args.product_id || '').trim());
@@ -119,4 +165,3 @@ export const buildPdpUrl = (args: { product_id: string; merchant_id?: string | n
   url.searchParams.set('entry', 'aurora_chatbox');
   return url.toString();
 };
-

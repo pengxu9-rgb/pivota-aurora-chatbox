@@ -44,7 +44,7 @@ import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product
 import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
-import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse } from '@/lib/pivotaShop';
+import { buildPdpUrl, extractPdpTargetFromOffersResolveResponse, extractPdpTargetFromProductsSearchResponse } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
 import {
@@ -492,6 +492,30 @@ const isInternalKbCitationId = (raw: string): boolean => {
   return false;
 };
 
+const stripInternalKbRefsFromText = (raw: string): string => {
+  const input = String(raw || '');
+  if (!input.trim()) return input;
+
+  const withoutKb = input.replace(/\bkb:[a-z0-9_-]+\b/gi, '');
+  const cleaned = withoutKb
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+$/g, '').replace(/^[ \t]+/g, ''))
+    .filter((line) => {
+      const t = line.trim();
+      if (!t) return true;
+      if (/^(evidence|citation|citations|source|sources)[:：]?\s*$/i.test(t)) return false;
+      if (/^(证据|引用|来源)[:：]?\s*$/.test(t)) return false;
+      return true;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return cleaned;
+};
+
 const isLikelyUrl = (raw: string): boolean => /^https?:\/\//i.test(String(raw || '').trim());
 
 const looksLikeWeatherOrEnvironmentQuestion = (text: string): boolean => {
@@ -829,6 +853,7 @@ function RecommendationsCard({
   language,
   debug,
   resolveOffers,
+  searchProducts,
   onOpenPdp,
   analyticsCtx,
 }: {
@@ -836,6 +861,7 @@ function RecommendationsCard({
   language: 'EN' | 'CN';
   debug: boolean;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
+  searchProducts?: (args: { query: string; limit?: number }) => Promise<any>;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
 }) {
@@ -886,20 +912,51 @@ function RecommendationsCard({
       fallbackUrl?: string | null;
       position?: number;
     }) => {
-      const anchorId = String(productId || skuId || '').trim();
+      const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
+      const query = title;
+      const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
-      if (!anchorId) {
+      if (!anchorKey) {
         if (fallback && isLikelyUrl(fallback)) {
           window.open(fallback, '_blank', 'noopener,noreferrer');
           return;
         }
         return openFallback(brand, name);
       }
-      const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
 
-      const cached = offerCache[anchorId];
+      const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
+
+      const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
+        const pdpUrl = buildPdpUrl({
+          product_id: target.product_id,
+          merchant_id: target.merchant_id ?? null,
+        });
+        setOfferCache((prev) => ({
+          ...prev,
+          [anchorKey]: {
+            url: pdpUrl,
+            route: 'pdp',
+            product_id: target.product_id,
+            merchant_id: target.merchant_id ?? null,
+          },
+        }));
+        if (analyticsCtx) {
+          emitUiPdpOpened(analyticsCtx, {
+            product_id: target.product_id,
+            merchant_id: target.merchant_id ?? null,
+            card_position: position ?? 0,
+            sku_type: skuType,
+          });
+        }
+        if (onOpenPdp) {
+          onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
+        } else {
+          window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+        }
+      };
+
+      const cached = offerCache[anchorKey];
       if (cached) {
-        const skuType = productId ? 'product_id' : 'sku_id';
         if (analyticsCtx) {
           if (cached.route === 'pdp') {
             if (cached.product_id) {
@@ -933,46 +990,66 @@ function RecommendationsCard({
 
       // PDP-first: if we have both ids, open PDP immediately (in-app drawer).
       if (productId && merchantId) {
-        const pdpUrl = buildPdpUrl({
-          product_id: productId,
-          merchant_id: merchantId ?? null,
-        });
-        setOfferCache((prev) => ({
-          ...prev,
-          [anchorId]: {
-            url: pdpUrl,
-            route: 'pdp',
-            product_id: productId,
-            merchant_id: merchantId ?? null,
-          },
-        }));
-        if (analyticsCtx) {
-          emitUiPdpOpened(analyticsCtx, {
-            product_id: productId,
-            merchant_id: merchantId ?? null,
-            card_position: position ?? 0,
-            sku_type: 'product_id',
-          });
-        }
-        if (onOpenPdp) {
-          onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
-        } else {
-          window.open(pdpUrl, '_blank', 'noopener,noreferrer');
-        }
+        openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
         return;
       }
 
-      if (!resolveOffers) {
-        openFallback(brand, name);
-        return;
-      }
+      const tryCatalogSearchForPdp = async (): Promise<{ product_id: string; merchant_id?: string | null } | null> => {
+        if (!searchProducts) return null;
+        if (!query) return null;
+        const resp = await searchProducts({ query, limit: 6 });
+        const pdpTarget = extractPdpTargetFromProductsSearchResponse(resp, { prefer_brand: brand });
+        if (!pdpTarget?.product_id) return null;
+        return { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null };
+      };
 
+      // If we have no ids at all, we can still open PDP by searching the catalog by name.
       if (!skuId && !productId) {
+        setOffersLoading(anchorKey);
+        try {
+          const pdpTarget = await tryCatalogSearchForPdp();
+          if (pdpTarget?.product_id) {
+            openPdpTarget(pdpTarget);
+            return;
+          }
+        } catch {
+          // ignore
+        } finally {
+          setOffersLoading(null);
+        }
+
+        if (fallback && isLikelyUrl(fallback)) {
+          window.open(fallback, '_blank', 'noopener,noreferrer');
+          return;
+        }
         openFallback(brand, name);
         return;
       }
 
-      setOffersLoading(anchorId);
+      // For id-only recos (common when upstream is not grounded to our catalog),
+      // resolve offers first; if no PDP target, fall back to a name search.
+      if (!resolveOffers) {
+        setOffersLoading(anchorKey);
+        try {
+          const pdpTarget = await tryCatalogSearchForPdp();
+          if (pdpTarget?.product_id) {
+            openPdpTarget(pdpTarget);
+            return;
+          }
+        } catch {
+          // ignore
+        } finally {
+          setOffersLoading(null);
+        }
+        if (fallback && isLikelyUrl(fallback)) {
+          window.open(fallback, '_blank', 'noopener,noreferrer');
+          return;
+        }
+        openFallback(brand, name);
+        return;
+      }
+
+      setOffersLoading(anchorKey);
       try {
         const resp = await resolveOffers({
           ...(productId ? { product_id: productId } : skuId ? { sku_id: skuId } : {}),
@@ -1014,43 +1091,30 @@ function RecommendationsCard({
           fallbackOffer && readCheckoutUrl(fallbackOffer) && !readAffiliateUrl(fallbackOffer) ? 'internal' : 'outbound';
 
         if (pdpTarget?.product_id) {
-          const pdpUrl = buildPdpUrl({
-            product_id: pdpTarget.product_id,
-            merchant_id: pdpTarget.merchant_id ?? null,
-          });
-          setOfferCache((prev) => ({
-            ...prev,
-            [anchorId]: {
-              url: pdpUrl,
-              route: 'pdp',
-              product_id: pdpTarget.product_id,
-              merchant_id: pdpTarget.merchant_id ?? null,
-            },
-          }));
-          if (analyticsCtx) {
-            emitUiPdpOpened(analyticsCtx, {
-              product_id: pdpTarget.product_id,
-              merchant_id: pdpTarget.merchant_id ?? null,
-              card_position: position ?? 0,
-              sku_type: productId ? 'product_id' : 'sku_id',
-            });
-          }
-          if (onOpenPdp) {
-            onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
-          } else {
-            window.open(pdpUrl, '_blank', 'noopener,noreferrer');
-          }
+          openPdpTarget({ product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null });
           return;
         }
 
         const directFallbackUrl = fallback && isLikelyUrl(fallback) ? fallback : '';
         const url = externalUrl || internalUrl || fallbackUrl || directFallbackUrl || '';
         const route: 'outbound' | 'internal' = externalUrl ? 'outbound' : internalUrl ? 'internal' : directFallbackUrl ? 'outbound' : fallbackRoute;
+
+        // PDP-first: when upstream isn't grounded, we might still find this product in our catalog.
+        try {
+          const catalogTarget = await tryCatalogSearchForPdp();
+          if (catalogTarget?.product_id) {
+            openPdpTarget(catalogTarget);
+            return;
+          }
+        } catch {
+          // ignore
+        }
+
         if (!url) {
           openFallback(brand, name);
           return;
         }
-        setOfferCache((prev) => ({ ...prev, [anchorId]: { url, route } }));
+        setOfferCache((prev) => ({ ...prev, [anchorKey]: { url, route } }));
         if (analyticsCtx) {
           if (route === 'outbound') {
             const merchantDomain = (() => {
@@ -1060,11 +1124,14 @@ function RecommendationsCard({
                 return '';
               }
             })();
-            const skuType = skuId ? 'sku_id_missing_backend' : productId ? 'product_id_missing_backend' : 'missing_backend';
+            const outboundSkuType =
+              skuId ? 'sku_id_missing_backend'
+                : productId ? 'product_id_missing_backend'
+                  : 'missing_backend';
             emitUiOutboundOpened(analyticsCtx, {
               merchant_domain: merchantDomain,
               card_position: position ?? 0,
-              sku_type: skuType,
+              sku_type: outboundSkuType,
               ...(skuId ? { sku_id: skuId } : productId ? { product_id: productId } : {}),
               reason: 'no_pdp_target',
             });
@@ -1079,7 +1146,7 @@ function RecommendationsCard({
         setOffersLoading(null);
       }
     },
-    [analyticsCtx, card.card_id, offerCache, onOpenPdp, openFallback, resolveOffers],
+    [analyticsCtx, card.card_id, offerCache, onOpenPdp, openFallback, resolveOffers, searchProducts],
   );
 
   const groups = items.reduce(
@@ -1119,7 +1186,8 @@ function RecommendationsCard({
       asString((sku as any)?.externalUrl) ||
       asString((sku as any)?.url) ||
       null;
-    const anchorId = productId || skuId || null;
+    const q = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
+    const anchorId = productId || skuId || (q ? `q:${q}` : null);
     const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
@@ -1132,7 +1200,8 @@ function RecommendationsCard({
       .filter(Boolean) as string[];
     const sensitivityFlags = asArray(evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags)
       .map((v) => asString(v))
-      .filter(Boolean) as string[];
+      .filter(Boolean)
+      .filter((v) => !isInternalKbCitationId(v)) as string[];
     const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
       .map((v) => asString(v))
       .filter(Boolean) as string[];
@@ -1372,34 +1441,38 @@ function RecommendationsCard({
                 <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
                   <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '引用' : 'Citations'}</div>
                   {!debug ? (
-                    externalCitations.length ? (
-                      <div className="mt-2 space-y-1">
-                        {externalCitations.slice(0, 3).map((c) =>
-                          isLikelyUrl(c) ? (
-                            <a
-                              key={c}
-                              href={c}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 truncate text-primary underline-offset-4 hover:underline"
-                            >
-                              <span className="truncate">{c}</span>
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                            </a>
-                          ) : (
-                            <div key={c} className="truncate">
-                              {c}
-                            </div>
-                          ),
-                        )}
-                      </div>
-                    ) : internalCitations.length ? (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        {language === 'CN'
-                          ? `已参考 Aurora 知识库（内部）· ${internalCitations.length} 条`
-                          : `Referenced Aurora KB (internal) · ${internalCitations.length}`}
-                      </div>
-                    ) : null
+                    <div className="mt-2 space-y-2">
+                      {externalCitations.length ? (
+                        <div className="space-y-1">
+                          {externalCitations.slice(0, 3).map((c) =>
+                            isLikelyUrl(c) ? (
+                              <a
+                                key={c}
+                                href={c}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 truncate text-primary underline-offset-4 hover:underline"
+                              >
+                                <span className="truncate">{c}</span>
+                                <ExternalLink className="h-3 w-3 shrink-0" />
+                              </a>
+                            ) : (
+                              <div key={c} className="truncate">
+                                {c}
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      ) : null}
+
+                      {internalCitations.length ? (
+                        <div className="text-xs text-muted-foreground">
+                          {language === 'CN'
+                            ? '证据来源：Aurora 知识库（内部维护的成分/配方信息）。'
+                            : 'Evidence source: Aurora knowledge base (internal ingredient/formula info).'}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : (
                     <div className="mt-2 space-y-1">
                       {citations.slice(0, 3).map((c) => (
@@ -1573,6 +1646,7 @@ function BffCardView({
   session,
   onAction,
   resolveOffers,
+  searchProducts,
   bootstrapInfo,
   onOpenCheckin,
   onOpenPdp,
@@ -1584,6 +1658,7 @@ function BffCardView({
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
+  searchProducts?: (args: { query: string; limit?: number }) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
   onOpenCheckin?: () => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
@@ -1744,6 +1819,7 @@ function BffCardView({
           language={language}
           debug={debug}
           resolveOffers={resolveOffers}
+          searchProducts={searchProducts}
           onOpenPdp={onOpenPdp}
           analyticsCtx={analyticsCtx}
         />
@@ -2420,7 +2496,9 @@ export default function BffChat() {
 
     const nextItems: ChatItem[] = [];
     if (env.assistant_message?.content) {
-      nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: env.assistant_message.content });
+      const raw = String(env.assistant_message.content || '');
+      const cleaned = debug ? raw : stripInternalKbRefsFromText(raw);
+      if (cleaned.trim()) nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: cleaned });
     }
 
     const rawCards = Array.isArray(env.cards) ? env.cards : [];
@@ -3989,6 +4067,23 @@ export default function BffChat() {
     [headers, language],
   );
 
+  const searchProducts = useCallback(
+    async ({ query, limit = 6 }: { query: string; limit?: number }) => {
+      const q = String(query || '').trim();
+      if (!q) throw new Error('products.search requires query');
+      const requestHeaders = { ...headers, lang: language };
+      const qs = new URLSearchParams({
+        query: q,
+        search_all_merchants: 'true',
+        in_stock_only: 'false',
+        limit: String(Math.max(1, Math.min(12, Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 6))),
+        offset: '0',
+      });
+      return await bffJson<any>(`/agent/v1/products/search?${qs.toString()}`, requestHeaders, { method: 'GET' });
+    },
+    [headers, language],
+  );
+
   return (
     <div className="chat-container">
       <header className="chat-header">
@@ -4871,6 +4966,7 @@ export default function BffChat() {
                           session={sessionForCards}
                           onAction={onCardAction}
                           resolveOffers={resolveOffers}
+                          searchProducts={searchProducts}
                           bootstrapInfo={bootstrapInfo}
                           onOpenCheckin={() => setCheckinSheetOpen(true)}
                           onOpenPdp={openPdpDrawer}
