@@ -768,6 +768,22 @@ type BootstrapInfo = {
   db_ready: boolean | null;
 };
 
+const profileRecoCompleteness = (profile: Record<string, unknown> | null | undefined) => {
+  const p = profile ?? {};
+  const goals = (p as any).goals;
+  const dims = {
+    skinType: Boolean(asString((p as any).skinType)),
+    barrierStatus: Boolean(asString((p as any).barrierStatus)),
+    sensitivity: Boolean(asString((p as any).sensitivity)),
+    goals: Array.isArray(goals) ? goals.length > 0 : Boolean(asString(goals)),
+  };
+  const score = Object.values(dims).filter(Boolean).length;
+  const missing = Object.entries(dims)
+    .filter(([, ok]) => !ok)
+    .map(([k]) => k);
+  return { score, missing };
+};
+
 const readBootstrapInfo = (env: V1Envelope): BootstrapInfo | null => {
   const patch = env.session_patch && typeof env.session_patch === 'object' ? (env.session_patch as Record<string, unknown>) : null;
   if (!patch) return null;
@@ -2377,6 +2393,7 @@ export default function BffChat() {
   const returnVisitEmittedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
+  const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
 
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [pdpDrawerOpen, setPdpDrawerOpen] = useState(false);
@@ -3249,6 +3266,7 @@ export default function BffChat() {
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
       if (actionId === 'diagnosis_skip') {
+        pendingActionAfterDiagnosisRef.current = null;
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
@@ -3268,12 +3286,25 @@ export default function BffChat() {
           return;
         }
 
+        const pending = pendingActionAfterDiagnosisRef.current;
+        pendingActionAfterDiagnosisRef.current = null;
+
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '分析我的皮肤' : 'Analyze my skin' },
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: pending
+              ? language === 'CN'
+                ? '已填写肤况信息（继续推荐）'
+                : 'Saved skin profile (continue recommendations)'
+              : language === 'CN'
+                ? '分析我的皮肤'
+                : 'Analyze my skin',
+          },
         ]);
 
-        setSessionState('S3_PHOTO_OPTION');
         await sendChat(undefined, {
           action_id: 'profile.patch',
           kind: 'action',
@@ -3286,6 +3317,10 @@ export default function BffChat() {
             },
           },
         });
+
+        if (pending) {
+          await sendChat(undefined, pending);
+        }
         return;
       }
 
@@ -3433,15 +3468,8 @@ export default function BffChat() {
               : 'Great ✅ We can be a bit more proactive, but still start low-frequency with one active at a time.';
         setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'text', content: immediate }]);
 
-        const msg =
-          value === 'yes'
-            ? language === 'CN'
-              ? '我最近有刺痛/泛红。'
-              : 'I have stinging/redness recently.'
-            : language === 'CN'
-              ? '我最近没有刺痛/泛红。'
-              : "No stinging/redness recently.";
-        await sendChat(msg);
+        // IMPORTANT: keep quick-check UI-only to avoid accidentally triggering unrelated
+        // backend flows (e.g. budget gating) from a short free-text message.
         return;
       }
 
@@ -3930,6 +3958,22 @@ export default function BffChat() {
 
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
 
+      // If the user explicitly requests product recommendations but lacks a minimal profile,
+      // the backend will gate. Remember this intent so we can resume recommendations
+      // immediately after the user completes the diagnosis card.
+      if (id === 'chip.start.reco_products' || id === 'chip_get_recos') {
+        const { score } = profileRecoCompleteness(bootstrapInfo?.profile ?? null);
+        if (score < 3) {
+          pendingActionAfterDiagnosisRef.current = {
+            action_id: chip.chip_id,
+            kind: 'chip',
+            data: chip.data,
+          };
+        } else {
+          pendingActionAfterDiagnosisRef.current = null;
+        }
+      }
+
       if (id === 'chip_update_products') {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
@@ -3988,7 +4032,7 @@ export default function BffChat() {
         { client_state: fromState, requested_transition: requestedTransition },
       );
     },
-    [agentState, headers, language, quickProfileBusy, quickProfileDraft, runLowConfidenceSkinAnalysis, sendChat]
+    [agentState, bootstrapInfo?.profile, headers, language, quickProfileBusy, quickProfileDraft, runLowConfidenceSkinAnalysis, sendChat]
   );
 
   const switchLanguage = useCallback(
