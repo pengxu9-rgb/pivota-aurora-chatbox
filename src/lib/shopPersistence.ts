@@ -5,6 +5,19 @@ export type PersistedShopState = {
   cart: {
     item_count: number;
     updated_at: string | null;
+    items: Array<{
+      id: string;
+      product_id?: string;
+      variant_id?: string;
+      sku?: string;
+      merchant_id?: string;
+      offer_id?: string;
+      title: string;
+      price: number;
+      currency?: string;
+      quantity: number;
+      image_url?: string;
+    }>;
   };
   recent_orders: Array<{
     order_id: string;
@@ -68,6 +81,33 @@ export const loadShopState = (auroraUid: string): PersistedShopState | undefined
   if (!parsed.cart || typeof parsed.cart.item_count !== 'number') return undefined;
   if (!Array.isArray(parsed.recent_orders)) return undefined;
 
+  const cartItemsRaw = Array.isArray((parsed.cart as any).items) ? ((parsed.cart as any).items as unknown[]) : [];
+  const cartItems = cartItemsRaw
+    .map((it) => {
+      if (!isObject(it)) return null;
+      const id = String((it as any).id || '').trim();
+      const title = String((it as any).title || '').trim();
+      const price = Number((it as any).price);
+      const quantity = Number((it as any).quantity);
+      if (!id || !title) return null;
+      if (!Number.isFinite(price)) return null;
+      if (!Number.isFinite(quantity)) return null;
+      return {
+        id,
+        product_id: String((it as any).product_id || '').trim() || undefined,
+        variant_id: String((it as any).variant_id || '').trim() || undefined,
+        sku: String((it as any).sku || '').trim() || undefined,
+        merchant_id: String((it as any).merchant_id || '').trim() || undefined,
+        offer_id: String((it as any).offer_id || '').trim() || undefined,
+        title,
+        price,
+        currency: String((it as any).currency || '').trim() || undefined,
+        quantity,
+        image_url: String((it as any).image_url || '').trim() || undefined,
+      };
+    })
+    .filter(Boolean) as PersistedShopState['cart']['items'];
+
   const normalized: PersistedShopState = {
     version: VERSION,
     saved_at: typeof parsed.saved_at === 'number' ? parsed.saved_at : Date.now(),
@@ -75,6 +115,7 @@ export const loadShopState = (auroraUid: string): PersistedShopState | undefined
     cart: {
       item_count: Number(parsed.cart.item_count) || 0,
       updated_at: typeof parsed.cart.updated_at === 'string' ? parsed.cart.updated_at : null,
+      items: cartItems.slice(0, 40),
     },
     recent_orders: parsed.recent_orders
       .map((o) => {
@@ -107,6 +148,7 @@ export const saveShopState = (state: Omit<PersistedShopState, 'version' | 'saved
     cart: {
       item_count: Number(state.cart?.item_count) || 0,
       updated_at: typeof state.cart?.updated_at === 'string' ? state.cart.updated_at : null,
+      items: Array.isArray(state.cart?.items) ? state.cart.items.slice(0, 40) : [],
     },
     recent_orders: Array.isArray(state.recent_orders) ? state.recent_orders.slice(0, 20) : [],
   };
@@ -119,4 +161,3 @@ export const saveShopState = (state: Omit<PersistedShopState, 'version' | 'saved
     // Ignore quota / serialization errors.
   }
 };
-

@@ -56,7 +56,7 @@ const blankState = (uid: string): PersistedShopState => ({
   version: 1,
   saved_at: Date.now(),
   aurora_uid: uid,
-  cart: { item_count: 0, updated_at: null },
+  cart: { item_count: 0, updated_at: null, items: [] },
   recent_orders: [],
 });
 
@@ -150,11 +150,31 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
 
   const applyCartSnapshot = useCallback(
     (snap: ShopCartSnapshot) => {
+      const items = Array.isArray(snap.items)
+        ? snap.items
+            .slice(0, 40)
+            .map((it) => ({
+              id: String(it.id || '').trim(),
+              product_id: String(it.product_id || '').trim() || undefined,
+              variant_id: String(it.variant_id || '').trim() || undefined,
+              sku: String(it.sku || '').trim() || undefined,
+              merchant_id: String(it.merchant_id || '').trim() || undefined,
+              offer_id: String(it.offer_id || '').trim() || undefined,
+              title: String(it.title || '').trim() || 'Item',
+              price: Number(it.price) || 0,
+              currency: String(it.currency || '').trim() || undefined,
+              quantity: Number(it.quantity) || 1,
+              image_url: String(it.image_url || '').trim() || undefined,
+            }))
+            .filter((it) => Boolean(it.id))
+        : [];
+
       const next: PersistedShopState = {
         ...persisted,
         cart: {
           item_count: Math.max(0, Number(snap.item_count) || 0),
           updated_at: String(snap.updated_at || '').trim() || new Date().toISOString(),
+          items,
         },
       };
       persist(next);
