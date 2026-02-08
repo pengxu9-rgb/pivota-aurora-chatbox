@@ -54,6 +54,7 @@ import {
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { useShop } from '@/contexts/shop';
+import { cn } from '@/lib/utils';
 import {
   Activity,
   ArrowRight,
