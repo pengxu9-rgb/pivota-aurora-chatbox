@@ -13,7 +13,7 @@ export function BudgetCard({ onAction, language }: BudgetCardProps) {
   const [budget, setBudget] = useState<BudgetTier>('$$');
 
   return (
-    <div className="chat-card space-y-4">
+    <div className="chat-card space-y-3">
       <div className="space-y-3">
         <label className="text-sm font-medium text-foreground">
           {t('budget.label', language)}

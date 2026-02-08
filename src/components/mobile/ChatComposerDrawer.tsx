@@ -99,17 +99,17 @@ export function ChatComposerDrawer({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
         className={cn(
-          'mt-0 h-[calc(100dvh-120px)] max-h-[calc(100dvh-120px)]',
+          'mt-0 h-[calc(100dvh-108px)] max-h-[calc(100dvh-108px)]',
           'sm:h-[92dvh] sm:max-h-[92dvh]',
-          'flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl',
+          'flex flex-col rounded-t-[28px] border border-border/60 bg-card/94 backdrop-blur-2xl',
         )}
       >
-        <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
-          <div className="text-sm font-semibold text-foreground">Ask Aurora</div>
+        <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-3">
+          <div className="text-[17px] font-semibold tracking-[-0.02em] text-foreground">Ask Aurora</div>
           <DrawerClose asChild>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/60 bg-muted/75 text-foreground/80"
               aria-label="Close"
             >
               <X className="h-4 w-4" />
@@ -117,7 +117,7 @@ export function ChatComposerDrawer({
           </DrawerClose>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
+        <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+12px)]">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -126,9 +126,9 @@ export function ChatComposerDrawer({
               onStart({ kind: 'query', query: q });
               onOpenChange(false);
             }}
-            className="rounded-3xl border border-border/50 bg-background/40 p-3 shadow-card"
+            className="rounded-[24px] border border-border/60 bg-background/45 p-3 shadow-card"
           >
-            <div className="flex items-center gap-2 rounded-2xl border border-border/50 bg-background/70 px-3 py-2">
+            <div className="flex items-center gap-2 rounded-2xl border border-border/55 bg-background/75 px-3 py-1.5">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 value={query}
@@ -158,7 +158,7 @@ export function ChatComposerDrawer({
                   <button
                     key={c}
                     type="button"
-                    className="rounded-full border border-border/60 bg-background/70 px-3 py-2 text-xs text-foreground/80 hover:bg-background"
+                    className="rounded-full border border-border/60 bg-background/70 px-3 py-1.5 text-[12px] text-foreground/80 hover:bg-background"
                     onClick={() => setQuery(c)}
                   >
                     {c}
@@ -170,12 +170,12 @@ export function ChatComposerDrawer({
 
           <div className="mt-4">
             <div className="section-label">Quick actions</div>
-            <div className="mt-2 grid grid-cols-2 gap-3">
+            <div className="mt-2 grid grid-cols-2 gap-2.5">
               {QUICK_ACTIONS.map((a) => (
                 <button
                   key={a.id}
                   type="button"
-                  className="group flex items-start gap-3 rounded-3xl border border-border/50 bg-background/40 p-4 text-left shadow-card transition hover:shadow-card-hover"
+                  className="group flex items-start gap-3 rounded-2xl border border-border/55 bg-background/45 p-3.5 text-left shadow-card transition hover:shadow-card-hover"
                   onClick={() => {
                     const title = a.title;
                     const chipId = a.intent.chip_id;
@@ -187,12 +187,12 @@ export function ChatComposerDrawer({
                     onOpenChange(false);
                   }}
                 >
-                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <a.Icon className="h-5 w-5" />
+                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <a.Icon className="h-[18px] w-[18px]" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-foreground">{a.title}</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">{a.subtitle}</div>
+                    <div className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">{a.title}</div>
+                    <div className="mt-0.5 text-[12px] text-muted-foreground">{a.subtitle}</div>
                   </div>
                 </button>
               ))}
@@ -207,15 +207,15 @@ export function ChatComposerDrawer({
                   <button
                     key={it.brief_id}
                     type="button"
-                    className="flex w-full items-center justify-between gap-3 rounded-3xl border border-border/50 bg-background/40 px-4 py-3 text-left shadow-card transition hover:shadow-card-hover"
+                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border/55 bg-background/45 px-4 py-2.5 text-left shadow-card transition hover:shadow-card-hover"
                     onClick={() => {
                       onStart({ kind: 'query', query: it.title, title: it.title });
                       onOpenChange(false);
                     }}
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">{it.title}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">Tap to ask again</div>
+                      <div className="truncate text-[14px] font-medium text-foreground">{it.title}</div>
+                      <div className="mt-0.5 text-[12px] text-muted-foreground">Tap to ask again</div>
                     </div>
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </button>

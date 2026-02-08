@@ -72,7 +72,7 @@ export default function MobileShell() {
 
   return (
     <div className="min-h-[100dvh] bg-chat">
-      <div className="mx-auto w-full max-w-lg pb-28">
+      <div className="mx-auto w-full max-w-[430px] pb-[110px]">
         <Outlet context={ctx} />
       </div>
 

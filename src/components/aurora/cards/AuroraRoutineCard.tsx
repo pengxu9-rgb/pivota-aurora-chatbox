@@ -64,7 +64,7 @@ export function AuroraRoutineCard({
   );
 
   return (
-    <div className="chat-card-elevated space-y-4">
+    <div className="chat-card-elevated space-y-3">
       {/* Header */}
       <div className="pb-3 border-b border-border">
         <p className="section-label mb-1">

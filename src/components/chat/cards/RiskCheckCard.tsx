@@ -10,7 +10,7 @@ interface RiskCheckCardProps {
 
 export function RiskCheckCard({ onAction, language }: RiskCheckCardProps) {
   return (
-    <div className="chat-card space-y-4">
+    <div className="chat-card space-y-3">
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-xl icon-container-warning flex items-center justify-center flex-shrink-0">
           <AlertTriangle className="w-5 h-5 text-warning" />

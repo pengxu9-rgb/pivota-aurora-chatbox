@@ -15,7 +15,7 @@ export function ContextCard({ onAction, language }: ContextCardProps) {
   const [budget, setBudget] = useState<BudgetTier>('$$');
 
   return (
-    <div className="chat-card space-y-4">
+    <div className="chat-card space-y-3">
       <div className="space-y-3">
         <label className="text-sm font-medium text-foreground">
           {t('s2.market.label', language)}

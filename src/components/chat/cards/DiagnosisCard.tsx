@@ -48,7 +48,7 @@ export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
   const canProceed = step === 1 ? skinType !== null : step === 2 ? barrierStatus !== null && sensitivity !== null : concerns.length > 0;
 
   return (
-    <div className="chat-card space-y-4">
+    <div className="chat-card space-y-3">
       {/* Step 1: Skin Type */}
       {step === 1 && (
         <div className="space-y-3">

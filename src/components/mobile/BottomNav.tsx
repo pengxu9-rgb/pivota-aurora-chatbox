@@ -22,9 +22,9 @@ const NAV: NavItem[] = [
 export function BottomNav({ onChat }: { onChat: () => void }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50">
-      <div className="mx-auto w-full max-w-lg px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-2">
-        <div className="relative overflow-visible rounded-2xl border border-border/50 bg-card/85 shadow-elevated backdrop-blur-xl">
-          <div className="grid grid-cols-5 items-end px-1 py-1">
+      <div className="mx-auto w-full max-w-[430px] px-4 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2">
+        <div className="relative overflow-visible rounded-[22px] border border-border/60 bg-card/80 shadow-card backdrop-blur-2xl">
+          <div className="grid grid-cols-5 items-end px-1 py-1.5">
             <NavSlot item={NAV[0]} />
             <NavSlot item={NAV[1]} />
 
@@ -33,13 +33,13 @@ export function BottomNav({ onChat }: { onChat: () => void }) {
                 type="button"
                 onClick={onChat}
                 className={cn(
-                  '-mt-7 inline-flex h-14 w-14 items-center justify-center rounded-full',
-                  'bg-primary text-primary-foreground shadow-elevated',
+                  '-mt-6 inline-flex h-[54px] w-[54px] items-center justify-center rounded-full',
+                  'border border-primary/40 bg-primary text-primary-foreground shadow-card',
                   'active:scale-[0.97] touch-manipulation',
                 )}
                 aria-label="Open chat"
               >
-                <MessageCircle className="h-6 w-6" />
+                <MessageCircle className="h-5 w-5" />
               </button>
             </div>
 
@@ -58,13 +58,12 @@ function NavSlot({ item }: { item: NavItem }) {
     <NavLink
       to={to}
       end={end}
-      className="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       activeClassName="text-primary"
       aria-label={label}
     >
-      <Icon className="h-5 w-5" />
-      <span className="text-[11px] leading-none">{label}</span>
+      <Icon className="h-[18px] w-[18px]" />
+      <span className="text-[10.5px] leading-none">{label}</span>
     </NavLink>
   );
 }
-

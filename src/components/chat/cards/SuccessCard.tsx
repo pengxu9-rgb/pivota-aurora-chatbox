@@ -16,7 +16,7 @@ export function SuccessCard({ payload, onAction, language }: SuccessCardProps) {
   const { result } = payload;
 
   return (
-    <div className="chat-card-elevated space-y-4">
+    <div className="chat-card-elevated space-y-3">
       <div className="flex items-start gap-3">
         <div className="w-12 h-12 rounded-xl icon-container-success flex items-center justify-center flex-shrink-0">
           <CheckCircle className="w-6 h-6 text-success" />

@@ -26,7 +26,7 @@ export function AuroraSidebar({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="left" className="w-[85vw] max-w-sm p-0 [&>button]:hidden">
+        <SheetContent side="left" className="w-[84vw] max-w-sm p-0 [&>button]:hidden">
           <div className="flex h-full flex-col bg-background">
             <div className="border-b border-border/60 px-4 py-4">
               <div className="flex items-center justify-between">
@@ -131,7 +131,7 @@ function SideLink({
   if (disabled) {
     return (
       <div className={cn(base, 'cursor-not-allowed opacity-50')}>
-        <Icon className="h-5 w-5" />
+        <Icon className="h-[18px] w-[18px]" />
         <span>{label}</span>
       </div>
     );

@@ -102,7 +102,7 @@ export function QuickProfileFlow({ language, step, disabled, onChip }: Props) {
   );
 
   return (
-    <div className="chat-card-elevated space-y-4">
+    <div className="chat-card-elevated space-y-3">
       <div className="space-y-1">
         <div className="text-sm font-semibold text-foreground">{model.title}</div>
         <div className="text-sm text-muted-foreground">{model.question}</div>

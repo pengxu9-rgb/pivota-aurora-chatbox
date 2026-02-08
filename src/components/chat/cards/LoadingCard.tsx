@@ -10,7 +10,7 @@ interface LoadingCardProps {
 
 export function LoadingCard({ message, onSkip, language }: LoadingCardProps) {
   return (
-    <div className="chat-card space-y-4">
+    <div className="chat-card space-y-3">
       <div className="flex items-center gap-3">
         <div className="loading-dots">
           <div className="loading-dot"></div>

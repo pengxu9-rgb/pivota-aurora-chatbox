@@ -11,28 +11,28 @@ export default function Home() {
 
   return (
     <div className="pb-6">
-      <div className="-mx-4 overflow-hidden rounded-b-[36px] bg-gradient-to-b from-indigo-500 via-violet-500 to-blue-500 text-white shadow-elevated">
-        <div className="relative px-4 pb-16 pt-4">
+      <div className="-mx-4 overflow-hidden rounded-b-[34px] bg-gradient-to-b from-sky-500 via-blue-500 to-indigo-500 text-white shadow-elevated">
+        <div className="relative px-4 pb-14 pt-4">
           <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
 
           <div className="relative flex items-center justify-between">
             <button
               type="button"
               onClick={openSidebar}
-              className="ml-1 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 text-white backdrop-blur active:scale-[0.97]"
+              className="ml-2 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/25 bg-white/15 text-white shadow-card backdrop-blur active:scale-[0.97]"
               aria-label="Open menu"
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-[18px] w-[18px]" />
             </button>
-            <div className="h-10 w-10" />
+            <div className="h-11 w-11" />
           </div>
 
-          <div className="relative mt-8 text-center">
-            <div className="text-2xl font-semibold">Your AI Skin Consultant</div>
-            <div className="mt-1 text-xs text-white/80">Powered by Aurora v4.0</div>
+          <div className="relative mt-7 text-center">
+            <div className="text-[30px] font-semibold tracking-[-0.03em]">Your AI Skin Consultant</div>
+            <div className="mt-1 text-[12px] text-white/80">Powered by Aurora v4.0</div>
           </div>
 
-          <div className="relative mt-6 flex flex-wrap justify-center gap-2">
+          <div className="relative mt-5 flex flex-wrap justify-center gap-2">
             <Pill
               label="My Routine"
               Icon={Workflow}
@@ -52,22 +52,22 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="-mt-8 px-4">
+      <div className="-mt-7 px-4">
         <button
           type="button"
           onClick={() => openComposer()}
           className={cn(
-            'flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-background/95 px-4 py-3 shadow-card',
+            'flex w-full items-center gap-3 rounded-[22px] border border-border/60 bg-background/95 px-4 py-3 shadow-card',
             'text-left backdrop-blur transition hover:shadow-card-hover active:scale-[0.99]',
           )}
           aria-label="Open chat composer"
         >
-          <Search className="h-5 w-5 text-muted-foreground" />
+          <Search className="h-[18px] w-[18px] text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm text-muted-foreground">Search products, ingredients...</div>
+            <div className="truncate text-[15px] text-muted-foreground">Search products, ingredients...</div>
           </div>
-          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-primary/15 bg-primary/10 text-primary">
-            <MessageCircle className="h-5 w-5" />
+          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+            <MessageCircle className="h-[18px] w-[18px]" />
           </div>
         </button>
       </div>
@@ -75,8 +75,8 @@ export default function Home() {
       <div className="mt-4 px-4">
         <div className="section-label">Quick actions</div>
       </div>
-      <div className="scrollbar-hide -mx-4 mt-2 overflow-x-auto px-4">
-        <div className="flex w-max gap-3 pb-1">
+      <div className="scrollbar-hide -mx-4 mt-1.5 overflow-x-auto px-4">
+        <div className="flex w-max gap-2.5 pb-1">
           <QuickActionIcon
             label="Diagnosis"
             Icon={Sparkles}
@@ -117,9 +117,9 @@ export default function Home() {
 
       <div className="mt-6 px-4">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-foreground">More for your skin</div>
+          <div className="ios-section-title">More for your skin</div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
+        <div className="mt-2.5 grid grid-cols-2 gap-2.5">
           <FeatureCard
             title="Daily Routine"
             subtitle="Personalized for you"
@@ -137,21 +137,21 @@ export default function Home() {
 
       <div className="mt-6 px-4">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-foreground">Recent activity</div>
-          <button type="button" className="text-xs font-semibold text-primary hover:text-primary/90" onClick={() => openComposer()}>
+          <div className="ios-section-title">Recent activity</div>
+          <button type="button" className="text-[12px] font-semibold text-primary hover:text-primary/90" onClick={() => openComposer()}>
             See all
           </button>
         </div>
 
-        <div className="mt-3 rounded-3xl border border-border/60 bg-card/60 p-6 text-center shadow-card">
+        <div className="mt-2.5 rounded-[24px] border border-border/60 bg-card/65 p-5 text-center shadow-card">
           <div className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Sparkles className="h-6 w-6" />
           </div>
-          <div className="mt-3 text-sm font-semibold text-foreground">Start your first skin diagnosis</div>
-          <div className="mt-1 text-xs text-muted-foreground">Takes ~1 minute and helps personalize everything.</div>
+          <div className="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-foreground">Start your first skin diagnosis</div>
+          <div className="mt-1 text-[12px] text-muted-foreground">Takes ~1 minute and helps personalize everything.</div>
           <button
             type="button"
-            className="mt-4 inline-flex items-center justify-center rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card active:scale-[0.99]"
+            className="mt-4 inline-flex items-center justify-center rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card active:scale-[0.99]"
             onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
           >
             Start
@@ -166,10 +166,10 @@ function Pill({ label, Icon, onClick }: { label: string; Icon: React.ComponentTy
   return (
     <button
       type="button"
-      className="inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition hover:bg-white/15 active:scale-[0.98]"
+      className="inline-flex items-center justify-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-4 py-2 text-[12px] font-semibold text-white backdrop-blur transition hover:bg-white/15 active:scale-[0.98]"
       onClick={onClick}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className="h-3.5 w-3.5" />
       {label}
     </button>
   );
@@ -189,24 +189,24 @@ function QuickActionIcon({
   return (
     <button
       type="button"
-      className={cn('relative flex w-[74px] flex-none flex-col items-center gap-1.5 rounded-2xl p-1.5', 'active:scale-[0.98]')}
+      className={cn('relative flex w-[68px] flex-none flex-col items-center gap-1 rounded-2xl p-1', 'active:scale-[0.98]')}
       onClick={onClick}
       aria-label={label}
     >
       <div
         className={cn(
-          'relative inline-flex h-12 w-12 items-center justify-center rounded-2xl',
+          'relative inline-flex h-11 w-11 items-center justify-center rounded-2xl',
           'border border-border/60 bg-card/70 text-primary shadow-card',
         )}
       >
-        <Icon className="h-5 w-5" />
+        <Icon className="h-[18px] w-[18px]" />
         {badge ? (
           <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
             {badge}
           </span>
         ) : null}
       </div>
-      <div className="min-h-[24px] text-center text-[10px] font-medium leading-tight text-muted-foreground">{label}</div>
+      <div className="min-h-[22px] text-center text-[10.5px] font-medium leading-tight text-muted-foreground">{label}</div>
     </button>
   );
 }
@@ -224,17 +224,17 @@ function FeatureCard({
 }) {
   const bg =
     tone === 'indigo'
-      ? 'bg-gradient-to-br from-indigo-500 via-violet-500 to-blue-500'
-      : 'bg-gradient-to-br from-emerald-500 via-teal-500 to-green-500';
+      ? 'bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-500'
+      : 'bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500';
 
   return (
     <button
       type="button"
-      className={cn('rounded-3xl p-5 text-left text-white shadow-card transition hover:shadow-card-hover active:scale-[0.99]', bg)}
+      className={cn('rounded-[22px] p-5 text-left text-white shadow-card transition hover:shadow-card-hover active:scale-[0.99]', bg)}
       onClick={onClick}
     >
-      <div className="text-base font-semibold">{title}</div>
-      <div className="mt-1 text-xs text-white/80">{subtitle}</div>
+      <div className="text-[17px] font-semibold tracking-[-0.02em]">{title}</div>
+      <div className="mt-1 text-[12px] text-white/82">{subtitle}</div>
     </button>
   );
 }

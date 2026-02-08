@@ -16,7 +16,7 @@ export function FailureCard({ payload, onAction, language }: FailureCardProps) {
   const { result } = payload;
 
   return (
-    <div className="chat-card-elevated space-y-4">
+    <div className="chat-card-elevated space-y-3">
       <div className="flex items-start gap-3">
         <div className="p-3 rounded-full bg-destructive/10">
           <AlertTriangle className="w-6 h-6 text-destructive" />

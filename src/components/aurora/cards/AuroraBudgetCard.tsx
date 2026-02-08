@@ -32,7 +32,7 @@ export function AuroraBudgetCard({ onAction, language }: AuroraBudgetCardProps) 
   const [budget, setBudget] = useState<BudgetTier>('$$');
 
   return (
-    <div className="chat-card-elevated space-y-4">
+    <div className="chat-card-elevated space-y-3">
       {/* Header */}
       <div className="flex items-center gap-3 pb-3 border-b border-border">
         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">

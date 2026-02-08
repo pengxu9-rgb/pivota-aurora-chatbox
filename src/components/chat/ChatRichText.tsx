@@ -15,6 +15,8 @@ type Block =
   | { kind: 'heading'; text: string; level: number }
   | { kind: 'ul'; items: string[] }
   | { kind: 'ol'; items: string[] }
+  | { kind: 'quote'; text: string }
+  | { kind: 'divider' }
   | { kind: 'code'; code: string; language?: string };
 
 type InlineToken =
@@ -27,6 +29,8 @@ const CODE_FENCE_RE = /^\s*```([A-Za-z0-9_+-]+)?\s*$/;
 const UL_RE = /^\s*[-*•]\s+(.+)$/;
 const OL_RE = /^\s*\d+[.)]\s+(.+)$/;
 const HEADING_RE = /^\s*(#{1,4})\s+(.+)$/;
+const QUOTE_RE = /^\s*>\s?(.+)$/;
+const DIVIDER_RE = /^\s*(?:---+|\*\*\*+|___+)\s*$/;
 
 const INLINE_CODE_RE = /`([^`\n]+)`/g;
 const INLINE_STRONG_RE = /\*\*([^*]+)\*\*|__([^_]+)__/g;
@@ -168,6 +172,25 @@ const parseBlocks = (text: string): Block[] => {
       continue;
     }
 
+    if (DIVIDER_RE.test(current)) {
+      blocks.push({ kind: 'divider' });
+      i += 1;
+      continue;
+    }
+
+    if (QUOTE_RE.test(current)) {
+      const linesInQuote: string[] = [];
+      while (i < lines.length && QUOTE_RE.test(lines[i] || '')) {
+        const match = (lines[i] || '').match(QUOTE_RE);
+        if (match?.[1]) linesInQuote.push(match[1].trim());
+        i += 1;
+      }
+      if (linesInQuote.length) {
+        blocks.push({ kind: 'quote', text: linesInQuote.join('\n').trim() });
+      }
+      continue;
+    }
+
     if (UL_RE.test(current)) {
       const items: string[] = [];
       while (i < lines.length && UL_RE.test(lines[i] || '')) {
@@ -203,6 +226,7 @@ const parseBlocks = (text: string): Block[] => {
       const peek = lines[i] || '';
       if (!peek.trim()) break;
       if (CODE_FENCE_RE.test(peek) || UL_RE.test(peek) || OL_RE.test(peek) || HEADING_RE.test(peek)) break;
+      if (QUOTE_RE.test(peek) || DIVIDER_RE.test(peek)) break;
       paragraph.push(peek);
       i += 1;
     }
@@ -257,6 +281,18 @@ export function ChatRichText({ text, role = 'assistant', className }: ChatRichTe
           );
         }
 
+        if (block.kind === 'quote') {
+          return (
+            <blockquote key={`quote_${index}`} className="chat-rich-quote">
+              {renderInline(block.text, `quote_${index}`)}
+            </blockquote>
+          );
+        }
+
+        if (block.kind === 'divider') {
+          return <hr key={`hr_${index}`} className="chat-rich-divider" />;
+        }
+
         return (
           <p key={`p_${index}`} className="chat-rich-paragraph">
             {renderInline(block.text, `p_${index}`)}
@@ -266,4 +302,3 @@ export function ChatRichText({ text, role = 'assistant', className }: ChatRichTe
     </div>
   );
 }
-

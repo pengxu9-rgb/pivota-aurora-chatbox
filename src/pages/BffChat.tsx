@@ -53,8 +53,6 @@ import {
   extractPdpTargetFromProductsResolveResponse,
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
-import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
-import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
 import { useShop } from '@/contexts/shop';
 import {
   Activity,
@@ -71,7 +69,6 @@ import {
   HelpCircle,
   AlertTriangle,
   ListChecks,
-  Menu,
   RefreshCw,
   Search,
   Sparkles,
@@ -2431,23 +2428,6 @@ export default function BffChat() {
     }
   }, [location.search]);
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [history, setHistory] = useState<ChatHistoryItem[]>(() => loadChatHistory());
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    setHistory(loadChatHistory());
-  }, [sidebarOpen]);
-
-  const openChatByBriefId = useCallback(
-    (briefId: string) => {
-      const id = String(briefId || '').trim();
-      if (!id) return;
-      navigate(`/chat?brief_id=${encodeURIComponent(id)}`);
-    },
-    [navigate],
-  );
-
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [headers, setHeaders] = useState(() => {
     const base = makeDefaultHeaders(initialLanguage);
@@ -4387,23 +4367,14 @@ export default function BffChat() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <button
-          type="button"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-          onClick={() => setSidebarOpen(true)}
-          aria-label={language === 'CN' ? '打开菜单' : 'Open menu'}
-        >
-          <Menu className="h-4 w-4" />
-        </button>
-        <div className="text-center leading-tight">
-          <div className="text-sm font-semibold text-foreground">Aurora</div>
-          <div className="text-[11px] text-muted-foreground">{language === 'CN' ? '你的 AI 护肤助手' : 'Your AI skincare assistant'}</div>
+        <div className="mx-auto text-center leading-tight">
+          <div className="text-[16px] font-semibold tracking-[-0.02em] text-foreground">Aurora</div>
+          <div className="text-[12px] text-muted-foreground">{language === 'CN' ? '你的 AI 护肤助手' : 'Your AI skincare assistant'}</div>
         </div>
-        <div className="h-9 w-9" />
       </header>
 
       <main className="chat-messages scrollbar-hide">
-        <div className="mx-auto max-w-lg space-y-4">
+        <div className="mx-auto max-w-lg space-y-2.5">
           <Sheet
             open={authSheetOpen}
             title={language === 'CN' ? '登录 / 账户' : 'Sign in / Account'}
@@ -5082,7 +5053,7 @@ export default function BffChat() {
               const isUser = item.role === 'user';
               const isProductPicks = !isUser && looksLikeProductPicksRawText(item.content);
               if (isProductPicks) {
-	                return (
+                return (
                   <div key={item.id} className="chat-card">
                     <ProductPicksCard
                       rawContent={item.content}
@@ -5093,34 +5064,40 @@ export default function BffChat() {
                   </div>
                 );
               }
+
               return (
-                <div key={item.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                  <div className={isUser ? 'message-bubble-user' : 'message-bubble-assistant'}>
-                    <ChatRichText text={item.content} role={isUser ? 'user' : 'assistant'} />
+                <div key={item.id} className={cn('chat-message-row', isUser ? 'chat-message-row-user' : 'chat-message-row-assistant')}>
+                  <div className={cn('chat-message-stack', isUser ? 'chat-message-stack-user' : 'chat-message-stack-assistant')}>
+                    <div className={cn('chat-message-meta', isUser ? 'chat-message-meta-user' : 'chat-message-meta-assistant')}>
+                      {isUser ? (language === 'CN' ? '你' : 'You') : 'Aurora'}
+                    </div>
+                    <div className={cn('message-bubble', isUser ? 'message-bubble-user' : 'message-bubble-assistant')}>
+                      <ChatRichText text={item.content} role={isUser ? 'user' : 'assistant'} />
+                    </div>
                   </div>
                 </div>
-	              );
-	            }
+              );
+            }
 
-	            if (item.kind === 'return_welcome') {
-	              return (
-	                <div key={item.id} className="chat-card">
-	                  <ReturnWelcomeCard
-	                    language={language}
-	                    summary={item.summary}
-	                    chips={buildReturnWelcomeChips(language)}
-	                    onChip={(chip) => onChip(chip)}
-	                    disabled={isLoading}
-	                  />
-	                </div>
-	              );
-	            }
+            if (item.kind === 'return_welcome') {
+              return (
+                <div key={item.id} className="chat-card">
+                  <ReturnWelcomeCard
+                    language={language}
+                    summary={item.summary}
+                    chips={buildReturnWelcomeChips(language)}
+                    onChip={(chip) => onChip(chip)}
+                    disabled={isLoading}
+                  />
+                </div>
+              );
+            }
 
-	            if (item.kind === 'chips') {
-	              return (
-	                <div key={item.id} className="chat-card">
-	                  <div className="flex flex-wrap gap-2">
-	                    {item.chips.map((chip) => {
+            if (item.kind === 'chips') {
+              return (
+                <div key={item.id} className="chat-card">
+                  <div className="flex flex-wrap gap-2">
+                    {item.chips.map((chip) => {
                       const Icon = iconForChip(chip.chip_id);
                       return (
                         <button
@@ -5134,8 +5111,8 @@ export default function BffChat() {
                         </button>
                       );
                     })}
-	                  </div>
-	                </div>
+                  </div>
+                </div>
               );
             }
 
@@ -5147,7 +5124,7 @@ export default function BffChat() {
                 const insertAt = hasPair ? Math.min(simIndex, heatmapIndex) : -1;
 
                 return (
-                  <div key={item.id} className="space-y-3">
+                  <div key={item.id} className="space-y-2.5">
                     {cards.flatMap((card, idx) => {
                       if (hasPair && (idx === simIndex || idx === heatmapIndex)) {
                         if (idx !== insertAt) return [];
@@ -5221,7 +5198,7 @@ export default function BffChat() {
 
       <footer className="chat-input-container">
         <form
-          className="mx-auto flex max-w-lg items-center gap-2 rounded-2xl border border-border/50 bg-card p-2 shadow-sm"
+          className="mx-auto flex max-w-lg items-center gap-2 rounded-[22px] border border-border/60 bg-card/90 px-2 py-2 shadow-card"
           onSubmit={(e) => {
             e.preventDefault();
             void onSubmit();
@@ -5229,28 +5206,32 @@ export default function BffChat() {
         >
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/60 bg-muted/75 text-foreground/80"
             onClick={handlePickPhoto}
             disabled={isLoading}
             title={language === 'CN' ? '上传照片' : 'Upload photo'}
           >
-            <Camera className="h-5 w-5" />
+            <Camera className="h-[18px] w-[18px]" />
           </button>
           <input
-            className="h-10 flex-1 bg-transparent px-3 text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
+            className="h-10 flex-1 bg-transparent px-2 text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={language === 'EN' ? 'Ask a question… (or paste a product link)' : '输入问题…（或粘贴产品链接）'}
             disabled={isLoading}
           />
-          <button className="chip-button chip-button-primary" type="submit" disabled={!canSend}>
+          <button
+            type="submit"
+            className={cn(
+              'inline-flex h-10 w-10 items-center justify-center rounded-full transition active:scale-[0.97]',
+              canSend ? 'bg-primary text-primary-foreground shadow-card' : 'bg-muted text-muted-foreground',
+            )}
+            disabled={!canSend}
+          >
             <ArrowRight className="h-4 w-4" />
-            {language === 'EN' ? 'Send' : '发送'}
           </button>
         </form>
       </footer>
-
-      <AuroraSidebar open={sidebarOpen} onOpenChange={setSidebarOpen} history={history} onOpenChat={openChatByBriefId} />
     </div>
   );
 }

@@ -221,7 +221,7 @@ export function RoutineCard({ payload, onAction, language }: RoutineCardProps) {
       </div>
 
       {/* Total and actions */}
-      <div className="chat-card-elevated space-y-4">
+      <div className="chat-card-elevated space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
             {t('s6.total_estimate', language, {

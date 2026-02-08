@@ -47,7 +47,7 @@ export function ReturnWelcomeCard({ language, summary, chips, onChip, disabled }
   }, [language, summary]);
 
   return (
-    <div className="chat-card-elevated space-y-4">
+    <div className="chat-card-elevated space-y-3">
       <div className="space-y-1">
         <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '欢迎回来' : 'Welcome back'}</div>
         <div className="text-sm text-muted-foreground">

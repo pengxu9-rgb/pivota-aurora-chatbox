@@ -36,7 +36,7 @@ export function AuroraScoringCard({ payload, onAction, language }: AuroraScoring
   };
 
   return (
-    <div className="chat-card-elevated space-y-4">
+    <div className="chat-card-elevated space-y-3">
       {/* Header */}
       <div className="flex items-center gap-3 pb-3 border-b border-border/50">
         <div className="w-11 h-11 rounded-xl icon-container flex items-center justify-center">

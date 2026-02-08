@@ -167,7 +167,7 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
   }, {} as ProductVectorContributors);
   
   return (
-    <div className="chat-card space-y-4">
+    <div className="chat-card space-y-3">
       {/* Header with photo and product info */}
       <div className="flex gap-4">
         {photoPreview && (

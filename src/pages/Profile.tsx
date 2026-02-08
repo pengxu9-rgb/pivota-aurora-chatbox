@@ -189,28 +189,28 @@ export default function Profile() {
   }, [authSession?.token, makeHeaders]);
 
   return (
-    <div className="px-4 pt-4">
-      <div className="flex items-center justify-between">
+    <div className="ios-page">
+      <div className="ios-page-header">
         <button
           type="button"
           onClick={openSidebar}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/60 bg-card/80 text-foreground/80 active:scale-[0.97]"
+          className="ios-nav-button"
           aria-label="Open menu"
         >
-          <Menu className="h-5 w-5" />
+          <Menu className="h-[18px] w-[18px]" />
         </button>
-        <div className="text-base font-semibold text-foreground">Profile</div>
-        <div className="h-10 w-10" />
+        <div className="ios-page-title">Profile</div>
+        <div className="ios-header-spacer" />
       </div>
 
-      <div className="mt-4 rounded-3xl border border-border/50 bg-card/70 p-5 shadow-card">
+      <div className="ios-panel mt-4">
         <div className="flex items-start gap-3">
           <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            <User className="h-5 w-5" />
+            <User className="h-[18px] w-[18px]" />
           </div>
           <div>
-            <div className="text-sm font-semibold text-foreground">Quick profile</div>
-            <div className="mt-1 text-xs text-muted-foreground">
+            <div className="ios-section-title">Quick profile</div>
+            <div className="ios-caption mt-1">
               Best practice: complete the 30‑sec quick profile once so Aurora can personalize recommendations.
             </div>
           </div>
@@ -218,39 +218,39 @@ export default function Profile() {
 
         <button
           type="button"
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card active:scale-[0.99]"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card active:scale-[0.99]"
           onClick={() => startChat({ kind: 'chip', title: 'Quick Profile', chip_id: 'chip_quick_profile' })}
         >
           Start quick profile
         </button>
       </div>
 
-      <div className="mt-3 rounded-3xl border border-border/50 bg-card/70 p-5 shadow-card">
+      <div className="ios-panel mt-3">
         <div className="flex items-start gap-3">
           <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            <Shield className="h-5 w-5" />
+            <Shield className="h-[18px] w-[18px]" />
           </div>
           <div className="flex-1">
-            <div className="text-sm font-semibold text-foreground">Account</div>
-            <div className="mt-1 text-xs text-muted-foreground">Sign in to sync profile, routines, and history.</div>
+            <div className="ios-section-title">Account</div>
+            <div className="ios-caption mt-1">Sign in to sync profile, routines, and history.</div>
           </div>
         </div>
 
         {authSession ? (
           <div className="mt-4 space-y-3">
             <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
-              <div className="text-xs text-muted-foreground">Signed in as</div>
-              <div className="mt-0.5 text-sm font-semibold text-foreground">{authSession.email}</div>
+              <div className="text-[12px] text-muted-foreground">Signed in as</div>
+              <div className="mt-0.5 text-[15px] font-semibold text-foreground">{authSession.email}</div>
               {authSession.expires_at ? (
-                <div className="mt-1 text-[11px] text-muted-foreground">Expires: {authSession.expires_at}</div>
+                <div className="mt-1 text-[12px] text-muted-foreground">Expires: {authSession.expires_at}</div>
               ) : null}
             </div>
 
             <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
-              <div className="text-sm font-semibold text-foreground">Password (optional)</div>
-              <div className="mt-1 text-xs text-muted-foreground">Set a password for faster sign‑in next time.</div>
+              <div className="text-[15px] font-semibold text-foreground">Password (optional)</div>
+              <div className="mt-1 text-[12px] text-muted-foreground">Set a password for faster sign‑in next time.</div>
               <div className="mt-3 grid gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[12px] text-muted-foreground">
                   New password (min 8 chars)
                   <input
                     className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
@@ -261,7 +261,7 @@ export default function Profile() {
                     autoComplete="new-password"
                   />
                 </label>
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[12px] text-muted-foreground">
                   Confirm password
                   <input
                     className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
@@ -274,7 +274,10 @@ export default function Profile() {
                 </label>
                 <button
                   type="button"
-                  className={cn('inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card', 'active:scale-[0.99]')}
+                  className={cn(
+                    'inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                    'active:scale-[0.99]',
+                  )}
                   onClick={() => void savePassword()}
                   disabled={authLoading || !authDraft.newPassword || !authDraft.newPasswordConfirm}
                 >
@@ -287,7 +290,7 @@ export default function Profile() {
             <button
               type="button"
               className={cn(
-                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-sm font-semibold text-foreground shadow-card',
+                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
                 'active:scale-[0.99]',
               )}
               onClick={() => void signOut()}
@@ -302,7 +305,10 @@ export default function Profile() {
             <div className="flex gap-2">
               <button
                 type="button"
-                className={cn('flex-1 rounded-2xl border border-border/60 px-3 py-2 text-sm font-semibold', authMode === 'code' ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground')}
+                className={cn(
+                  'flex-1 rounded-2xl border border-border/60 px-3 py-2 text-[14px] font-semibold',
+                  authMode === 'code' ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground',
+                )}
                 onClick={() => {
                   setAuthMode('code');
                   setAuthStage('email');
@@ -315,7 +321,10 @@ export default function Profile() {
               </button>
               <button
                 type="button"
-                className={cn('flex-1 rounded-2xl border border-border/60 px-3 py-2 text-sm font-semibold', authMode === 'password' ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground')}
+                className={cn(
+                  'flex-1 rounded-2xl border border-border/60 px-3 py-2 text-[14px] font-semibold',
+                  authMode === 'password' ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground',
+                )}
                 onClick={() => {
                   setAuthMode('password');
                   setAuthStage('email');
@@ -328,7 +337,7 @@ export default function Profile() {
               </button>
             </div>
 
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label className="space-y-1 text-[12px] text-muted-foreground">
               Email
               <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3">
                 <Mail className="h-4 w-4 text-muted-foreground" />
@@ -346,7 +355,7 @@ export default function Profile() {
 
             {authMode === 'password' ? (
               <>
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[12px] text-muted-foreground">
                   Password
                   <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3">
                     <KeyRound className="h-4 w-4 text-muted-foreground" />
@@ -363,7 +372,10 @@ export default function Profile() {
                 </label>
                 <button
                   type="button"
-                  className={cn('inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card', 'active:scale-[0.99]')}
+                  className={cn(
+                    'inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                    'active:scale-[0.99]',
+                  )}
                   onClick={() => void passwordLogin()}
                   disabled={authLoading || !authDraft.email.trim() || !authDraft.password}
                 >
@@ -374,7 +386,10 @@ export default function Profile() {
             ) : authStage === 'email' ? (
               <button
                 type="button"
-                className={cn('inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card', 'active:scale-[0.99]')}
+                className={cn(
+                  'inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                  'active:scale-[0.99]',
+                )}
                 onClick={() => void startAuth()}
                 disabled={authLoading || !authDraft.email.trim()}
               >
@@ -383,7 +398,7 @@ export default function Profile() {
               </button>
             ) : (
               <>
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[12px] text-muted-foreground">
                   Verification code
                   <input
                     className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
@@ -398,7 +413,10 @@ export default function Profile() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className={cn('flex-1 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-sm font-semibold text-foreground shadow-card', 'active:scale-[0.99]')}
+                    className={cn(
+                      'flex-1 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
+                      'active:scale-[0.99]',
+                    )}
                     onClick={() => {
                       setAuthStage('email');
                       setAuthDraft((p) => ({ ...p, code: '' }));
@@ -411,7 +429,10 @@ export default function Profile() {
                   </button>
                   <button
                     type="button"
-                    className={cn('flex-1 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card', 'active:scale-[0.99]')}
+                    className={cn(
+                      'flex-1 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                      'active:scale-[0.99]',
+                    )}
                     onClick={() => void verifyAuth()}
                     disabled={authLoading || !authDraft.code.trim()}
                   >
@@ -423,18 +444,18 @@ export default function Profile() {
           </div>
         )}
 
-        {authNotice ? <div className="mt-3 text-xs text-emerald-700">{authNotice}</div> : null}
-        {authError ? <div className="mt-3 text-xs text-red-600">{authError}</div> : null}
+        {authNotice ? <div className="mt-3 text-[12px] text-emerald-700">{authNotice}</div> : null}
+        {authError ? <div className="mt-3 text-[12px] text-red-600">{authError}</div> : null}
       </div>
 
-      <div className="mt-3 rounded-3xl border border-border/50 bg-card/70 p-5 shadow-card">
+      <div className="ios-panel-soft mt-3">
         <div className="flex items-start gap-3">
           <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            <HelpCircle className="h-5 w-5" />
+            <HelpCircle className="h-[18px] w-[18px]" />
           </div>
           <div className="flex-1">
-            <div className="text-sm font-semibold text-foreground">Help Center</div>
-            <div className="mt-1 text-xs text-muted-foreground">Tips + FAQs (opens the Ask Aurora drawer).</div>
+            <div className="ios-section-title">Help Center</div>
+            <div className="ios-caption mt-1">Tips + FAQs (opens the Ask Aurora drawer).</div>
           </div>
         </div>
 
@@ -448,13 +469,13 @@ export default function Profile() {
               key={it.label}
               type="button"
               className={cn(
-                'inline-flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-left text-sm font-semibold text-foreground shadow-card',
+                'inline-flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-left text-[14px] font-semibold text-foreground shadow-card',
                 'active:scale-[0.99]',
               )}
               onClick={() => openComposer({ query: it.q })}
             >
               <span className="truncate">{it.label}</span>
-              <span className="text-xs text-muted-foreground">Ask</span>
+              <span className="text-[12px] text-muted-foreground">Ask</span>
             </button>
           ))}
         </div>

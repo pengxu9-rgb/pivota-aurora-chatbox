@@ -5,30 +5,30 @@
 @layer base {
   :root {
     /* Aurora — Apple-like (SF) theme */
-    --background: 0 0% 100%;
-    --foreground: 220 13% 13%;
+    --background: 220 19% 97%;
+    --foreground: 222 20% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 13% 13%;
+    --card-foreground: 222 20% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 13% 13%;
+    --popover-foreground: 222 20% 14%;
 
     /* Apple system blue */
     --primary: 211 100% 50%;
     --primary-foreground: 0 0% 100%;
 
     /* Neutral secondary */
-    --secondary: 220 10% 55%;
+    --secondary: 220 10% 53%;
     --secondary-foreground: 0 0% 100%;
 
     /* Muted - subtle backgrounds */
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 220 18% 94%;
+    --muted-foreground: 220 10% 43%;
 
     /* Accent - blue tint */
-    --accent: 211 100% 97%;
-    --accent-foreground: 211 100% 42%;
+    --accent: 211 100% 96%;
+    --accent-foreground: 211 100% 40%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -43,22 +43,22 @@
     --risk: 347 77% 50%;
     --risk-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
     --ring: 211 100% 50%;
 
-    --radius: 1rem;
+    --radius: 1.125rem;
 
     /* Aurora Chat-specific tokens */
-    --chat-bg: 220 14% 98%;
+    --chat-bg: 220 19% 97%;
     --chat-bubble-user: 211 100% 50%;
     --chat-bubble-assistant: 0 0% 100%;
     --chat-input-bg: 0 0% 100%;
 
     /* Aurora Card shadows - enhanced depth */
-    --shadow-card: 0 1px 2px hsl(220 13% 13% / 0.06), 0 1px 1px hsl(220 13% 13% / 0.04);
-    --shadow-card-hover: 0 10px 20px -6px hsl(220 13% 13% / 0.12), 0 4px 8px -4px hsl(220 13% 13% / 0.08);
-    --shadow-elevated: 0 24px 32px -12px hsl(220 13% 13% / 0.16), 0 12px 16px -12px hsl(220 13% 13% / 0.1);
+    --shadow-card: 0 1px 2px hsl(220 20% 16% / 0.05), 0 8px 20px -14px hsl(220 22% 18% / 0.16);
+    --shadow-card-hover: 0 1px 2px hsl(220 20% 16% / 0.06), 0 16px 28px -16px hsl(220 22% 18% / 0.2);
+    --shadow-elevated: 0 1px 3px hsl(220 20% 16% / 0.08), 0 26px 42px -18px hsl(220 22% 18% / 0.24);
 
     /* Icon backgrounds - glass morphism */
     --icon-bg-primary: linear-gradient(135deg, hsl(211 100% 50% / 0.15), hsl(211 100% 50% / 0.08));
@@ -112,17 +112,57 @@
   }
 
   html {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: 'SF Pro Text', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   body {
     @apply bg-background text-foreground;
+    background-image: radial-gradient(circle at 16% -8%, hsl(211 100% 95% / 0.8), transparent 44%),
+      radial-gradient(circle at 90% -26%, hsl(220 38% 93% / 0.7), transparent 40%);
   }
 }
 
 @layer components {
+  .ios-page {
+    @apply px-4 pb-6 pt-4;
+  }
+
+  .ios-page-header {
+    @apply flex items-center justify-between;
+    min-height: 44px;
+  }
+
+  .ios-nav-button {
+    @apply inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border/60 bg-card/80 text-foreground/80 shadow-card active:scale-[0.97];
+  }
+
+  .ios-page-title {
+    @apply text-[17px] font-semibold tracking-[-0.02em] text-foreground;
+  }
+
+  .ios-header-spacer {
+    @apply h-11 w-11;
+  }
+
+  .ios-panel {
+    @apply rounded-[24px] border border-border/60 bg-card/80 p-5 shadow-card;
+  }
+
+  .ios-panel-soft {
+    @apply rounded-[24px] border border-border/50 bg-card/60 p-5 shadow-card;
+  }
+
+  .ios-section-title {
+    @apply text-[15px] font-semibold tracking-[-0.01em] text-foreground;
+  }
+
+  .ios-caption {
+    @apply text-[12px] leading-5 text-muted-foreground;
+  }
+
   /* Aurora Chat Container */
   .chat-container {
     /* Use dynamic viewport units so the input isn't hidden behind mobile browser UI. */
@@ -134,7 +174,7 @@
 
   /* Aurora Header */
   .chat-header {
-    @apply sticky top-0 z-50 px-4 py-3 bg-card/80 backdrop-blur-xl border-b;
+    @apply sticky top-0 z-50 border-b border-border/60 bg-card/80 px-4 py-2.5 backdrop-blur-2xl;
     @apply flex items-center justify-between;
   }
 
@@ -146,50 +186,95 @@
 
   /* Aurora Input Container */
   .chat-input-container {
-    @apply sticky bottom-0 p-4 bg-card/95 backdrop-blur-sm border-t;
+    @apply sticky bottom-0 border-t border-border/60 bg-card/95 p-3 backdrop-blur-2xl;
     @apply safe-area-bottom;
   }
 
   /* Aurora Message Bubbles */
+  .chat-message-row {
+    @apply flex w-full;
+  }
+
+  .chat-message-row + .chat-message-row {
+    margin-top: 0.72rem;
+  }
+
+  .chat-message-row-user {
+    @apply justify-end;
+  }
+
+  .chat-message-row-assistant {
+    @apply justify-start;
+  }
+
+  .chat-message-stack {
+    @apply flex min-w-0 max-w-[88%] flex-col;
+  }
+
+  .chat-message-stack-user {
+    @apply items-end;
+  }
+
+  .chat-message-stack-assistant {
+    @apply items-start;
+  }
+
+  .chat-message-meta {
+    @apply mb-1 px-1 text-[11px] font-medium text-muted-foreground/90;
+    letter-spacing: 0.01em;
+  }
+
+  .chat-message-meta-user {
+    @apply text-right;
+  }
+
+  .chat-message-meta-assistant {
+    @apply text-left;
+  }
+
   .message-bubble {
-    @apply px-4 py-3 rounded-2xl max-w-[85%];
+    @apply max-w-full rounded-[22px] px-4 py-2.5;
     @apply animate-fade-in;
   }
 
   .message-bubble-user {
-    @apply bg-primary text-primary-foreground ml-auto;
+    @apply ml-auto bg-primary text-primary-foreground;
     @apply rounded-br-md px-4 py-2.5;
+    box-shadow: 0 10px 20px -14px hsl(var(--primary) / 0.62);
   }
 
   .message-bubble-assistant {
-    @apply bg-card/80 text-card-foreground mr-auto;
+    @apply mr-auto border border-border/55 bg-card/90 text-card-foreground;
     @apply rounded-bl-md px-4 py-2.5;
-    @apply border border-border/40;
   }
 
   .chat-rich-text {
-    @apply leading-6;
-    font-size: 14px;
-    letter-spacing: -0.004em;
+    font-size: 15px;
+    line-height: 1.62;
+    letter-spacing: -0.007em;
     word-break: break-word;
+    text-wrap: pretty;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   .chat-rich-paragraph + .chat-rich-paragraph {
-    margin-top: 0.45rem;
+    margin-top: 0.52rem;
   }
 
   .chat-rich-heading {
-    @apply mb-1 font-semibold;
-    font-size: 13px;
-    letter-spacing: -0.01em;
+    @apply mb-1 font-semibold text-foreground;
+    font-size: 14px;
+    line-height: 1.4;
+    letter-spacing: -0.013em;
   }
 
   .chat-rich-heading-lg {
-    font-size: 14px;
+    font-size: 15px;
   }
 
   .chat-rich-list {
-    @apply my-1 grid gap-1 pl-5;
+    @apply my-1.5 grid gap-1.5 pl-5;
   }
 
   .chat-rich-list-ul {
@@ -204,37 +289,53 @@
     color: hsl(var(--muted-foreground));
   }
 
+  .chat-rich-quote {
+    @apply my-2 border-l-2 border-primary/30 pl-3 text-foreground/90;
+  }
+
+  .chat-rich-divider {
+    @apply my-3 border-border/60;
+  }
+
   .chat-inline-link {
     color: hsl(var(--primary));
-    font-weight: 500;
+    font-weight: 600;
     text-decoration: underline;
     text-decoration-thickness: 1px;
-    text-underline-offset: 2px;
-    word-break: break-all;
+    text-underline-offset: 3px;
+    word-break: break-word;
   }
 
   .chat-inline-code {
-    @apply rounded-md border border-border/60 bg-muted/70 px-1.5 py-0.5;
+    @apply rounded-md border border-border/60 bg-muted/75 px-1.5 py-0.5;
     font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     letter-spacing: 0;
   }
 
   .chat-code-block-wrap {
-    @apply my-1 rounded-xl border border-border/60 bg-muted/70;
+    @apply my-2 rounded-xl border border-border/60 bg-muted/70;
   }
 
   .chat-code-lang {
-    @apply px-3 py-1 text-muted-foreground;
+    @apply px-3 py-1.5 text-muted-foreground;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.1em;
   }
 
   .chat-code-block {
-    @apply overflow-x-auto border-t border-border/60 px-3 py-2 leading-5;
+    @apply overflow-x-auto border-t border-border/60 px-3 py-2.5 leading-5;
     font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  }
+
+  .chat-rich-text-assistant {
+    color: hsl(var(--foreground));
+  }
+
+  .chat-rich-text-user {
+    color: hsl(var(--primary-foreground));
   }
 
   .chat-rich-text-user .chat-inline-link {
@@ -251,14 +352,18 @@
 
   /* Aurora Cards */
   .chat-card {
-    @apply bg-card/80 rounded-2xl p-4;
-    @apply border border-border/60;
+    @apply rounded-2xl border border-border/60 bg-card/80 p-3.5;
     @apply animate-scale-in;
   }
 
   .chat-card-elevated {
-    @apply bg-card rounded-xl p-5 shadow-elevated;
-    @apply border border-border/80;
+    @apply rounded-2xl border border-border/80 bg-card p-4 shadow-elevated;
+  }
+
+  .chat-card .chip-button,
+  .chat-card-elevated .chip-button {
+    @apply px-3 py-2 text-[12px];
+    min-height: 36px;
   }
 
   /* Aurora Status Cards */
@@ -280,19 +385,19 @@
 
   /* Aurora Chip Buttons - refined with better interaction */
   .chip-button {
-    @apply inline-flex items-center justify-center px-4 py-2.5;
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5;
     @apply bg-muted/80 text-muted-foreground;
-    @apply rounded-full text-sm font-medium;
+    @apply rounded-full text-[13px] font-medium tracking-[0.01em];
     @apply transition-all duration-200 ease-out;
-    @apply hover:bg-primary/10 hover:text-primary hover:shadow-sm active:scale-[0.97];
+    @apply hover:bg-primary/10 hover:text-primary active:scale-[0.97];
     @apply touch-manipulation border border-border/30;
-    min-height: 44px;
+    min-height: 40px;
   }
 
   .chip-button-primary {
     @apply bg-primary text-primary-foreground border-primary;
-    @apply hover:bg-primary/90 hover:text-primary-foreground;
-    box-shadow: 0 2px 6px hsl(var(--primary) / 0.3);
+    @apply hover:bg-primary/95 hover:text-primary-foreground;
+    box-shadow: 0 8px 20px -14px hsl(var(--primary) / 0.65);
   }
 
   .chip-button-outline {
@@ -524,7 +629,7 @@
 
   /* Aurora Section Labels */
   .section-label {
-    @apply text-[10px] font-semibold uppercase tracking-wider;
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em];
     @apply text-muted-foreground;
   }
 

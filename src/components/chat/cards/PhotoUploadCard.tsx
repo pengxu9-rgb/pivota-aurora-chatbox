@@ -67,7 +67,7 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
   const hasPhotos = photos.daylight || photos.indoor_white;
 
   return (
-    <div className="chat-card space-y-4">
+    <div className="chat-card space-y-3">
       <div className="grid grid-cols-2 gap-3">
         {/* Daylight slot */}
         <div className="space-y-2">
