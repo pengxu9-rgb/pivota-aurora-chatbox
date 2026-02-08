@@ -23,7 +23,7 @@ export default function Home() {
             <button
               type="button"
               onClick={openSidebar}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 text-white backdrop-blur active:scale-[0.97]"
+              className="ml-1 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 text-white backdrop-blur active:scale-[0.97]"
               aria-label="Open menu"
             >
               <Menu className="h-5 w-5" />
@@ -76,23 +76,11 @@ export default function Home() {
         </button>
       </div>
 
-      <div className="mt-5 px-4">
+      <div className="mt-4 px-4">
         <div className="section-label">Quick actions</div>
       </div>
-      <div className="scrollbar-hide -mx-4 mt-3 overflow-x-auto px-4">
-        <div className="flex w-max gap-4 pb-1">
-          <QuickActionIcon
-            label="Cart"
-            Icon={ShoppingCart}
-            badge={cartCount ? String(cartCount) : null}
-            onClick={() => shop.openCart()}
-          />
-          <QuickActionIcon
-            label="Orders"
-            Icon={Package}
-            badge={lastOrder ? '1' : null}
-            onClick={() => shop.openOrders()}
-          />
+      <div className="scrollbar-hide -mx-4 mt-2 overflow-x-auto px-4">
+        <div className="flex w-max gap-3 pb-1">
           <QuickActionIcon
             label="Diagnosis"
             Icon={Sparkles}
@@ -127,6 +115,18 @@ export default function Home() {
             label="Check-in"
             Icon={Activity}
             onClick={() => startChat({ kind: 'chip', title: 'Check-in', chip_id: 'chip_checkin_now' })}
+          />
+          <QuickActionIcon
+            label="Cart"
+            Icon={ShoppingCart}
+            badge={cartCount ? String(cartCount) : null}
+            onClick={() => shop.openCart()}
+          />
+          <QuickActionIcon
+            label="Orders"
+            Icon={Package}
+            badge={lastOrder ? '1' : null}
+            onClick={() => shop.openOrders()}
           />
         </div>
       </div>
@@ -205,24 +205,24 @@ function QuickActionIcon({
   return (
     <button
       type="button"
-      className={cn('relative flex w-[86px] flex-none flex-col items-center gap-2 rounded-3xl px-2 py-2', 'active:scale-[0.98]')}
+      className={cn('relative flex w-[74px] flex-none flex-col items-center gap-1.5 rounded-2xl p-1.5', 'active:scale-[0.98]')}
       onClick={onClick}
       aria-label={label}
     >
       <div
         className={cn(
-          'relative inline-flex h-14 w-14 items-center justify-center rounded-3xl',
+          'relative inline-flex h-12 w-12 items-center justify-center rounded-2xl',
           'border border-border/60 bg-card/70 text-primary shadow-card',
         )}
       >
-        <Icon className="h-6 w-6" />
+        <Icon className="h-5 w-5" />
         {badge ? (
           <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
             {badge}
           </span>
         ) : null}
       </div>
-      <div className="min-h-[28px] text-center text-[11px] font-medium leading-tight text-muted-foreground">{label}</div>
+      <div className="min-h-[24px] text-center text-[10px] font-medium leading-tight text-muted-foreground">{label}</div>
     </button>
   );
 }
