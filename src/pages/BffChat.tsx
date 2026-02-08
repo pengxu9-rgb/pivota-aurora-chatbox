@@ -2484,6 +2484,8 @@ export default function BffChat() {
   const [pdpDrawerOpen, setPdpDrawerOpen] = useState(false);
   const [pdpDrawerUrl, setPdpDrawerUrl] = useState<string | null>(null);
   const [pdpDrawerTitle, setPdpDrawerTitle] = useState<string>('');
+  const pdpDrawerContentRef = useRef<HTMLDivElement>(null);
+  const [pdpDrawerHeightPx, setPdpDrawerHeightPx] = useState(0);
   const [pdpDrawerSnapPoint, setPdpDrawerSnapPoint] = useState<number | string | null>(0.6);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
@@ -2555,6 +2557,41 @@ export default function BffChat() {
     setPdpDrawerOpen(true);
   }, []);
 
+  useEffect(() => {
+    if (!pdpDrawerOpen) return;
+    const el = pdpDrawerContentRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setPdpDrawerHeightPx(Math.max(0, Math.round(rect.height)));
+    };
+
+    update();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => {
+        window.removeEventListener('resize', update);
+      };
+    }
+
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+
+    window.addEventListener('resize', update);
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', update);
+    vv?.addEventListener('scroll', update);
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+      vv?.removeEventListener('resize', update);
+      vv?.removeEventListener('scroll', update);
+    };
+  }, [pdpDrawerOpen]);
+
   const pdpDrawerBottomPad = useMemo(() => {
     // When using `snapPoints`, Vaul translates a full-height drawer downwards to show the "half" state.
     // If we render an iframe at full height, fixed-position elements inside it (e.g. the PDP Buy bar)
@@ -2568,11 +2605,27 @@ export default function BffChat() {
           : NaN;
     if (!Number.isFinite(snap)) return '0px';
     if (snap >= 0.98) return '0px';
+
     const offscreen = Math.max(0, 1 - snap);
-    // Keep string stable and readable (e.g. "40dvh").
+
+    const heightPx =
+      pdpDrawerHeightPx ||
+      (() => {
+        try {
+          const vv = window.visualViewport;
+          const h = vv && typeof vv.height === 'number' ? vv.height : window.innerHeight;
+          return Math.max(0, Math.round(h));
+        } catch {
+          return 0;
+        }
+      })();
+
+    if (heightPx > 0) return `${Math.round(offscreen * heightPx)}px`;
+
+    // Fallback: keep string stable and readable (e.g. "40dvh").
     const dvh = Math.round(offscreen * 1000) / 10;
     return `${dvh}dvh`;
-  }, [pdpDrawerSnapPoint]);
+  }, [pdpDrawerHeightPx, pdpDrawerSnapPoint]);
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
     setError(null);
@@ -5281,6 +5334,7 @@ export default function BffChat() {
         fadeFromIndex={0}
       >
         <DrawerContent
+          ref={pdpDrawerContentRef}
           className="mt-0 h-[100dvh] max-h-[100dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl"
           style={{ paddingBottom: pdpDrawerBottomPad }}
         >
