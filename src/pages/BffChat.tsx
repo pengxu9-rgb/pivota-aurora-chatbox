@@ -2399,7 +2399,6 @@ export default function BffChat() {
   const [pdpDrawerOpen, setPdpDrawerOpen] = useState(false);
   const [pdpDrawerUrl, setPdpDrawerUrl] = useState<string | null>(null);
   const [pdpDrawerTitle, setPdpDrawerTitle] = useState<string>('');
-  const [pdpDrawerSnapPoint, setPdpDrawerSnapPoint] = useState<number | string | null>(0.65);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
@@ -2466,7 +2465,6 @@ export default function BffChat() {
     if (!url) return;
     setPdpDrawerUrl(url);
     setPdpDrawerTitle(String(args.title || '').trim());
-    setPdpDrawerSnapPoint(0.65);
     setPdpDrawerOpen(true);
   }, []);
 
@@ -5079,15 +5077,10 @@ export default function BffChat() {
           if (!open) {
             setPdpDrawerUrl(null);
             setPdpDrawerTitle('');
-            setPdpDrawerSnapPoint(0.65);
           }
         }}
-        snapPoints={[0.6, 0.95]}
-        activeSnapPoint={pdpDrawerSnapPoint}
-        setActiveSnapPoint={setPdpDrawerSnapPoint}
-        fadeFromIndex={0}
       >
-        <DrawerContent className="mt-0 h-[92dvh] max-h-[92dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl">
+        <DrawerContent className="mt-0 h-[calc(100dvh-120px)] max-h-[calc(100dvh-120px)] sm:h-[92dvh] sm:max-h-[92dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl">
           <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
             <div className="text-sm font-semibold text-foreground">
               {pdpDrawerTitle || (language === 'CN' ? '商品详情' : 'Product details')}
