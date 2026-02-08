@@ -162,15 +162,15 @@
   }
 
   .message-bubble-assistant {
-    @apply bg-card text-card-foreground mr-auto;
-    @apply rounded-bl-md shadow-card px-4 py-2.5;
-    @apply border border-border/50;
+    @apply bg-card/80 text-card-foreground mr-auto;
+    @apply rounded-bl-md px-4 py-2.5;
+    @apply border border-border/40;
   }
 
   /* Aurora Cards */
   .chat-card {
-    @apply bg-card rounded-xl p-4 shadow-card;
-    @apply border border-border;
+    @apply bg-card/80 rounded-2xl p-4;
+    @apply border border-border/60;
     @apply animate-scale-in;
   }
 

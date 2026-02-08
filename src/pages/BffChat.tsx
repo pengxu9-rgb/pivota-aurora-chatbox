@@ -52,6 +52,8 @@ import {
   extractPdpTargetFromProductsResolveResponse,
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
+import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
+import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
 import { useShop } from '@/contexts/shop';
 import {
   Activity,
@@ -68,6 +70,7 @@ import {
   HelpCircle,
   AlertTriangle,
   ListChecks,
+  Menu,
   RefreshCw,
   Search,
   Sparkles,
@@ -2427,6 +2430,23 @@ export default function BffChat() {
     }
   }, [location.search]);
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [history, setHistory] = useState<ChatHistoryItem[]>(() => loadChatHistory());
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    setHistory(loadChatHistory());
+  }, [sidebarOpen]);
+
+  const openChatByBriefId = useCallback(
+    (briefId: string) => {
+      const id = String(briefId || '').trim();
+      if (!id) return;
+      navigate(`/chat?brief_id=${encodeURIComponent(id)}`);
+    },
+    [navigate],
+  );
+
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [headers, setHeaders] = useState(() => {
     const base = makeDefaultHeaders(initialLanguage);
@@ -4366,127 +4386,19 @@ export default function BffChat() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-            onClick={() => navigate('/')}
-            aria-label={language === 'CN' ? '返回' : 'Back'}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 shadow-lg">
-            <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/20" />
-            <span className="relative z-10 text-base font-semibold text-white">A</span>
-          </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold text-foreground">Aurora</div>
-            <div className="text-[11px] text-muted-foreground">
-              {language === 'CN' ? 'Lifecycle Skincare Partner' : 'Lifecycle Skincare Partner'} · {sessionState}
-            </div>
-          </div>
+        <button
+          type="button"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+          onClick={() => setSidebarOpen(true)}
+          aria-label={language === 'CN' ? '打开菜单' : 'Open menu'}
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+        <div className="text-center leading-tight">
+          <div className="text-sm font-semibold text-foreground">Aurora</div>
+          <div className="text-[11px] text-muted-foreground">{language === 'CN' ? '你的 AI 护肤助手' : 'Your AI skincare assistant'}</div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            className={`chip-button ${authSession ? 'chip-button-primary' : ''}`}
-            onClick={() => {
-              setAuthError(null);
-              setAuthNotice(null);
-              setAuthStage('email');
-              setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
-              setAuthSheetOpen(true);
-            }}
-            disabled={isLoading}
-            title={language === 'CN' ? '账户' : 'Account'}
-          >
-            <Wallet className="h-4 w-4" />
-            {authSession || bootstrapInfo?.profile || bootstrapInfo?.is_returning
-              ? language === 'CN'
-                ? '账户'
-                : 'Account'
-              : language === 'CN'
-                ? '登录'
-                : 'Sign in'}
-          </button>
-          <button
-            className={`chip-button ${bootstrapInfo?.checkin_due ? 'chip-button-primary' : ''}`}
-            onClick={() => setCheckinSheetOpen(true)}
-            disabled={isLoading}
-            title={language === 'CN' ? '今日打卡' : 'Daily check-in'}
-          >
-            <Activity className="h-4 w-4" />
-            {language === 'CN' ? '打卡' : 'Check-in'}
-          </button>
-          <button
-            className="chip-button"
-            onClick={handlePickPhoto}
-            disabled={isLoading}
-            title={language === 'CN' ? '上传照片' : 'Upload photo'}
-          >
-            <Camera className="h-4 w-4" />
-            {language === 'CN' ? '照片' : 'Photo'}
-          </button>
-          <button
-            className="chip-button"
-            onClick={() => setProfileSheetOpen(true)}
-            disabled={isLoading}
-            title={language === 'CN' ? '编辑资料' : 'Edit profile'}
-          >
-            <User className="h-4 w-4" />
-            {language === 'CN' ? '资料' : 'Profile'}
-          </button>
-          <button
-            className={`chip-button ${bootstrapInfo?.profile?.currentRoutine ? '' : 'chip-button-primary'}`}
-            onClick={() => {
-              setRoutineDraft(makeEmptyRoutineDraft());
-              setRoutineTab('am');
-              setRoutineSheetOpen(true);
-            }}
-            disabled={isLoading}
-            title={language === 'CN' ? '填写在用流程' : 'Current routine'}
-          >
-            <ListChecks className="h-4 w-4" />
-            {language === 'CN' ? '在用' : 'Routine'}
-          </button>
-          <button
-            className={`chip-button ${cartCount ? 'chip-button-primary' : ''}`}
-            onClick={() => shop.openCart()}
-            disabled={isLoading}
-            title={language === 'CN' ? '购物车' : 'Shopping cart'}
-          >
-            <ShoppingCart className="h-4 w-4" />
-            {language === 'CN' ? '购物车' : 'Cart'}
-            {cartCount ? <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{cartCount}</span> : null}
-          </button>
-          <button
-            className={`chip-button ${language === 'CN' ? 'chip-button-primary' : ''}`}
-            onClick={() => switchLanguage('CN')}
-            disabled={isLoading}
-            title="中文"
-          >
-            <Globe className="h-4 w-4" />
-            中文
-          </button>
-          <button
-            className={`chip-button ${language === 'EN' ? 'chip-button-primary' : ''}`}
-            onClick={() => switchLanguage('EN')}
-            disabled={isLoading}
-            title="English"
-          >
-            <Globe className="h-4 w-4" />
-            EN
-          </button>
-          <button
-            className="chip-button"
-            onClick={startNewChat}
-            disabled={isLoading}
-            title={language === 'CN' ? '新对话' : 'New chat'}
-          >
-            <RefreshCw className="h-4 w-4" />
-            {language === 'CN' ? '新对话' : 'New'}
-          </button>
-        </div>
+        <div className="h-9 w-9" />
       </header>
 
       <main className="chat-messages scrollbar-hide">
@@ -5336,6 +5248,8 @@ export default function BffChat() {
           </button>
         </form>
       </footer>
+
+      <AuroraSidebar open={sidebarOpen} onOpenChange={setSidebarOpen} history={history} onOpenChat={openChatByBriefId} />
     </div>
   );
 }
