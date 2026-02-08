@@ -65,6 +65,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const shopBaseUrl = useMemo(() => getPivotaShopBaseUrl(), []);
   const shopOrigin = useMemo(() => safeParseUrl(shopBaseUrl)?.origin ?? null, [shopBaseUrl]);
   const [langPref, setLangPrefState] = useState(() => getLangPref());
+  const [bridgeReady, setBridgeReady] = useState(false);
 
   useEffect(() => {
     const onLang = (evt: Event) => {
@@ -105,6 +106,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         lang: langPref,
       });
       if (!normalized) return;
+      setBridgeReady(false);
       setShopUrl(normalized);
       setShopTitle(String(args.title || '').trim());
       setShopOpen(true);
@@ -116,6 +118,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     setShopOpen(false);
     setShopUrl(null);
     setShopTitle('');
+    setBridgeReady(false);
   }, []);
 
   const sendToShop = useCallback((msg: unknown): boolean => {
@@ -131,10 +134,10 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   }, [shopOrigin]);
 
   const openCart = useCallback(() => {
-    const sent = shopOpen ? sendToShop(buildAuroraOpenCartMessage()) : false;
+    const sent = shopOpen && bridgeReady ? sendToShop(buildAuroraOpenCartMessage()) : false;
     if (sent) return;
     openShop({ url: `${shopBaseUrl}/?open=cart`, title: langPref === 'cn' ? '购物车' : 'Cart' });
-  }, [langPref, openShop, sendToShop, shopBaseUrl, shopOpen]);
+  }, [bridgeReady, langPref, openShop, sendToShop, shopBaseUrl, shopOpen]);
 
   const openOrders = useCallback(() => {
     openShop({ url: `${shopBaseUrl}/orders`, title: langPref === 'cn' ? '订单' : 'Orders' });
@@ -215,6 +218,9 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       if (!isShopBridgeMessage(data)) return;
       const msg = data as ShopBridgeMessage;
 
+      if (msg.event === 'ready') {
+        setBridgeReady(true);
+      }
       if (msg.event === 'cart_snapshot') {
         applyCartSnapshot(msg.payload);
       }
