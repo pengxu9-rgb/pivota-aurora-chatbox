@@ -55,6 +55,8 @@ import {
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
+import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
+import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
 import {
   Activity,
   ArrowRight,
@@ -70,6 +72,7 @@ import {
   HelpCircle,
   AlertTriangle,
   ListChecks,
+  Menu,
   RefreshCw,
   Search,
   Sparkles,
@@ -2407,6 +2410,22 @@ export default function BffChat() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [history, setHistory] = useState<ChatHistoryItem[]>(() => loadChatHistory());
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    setHistory(loadChatHistory());
+  }, [sidebarOpen]);
+
+  const openChatByBriefId = useCallback(
+    (briefId: string) => {
+      const id = String(briefId || '').trim();
+      if (!id) return;
+      navigate(`/chat?brief_id=${encodeURIComponent(id)}`);
+    },
+    [navigate],
+  );
 
   type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'profile' | 'checkin';
   const searchParams = useMemo(() => {
@@ -4404,7 +4423,11 @@ export default function BffChat() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <div className="mx-auto text-center leading-tight">
+        <button type="button" className="ios-nav-button ml-1" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+          <Menu className="h-[18px] w-[18px]" />
+        </button>
+
+        <div className="flex-1 text-center leading-tight">
           <div className="font-semibold tracking-[-0.02em] text-foreground" style={{ fontSize: 'calc(var(--aurora-chat-text-size) + 1px)' }}>
             Aurora
           </div>
@@ -4412,6 +4435,8 @@ export default function BffChat() {
             {language === 'CN' ? '你的 AI 护肤助手' : 'Your AI skincare assistant'}
           </div>
         </div>
+
+        <div className="ios-header-spacer" aria-hidden />
       </header>
 
       <main className="chat-messages scrollbar-hide">
@@ -5280,6 +5305,8 @@ export default function BffChat() {
           </button>
         </form>
       </footer>
+
+      <AuroraSidebar open={sidebarOpen} onOpenChange={setSidebarOpen} history={history} onOpenChat={openChatByBriefId} />
     </div>
   );
 }
