@@ -52,7 +52,7 @@ import {
   extractPdpTargetFromProductsResolveResponse,
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
-import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
+import { useShop } from '@/contexts/shop';
 import {
   Activity,
   ArrowRight,
@@ -71,6 +71,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  ShoppingCart,
   User,
   Wallet,
   X,
@@ -2480,13 +2481,10 @@ export default function BffChat() {
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
 
+  const shop = useShop();
+  const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
+
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
-  const [pdpDrawerOpen, setPdpDrawerOpen] = useState(false);
-  const [pdpDrawerUrl, setPdpDrawerUrl] = useState<string | null>(null);
-  const [pdpDrawerTitle, setPdpDrawerTitle] = useState<string>('');
-  const pdpDrawerContentRef = useRef<HTMLDivElement>(null);
-  const [pdpDrawerHeightPx, setPdpDrawerHeightPx] = useState(0);
-  const [pdpDrawerSnapPoint, setPdpDrawerSnapPoint] = useState<number | string | null>(0.6);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
@@ -2548,84 +2546,12 @@ export default function BffChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [items, isLoading]);
 
-  const openPdpDrawer = useCallback((args: { url: string; title?: string }) => {
-    const url = String(args.url || '').trim();
-    if (!url) return;
-    setPdpDrawerUrl(url);
-    setPdpDrawerTitle(String(args.title || '').trim());
-    setPdpDrawerSnapPoint(0.6);
-    setPdpDrawerOpen(true);
-  }, []);
-
-  useEffect(() => {
-    if (!pdpDrawerOpen) return;
-    const el = pdpDrawerContentRef.current;
-    if (!el) return;
-
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setPdpDrawerHeightPx(Math.max(0, Math.round(rect.height)));
-    };
-
-    update();
-
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', update);
-      return () => {
-        window.removeEventListener('resize', update);
-      };
-    }
-
-    const ro = new ResizeObserver(() => update());
-    ro.observe(el);
-
-    window.addEventListener('resize', update);
-    const vv = window.visualViewport;
-    vv?.addEventListener('resize', update);
-    vv?.addEventListener('scroll', update);
-
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', update);
-      vv?.removeEventListener('resize', update);
-      vv?.removeEventListener('scroll', update);
-    };
-  }, [pdpDrawerOpen]);
-
-  const pdpDrawerBottomPad = useMemo(() => {
-    // When using `snapPoints`, Vaul translates a full-height drawer downwards to show the "half" state.
-    // If we render an iframe at full height, fixed-position elements inside it (e.g. the PDP Buy bar)
-    // can get clipped because the bottom part of the iframe sits below the viewport.
-    // Padding-bottom equal to the offscreen portion forces the iframe to fit within the visible area.
-    const snap =
-      typeof pdpDrawerSnapPoint === 'number'
-        ? pdpDrawerSnapPoint
-        : pdpDrawerSnapPoint != null
-          ? Number(pdpDrawerSnapPoint)
-          : NaN;
-    if (!Number.isFinite(snap)) return '0px';
-    if (snap >= 0.98) return '0px';
-
-    const offscreen = Math.max(0, 1 - snap);
-
-    const heightPx =
-      pdpDrawerHeightPx ||
-      (() => {
-        try {
-          const vv = window.visualViewport;
-          const h = vv && typeof vv.height === 'number' ? vv.height : window.innerHeight;
-          return Math.max(0, Math.round(h));
-        } catch {
-          return 0;
-        }
-      })();
-
-    if (heightPx > 0) return `${Math.round(offscreen * heightPx)}px`;
-
-    // Fallback: keep string stable and readable (e.g. "40dvh").
-    const dvh = Math.round(offscreen * 1000) / 10;
-    return `${dvh}dvh`;
-  }, [pdpDrawerHeightPx, pdpDrawerSnapPoint]);
+  const openPdpDrawer = useCallback(
+    (args: { url: string; title?: string }) => {
+      shop.openShop({ url: args.url, title: args.title });
+    },
+    [shop],
+  );
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
     setError(null);
@@ -4442,6 +4368,16 @@ export default function BffChat() {
             {language === 'CN' ? '在用' : 'Routine'}
           </button>
           <button
+            className={`chip-button ${cartCount ? 'chip-button-primary' : ''}`}
+            onClick={() => shop.openCart()}
+            disabled={isLoading}
+            title={language === 'CN' ? '购物车' : 'Shopping cart'}
+          >
+            <ShoppingCart className="h-4 w-4" />
+            {language === 'CN' ? '购物车' : 'Cart'}
+            {cartCount ? <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{cartCount}</span> : null}
+          </button>
+          <button
             className={`chip-button ${language === 'CN' ? 'chip-button-primary' : ''}`}
             onClick={() => switchLanguage('CN')}
             disabled={isLoading}
@@ -5318,57 +5254,6 @@ export default function BffChat() {
           </button>
         </form>
       </footer>
-
-      <Drawer
-        open={pdpDrawerOpen}
-        onOpenChange={(open) => {
-          setPdpDrawerOpen(open);
-          if (!open) {
-            setPdpDrawerUrl(null);
-            setPdpDrawerTitle('');
-            setPdpDrawerSnapPoint(0.6);
-          }
-        }}
-        snapPoints={[0.6, 1]}
-        activeSnapPoint={pdpDrawerSnapPoint}
-        setActiveSnapPoint={setPdpDrawerSnapPoint}
-        fadeFromIndex={0}
-      >
-        <DrawerContent
-          ref={pdpDrawerContentRef}
-          className="mt-0 h-[100dvh] max-h-[100dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl"
-          style={{ paddingBottom: pdpDrawerBottomPad }}
-        >
-          <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
-            <div className="text-sm font-semibold text-foreground">
-              {pdpDrawerTitle || (language === 'CN' ? '商品详情' : 'Product details')}
-            </div>
-            <DrawerClose asChild>
-              <button
-                type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-                aria-label={language === 'CN' ? '关闭商品' : 'Close product'}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </DrawerClose>
-          </div>
-
-          {pdpDrawerUrl ? (
-            <div className="flex-1 overflow-hidden rounded-t-2xl border-t border-border/50 bg-background">
-              <iframe
-                key={pdpDrawerUrl}
-                src={pdpDrawerUrl}
-                title={pdpDrawerTitle || (language === 'CN' ? '商品详情' : 'Product details')}
-                className="h-full w-full"
-                data-vaul-no-drag
-              />
-            </div>
-          ) : (
-            <div className="flex-1 px-4 py-6 text-sm text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</div>
-          )}
-        </DrawerContent>
-      </Drawer>
     </div>
   );
 }

@@ -114,6 +114,13 @@ export const setLangPref = (lang: LangPref) => {
     // Best-effort: keep legacy key for older builds.
     safeStorageSet(LEGACY_LANG_PREF_KEY, lang === 'cn' ? 'CN' : 'EN');
   }
+  if (isBrowser()) {
+    try {
+      window.dispatchEvent(new CustomEvent('aurora_lang_pref_changed', { detail: lang }));
+    } catch {
+      // ignore
+    }
+  }
 };
 
 const stripFiles = (_key: string, value: unknown) => {

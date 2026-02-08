@@ -1,13 +1,17 @@
 import React from 'react';
-import { Activity, Beaker, Bell, CalendarDays, Compass, Copy, FlaskConical, Menu, MessageCircle, Search, Sparkles, Workflow } from 'lucide-react';
+import { Activity, Beaker, Bell, CalendarDays, Camera, Compass, Copy, FlaskConical, Menu, MessageCircle, Package, Search, ShoppingCart, Sparkles, Workflow } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { cn } from '@/lib/utils';
+import { useShop } from '@/contexts/shop';
 
 export default function Home() {
   const { openSidebar, openComposer, startChat } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
+  const shop = useShop();
+  const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
+  const lastOrder = shop.recent_orders?.[0] || null;
 
   return (
     <div className="pb-6">
@@ -82,10 +86,28 @@ export default function Home() {
         <div className="section-label">Quick actions</div>
         <div className="mt-3 grid grid-cols-2 gap-3">
           <QuickActionCard
+            title="Shopping cart"
+            subtitle={cartCount ? `${cartCount} item(s)` : 'Empty'}
+            Icon={ShoppingCart}
+            onClick={() => shop.openCart()}
+          />
+          <QuickActionCard
+            title="Orders"
+            subtitle={lastOrder ? `Last: ${String(lastOrder.order_id).slice(0, 8)}…` : 'View orders'}
+            Icon={Package}
+            onClick={() => shop.openOrders()}
+          />
+          <QuickActionCard
             title="Skin Diagnosis"
             subtitle="AI analysis"
             Icon={Sparkles}
             onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
+          />
+          <QuickActionCard
+            title="Photo Analysis"
+            subtitle="Upload & analyze"
+            Icon={Camera}
+            onClick={() => startChat({ kind: 'open', title: 'Photo Analysis', open: 'photo' })}
           />
           <QuickActionCard
             title="Product Check"

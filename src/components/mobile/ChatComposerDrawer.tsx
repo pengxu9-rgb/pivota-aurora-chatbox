@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowRight, Beaker, Copy, FlaskConical, Search, Sparkles, X } from 'lucide-react';
+import { Activity, ArrowRight, Beaker, Camera, Copy, FlaskConical, Search, Sparkles, X } from 'lucide-react';
 
 import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,13 @@ const QUICK_ACTIONS: QuickAction[] = [
     subtitle: 'AI analysis',
     Icon: Sparkles,
     intent: { chip_id: 'chip.start.diagnosis' },
+  },
+  {
+    id: 'photo_analysis',
+    title: 'Photo Analysis',
+    subtitle: 'Upload & analyze',
+    Icon: Camera,
+    intent: { open: 'photo' },
   },
   {
     id: 'product_check',
@@ -172,7 +179,11 @@ export function ChatComposerDrawer({
                   onClick={() => {
                     const title = a.title;
                     const chipId = a.intent.chip_id;
-                    if (chipId) onStart({ kind: 'chip', title, chip_id: chipId, open: a.intent.open });
+                    if (chipId) {
+                      onStart({ kind: 'chip', title, chip_id: chipId, open: a.intent.open });
+                    } else if (a.intent.open) {
+                      onStart({ kind: 'open', title, open: a.intent.open });
+                    }
                     onOpenChange(false);
                   }}
                 >
