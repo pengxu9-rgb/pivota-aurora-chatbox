@@ -2538,7 +2538,7 @@ export default function BffChat() {
   const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
 
   const [productDraft, setProductDraft] = useState('');
-  const [dupeDraft, setDupeDraft] = useState({ original: '', dupe: '' });
+  const [dupeDraft, setDupeDraft] = useState({ original: '' });
 
   const [profileDraft, setProfileDraft] = useState({
     skinType: '',
@@ -3313,12 +3313,11 @@ export default function BffChat() {
     [applyEnvelope, headers, language, parseMaybeUrl],
   );
 
-  const runDupeCompare = useCallback(
-    async (rawOriginal: string, rawDupe: string) => {
+  const runDupeSearch = useCallback(
+    async (rawOriginal: string) => {
       const originalText = String(rawOriginal || '').trim();
-      const dupeText = String(rawDupe || '').trim();
-      if (!originalText || !dupeText) {
-        setError(language === 'CN' ? '需要同时填写「原版」和「平替」。' : 'Please provide both the original and the dupe.');
+      if (!originalText) {
+        setError(language === 'CN' ? '请先填写「目标商品」。' : 'Please provide a target product.');
         return;
       }
 
@@ -3328,59 +3327,23 @@ export default function BffChat() {
           id: nextId(),
           role: 'user',
           kind: 'text',
-          content: language === 'CN' ? `平替对比：${originalText} vs ${dupeText}` : `Dupe compare: ${originalText} vs ${dupeText}`,
+          content: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
         },
       ]);
-      setIsLoading(true);
       setError(null);
 
-      try {
-        setSessionState('P1_PRODUCT_ANALYZING');
+      const prompt =
+        language === 'CN'
+          ? `帮我给这款产品找平替和同类对标：${originalText}\n\n请给 5 个选项（3 个更便宜平替 + 2 个同类对标/升级），每个包含：为什么像、主要成分差异、潜在刺激点、适合人群；尽量给美国可买渠道/价格区间。`
+          : `Find dupes and comparable alternatives for: ${originalText}\n\nReturn 5 options (3 cheaper dupes + 2 comparables/premium). For each: why it's similar, key ingredient differences, irritation risks, and who it's for. Prefer widely-available US options and include approximate price ranges / where to buy when possible.`;
 
-        const requestHeaders = { ...headers, lang: language };
-        const originalUrl = parseMaybeUrl(originalText);
-        const dupeUrl = parseMaybeUrl(dupeText);
-
-        const [origParseEnv, dupeParseEnv] = await Promise.all([
-          bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(originalUrl ? { url: originalUrl } : { text: originalText }),
-          }),
-          bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(dupeUrl ? { url: dupeUrl } : { text: dupeText }),
-          }),
-        ]);
-
-        applyEnvelope(origParseEnv);
-        applyEnvelope(dupeParseEnv);
-
-        const origParseCard = Array.isArray(origParseEnv.cards) ? origParseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
-        const dupeParseCard = Array.isArray(dupeParseEnv.cards) ? dupeParseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
-        const originalProduct =
-          origParseCard && origParseCard.payload && typeof origParseCard.payload === 'object' ? (origParseCard.payload as any).product : null;
-        const dupeProduct =
-          dupeParseCard && dupeParseCard.payload && typeof dupeParseCard.payload === 'object' ? (dupeParseCard.payload as any).product : null;
-
-        const compareBody: Record<string, unknown> = {
-          ...(originalProduct ? { original: originalProduct } : originalUrl ? { original_url: originalUrl } : { original: { name: originalText } }),
-          ...(dupeProduct ? { dupe: dupeProduct } : dupeUrl ? { dupe_url: dupeUrl } : { dupe: { name: dupeText } }),
-        };
-
-        const compareEnv = await bffJson<V1Envelope>('/v1/dupe/compare', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(compareBody),
-        });
-
-        applyEnvelope(compareEnv);
-        setSessionState('P2_PRODUCT_RESULT');
-      } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setIsLoading(false);
-      }
+      await sendChat(undefined, {
+        action_id: 'chip.start.dupes',
+        kind: 'chip',
+        data: { reply_text: prompt, trigger_source: 'dupe_sheet', original: originalText },
+      });
     },
-    [applyEnvelope, headers, language, parseMaybeUrl],
+    [language, sendChat],
   );
 
   const onCardAction = useCallback(
@@ -4148,7 +4111,7 @@ export default function BffChat() {
         return;
       }
       if (id === 'chip.start.dupes') {
-        setDupeDraft({ original: '', dupe: '' });
+        setDupeDraft({ original: '' });
         setDupeSheetOpen(true);
         return;
       }
@@ -4873,32 +4836,23 @@ export default function BffChat() {
 
           <Sheet
             open={dupeSheetOpen}
-            title={language === 'CN' ? '平替对比（Dupe Compare）' : 'Dupe compare'}
+            title={language === 'CN' ? '找平替 / 同类对标' : 'Find dupes'}
             onClose={() => setDupeSheetOpen(false)}
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
-                {language === 'CN' ? '分别粘贴「原版」和「平替」的产品名或链接。' : 'Paste the original and the dupe (name or link).'}
+                {language === 'CN'
+                  ? '粘贴目标商品名称或链接，我会自动匹配平替和同类对标，并总结 tradeoffs。'
+                  : 'Paste the target product name or link. I will match dupes + comparables and summarize tradeoffs.'}
               </div>
 
               <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '原版' : 'Original'}
+                {language === 'CN' ? '目标商品' : 'Target product'}
                 <input
                   className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                   value={dupeDraft.original}
                   onChange={(e) => setDupeDraft((p) => ({ ...p, original: e.target.value }))}
                   placeholder={language === 'CN' ? '例如：Nivea Creme / https://…' : 'e.g., Nivea Creme / https://…'}
-                  disabled={isLoading}
-                />
-              </label>
-
-              <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '平替' : 'Dupe'}
-                <input
-                  className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                  value={dupeDraft.dupe}
-                  onChange={(e) => setDupeDraft((p) => ({ ...p, dupe: e.target.value }))}
-                  placeholder={language === 'CN' ? '例如：CeraVe Moisturizing Cream / https://…' : 'e.g., CeraVe Moisturizing Cream / https://…'}
                   disabled={isLoading}
                 />
               </label>
@@ -4910,16 +4864,19 @@ export default function BffChat() {
                 <button
                   type="button"
                   className="chip-button chip-button-primary"
-                  disabled={isLoading || !dupeDraft.original.trim() || !dupeDraft.dupe.trim()}
+                  disabled={isLoading || !dupeDraft.original.trim()}
                   onClick={() => {
                     const original = dupeDraft.original.trim();
-                    const dupe = dupeDraft.dupe.trim();
+                    if (!original) {
+                      setError(language === 'CN' ? '请先填写「目标商品」。' : 'Please provide a target product.');
+                      return;
+                    }
                     setDupeSheetOpen(false);
-                    setDupeDraft({ original: '', dupe: '' });
-                    void runDupeCompare(original, dupe);
+                    setDupeDraft({ original: '' });
+                    void runDupeSearch(original);
                   }}
                 >
-                  {language === 'CN' ? '开始对比' : 'Compare'}
+                  {language === 'CN' ? '开始匹配' : 'Find'}
                 </button>
               </div>
             </div>
