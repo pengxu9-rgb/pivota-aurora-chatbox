@@ -33,15 +33,6 @@ export function AuroraSidebar({
                 </div>
               </div>
             </div>
-
-            <button
-              type="button"
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card"
-              onClick={() => onOpenChange(false)}
-            >
-              <Sparkles className="h-4 w-4" />
-              Try Pro for 7 days
-            </button>
           </div>
 
           <div className="p-2">
@@ -130,4 +121,3 @@ function SideLink({
     </NavLink>
   );
 }
-
