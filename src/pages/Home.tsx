@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Beaker, Bell, CalendarDays, Camera, Compass, Copy, FlaskConical, Menu, MessageCircle, Package, Search, ShoppingCart, Sparkles, Workflow } from 'lucide-react';
+import { Activity, Beaker, CalendarDays, Camera, Compass, Copy, FlaskConical, Menu, MessageCircle, Package, Search, ShoppingCart, Sparkles, Workflow } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
@@ -28,13 +28,7 @@ export default function Home() {
             >
               <Menu className="h-5 w-5" />
             </button>
-            <button
-              type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 text-white backdrop-blur active:scale-[0.97]"
-              aria-label="Notifications"
-            >
-              <Bell className="h-5 w-5" />
-            </button>
+            <div className="h-10 w-10" />
           </div>
 
           <div className="relative mt-8 text-center">
