@@ -84,58 +84,53 @@ export default function Home() {
 
       <div className="mt-5 px-4">
         <div className="section-label">Quick actions</div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <QuickActionCard
-            title="Shopping cart"
-            subtitle={cartCount ? `${cartCount} item(s)` : 'Empty'}
+      </div>
+      <div className="scrollbar-hide -mx-4 mt-3 overflow-x-auto px-4">
+        <div className="flex w-max gap-4 pb-1">
+          <QuickActionIcon
+            label="Cart"
             Icon={ShoppingCart}
+            badge={cartCount ? String(cartCount) : null}
             onClick={() => shop.openCart()}
           />
-          <QuickActionCard
-            title="Orders"
-            subtitle={lastOrder ? `Last: ${String(lastOrder.order_id).slice(0, 8)}…` : 'View orders'}
+          <QuickActionIcon
+            label="Orders"
             Icon={Package}
+            badge={lastOrder ? '1' : null}
             onClick={() => shop.openOrders()}
           />
-          <QuickActionCard
-            title="Skin Diagnosis"
-            subtitle="AI analysis"
+          <QuickActionIcon
+            label="Diagnosis"
             Icon={Sparkles}
             onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
           />
-          <QuickActionCard
-            title="Photo Analysis"
-            subtitle="Upload & analyze"
+          <QuickActionIcon
+            label="Photo"
             Icon={Camera}
             onClick={() => startChat({ kind: 'open', title: 'Photo Analysis', open: 'photo' })}
           />
-          <QuickActionCard
-            title="Product Check"
-            subtitle="Evaluate a product"
+          <QuickActionIcon
+            label="Product"
             Icon={Search}
             onClick={() => startChat({ kind: 'chip', title: 'Product Check', chip_id: 'chip.start.evaluate' })}
           />
-          <QuickActionCard
-            title="Routine Builder"
-            subtitle="Build AM/PM"
+          <QuickActionIcon
+            label="Routine"
             Icon={Beaker}
             onClick={() => startChat({ kind: 'chip', title: 'Routine Builder', chip_id: 'chip.start.routine' })}
           />
-          <QuickActionCard
-            title="Ingredient Science"
-            subtitle="Evidence & mechanism"
+          <QuickActionIcon
+            label="Ingredients"
             Icon={FlaskConical}
             onClick={() => startChat({ kind: 'chip', title: 'Ingredient Science', chip_id: 'chip.start.ingredients' })}
           />
-          <QuickActionCard
-            title="Find Dupes"
-            subtitle="Cheaper alternatives"
+          <QuickActionIcon
+            label="Dupes"
             Icon={Copy}
             onClick={() => startChat({ kind: 'chip', title: 'Find Dupes', chip_id: 'chip.start.dupes' })}
           />
-          <QuickActionCard
-            title="Check-in"
-            subtitle="Daily check-in"
+          <QuickActionIcon
+            label="Check-in"
             Icon={Activity}
             onClick={() => startChat({ kind: 'chip', title: 'Check-in', chip_id: 'chip_checkin_now' })}
           />
@@ -189,15 +184,7 @@ export default function Home() {
   );
 }
 
-function Pill({
-  label,
-  Icon,
-  onClick,
-}: {
-  label: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  onClick: () => void;
-}) {
+function Pill({ label, Icon, onClick }: { label: string; Icon: React.ComponentType<{ className?: string }>; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -210,31 +197,38 @@ function Pill({
   );
 }
 
-function QuickActionCard({
-  title,
-  subtitle,
+function QuickActionIcon({
+  label,
   Icon,
+  badge,
   onClick,
 }: {
-  title: string;
-  subtitle: string;
+  label: string;
   Icon: React.ComponentType<{ className?: string }>;
+  badge?: string | null;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      className="group flex items-start gap-3 rounded-3xl border border-border/60 bg-card/70 p-4 text-left shadow-card transition hover:shadow-card-hover active:scale-[0.99]"
+      className={cn('relative flex w-[86px] flex-none flex-col items-center gap-2 rounded-3xl px-2 py-2', 'active:scale-[0.98]')}
       onClick={onClick}
-      aria-label={title}
+      aria-label={label}
     >
-      <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+      <div
+        className={cn(
+          'relative inline-flex h-14 w-14 items-center justify-center rounded-3xl',
+          'border border-border/60 bg-card/70 text-primary shadow-card',
+        )}
+      >
         <Icon className="h-6 w-6" />
+        {badge ? (
+          <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+            {badge}
+          </span>
+        ) : null}
       </div>
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-foreground">{title}</div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
-      </div>
+      <div className="min-h-[28px] text-center text-[11px] font-medium leading-tight text-muted-foreground">{label}</div>
     </button>
   );
 }
