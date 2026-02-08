@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
+import { ChatRichText } from '@/components/chat/ChatRichText';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
@@ -2052,7 +2053,7 @@ function BffCardView({
           if (typeof howToUse === 'string') {
             const s = howToUse.trim();
             if (!s) return null;
-            return <div className="text-sm text-foreground whitespace-pre-wrap">{s}</div>;
+            return <ChatRichText text={s} role="assistant" className="text-sm text-foreground" />;
           }
           const o = asObject(howToUse);
           if (!o) return null;
@@ -5094,8 +5095,8 @@ export default function BffChat() {
               }
               return (
                 <div key={item.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                  <div className={isUser ? 'message-bubble-user whitespace-pre-wrap' : 'message-bubble-assistant whitespace-pre-wrap'}>
-                    {item.content}
+                  <div className={isUser ? 'message-bubble-user' : 'message-bubble-assistant'}>
+                    <ChatRichText text={item.content} role={isUser ? 'user' : 'assistant'} />
                   </div>
                 </div>
 	              );

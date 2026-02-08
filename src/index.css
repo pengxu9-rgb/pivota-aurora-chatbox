@@ -167,6 +167,88 @@
     @apply border border-border/40;
   }
 
+  .chat-rich-text {
+    @apply leading-6;
+    font-size: 14px;
+    letter-spacing: -0.004em;
+    word-break: break-word;
+  }
+
+  .chat-rich-paragraph + .chat-rich-paragraph {
+    margin-top: 0.45rem;
+  }
+
+  .chat-rich-heading {
+    @apply mb-1 font-semibold;
+    font-size: 13px;
+    letter-spacing: -0.01em;
+  }
+
+  .chat-rich-heading-lg {
+    font-size: 14px;
+  }
+
+  .chat-rich-list {
+    @apply my-1 grid gap-1 pl-5;
+  }
+
+  .chat-rich-list-ul {
+    @apply list-disc;
+  }
+
+  .chat-rich-list-ol {
+    @apply list-decimal;
+  }
+
+  .chat-rich-list li::marker {
+    color: hsl(var(--muted-foreground));
+  }
+
+  .chat-inline-link {
+    color: hsl(var(--primary));
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+    word-break: break-all;
+  }
+
+  .chat-inline-code {
+    @apply rounded-md border border-border/60 bg-muted/70 px-1.5 py-0.5;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    letter-spacing: 0;
+  }
+
+  .chat-code-block-wrap {
+    @apply my-1 rounded-xl border border-border/60 bg-muted/70;
+  }
+
+  .chat-code-lang {
+    @apply px-3 py-1 text-muted-foreground;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .chat-code-block {
+    @apply overflow-x-auto border-t border-border/60 px-3 py-2 leading-5;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  }
+
+  .chat-rich-text-user .chat-inline-link {
+    color: hsl(var(--primary-foreground));
+    opacity: 0.96;
+    text-decoration-color: hsl(var(--primary-foreground) / 0.7);
+  }
+
+  .chat-rich-text-user .chat-inline-code {
+    border-color: hsl(var(--primary-foreground) / 0.25);
+    background: hsl(var(--primary-foreground) / 0.14);
+    color: hsl(var(--primary-foreground));
+  }
+
   /* Aurora Cards */
   .chat-card {
     @apply bg-card/80 rounded-2xl p-4;
