@@ -2482,7 +2482,8 @@ export default function BffChat() {
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
   const sessionStartedEmittedRef = useRef(false);
   const returnVisitEmittedRef = useRef(false);
-  const intentConsumedRef = useRef<string | null>(null);
+  const openIntentConsumedRef = useRef<string | null>(null);
+  const actionIntentConsumedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
@@ -2785,7 +2786,8 @@ export default function BffChat() {
     pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
-    intentConsumedRef.current = null;
+    openIntentConsumedRef.current = null;
+    actionIntentConsumedRef.current = null;
     setHasBootstrapped(false);
   }, [setAgentStateSafe]);
 
@@ -4189,7 +4191,8 @@ export default function BffChat() {
     pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
-    intentConsumedRef.current = null;
+    openIntentConsumedRef.current = null;
+    actionIntentConsumedRef.current = null;
 
     setProfileSheetOpen(false);
     setCheckinSheetOpen(false);
@@ -4208,21 +4211,15 @@ export default function BffChat() {
   }, [headers.brief_id, language, searchParams.brief_id, searchParams.trace_id, setAgentStateSafe]);
 
   useEffect(() => {
-    if (!hasBootstrapped) return;
     if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id) return;
-    const hasIntent = Boolean(searchParams.q || searchParams.chip_id || searchParams.open);
-    if (!hasIntent) return;
-    const sig = [
-      searchParams.brief_id,
-      searchParams.trace_id,
-      searchParams.q,
-      searchParams.chip_id,
-      searchParams.open,
-    ]
-      .map((v) => String(v || ''))
-      .join('|');
-    if (intentConsumedRef.current === sig) return;
-    intentConsumedRef.current = sig;
+    if (!searchParams.open) {
+      openIntentConsumedRef.current = null;
+      return;
+    }
+
+    const sig = [searchParams.brief_id, searchParams.trace_id, searchParams.open].map((v) => String(v || '')).join('|');
+    if (openIntentConsumedRef.current === sig) return;
+    openIntentConsumedRef.current = sig;
 
     if (searchParams.open === 'photo') {
       setPromptRoutineAfterPhoto(false);
@@ -4247,6 +4244,45 @@ export default function BffChat() {
       setAuthSheetOpen(true);
     }
 
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      let changed = false;
+      if (sp.has('open')) {
+        sp.delete('open');
+        changed = true;
+      }
+      if (!sp.get('brief_id') && headers.brief_id) {
+        sp.set('brief_id', headers.brief_id);
+        changed = true;
+      }
+      if (!sp.get('trace_id') && headers.trace_id) {
+        sp.set('trace_id', headers.trace_id);
+        changed = true;
+      }
+      if (changed) {
+        const next = sp.toString();
+        navigate({ pathname: '/chat', search: next ? `?${next}` : '' }, { replace: true });
+      }
+    } catch {
+      // ignore
+    }
+  }, [headers.brief_id, headers.trace_id, navigate, searchParams]);
+
+  useEffect(() => {
+    if (!hasBootstrapped) return;
+    if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id) return;
+    const hasActionIntent = Boolean(searchParams.q || searchParams.chip_id);
+    if (!hasActionIntent) {
+      actionIntentConsumedRef.current = null;
+      return;
+    }
+
+    const sig = [searchParams.brief_id, searchParams.trace_id, searchParams.q, searchParams.chip_id]
+      .map((v) => String(v || ''))
+      .join('|');
+    if (actionIntentConsumedRef.current === sig) return;
+    actionIntentConsumedRef.current = sig;
+
     const run = async () => {
       if (searchParams.chip_id) {
         await onChip(deepLinkChip(searchParams.chip_id));
@@ -4261,7 +4297,7 @@ export default function BffChat() {
     try {
       const sp = new URLSearchParams(window.location.search);
       let changed = false;
-      for (const k of ['q', 'chip_id', 'open']) {
+      for (const k of ['q', 'chip_id']) {
         if (!sp.has(k)) continue;
         sp.delete(k);
         changed = true;
