@@ -72,7 +72,7 @@ export default function MobileShell() {
 
   return (
     <div className="min-h-[100dvh] bg-chat">
-      <div className="mx-auto w-full max-w-[430px] pb-[110px]">
+      <div className="mx-auto w-full max-w-[var(--aurora-shell-max)] pb-[var(--aurora-shell-bottom-pad)]">
         <Outlet context={ctx} />
       </div>
 

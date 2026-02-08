@@ -26,9 +26,9 @@ export function AuroraSidebar({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="left" className="w-[84vw] max-w-sm p-0 [&>button]:hidden">
+        <SheetContent side="left" className="w-[84vw] max-w-[var(--aurora-shell-max)] p-0 [&>button]:hidden">
           <div className="flex h-full flex-col bg-background">
-            <div className="border-b border-border/60 px-4 py-4">
+            <div className="border-b border-border/60 px-[var(--aurora-page-x)] py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -69,7 +69,7 @@ export function AuroraSidebar({
               />
             </div>
 
-            <div className="px-4 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Recent</div>
+            <div className="px-[var(--aurora-page-x)] pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Recent</div>
 
             <div className="flex-1 overflow-y-auto p-2.5">
               {history.length ? (

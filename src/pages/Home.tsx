@@ -11,25 +11,29 @@ export default function Home() {
 
   return (
     <div className="pb-6">
-      <div className="-mx-4 overflow-hidden rounded-b-[34px] bg-gradient-to-b from-sky-500 via-blue-500 to-indigo-500 text-white shadow-elevated">
-        <div className="relative px-4 pb-14 pt-4">
+      <div className="-mx-[var(--aurora-page-x)] overflow-hidden rounded-b-[34px] bg-gradient-to-b from-sky-500 via-blue-500 to-indigo-500 text-white shadow-elevated">
+        <div className="relative px-[var(--aurora-page-x)] pb-14 pt-[var(--aurora-page-top)]">
           <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
 
           <div className="relative flex items-center justify-between">
             <button
               type="button"
               onClick={openSidebar}
-              className="ml-2 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/25 bg-white/15 text-white shadow-card backdrop-blur active:scale-[0.97]"
+              className="ml-1 inline-flex h-[var(--aurora-home-menu-size)] w-[var(--aurora-home-menu-size)] items-center justify-center rounded-2xl border border-white/25 bg-white/15 text-white shadow-card backdrop-blur active:scale-[0.97]"
               aria-label="Open menu"
             >
-              <Menu className="h-[18px] w-[18px]" />
+              <Menu className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />
             </button>
-            <div className="h-11 w-11" />
+            <div className="h-[var(--aurora-home-menu-size)] w-[var(--aurora-home-menu-size)]" />
           </div>
 
           <div className="relative mt-7 text-center">
-            <div className="text-[30px] font-semibold tracking-[-0.03em]">Your AI Skin Consultant</div>
-            <div className="mt-1 text-[12px] text-white/80">Powered by Aurora v4.0</div>
+            <div className="font-semibold tracking-[-0.03em]" style={{ fontSize: 'var(--aurora-home-title-size)' }}>
+              Your AI Skin Consultant
+            </div>
+            <div className="mt-1 text-white/80" style={{ fontSize: 'var(--aurora-home-subtitle-size)' }}>
+              Powered by Aurora v4.0
+            </div>
           </div>
 
           <div className="relative mt-5 flex flex-wrap justify-center gap-2">
@@ -52,7 +56,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="-mt-7 px-4">
+      <div className="-mt-[var(--aurora-home-search-overlap)] px-[var(--aurora-page-x)]">
         <button
           type="button"
           onClick={() => openComposer()}
@@ -62,20 +66,20 @@ export default function Home() {
           )}
           aria-label="Open chat composer"
         >
-          <Search className="h-[18px] w-[18px] text-muted-foreground" />
+          <Search className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)] text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] text-muted-foreground">Search products, ingredients...</div>
           </div>
           <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
-            <MessageCircle className="h-[18px] w-[18px]" />
+            <MessageCircle className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />
           </div>
         </button>
       </div>
 
-      <div className="mt-4 px-4">
+      <div className="mt-4 px-[var(--aurora-page-x)]">
         <div className="section-label">Quick actions</div>
       </div>
-      <div className="scrollbar-hide -mx-4 mt-1.5 overflow-x-auto px-4">
+      <div className="scrollbar-hide -mx-[var(--aurora-page-x)] mt-1.5 overflow-x-auto px-[var(--aurora-page-x)]">
         <div className="flex w-max gap-2.5 pb-1">
           <QuickActionIcon
             label="Diagnosis"
@@ -115,7 +119,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="mt-6 px-4">
+      <div className="mt-6 px-[var(--aurora-page-x)]">
         <div className="flex items-center justify-between">
           <div className="ios-section-title">More for your skin</div>
         </div>
@@ -135,7 +139,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="mt-6 px-4">
+      <div className="mt-6 px-[var(--aurora-page-x)]">
         <div className="flex items-center justify-between">
           <div className="ios-section-title">Recent activity</div>
           <button type="button" className="text-[12px] font-semibold text-primary hover:text-primary/90" onClick={() => openComposer()}>
@@ -189,24 +193,26 @@ function QuickActionIcon({
   return (
     <button
       type="button"
-      className={cn('relative flex w-[68px] flex-none flex-col items-center gap-1 rounded-2xl p-1', 'active:scale-[0.98]')}
+      className={cn('relative flex w-[var(--aurora-quick-tile-w)] flex-none flex-col items-center gap-1 rounded-2xl p-1', 'active:scale-[0.98]')}
       onClick={onClick}
       aria-label={label}
     >
       <div
         className={cn(
-          'relative inline-flex h-11 w-11 items-center justify-center rounded-2xl',
+          'relative inline-flex h-[var(--aurora-quick-icon-size)] w-[var(--aurora-quick-icon-size)] items-center justify-center rounded-2xl',
           'border border-border/60 bg-card/70 text-primary shadow-card',
         )}
       >
-        <Icon className="h-[18px] w-[18px]" />
+        <Icon className="h-[var(--aurora-quick-glyph-size)] w-[var(--aurora-quick-glyph-size)]" />
         {badge ? (
           <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
             {badge}
           </span>
         ) : null}
       </div>
-      <div className="min-h-[22px] text-center text-[10.5px] font-medium leading-tight text-muted-foreground">{label}</div>
+      <div className="min-h-[22px] text-center font-medium leading-tight text-muted-foreground" style={{ fontSize: 'var(--aurora-quick-label-size)' }}>
+        {label}
+      </div>
     </button>
   );
 }

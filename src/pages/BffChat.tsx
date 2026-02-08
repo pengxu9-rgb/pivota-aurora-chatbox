@@ -877,9 +877,9 @@ function Sheet({
         aria-label="Close"
         onClick={onClose}
       />
-      <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-lg overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
+      <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-[var(--aurora-shell-max)] overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
         <div className="flex max-h-[85vh] max-h-[85dvh] flex-col">
-          <div className="flex items-center justify-between px-4 pb-3 pt-4">
+          <div className="flex items-center justify-between px-[var(--aurora-page-x)] pb-3 pt-4">
             <div className="text-sm font-semibold text-foreground">{title}</div>
             <button
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
@@ -889,7 +889,7 @@ function Sheet({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">{children}</div>
+          <div className="flex-1 overflow-y-auto px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+16px)]">{children}</div>
         </div>
       </div>
     </div>
@@ -4368,13 +4368,17 @@ export default function BffChat() {
     <div className="chat-container">
       <header className="chat-header">
         <div className="mx-auto text-center leading-tight">
-          <div className="text-[16px] font-semibold tracking-[-0.02em] text-foreground">Aurora</div>
-          <div className="text-[12px] text-muted-foreground">{language === 'CN' ? '你的 AI 护肤助手' : 'Your AI skincare assistant'}</div>
+          <div className="font-semibold tracking-[-0.02em] text-foreground" style={{ fontSize: 'calc(var(--aurora-chat-text-size) + 1px)' }}>
+            Aurora
+          </div>
+          <div className="text-muted-foreground" style={{ fontSize: 'calc(var(--aurora-chat-text-size) - 3px)' }}>
+            {language === 'CN' ? '你的 AI 护肤助手' : 'Your AI skincare assistant'}
+          </div>
         </div>
       </header>
 
       <main className="chat-messages scrollbar-hide">
-        <div className="mx-auto max-w-lg space-y-2.5">
+        <div className="mx-auto max-w-lg space-y-[var(--aurora-chat-stack-gap)]">
           <Sheet
             open={authSheetOpen}
             title={language === 'CN' ? '登录 / 账户' : 'Sign in / Account'}
@@ -4723,7 +4727,7 @@ export default function BffChat() {
                 </details>
               </div>
 
-              <div className="sticky bottom-0 -mx-4 border-t border-border/40 bg-card/95 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
+              <div className="sticky bottom-0 -mx-[var(--aurora-page-x)] border-t border-border/40 bg-card/95 px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
                 <div className="flex gap-2">
                   <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={isLoading}>
                     {language === 'CN' ? '取消' : 'Cancel'}
@@ -5124,7 +5128,7 @@ export default function BffChat() {
                 const insertAt = hasPair ? Math.min(simIndex, heatmapIndex) : -1;
 
                 return (
-                  <div key={item.id} className="space-y-2.5">
+                  <div key={item.id} className="space-y-[var(--aurora-chat-stack-gap)]">
                     {cards.flatMap((card, idx) => {
                       if (hasPair && (idx === simIndex || idx === heatmapIndex)) {
                         if (idx !== insertAt) return [];
@@ -5198,7 +5202,11 @@ export default function BffChat() {
 
       <footer className="chat-input-container">
         <form
-          className="mx-auto flex max-w-lg items-center gap-2 rounded-[22px] border border-border/60 bg-card/90 px-2 py-2 shadow-card"
+          className="mx-auto flex max-w-lg items-center gap-2 border border-border/60 bg-card/90 shadow-card"
+          style={{
+            borderRadius: 'var(--aurora-chat-composer-radius)',
+            padding: 'var(--aurora-chat-composer-pad)',
+          }}
           onSubmit={(e) => {
             e.preventDefault();
             void onSubmit();
@@ -5206,15 +5214,17 @@ export default function BffChat() {
         >
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/60 bg-muted/75 text-foreground/80"
+            className="inline-flex items-center justify-center rounded-2xl border border-border/60 bg-muted/75 text-foreground/80"
+            style={{ height: 'var(--aurora-chat-control-size)', width: 'var(--aurora-chat-control-size)' }}
             onClick={handlePickPhoto}
             disabled={isLoading}
             title={language === 'CN' ? '上传照片' : 'Upload photo'}
           >
-            <Camera className="h-[18px] w-[18px]" />
+            <Camera className="h-[var(--aurora-chat-control-icon-size)] w-[var(--aurora-chat-control-icon-size)]" />
           </button>
           <input
-            className="h-10 flex-1 bg-transparent px-2 text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
+            className="flex-1 bg-transparent px-2 text-foreground outline-none placeholder:text-muted-foreground/70"
+            style={{ height: 'var(--aurora-chat-control-size)', fontSize: 'var(--aurora-chat-input-font-size)' }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={language === 'EN' ? 'Ask a question… (or paste a product link)' : '输入问题…（或粘贴产品链接）'}
@@ -5223,12 +5233,13 @@ export default function BffChat() {
           <button
             type="submit"
             className={cn(
-              'inline-flex h-10 w-10 items-center justify-center rounded-full transition active:scale-[0.97]',
+              'inline-flex items-center justify-center rounded-full transition active:scale-[0.97]',
               canSend ? 'bg-primary text-primary-foreground shadow-card' : 'bg-muted text-muted-foreground',
             )}
+            style={{ height: 'var(--aurora-chat-control-size)', width: 'var(--aurora-chat-control-size)' }}
             disabled={!canSend}
           >
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight className="h-[var(--aurora-chat-send-icon-size)] w-[var(--aurora-chat-send-icon-size)]" />
           </button>
         </form>
       </footer>

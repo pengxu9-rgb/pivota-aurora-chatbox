@@ -71,6 +71,52 @@
     --drawer-bg: 215 28% 9%;
     --drawer-foreground: 215 20% 65%;
     --drawer-accent: 239 84% 67%;
+
+    /* Mobile device sizing baseline */
+    --aurora-shell-max: 430px;
+    --aurora-shell-bottom-pad: 112px;
+    --aurora-page-x: 16px;
+    --aurora-page-top: 16px;
+    --aurora-page-bottom: 24px;
+
+    --aurora-header-button-size: 44px;
+
+    --aurora-home-menu-size: 44px;
+    --aurora-home-title-size: 30px;
+    --aurora-home-subtitle-size: 12px;
+    --aurora-home-search-overlap: 28px;
+    --aurora-quick-tile-w: 68px;
+    --aurora-quick-icon-size: 44px;
+    --aurora-quick-glyph-size: 18px;
+    --aurora-quick-label-size: 10.5px;
+
+    --aurora-nav-top-gap: 8px;
+    --aurora-nav-bottom-gap: 10px;
+    --aurora-nav-radius: 22px;
+    --aurora-nav-chat-size: 54px;
+    --aurora-nav-chat-offset: 24px;
+    --aurora-nav-icon-size: 18px;
+    --aurora-nav-label-size: 10.5px;
+
+    --aurora-chat-header-py: 10px;
+    --aurora-chat-messages-py: 16px;
+    --aurora-chat-input-px: 12px;
+    --aurora-chat-input-py: 12px;
+    --aurora-chat-composer-radius: 22px;
+    --aurora-chat-composer-pad: 8px;
+    --aurora-chat-control-size: 40px;
+    --aurora-chat-control-icon-size: 18px;
+    --aurora-chat-send-icon-size: 16px;
+    --aurora-chat-input-font-size: 15px;
+    --aurora-chat-stack-gap: 10px;
+    --aurora-chat-message-gap: 0.72rem;
+    --aurora-chat-bubble-max: 88%;
+    --aurora-chat-text-size: 15px;
+    --aurora-chat-line-height: 1.62;
+
+    --aurora-card-pad: 14px;
+    --aurora-card-pad-elevated: 16px;
+    --aurora-chip-min-h: 36px;
   }
 
   .dark {
@@ -104,6 +150,106 @@
     --chat-bubble-assistant: 215 25% 14%;
     --chat-input-bg: 215 25% 12%;
   }
+
+  /* iPhone 15 (393x852 logical points) */
+  @media (max-width: 393px) and (min-height: 780px) {
+    :root {
+      --aurora-shell-max: 393px;
+      --aurora-shell-bottom-pad: 104px;
+      --aurora-page-x: 14px;
+      --aurora-page-top: 14px;
+      --aurora-page-bottom: 20px;
+
+      --aurora-header-button-size: 42px;
+
+      --aurora-home-menu-size: 42px;
+      --aurora-home-title-size: 28px;
+      --aurora-home-subtitle-size: 11.5px;
+      --aurora-home-search-overlap: 24px;
+      --aurora-quick-tile-w: 64px;
+      --aurora-quick-icon-size: 41px;
+      --aurora-quick-glyph-size: 17px;
+      --aurora-quick-label-size: 10px;
+
+      --aurora-nav-top-gap: 7px;
+      --aurora-nav-bottom-gap: 8px;
+      --aurora-nav-radius: 20px;
+      --aurora-nav-chat-size: 50px;
+      --aurora-nav-chat-offset: 21px;
+      --aurora-nav-icon-size: 17px;
+      --aurora-nav-label-size: 10px;
+
+      --aurora-chat-header-py: 9px;
+      --aurora-chat-messages-py: 14px;
+      --aurora-chat-input-px: 10px;
+      --aurora-chat-input-py: 10px;
+      --aurora-chat-composer-radius: 20px;
+      --aurora-chat-composer-pad: 7px;
+      --aurora-chat-control-size: 38px;
+      --aurora-chat-control-icon-size: 17px;
+      --aurora-chat-send-icon-size: 15px;
+      --aurora-chat-input-font-size: 14.5px;
+      --aurora-chat-stack-gap: 9px;
+      --aurora-chat-message-gap: 0.62rem;
+      --aurora-chat-bubble-max: 90%;
+      --aurora-chat-text-size: 14.5px;
+      --aurora-chat-line-height: 1.58;
+
+      --aurora-card-pad: 13px;
+      --aurora-card-pad-elevated: 15px;
+      --aurora-chip-min-h: 34px;
+    }
+  }
+
+  /* iPhone 17 Pro Max class (large 430x932 viewport) */
+  @media (min-width: 430px) and (max-width: 460px) and (min-height: 900px) {
+    :root {
+      --aurora-shell-max: 430px;
+      --aurora-shell-bottom-pad: 118px;
+      --aurora-page-x: 18px;
+      --aurora-page-top: 18px;
+      --aurora-page-bottom: 26px;
+
+      --aurora-header-button-size: 46px;
+
+      --aurora-home-menu-size: 46px;
+      --aurora-home-title-size: 32px;
+      --aurora-home-subtitle-size: 12.5px;
+      --aurora-home-search-overlap: 30px;
+      --aurora-quick-tile-w: 72px;
+      --aurora-quick-icon-size: 46px;
+      --aurora-quick-glyph-size: 19px;
+      --aurora-quick-label-size: 11px;
+
+      --aurora-nav-top-gap: 9px;
+      --aurora-nav-bottom-gap: 11px;
+      --aurora-nav-radius: 24px;
+      --aurora-nav-chat-size: 56px;
+      --aurora-nav-chat-offset: 25px;
+      --aurora-nav-icon-size: 19px;
+      --aurora-nav-label-size: 11px;
+
+      --aurora-chat-header-py: 11px;
+      --aurora-chat-messages-py: 17px;
+      --aurora-chat-input-px: 13px;
+      --aurora-chat-input-py: 13px;
+      --aurora-chat-composer-radius: 24px;
+      --aurora-chat-composer-pad: 9px;
+      --aurora-chat-control-size: 42px;
+      --aurora-chat-control-icon-size: 19px;
+      --aurora-chat-send-icon-size: 16px;
+      --aurora-chat-input-font-size: 15.5px;
+      --aurora-chat-stack-gap: 11px;
+      --aurora-chat-message-gap: 0.8rem;
+      --aurora-chat-bubble-max: 85%;
+      --aurora-chat-text-size: 15.5px;
+      --aurora-chat-line-height: 1.66;
+
+      --aurora-card-pad: 15px;
+      --aurora-card-pad-elevated: 17px;
+      --aurora-chip-min-h: 37px;
+    }
+  }
 }
 
 @layer base {
@@ -127,16 +273,21 @@
 
 @layer components {
   .ios-page {
-    @apply px-4 pb-6 pt-4;
+    padding-left: var(--aurora-page-x);
+    padding-right: var(--aurora-page-x);
+    padding-top: var(--aurora-page-top);
+    padding-bottom: var(--aurora-page-bottom);
   }
 
   .ios-page-header {
     @apply flex items-center justify-between;
-    min-height: 44px;
+    min-height: var(--aurora-header-button-size);
   }
 
   .ios-nav-button {
-    @apply inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border/60 bg-card/80 text-foreground/80 shadow-card active:scale-[0.97];
+    @apply inline-flex items-center justify-center rounded-2xl border border-border/60 bg-card/80 text-foreground/80 shadow-card active:scale-[0.97];
+    height: var(--aurora-header-button-size);
+    width: var(--aurora-header-button-size);
   }
 
   .ios-page-title {
@@ -144,7 +295,8 @@
   }
 
   .ios-header-spacer {
-    @apply h-11 w-11;
+    height: var(--aurora-header-button-size);
+    width: var(--aurora-header-button-size);
   }
 
   .ios-panel {
@@ -174,20 +326,32 @@
 
   /* Aurora Header */
   .chat-header {
-    @apply sticky top-0 z-50 border-b border-border/60 bg-card/80 px-4 py-2.5 backdrop-blur-2xl;
+    @apply sticky top-0 z-50 border-b border-border/60 bg-card/80 backdrop-blur-2xl;
     @apply flex items-center justify-between;
+    padding-left: var(--aurora-page-x);
+    padding-right: var(--aurora-page-x);
+    padding-top: var(--aurora-chat-header-py);
+    padding-bottom: var(--aurora-chat-header-py);
   }
 
   /* Aurora Messages Area */
   .chat-messages {
-    @apply flex-1 overflow-y-auto px-4 py-4;
+    @apply flex-1 overflow-y-auto;
     @apply scroll-smooth;
+    padding-left: var(--aurora-page-x);
+    padding-right: var(--aurora-page-x);
+    padding-top: var(--aurora-chat-messages-py);
+    padding-bottom: var(--aurora-chat-messages-py);
   }
 
   /* Aurora Input Container */
   .chat-input-container {
-    @apply sticky bottom-0 border-t border-border/60 bg-card/95 p-3 backdrop-blur-2xl;
+    @apply sticky bottom-0 border-t border-border/60 bg-card/95 backdrop-blur-2xl;
     @apply safe-area-bottom;
+    padding-left: var(--aurora-page-x);
+    padding-right: var(--aurora-page-x);
+    padding-top: var(--aurora-chat-input-py);
+    padding-bottom: var(--aurora-chat-input-py);
   }
 
   /* Aurora Message Bubbles */
@@ -196,7 +360,7 @@
   }
 
   .chat-message-row + .chat-message-row {
-    margin-top: 0.72rem;
+    margin-top: var(--aurora-chat-message-gap);
   }
 
   .chat-message-row-user {
@@ -208,7 +372,8 @@
   }
 
   .chat-message-stack {
-    @apply flex min-w-0 max-w-[88%] flex-col;
+    @apply flex min-w-0 flex-col;
+    max-width: var(--aurora-chat-bubble-max);
   }
 
   .chat-message-stack-user {
@@ -249,8 +414,8 @@
   }
 
   .chat-rich-text {
-    font-size: 15px;
-    line-height: 1.62;
+    font-size: var(--aurora-chat-text-size);
+    line-height: var(--aurora-chat-line-height);
     letter-spacing: -0.007em;
     word-break: break-word;
     text-wrap: pretty;
@@ -352,18 +517,20 @@
 
   /* Aurora Cards */
   .chat-card {
-    @apply rounded-2xl border border-border/60 bg-card/80 p-3.5;
+    @apply rounded-2xl border border-border/60 bg-card/80;
     @apply animate-scale-in;
+    padding: var(--aurora-card-pad);
   }
 
   .chat-card-elevated {
-    @apply rounded-2xl border border-border/80 bg-card p-4 shadow-elevated;
+    @apply rounded-2xl border border-border/80 bg-card shadow-elevated;
+    padding: var(--aurora-card-pad-elevated);
   }
 
   .chat-card .chip-button,
   .chat-card-elevated .chip-button {
     @apply px-3 py-2 text-[12px];
-    min-height: 36px;
+    min-height: var(--aurora-chip-min-h);
   }
 
   /* Aurora Status Cards */

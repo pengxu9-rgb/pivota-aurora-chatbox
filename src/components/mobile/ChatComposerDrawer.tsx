@@ -104,7 +104,7 @@ export function ChatComposerDrawer({
           'flex flex-col rounded-t-[28px] border border-border/60 bg-card/94 backdrop-blur-2xl',
         )}
       >
-        <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-3">
+        <div className="flex items-center justify-between gap-3 px-[var(--aurora-page-x)] pb-2 pt-3">
           <div className="text-[17px] font-semibold tracking-[-0.02em] text-foreground">Ask Aurora</div>
           <DrawerClose asChild>
             <button
@@ -117,7 +117,7 @@ export function ChatComposerDrawer({
           </DrawerClose>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+        <div className="flex-1 overflow-y-auto px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+12px)]">
           <form
             onSubmit={(e) => {
               e.preventDefault();
