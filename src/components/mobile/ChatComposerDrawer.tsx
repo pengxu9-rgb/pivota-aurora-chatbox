@@ -96,20 +96,20 @@ export function ChatComposerDrawer({
   const canSubmit = query.trim().length > 0;
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
       <DrawerContent
         className={cn(
           'mt-0 h-[calc(100dvh-108px)] max-h-[calc(100dvh-108px)]',
           'sm:h-[92dvh] sm:max-h-[92dvh]',
-          'flex flex-col rounded-t-[28px] border border-border/60 bg-card/94 backdrop-blur-2xl',
+          'flex flex-col rounded-t-[28px] border border-slate-200 bg-white text-slate-900',
         )}
       >
         <div className="flex items-center justify-between gap-3 px-[var(--aurora-page-x)] pb-2 pt-3">
-          <div className="text-[17px] font-semibold tracking-[-0.02em] text-foreground">Ask Aurora</div>
+          <div className="text-[17px] font-semibold tracking-[-0.02em] text-slate-900">Ask Aurora</div>
           <DrawerClose asChild>
             <button
               type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/60 bg-muted/75 text-foreground/80"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600"
               aria-label="Close"
             >
               <X className="h-4 w-4" />
@@ -126,14 +126,14 @@ export function ChatComposerDrawer({
               onStart({ kind: 'query', query: q });
               onOpenChange(false);
             }}
-            className="rounded-[24px] border border-border/60 bg-background/45 p-3 shadow-card"
+            className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-card"
           >
-            <div className="flex items-center gap-2 rounded-2xl border border-border/55 bg-background/75 px-3 py-1.5">
-              <Search className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
+              <Search className="h-4 w-4 text-slate-500" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="h-10 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                className="h-10 flex-1 bg-transparent text-[15px] text-slate-900 outline-none placeholder:text-slate-400"
                 placeholder="Search products, ingredients…"
                 autoFocus
                 inputMode="search"
@@ -152,13 +152,13 @@ export function ChatComposerDrawer({
             </div>
 
             <div className="mt-3">
-              <div className="section-label">Popular concerns</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Popular concerns</div>
               <div className="mt-2 flex flex-wrap gap-2">
                 {POPULAR_CONCERNS.map((c) => (
                   <button
                     key={c}
                     type="button"
-                    className="rounded-full border border-border/60 bg-background/70 px-3 py-1.5 text-[12px] text-foreground/80 hover:bg-background"
+                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-100"
                     onClick={() => setQuery(c)}
                   >
                     {c}
@@ -169,13 +169,13 @@ export function ChatComposerDrawer({
           </form>
 
           <div className="mt-4">
-            <div className="section-label">Quick actions</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Quick actions</div>
             <div className="mt-2 grid grid-cols-2 gap-2.5">
               {QUICK_ACTIONS.map((a) => (
                 <button
                   key={a.id}
                   type="button"
-                  className="group flex items-start gap-3 rounded-2xl border border-border/55 bg-background/45 p-3.5 text-left shadow-card transition hover:shadow-card-hover"
+                  className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-card transition hover:bg-slate-50 hover:shadow-card-hover"
                   onClick={() => {
                     const title = a.title;
                     const chipId = a.intent.chip_id;
@@ -191,8 +191,8 @@ export function ChatComposerDrawer({
                     <a.Icon className="h-[18px] w-[18px]" />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">{a.title}</div>
-                    <div className="mt-0.5 text-[12px] text-muted-foreground">{a.subtitle}</div>
+                    <div className="text-[14px] font-semibold tracking-[-0.01em] text-slate-900">{a.title}</div>
+                    <div className="mt-0.5 text-[12px] text-slate-500">{a.subtitle}</div>
                   </div>
                 </button>
               ))}
@@ -201,23 +201,23 @@ export function ChatComposerDrawer({
 
           {suggestions.length ? (
             <div className="mt-4">
-              <div className="section-label">Suggestions</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Suggestions</div>
               <div className="mt-2 space-y-2">
                 {suggestions.map((it) => (
                   <button
                     key={it.brief_id}
                     type="button"
-                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border/55 bg-background/45 px-4 py-2.5 text-left shadow-card transition hover:shadow-card-hover"
+                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-card transition hover:bg-slate-50 hover:shadow-card-hover"
                     onClick={() => {
                       onStart({ kind: 'query', query: it.title, title: it.title });
                       onOpenChange(false);
                     }}
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-[14px] font-medium text-foreground">{it.title}</div>
-                      <div className="mt-0.5 text-[12px] text-muted-foreground">Tap to ask again</div>
+                      <div className="truncate text-[14px] font-medium text-slate-900">{it.title}</div>
+                      <div className="mt-0.5 text-[12px] text-slate-500">Tap to ask again</div>
                     </div>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <ArrowRight className="h-4 w-4 text-slate-400" />
                   </button>
                 ))}
               </div>
