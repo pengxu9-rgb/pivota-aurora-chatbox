@@ -34,6 +34,12 @@ export type ShopReadyPayload = {
   pathname?: string;
 };
 
+export type ShopRequestClosePayload = {
+  occurred_at: string;
+  reason?: string;
+  pathname?: string;
+};
+
 export type ShopOrderSuccessPayload = {
   order_id: string;
   occurred_at: string;
@@ -45,6 +51,7 @@ export type ShopOrderSuccessPayload = {
 
 export type ShopBridgeMessage =
   | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'ready', ShopReadyPayload>
+  | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'request_close', ShopRequestClosePayload>
   | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'cart_snapshot', ShopCartSnapshot>
   | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'order_success', ShopOrderSuccessPayload>;
 
@@ -69,6 +76,11 @@ export const isShopBridgeMessage = (input: unknown): input is ShopBridgeMessage 
   const payload = (input as any).payload;
 
   if (event === 'ready') {
+    if (!isObject(payload)) return false;
+    return isNonEmptyString(payload.occurred_at);
+  }
+
+  if (event === 'request_close') {
     if (!isObject(payload)) return false;
     return isNonEmptyString(payload.occurred_at);
   }
@@ -102,4 +114,3 @@ export const buildAuroraOpenCartMessage = (): AuroraOpenCartMessage => ({
   event: 'open_cart',
   payload: { occurred_at: new Date().toISOString() },
 });
-

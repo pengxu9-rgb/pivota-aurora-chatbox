@@ -221,6 +221,9 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       if (msg.event === 'ready') {
         setBridgeReady(true);
       }
+      if (msg.event === 'request_close') {
+        closeShop();
+      }
       if (msg.event === 'cart_snapshot') {
         applyCartSnapshot(msg.payload);
       }
@@ -231,7 +234,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [applyCartSnapshot, applyOrderSuccess, shopOrigin]);
+  }, [applyCartSnapshot, applyOrderSuccess, closeShop, shopOrigin]);
 
   const value = useMemo<ShopContextValue>(
     () => ({

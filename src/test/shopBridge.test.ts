@@ -60,6 +60,16 @@ describe('shopBridge', () => {
     expect(isShopBridgeMessage(msg)).toBe(true);
   });
 
+  it('accepts request_close', () => {
+    const msg = {
+      schema_version: SHOP_BRIDGE_SCHEMA_VERSION,
+      kind: SHOP_BRIDGE_KIND,
+      event: 'request_close',
+      payload: { occurred_at: '2026-02-07T00:00:00.000Z', reason: 'user_close' },
+    };
+    expect(isShopBridgeMessage(msg)).toBe(true);
+  });
+
   it('buildAuroraOpenCartMessage returns expected envelope', () => {
     const msg = buildAuroraOpenCartMessage();
     expect(msg.schema_version).toBe(SHOP_BRIDGE_SCHEMA_VERSION);
@@ -68,4 +78,3 @@ describe('shopBridge', () => {
     expect(typeof msg.payload.occurred_at).toBe('string');
   });
 });
-
