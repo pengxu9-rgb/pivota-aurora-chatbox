@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
@@ -59,6 +60,7 @@ import {
   Camera,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   Copy,
   ExternalLink,
   FlaskConical,
@@ -2400,8 +2402,36 @@ export default function BffChat() {
   if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
   const initialLanguage = initialLanguageRef.current;
 
+  const navigate = useNavigate();
+
+  type DeepLinkOpen = 'photo' | 'routine';
+  const initialParams = useMemo(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const openRaw = String(sp.get('open') || '').trim().toLowerCase();
+      return {
+        brief_id: String(sp.get('brief_id') || '').trim(),
+        trace_id: String(sp.get('trace_id') || '').trim(),
+        q: String(sp.get('q') || '').trim(),
+        chip_id: String(sp.get('chip_id') || '').trim(),
+        open: (openRaw === 'photo' || openRaw === 'routine' ? openRaw : null) as DeepLinkOpen | null,
+      };
+    } catch {
+      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null };
+    }
+  }, []);
+
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
-  const [headers, setHeaders] = useState(() => makeDefaultHeaders(initialLanguage));
+  const [headers, setHeaders] = useState(() => {
+    const base = makeDefaultHeaders(initialLanguage);
+    const briefId = initialParams.brief_id;
+    const traceId = initialParams.trace_id;
+    return {
+      ...base,
+      ...(briefId ? { brief_id: briefId.slice(0, 128) } : {}),
+      ...(traceId ? { trace_id: traceId.slice(0, 128) } : {}),
+    };
+  });
   const [sessionState, setSessionState] = useState<string>('idle');
   const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
   const agentStateRef = useRef<AgentState>('IDLE_CHAT');
@@ -2445,6 +2475,7 @@ export default function BffChat() {
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
   const sessionStartedEmittedRef = useRef(false);
   const returnVisitEmittedRef = useRef(false);
+  const initialIntentConsumedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
@@ -2523,6 +2554,25 @@ export default function BffChat() {
     setPdpDrawerSnapPoint(0.6);
     setPdpDrawerOpen(true);
   }, []);
+
+  const pdpDrawerBottomPad = useMemo(() => {
+    // When using `snapPoints`, Vaul translates a full-height drawer downwards to show the "half" state.
+    // If we render an iframe at full height, fixed-position elements inside it (e.g. the PDP Buy bar)
+    // can get clipped because the bottom part of the iframe sits below the viewport.
+    // Padding-bottom equal to the offscreen portion forces the iframe to fit within the visible area.
+    const snap =
+      typeof pdpDrawerSnapPoint === 'number'
+        ? pdpDrawerSnapPoint
+        : pdpDrawerSnapPoint != null
+          ? Number(pdpDrawerSnapPoint)
+          : NaN;
+    if (!Number.isFinite(snap)) return '0px';
+    if (snap >= 0.98) return '0px';
+    const offscreen = Math.max(0, 1 - snap);
+    // Keep string stable and readable (e.g. "40dvh").
+    const dvh = Math.round(offscreen * 1000) / 10;
+    return `${dvh}dvh`;
+  }, [pdpDrawerSnapPoint]);
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
     setError(null);
@@ -3775,9 +3825,10 @@ export default function BffChat() {
     [applyEnvelope, getSanitizedAnalysisPhotos, headers, language, tryApplyEnvelopeFromBffError],
   );
 
-  const onSubmit = useCallback(async () => {
-    const msg = input.trim();
-    if (!msg) return;
+  const submitText = useCallback(
+    async (raw: string) => {
+      const msg = String(raw || '').trim();
+      if (!msg) return;
     const isTextExplicitQuickProfile = (() => {
       const t = msg.trim().toLowerCase();
       if (!t) return false;
@@ -3856,7 +3907,13 @@ export default function BffChat() {
     setInput('');
 
     await sendChat(msg);
-  }, [agentState, headers, input, language, sendChat]);
+    },
+    [agentState, headers, language, sendChat, setAgentStateSafe],
+  );
+
+  const onSubmit = useCallback(async () => {
+    await submitText(input);
+  }, [input, submitText]);
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
@@ -4089,6 +4146,80 @@ export default function BffChat() {
     [agentState, bootstrapInfo?.profile, headers, language, quickProfileBusy, quickProfileDraft, runLowConfidenceSkinAnalysis, sendChat]
   );
 
+  const deepLinkChip = useCallback(
+    (chipId: string): SuggestedChip => {
+      const id = String(chipId || '').trim();
+      const isCN = language === 'CN';
+      const labelMap: Record<string, { EN: string; CN: string }> = {
+        chip_quick_profile: { EN: '30-sec quick profile', CN: '30秒快速画像' },
+        'chip.start.diagnosis': { EN: 'Start skin diagnosis', CN: '开始皮肤诊断' },
+        chip_start_diagnosis: { EN: 'Start skin diagnosis', CN: '开始皮肤诊断' },
+        'chip.start.evaluate': { EN: 'Evaluate a product', CN: '评估某个产品' },
+        chip_eval_single_product: { EN: 'Evaluate a product', CN: '评估某个产品' },
+        'chip.start.reco_products': { EN: 'Recommend products', CN: '产品推荐' },
+        chip_get_recos: { EN: 'Recommend products', CN: '产品推荐' },
+        'chip.start.routine': { EN: 'Build an AM/PM routine', CN: '生成早晚护肤 routine' },
+        'chip.start.dupes': { EN: 'Find dupes / alternatives', CN: '找平替/替代品' },
+        'chip.start.ingredients': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
+      };
+
+      const label = (labelMap[id]?.[isCN ? 'CN' : 'EN'] ?? id).slice(0, 80);
+      return {
+        chip_id: id,
+        label,
+        kind: 'quick_reply',
+        data: { reply_text: label, trigger_source: 'deeplink' },
+      };
+    },
+    [language],
+  );
+
+  useEffect(() => {
+    if (!hasBootstrapped) return;
+    if (initialIntentConsumedRef.current) return;
+
+    const hasIntent = Boolean(initialParams.q || initialParams.chip_id || initialParams.open);
+    if (!hasIntent) return;
+    initialIntentConsumedRef.current = true;
+
+    if (initialParams.open === 'photo') {
+      setPromptRoutineAfterPhoto(false);
+      setPhotoSheetOpen(true);
+    }
+    if (initialParams.open === 'routine') {
+      setRoutineDraft(makeEmptyRoutineDraft());
+      setRoutineTab('am');
+      setRoutineSheetOpen(true);
+    }
+
+    const run = async () => {
+      if (initialParams.chip_id) {
+        await onChip(deepLinkChip(initialParams.chip_id));
+        return;
+      }
+      if (initialParams.q) {
+        await submitText(initialParams.q);
+      }
+    };
+    void run();
+
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      let changed = false;
+      for (const k of ['q', 'chip_id', 'open']) {
+        if (!sp.has(k)) continue;
+        sp.delete(k);
+        changed = true;
+      }
+      if (changed) {
+        const next = sp.toString();
+        navigate({ pathname: '/chat', search: next ? `?${next}` : '' }, { replace: true });
+      }
+    } catch {
+      // ignore
+    }
+  }, [deepLinkChip, hasBootstrapped, initialParams, navigate, onChip, submitText]);
+
   const switchLanguage = useCallback(
     (next: UiLanguage) => {
       if (next === language) return;
@@ -4173,7 +4304,15 @@ export default function BffChat() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+            onClick={() => navigate('/')}
+            aria-label={language === 'CN' ? '返回' : 'Back'}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
           <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 shadow-lg">
             <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/20" />
             <span className="relative z-10 text-base font-semibold text-white">A</span>
@@ -5136,12 +5275,15 @@ export default function BffChat() {
             setPdpDrawerSnapPoint(0.6);
           }
         }}
-        snapPoints={[0.6, 0.95]}
+        snapPoints={[0.6, 1]}
         activeSnapPoint={pdpDrawerSnapPoint}
         setActiveSnapPoint={setPdpDrawerSnapPoint}
         fadeFromIndex={0}
       >
-        <DrawerContent className="mt-0 h-[100dvh] max-h-[100dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl">
+        <DrawerContent
+          className="mt-0 h-[100dvh] max-h-[100dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl"
+          style={{ paddingBottom: pdpDrawerBottomPad }}
+        >
           <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
             <div className="text-sm font-semibold text-foreground">
               {pdpDrawerTitle || (language === 'CN' ? '商品详情' : 'Product details')}
