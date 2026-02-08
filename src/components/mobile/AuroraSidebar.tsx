@@ -1,10 +1,11 @@
 import React from 'react';
-import { CalendarDays, Clock, Compass, Heart, HelpCircle, Home, LogIn, Sparkles, User } from 'lucide-react';
+import { CalendarDays, Clock, Compass, Home, Package, ShoppingCart, Sparkles, User } from 'lucide-react';
 
 import { NavLink } from '@/components/NavLink';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import type { ChatHistoryItem } from '@/lib/chatHistory';
 import { cn } from '@/lib/utils';
+import { useShop } from '@/contexts/shop';
 
 export function AuroraSidebar({
   open,
@@ -17,6 +18,9 @@ export function AuroraSidebar({
   history: ChatHistoryItem[];
   onOpenChat: (briefId: string) => void;
 }) {
+  const shop = useShop();
+  const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[86vw] max-w-sm p-0 [&>button]:hidden">
@@ -39,11 +43,27 @@ export function AuroraSidebar({
             <SideLink to="/" label="Home" Icon={Home} end onNavigate={() => onOpenChange(false)} />
             <SideLink to="/routine" label="My Routine" Icon={Sparkles} end onNavigate={() => onOpenChange(false)} />
             <SideLink to="/plans" label="Plans" Icon={CalendarDays} end onNavigate={() => onOpenChange(false)} />
-            <SideLink to="/favorites" label="Favorites" Icon={Heart} end onNavigate={() => onOpenChange(false)} disabled />
             <SideLink to="/explore" label="Explore" Icon={Compass} end onNavigate={() => onOpenChange(false)} />
-            <SideLink to="/help" label="Help Center" Icon={HelpCircle} end onNavigate={() => onOpenChange(false)} disabled />
             <SideLink to="/profile" label="Profile" Icon={User} end onNavigate={() => onOpenChange(false)} />
-            <SideLink to="/chat?open=auth" label="Account" Icon={LogIn} end={false} onNavigate={() => onOpenChange(false)} />
+
+            <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Shop</div>
+            <SideAction
+              label="Cart"
+              Icon={ShoppingCart}
+              badge={cartCount ? String(cartCount) : null}
+              onClick={() => {
+                onOpenChange(false);
+                shop.openCart();
+              }}
+            />
+            <SideAction
+              label="Orders"
+              Icon={Package}
+              onClick={() => {
+                onOpenChange(false);
+                shop.openOrders();
+              }}
+            />
           </div>
 
           <div className="px-4 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent</div>
@@ -122,5 +142,35 @@ function SideLink({
       <Icon className="h-5 w-5" />
       <span>{label}</span>
     </NavLink>
+  );
+}
+
+function SideAction({
+  label,
+  Icon,
+  badge,
+  onClick,
+}: {
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  badge?: string | null;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm transition',
+        'text-foreground hover:bg-muted/50',
+      )}
+      onClick={onClick}
+      aria-label={label}
+    >
+      <Icon className="h-5 w-5" />
+      <span className="flex-1 text-left">{label}</span>
+      {badge ? (
+        <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">{badge}</span>
+      ) : null}
+    </button>
   );
 }

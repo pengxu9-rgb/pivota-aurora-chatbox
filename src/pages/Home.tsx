@@ -1,17 +1,13 @@
 import React from 'react';
-import { Activity, Beaker, CalendarDays, Camera, Compass, Copy, FlaskConical, Menu, MessageCircle, Package, Search, ShoppingCart, Sparkles, Workflow } from 'lucide-react';
+import { Activity, Beaker, CalendarDays, Camera, Compass, Copy, FlaskConical, Menu, MessageCircle, Search, Sparkles, Workflow } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { cn } from '@/lib/utils';
-import { useShop } from '@/contexts/shop';
 
 export default function Home() {
   const { openSidebar, openComposer, startChat } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
-  const shop = useShop();
-  const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
-  const lastOrder = shop.recent_orders?.[0] || null;
 
   return (
     <div className="pb-6">
@@ -115,18 +111,6 @@ export default function Home() {
             label="Check-in"
             Icon={Activity}
             onClick={() => startChat({ kind: 'chip', title: 'Check-in', chip_id: 'chip_checkin_now' })}
-          />
-          <QuickActionIcon
-            label="Cart"
-            Icon={ShoppingCart}
-            badge={cartCount ? String(cartCount) : null}
-            onClick={() => shop.openCart()}
-          />
-          <QuickActionIcon
-            label="Orders"
-            Icon={Package}
-            badge={lastOrder ? '1' : null}
-            onClick={() => shop.openOrders()}
           />
         </div>
       </div>
