@@ -59,6 +59,32 @@ export function AuroraCartPreviewDrawer({
   const updatedAt = useMemo(() => formatUpdatedAt(shop.cart?.updated_at ?? null), [shop.cart?.updated_at]);
 
   const onCheckout = () => {
+    const orderItems = items.map((it) => ({
+      product_id: it.product_id || it.id,
+      variant_id: it.variant_id || it.product_id || it.id,
+      sku: it.sku,
+      merchant_id: it.merchant_id,
+      offer_id: it.offer_id,
+      title: it.title,
+      quantity: Math.max(1, Number(it.quantity) || 1),
+      unit_price: Number(it.price) || 0,
+      currency: it.currency,
+      image_url: it.image_url,
+    }));
+    if (!orderItems.length) return;
+    const sp = new URLSearchParams();
+    sp.set('items', JSON.stringify(orderItems));
+    if (typeof window !== 'undefined') {
+      sp.set('return', window.location.href);
+    }
+    onOpenChange(false);
+    shop.openShop({
+      url: `/order?${sp.toString()}`,
+      title: language === 'CN' ? '结账' : 'Checkout',
+    });
+  };
+
+  const onEditCart = () => {
     onOpenChange(false);
     shop.openCart();
   };
@@ -144,7 +170,7 @@ export function AuroraCartPreviewDrawer({
                 })}
                 {items.length > 20 ? (
                   <div className="rounded-2xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                    {language === 'CN' ? '仅展示前 20 个商品。点击「去结账」查看完整购物车。' : 'Showing the first 20 items. Tap “Checkout” to view the full cart.'}
+                    {language === 'CN' ? '仅展示前 20 个商品。点击「编辑购物车」查看完整商品列表。' : 'Showing the first 20 items. Tap “Edit cart” to view the full list.'}
                   </div>
                 ) : null}
               </div>
@@ -176,7 +202,16 @@ export function AuroraCartPreviewDrawer({
               disabled={!itemCount}
               onClick={onCheckout}
             >
-              {language === 'CN' ? '去结账 / 编辑购物车' : 'Checkout / Edit cart'}
+              {language === 'CN' ? '直接去结账' : 'Checkout now'}
+            </button>
+
+            <button
+              type="button"
+              className="mt-2 inline-flex h-12 w-full items-center justify-center rounded-2xl border border-border/60 bg-muted/40 text-sm font-semibold text-foreground/80"
+              onClick={onEditCart}
+              disabled={!itemCount}
+            >
+              {language === 'CN' ? '编辑购物车' : 'Edit cart'}
             </button>
 
             <button

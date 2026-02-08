@@ -48,6 +48,10 @@ const normalizeShopUrl = (args: { url: string; shopBaseUrl: string; auroraUid: s
   if (!u.searchParams.get('embed')) u.searchParams.set('embed', '1');
   if (!u.searchParams.get('lang')) u.searchParams.set('lang', args.lang);
   if (!u.searchParams.get('aurora_uid')) u.searchParams.set('aurora_uid', args.auroraUid);
+  if (!u.searchParams.get('parent_origin') && typeof window !== 'undefined') {
+    const parentOrigin = safeParseUrl(window.location.origin)?.origin ?? null;
+    if (parentOrigin) u.searchParams.set('parent_origin', parentOrigin);
+  }
 
   return u.toString();
 };
