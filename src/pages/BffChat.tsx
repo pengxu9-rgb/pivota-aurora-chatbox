@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
@@ -2404,29 +2404,34 @@ export default function BffChat() {
   const initialLanguage = initialLanguageRef.current;
 
   const navigate = useNavigate();
+  const location = useLocation();
 
-  type DeepLinkOpen = 'photo' | 'routine';
-  const initialParams = useMemo(() => {
+  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'profile' | 'checkin';
+  const searchParams = useMemo(() => {
     try {
-      const sp = new URLSearchParams(window.location.search);
+      const sp = new URLSearchParams(location.search);
       const openRaw = String(sp.get('open') || '').trim().toLowerCase();
       return {
         brief_id: String(sp.get('brief_id') || '').trim(),
         trace_id: String(sp.get('trace_id') || '').trim(),
         q: String(sp.get('q') || '').trim(),
         chip_id: String(sp.get('chip_id') || '').trim(),
-        open: (openRaw === 'photo' || openRaw === 'routine' ? openRaw : null) as DeepLinkOpen | null,
+        open: (
+          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'profile' || openRaw === 'checkin'
+            ? openRaw
+            : null
+        ) as DeepLinkOpen | null,
       };
     } catch {
       return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null };
     }
-  }, []);
+  }, [location.search]);
 
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [headers, setHeaders] = useState(() => {
     const base = makeDefaultHeaders(initialLanguage);
-    const briefId = initialParams.brief_id;
-    const traceId = initialParams.trace_id;
+    const briefId = searchParams.brief_id;
+    const traceId = searchParams.trace_id;
     return {
       ...base,
       ...(briefId ? { brief_id: briefId.slice(0, 128) } : {}),
@@ -2476,7 +2481,7 @@ export default function BffChat() {
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
   const sessionStartedEmittedRef = useRef(false);
   const returnVisitEmittedRef = useRef(false);
-  const initialIntentConsumedRef = useRef(false);
+  const intentConsumedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
@@ -4155,30 +4160,90 @@ export default function BffChat() {
   );
 
   useEffect(() => {
+    const nextBriefId = String(searchParams.brief_id || '').trim();
+    if (!nextBriefId) return;
+    if (nextBriefId === headers.brief_id) return;
+
+    const nextTraceId = String(searchParams.trace_id || '').trim() || makeDefaultHeaders(language).trace_id;
+
+    setError(null);
+    setSessionState('idle');
+    setAgentStateSafe('IDLE_CHAT');
+    setQuickProfileStep('skin_feel');
+    setQuickProfileDraft({});
+    setQuickProfileBusy(false);
+    setItems([]);
+    setAnalysisPhotoRefs([]);
+    setSessionPhotos({});
+    setBootstrapInfo(null);
+    pendingActionAfterDiagnosisRef.current = null;
+    sessionStartedEmittedRef.current = false;
+    returnVisitEmittedRef.current = false;
+    intentConsumedRef.current = null;
+
+    setProfileSheetOpen(false);
+    setCheckinSheetOpen(false);
+    setPhotoSheetOpen(false);
+    setRoutineSheetOpen(false);
+    setProductSheetOpen(false);
+    setDupeSheetOpen(false);
+    setAuthSheetOpen(false);
+
+    setHasBootstrapped(false);
+    setHeaders((prev) => ({
+      ...prev,
+      brief_id: nextBriefId.slice(0, 128),
+      trace_id: nextTraceId.slice(0, 128),
+    }));
+  }, [headers.brief_id, language, searchParams.brief_id, searchParams.trace_id, setAgentStateSafe]);
+
+  useEffect(() => {
     if (!hasBootstrapped) return;
-    if (initialIntentConsumedRef.current) return;
-
-    const hasIntent = Boolean(initialParams.q || initialParams.chip_id || initialParams.open);
+    if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id) return;
+    const hasIntent = Boolean(searchParams.q || searchParams.chip_id || searchParams.open);
     if (!hasIntent) return;
-    initialIntentConsumedRef.current = true;
+    const sig = [
+      searchParams.brief_id,
+      searchParams.trace_id,
+      searchParams.q,
+      searchParams.chip_id,
+      searchParams.open,
+    ]
+      .map((v) => String(v || ''))
+      .join('|');
+    if (intentConsumedRef.current === sig) return;
+    intentConsumedRef.current = sig;
 
-    if (initialParams.open === 'photo') {
+    if (searchParams.open === 'photo') {
       setPromptRoutineAfterPhoto(false);
       setPhotoSheetOpen(true);
     }
-    if (initialParams.open === 'routine') {
+    if (searchParams.open === 'routine') {
       setRoutineDraft(makeEmptyRoutineDraft());
       setRoutineTab('am');
       setRoutineSheetOpen(true);
     }
+    if (searchParams.open === 'profile') {
+      setProfileSheetOpen(true);
+    }
+    if (searchParams.open === 'checkin') {
+      setCheckinSheetOpen(true);
+    }
+    if (searchParams.open === 'auth') {
+      setAuthError(null);
+      setAuthNotice(null);
+      setAuthStage('email');
+      setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
+      setAuthSheetOpen(true);
+    }
 
     const run = async () => {
-      if (initialParams.chip_id) {
-        await onChip(deepLinkChip(initialParams.chip_id));
+      if (searchParams.chip_id) {
+        await onChip(deepLinkChip(searchParams.chip_id));
         return;
       }
-      if (initialParams.q) {
-        await submitText(initialParams.q);
+      if (searchParams.q) {
+        await submitText(searchParams.q);
       }
     };
     void run();
@@ -4191,6 +4256,14 @@ export default function BffChat() {
         sp.delete(k);
         changed = true;
       }
+      if (!sp.get('brief_id') && headers.brief_id) {
+        sp.set('brief_id', headers.brief_id);
+        changed = true;
+      }
+      if (!sp.get('trace_id') && headers.trace_id) {
+        sp.set('trace_id', headers.trace_id);
+        changed = true;
+      }
       if (changed) {
         const next = sp.toString();
         navigate({ pathname: '/chat', search: next ? `?${next}` : '' }, { replace: true });
@@ -4198,7 +4271,7 @@ export default function BffChat() {
     } catch {
       // ignore
     }
-  }, [deepLinkChip, hasBootstrapped, initialParams, navigate, onChip, submitText]);
+  }, [deepLinkChip, hasBootstrapped, headers.brief_id, headers.trace_id, navigate, onChip, searchParams, submitText]);
 
   const switchLanguage = useCallback(
     (next: UiLanguage) => {
