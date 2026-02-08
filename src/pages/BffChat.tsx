@@ -2780,9 +2780,13 @@ export default function BffChat() {
     setItems([]);
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
+    setBootstrapInfo(null);
+    pendingActionAfterDiagnosisRef.current = null;
+    sessionStartedEmittedRef.current = false;
+    returnVisitEmittedRef.current = false;
+    intentConsumedRef.current = null;
     setHasBootstrapped(false);
-    void bootstrap();
-  }, [bootstrap, setAgentStateSafe]);
+  }, [setAgentStateSafe]);
 
   useEffect(() => {
     if (!hasBootstrapped) return;
@@ -2792,10 +2796,15 @@ export default function BffChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language]);
 
+  const bootstrappingRef = useRef(false);
   useEffect(() => {
-    bootstrap();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (hasBootstrapped) return;
+    if (bootstrappingRef.current) return;
+    bootstrappingRef.current = true;
+    bootstrap().finally(() => {
+      bootstrappingRef.current = false;
+    });
+  }, [bootstrap, hasBootstrapped]);
 
   useEffect(() => {
     if (!profileSheetOpen) return;
