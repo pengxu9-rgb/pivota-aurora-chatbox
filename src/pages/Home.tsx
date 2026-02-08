@@ -66,9 +66,9 @@ export default function Home() {
           )}
           aria-label="Open chat composer"
         >
-          <Search className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)] text-muted-foreground" />
+          <Sparkles className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)] text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[15px] text-muted-foreground">Search products, ingredients...</div>
+            <div className="truncate text-[15px] text-muted-foreground">Ask Aurora anything...</div>
           </div>
           <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
             <MessageCircle className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />

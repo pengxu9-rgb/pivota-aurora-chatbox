@@ -134,7 +134,7 @@ export function ChatComposerDrawer({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="h-10 flex-1 bg-transparent text-[15px] text-slate-900 outline-none placeholder:text-slate-400"
-                placeholder="Search products, ingredients…"
+                placeholder="Ask Aurora anything…"
                 autoFocus
                 inputMode="search"
               />
@@ -145,7 +145,7 @@ export function ChatComposerDrawer({
                   canSubmit ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
                 )}
                 disabled={!canSubmit}
-                aria-label="Search"
+                aria-label="Ask"
               >
                 <ArrowRight className="h-4 w-4" />
               </button>

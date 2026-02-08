@@ -14,6 +14,7 @@ import { AuroraLoadingCard, type AuroraLoadingIntent } from '@/components/aurora
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
 import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
+import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
@@ -423,6 +424,7 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
   if (key === 'product_parse') return language === 'CN' ? '产品解析' : 'Product parse';
   if (key === 'product_analysis') return language === 'CN' ? '单品评估（Deep Scan）' : 'Product deep scan';
+  if (key === 'dupe_suggest') return language === 'CN' ? '平替与对标' : 'Dupes + comparables';
   if (key === 'dupe_compare') return language === 'CN' ? '平替对比（Tradeoffs）' : 'Dupe compare (tradeoffs)';
   if (key === 'routine_simulation') return language === 'CN' ? '兼容性测试' : 'Compatibility test';
   if (key === 'offers_resolved') return language === 'CN' ? '购买渠道/Offer' : 'Offers';
@@ -866,11 +868,13 @@ function Sheet({
   open,
   title,
   onClose,
+  onOpenMenu,
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  onOpenMenu?: () => void;
   children: React.ReactNode;
 }) {
   if (!open) return null;
@@ -884,7 +888,21 @@ function Sheet({
       <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-[var(--aurora-shell-max)] overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
         <div className="flex max-h-[85vh] max-h-[85dvh] flex-col">
           <div className="flex items-center justify-between px-[var(--aurora-page-x)] pb-3 pt-4">
-            <div className="text-sm font-semibold text-foreground">{title}</div>
+            <div className="flex items-center gap-2">
+              {onOpenMenu ? (
+                <button
+                  type="button"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+                  onClick={() => {
+                    onOpenMenu();
+                  }}
+                  aria-label="Open menu"
+                >
+                  <Menu className="h-4 w-4" />
+                </button>
+              ) : null}
+              <div className="text-sm font-semibold text-foreground">{title}</div>
+            </div>
             <button
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
               onClick={onClose}
@@ -2280,6 +2298,22 @@ function BffCardView({
         );
       })() : null}
 
+      {cardType === 'dupe_suggest' ? (() => {
+        const originalRaw = asObject((payload as any).original) || asObject((payload as any).anchor_product) || null;
+        const dupes = asArray((payload as any).dupes).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+        const comparables = asArray((payload as any).comparables).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+
+        return (
+          <DupeSuggestCard
+            original={originalRaw}
+            dupes={dupes as any}
+            comparables={comparables as any}
+            language={language}
+            onCompare={({ original, dupe }) => onAction('dupe_compare', { original, dupe })}
+          />
+        );
+      })() : null}
+
       {cardType === 'dupe_compare' ? (() => {
         const originalRaw = asObject((payload as any).original) || asObject((payload as any).original_product) || asObject((payload as any).originalProduct);
         const dupeRaw = asObject((payload as any).dupe) || asObject((payload as any).dupe_product) || asObject((payload as any).dupeProduct);
@@ -3330,20 +3364,26 @@ export default function BffChat() {
           content: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
         },
       ]);
+      setIsLoading(true);
+      setLoadingIntent('default');
       setError(null);
 
-      const prompt =
-        language === 'CN'
-          ? `帮我给这款产品找平替和同类对标：${originalText}\n\n请给 5 个选项（3 个更便宜平替 + 2 个同类对标/升级），每个包含：为什么像、主要成分差异、潜在刺激点、适合人群；尽量给美国可买渠道/价格区间。`
-          : `Find dupes and comparable alternatives for: ${originalText}\n\nReturn 5 options (3 cheaper dupes + 2 comparables/premium). For each: why it's similar, key ingredient differences, irritation risks, and who it's for. Prefer widely-available US options and include approximate price ranges / where to buy when possible.`;
-
-      await sendChat(undefined, {
-        action_id: 'chip.start.dupes',
-        kind: 'chip',
-        data: { reply_text: prompt, trigger_source: 'dupe_sheet', original: originalText },
-      });
+      try {
+        const requestHeaders = { ...headers, lang: language };
+        const asUrl = parseMaybeUrl(originalText);
+        const env = await bffJson<V1Envelope>('/v1/dupe/suggest', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(asUrl ? { original_url: asUrl } : { original_text: originalText }),
+        });
+        applyEnvelope(env);
+      } catch (err) {
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsLoading(false);
+        setLoadingIntent('default');
+      }
     },
-    [language, sendChat],
+    [applyEnvelope, headers, language, parseMaybeUrl],
   );
 
   const onCardAction = useCallback(
@@ -3403,6 +3443,46 @@ export default function BffChat() {
 
         if (pending) {
           await sendChat(undefined, pending);
+        }
+        return;
+      }
+
+      if (actionId === 'dupe_compare') {
+        const original = data?.original && typeof data.original === 'object' ? data.original : null;
+        const dupe = data?.dupe && typeof data.dupe === 'object' ? data.dupe : null;
+        if (!original || !dupe) return;
+
+        const dupeName =
+          typeof (dupe as any)?.display_name === 'string'
+            ? String((dupe as any).display_name).trim()
+            : typeof (dupe as any)?.name === 'string'
+              ? String((dupe as any).name).trim()
+              : '';
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? `对比：${dupeName || '平替'}` : `Compare: ${dupeName || 'dupe'}`,
+          },
+        ]);
+
+        setIsLoading(true);
+        setLoadingIntent('default');
+        setError(null);
+        try {
+          const requestHeaders = { ...headers, lang: language };
+          const env = await bffJson<V1Envelope>('/v1/dupe/compare', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify({ original, dupe }),
+          });
+          applyEnvelope(env);
+        } catch (err) {
+          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setIsLoading(false);
+          setLoadingIntent('default');
         }
         return;
       }
@@ -4408,6 +4488,10 @@ export default function BffChat() {
             open={authSheetOpen}
             title={language === 'CN' ? '登录 / 账户' : 'Sign in / Account'}
             onClose={() => setAuthSheetOpen(false)}
+            onOpenMenu={() => {
+              setAuthSheetOpen(false);
+              setSidebarOpen(true);
+            }}
           >
             <div className="space-y-3">
               {authSession ? (
@@ -4603,6 +4687,12 @@ export default function BffChat() {
               setPhotoSheetOpen(false);
               setPromptRoutineAfterPhoto(false);
             }}
+            onOpenMenu={() => {
+              if (isLoading || photoUploading) return;
+              setPhotoSheetOpen(false);
+              setPromptRoutineAfterPhoto(false);
+              setSidebarOpen(true);
+            }}
           >
             <PhotoUploadCard language={language} onAction={onPhotoAction} uploading={photoUploading} />
           </Sheet>
@@ -4610,6 +4700,10 @@ export default function BffChat() {
             open={routineSheetOpen}
             title={language === 'CN' ? '填写你在用的 AM/PM 产品（更准）' : 'Add your AM/PM products (more accurate)'}
             onClose={() => setRoutineSheetOpen(false)}
+            onOpenMenu={() => {
+              setRoutineSheetOpen(false);
+              setSidebarOpen(true);
+            }}
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
@@ -4801,6 +4895,10 @@ export default function BffChat() {
             open={productSheetOpen}
             title={language === 'CN' ? '单品评估（Deep Scan）' : 'Product deep scan'}
             onClose={() => setProductSheetOpen(false)}
+            onOpenMenu={() => {
+              setProductSheetOpen(false);
+              setSidebarOpen(true);
+            }}
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
@@ -4838,6 +4936,10 @@ export default function BffChat() {
             open={dupeSheetOpen}
             title={language === 'CN' ? '找平替 / 同类对标' : 'Find dupes'}
             onClose={() => setDupeSheetOpen(false)}
+            onOpenMenu={() => {
+              setDupeSheetOpen(false);
+              setSidebarOpen(true);
+            }}
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
@@ -4885,6 +4987,10 @@ export default function BffChat() {
             open={profileSheetOpen}
             title={language === 'CN' ? '编辑肤况资料' : 'Edit profile'}
             onClose={() => setProfileSheetOpen(false)}
+            onOpenMenu={() => {
+              setProfileSheetOpen(false);
+              setSidebarOpen(true);
+            }}
           >
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -5015,6 +5121,10 @@ export default function BffChat() {
             open={checkinSheetOpen}
             title={language === 'CN' ? '今日打卡' : 'Daily check-in'}
             onClose={() => setCheckinSheetOpen(false)}
+            onOpenMenu={() => {
+              setCheckinSheetOpen(false);
+              setSidebarOpen(true);
+            }}
           >
             <div className="space-y-4">
               {(
