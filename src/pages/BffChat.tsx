@@ -768,6 +768,14 @@ type BootstrapInfo = {
   db_ready: boolean | null;
 };
 
+type BootstrapInfoPatch = {
+  profile?: Record<string, unknown> | null;
+  recent_logs?: Array<Record<string, unknown>>;
+  checkin_due?: boolean | null;
+  is_returning?: boolean | null;
+  db_ready?: boolean | null;
+};
+
 const profileRecoCompleteness = (profile: Record<string, unknown> | null | undefined) => {
   const p = profile ?? {};
   const goals = (p as any).goals;
@@ -784,20 +792,66 @@ const profileRecoCompleteness = (profile: Record<string, unknown> | null | undef
   return { score, missing };
 };
 
-const readBootstrapInfo = (env: V1Envelope): BootstrapInfo | null => {
+const readBootstrapInfoFromSessionBootstrapCard = (env: V1Envelope): BootstrapInfoPatch | null => {
+  const cards = Array.isArray(env.cards) ? env.cards : [];
+  const bootstrapCard = cards.find((c) => String((c as any)?.type || '').trim() === 'session_bootstrap');
+  const payload = bootstrapCard?.payload;
+  const p = asObject(payload);
+  if (!p) return null;
+
+  const patch: BootstrapInfoPatch = {};
+  if (Object.prototype.hasOwnProperty.call(p, 'profile')) {
+    const rawProfile = (p as any).profile;
+    patch.profile = asObject(rawProfile) ?? (rawProfile == null ? null : null);
+  }
+  if (Object.prototype.hasOwnProperty.call(p, 'recent_logs')) {
+    patch.recent_logs = asArray((p as any).recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+  }
+  if (Object.prototype.hasOwnProperty.call(p, 'checkin_due')) {
+    patch.checkin_due = typeof (p as any).checkin_due === 'boolean' ? (p as any).checkin_due : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(p, 'is_returning')) {
+    patch.is_returning = typeof (p as any).is_returning === 'boolean' ? (p as any).is_returning : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(p, 'db_ready')) {
+    patch.db_ready = typeof (p as any).db_ready === 'boolean' ? (p as any).db_ready : null;
+  }
+
+  return patch;
+};
+
+const readBootstrapInfoFromSessionPatch = (env: V1Envelope): BootstrapInfoPatch | null => {
   const patch = env.session_patch && typeof env.session_patch === 'object' ? (env.session_patch as Record<string, unknown>) : null;
   if (!patch) return null;
-  const profile = asObject(patch.profile);
-  const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-  const checkinDue = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
-  const isReturning = typeof patch.is_returning === 'boolean' ? patch.is_returning : null;
-  return {
-    profile: profile ?? null,
-    recent_logs: recentLogs,
-    checkin_due: checkinDue,
-    is_returning: isReturning,
-    db_ready: typeof patch.db_ready === 'boolean' ? patch.db_ready : null,
-  };
+
+  const out: BootstrapInfoPatch = {};
+  if (Object.prototype.hasOwnProperty.call(patch, 'profile')) out.profile = asObject(patch.profile) ?? (patch.profile == null ? null : null);
+  if (Object.prototype.hasOwnProperty.call(patch, 'recent_logs'))
+    out.recent_logs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+  if (Object.prototype.hasOwnProperty.call(patch, 'checkin_due')) out.checkin_due = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
+  if (Object.prototype.hasOwnProperty.call(patch, 'is_returning')) out.is_returning = typeof patch.is_returning === 'boolean' ? patch.is_returning : null;
+  if (Object.prototype.hasOwnProperty.call(patch, 'db_ready')) out.db_ready = typeof patch.db_ready === 'boolean' ? patch.db_ready : null;
+
+  return out;
+};
+
+const readBootstrapInfo = (env: V1Envelope): BootstrapInfo | null => {
+  const cardPatch = readBootstrapInfoFromSessionBootstrapCard(env);
+  const sessionPatch = readBootstrapInfoFromSessionPatch(env);
+
+  if (!cardPatch && !sessionPatch) return null;
+
+  const merged: BootstrapInfo = { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+  const patches = [cardPatch, sessionPatch].filter(Boolean) as BootstrapInfoPatch[];
+  for (const patch of patches) {
+    if ('profile' in patch) merged.profile = patch.profile ?? null;
+    if ('recent_logs' in patch) merged.recent_logs = patch.recent_logs ?? [];
+    if ('checkin_due' in patch) merged.checkin_due = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
+    if ('is_returning' in patch) merged.is_returning = typeof patch.is_returning === 'boolean' ? patch.is_returning : null;
+    if ('db_ready' in patch) merged.db_ready = typeof patch.db_ready === 'boolean' ? patch.db_ready : null;
+  }
+
+  return merged;
 };
 
 function Sheet({
