@@ -46,24 +46,39 @@ export default function MobileShell() {
   const startChat = useCallback(
     (intent: ChatStartIntent) => {
       const lang = toUiLang();
-      const headers = makeDefaultHeaders(lang);
-      const briefId = headers.brief_id;
-      const title = (() => {
-        if (intent.kind === 'chip' || intent.kind === 'open') return String(intent.title || '').trim() || 'New chat';
-        return String(intent.title || intent.query || '').trim().slice(0, 64) || 'New chat';
-      })();
-      upsertChatHistoryItem({ brief_id: briefId, title });
-      setHistory(loadChatHistory());
-
       const sp = new URLSearchParams();
-      sp.set('brief_id', briefId);
-      sp.set('trace_id', headers.trace_id);
-      if (intent.kind === 'query') sp.set('q', intent.query);
-      if (intent.kind === 'chip') sp.set('chip_id', intent.chip_id);
-      if (intent.kind === 'chip' && intent.open) sp.set('open', intent.open);
-      if (intent.kind === 'open') sp.set('open', intent.open);
+      let search = '';
 
-      navigate({ pathname: '/chat', search: `?${sp.toString()}` });
+      try {
+        const headers = makeDefaultHeaders(lang);
+        const briefId = headers.brief_id;
+
+        sp.set('brief_id', briefId);
+        sp.set('trace_id', headers.trace_id);
+        if (intent.kind === 'query') sp.set('q', intent.query);
+        if (intent.kind === 'chip') sp.set('chip_id', intent.chip_id);
+        if (intent.kind === 'chip' && intent.open) sp.set('open', intent.open);
+        if (intent.kind === 'open') sp.set('open', intent.open);
+        search = `?${sp.toString()}`;
+
+        // Best-effort history persistence should never block navigation.
+        try {
+          const title = (() => {
+            if (intent.kind === 'chip' || intent.kind === 'open') return String(intent.title || '').trim() || 'New chat';
+            return String(intent.title || intent.query || '').trim().slice(0, 64) || 'New chat';
+          })();
+          upsertChatHistoryItem({ brief_id: briefId, title });
+          setHistory(loadChatHistory());
+        } catch {
+          // no-op
+        }
+      } catch {
+        // Fallback: still route to chat even if header generation fails.
+      }
+
+      setComposerOpen(false);
+      setSidebarOpen(false);
+      navigate({ pathname: '/chat', ...(search ? { search } : {}) });
     },
     [navigate],
   );
