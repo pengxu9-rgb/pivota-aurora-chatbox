@@ -4205,6 +4205,7 @@ export default function BffChat() {
       const isCN = language === 'CN';
       const labelMap: Record<string, { EN: string; CN: string }> = {
         chip_quick_profile: { EN: '30-sec quick profile', CN: '30秒快速画像' },
+        chip_checkin_now: { EN: 'Check-in', CN: '打卡' },
         'chip.start.diagnosis': { EN: 'Start skin diagnosis', CN: '开始皮肤诊断' },
         chip_start_diagnosis: { EN: 'Start skin diagnosis', CN: '开始皮肤诊断' },
         'chip.start.evaluate': { EN: 'Evaluate a product', CN: '评估某个产品' },

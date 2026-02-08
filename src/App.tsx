@@ -10,6 +10,7 @@ import NotFound from "./pages/NotFound";
 import Routine from "./pages/Routine";
 import Explore from "./pages/Explore";
 import Profile from "./pages/Profile";
+import Plans from "./pages/Plans";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ const App = () => (
           <Route element={<MobileShell />}>
             <Route path="/" element={<Home />} />
             <Route path="/routine" element={<Routine />} />
+            <Route path="/plans" element={<Plans />} />
             <Route path="/explore" element={<Explore />} />
             <Route path="/profile" element={<Profile />} />
           </Route>

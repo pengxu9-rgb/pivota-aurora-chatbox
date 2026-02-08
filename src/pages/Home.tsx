@@ -1,12 +1,13 @@
 import React from 'react';
-import { Bell, Camera, Droplets, FlaskConical, Leaf, Menu, MessageCircle, Search, Shield, Sparkles, Sun, Workflow } from 'lucide-react';
-import { useOutletContext } from 'react-router-dom';
+import { Activity, Beaker, Bell, CalendarDays, Compass, Copy, FlaskConical, Menu, MessageCircle, Search, Sparkles, Workflow } from 'lucide-react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { cn } from '@/lib/utils';
 
 export default function Home() {
   const { openSidebar, openComposer, startChat } = useOutletContext<MobileShellContext>();
+  const navigate = useNavigate();
 
   return (
     <div className="pb-6">
@@ -39,19 +40,19 @@ export default function Home() {
 
           <div className="relative mt-6 flex flex-wrap justify-center gap-2">
             <Pill
-              label="Skin Diagnosis"
-              Icon={Sparkles}
-              onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
-            />
-            <Pill
               label="My Routine"
               Icon={Workflow}
-              onClick={() => startChat({ kind: 'open', title: 'Routine Analysis', open: 'routine' })}
+              onClick={() => navigate('/routine')}
             />
             <Pill
-              label="Product Check"
-              Icon={Camera}
-              onClick={() => startChat({ kind: 'chip', title: 'Product Check', chip_id: 'chip.start.evaluate' })}
+              label="Plans"
+              Icon={CalendarDays}
+              onClick={() => navigate('/plans')}
+            />
+            <Pill
+              label="Explore"
+              Icon={Compass}
+              onClick={() => navigate('/explore')}
             />
           </div>
         </div>
@@ -77,13 +78,45 @@ export default function Home() {
         </button>
       </div>
 
-      <div className="mt-4 px-4">
-        <div className="grid grid-cols-5 gap-3">
-          <IconTile label="Cleansers" Icon={Droplets} onClick={() => openComposer({ query: 'Cleansers' })} />
-          <IconTile label="Serums" Icon={FlaskConical} onClick={() => openComposer({ query: 'Serums' })} />
-          <IconTile label="Moisturizers" Icon={Leaf} onClick={() => openComposer({ query: 'Moisturizers' })} />
-          <IconTile label="Sunscreens" Icon={Sun} onClick={() => openComposer({ query: 'Sunscreens' })} />
-          <IconTile label="Treatments" Icon={Shield} onClick={() => openComposer({ query: 'Treatments' })} />
+      <div className="mt-5 px-4">
+        <div className="section-label">Quick actions</div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <QuickActionCard
+            title="Skin Diagnosis"
+            subtitle="AI analysis"
+            Icon={Sparkles}
+            onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
+          />
+          <QuickActionCard
+            title="Product Check"
+            subtitle="Evaluate a product"
+            Icon={Search}
+            onClick={() => startChat({ kind: 'chip', title: 'Product Check', chip_id: 'chip.start.evaluate' })}
+          />
+          <QuickActionCard
+            title="Routine Builder"
+            subtitle="Build AM/PM"
+            Icon={Beaker}
+            onClick={() => startChat({ kind: 'chip', title: 'Routine Builder', chip_id: 'chip.start.routine' })}
+          />
+          <QuickActionCard
+            title="Ingredient Science"
+            subtitle="Evidence & mechanism"
+            Icon={FlaskConical}
+            onClick={() => startChat({ kind: 'chip', title: 'Ingredient Science', chip_id: 'chip.start.ingredients' })}
+          />
+          <QuickActionCard
+            title="Find Dupes"
+            subtitle="Cheaper alternatives"
+            Icon={Copy}
+            onClick={() => startChat({ kind: 'chip', title: 'Find Dupes', chip_id: 'chip.start.dupes' })}
+          />
+          <QuickActionCard
+            title="Check-in"
+            subtitle="Daily check-in"
+            Icon={Activity}
+            onClick={() => startChat({ kind: 'chip', title: 'Check-in', chip_id: 'chip_checkin_now' })}
+          />
         </div>
       </div>
 
@@ -155,26 +188,31 @@ function Pill({
   );
 }
 
-function IconTile({
-  label,
+function QuickActionCard({
+  title,
+  subtitle,
   Icon,
   onClick,
 }: {
-  label: string;
+  title: string;
+  subtitle: string;
   Icon: React.ComponentType<{ className?: string }>;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      className="flex flex-col items-center gap-2 rounded-2xl px-1 py-2 text-center transition active:scale-[0.98]"
+      className="group flex items-start gap-3 rounded-3xl border border-border/60 bg-card/70 p-4 text-left shadow-card transition hover:shadow-card-hover active:scale-[0.99]"
       onClick={onClick}
-      aria-label={label}
+      aria-label={title}
     >
-      <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-border/60 bg-card/80 text-primary shadow-card">
+      <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
         <Icon className="h-6 w-6" />
       </div>
-      <div className="text-[11px] font-medium leading-none text-muted-foreground">{label}</div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
+      </div>
     </button>
   );
 }

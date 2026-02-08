@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, Compass, Heart, HelpCircle, Home, Sparkles, User } from 'lucide-react';
+import { CalendarDays, Clock, Compass, Heart, HelpCircle, Home, Sparkles, User } from 'lucide-react';
 
 import { NavLink } from '@/components/NavLink';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -38,6 +38,7 @@ export function AuroraSidebar({
           <div className="p-2">
             <SideLink to="/" label="Home" Icon={Home} end onNavigate={() => onOpenChange(false)} />
             <SideLink to="/routine" label="My Routine" Icon={Sparkles} end onNavigate={() => onOpenChange(false)} />
+            <SideLink to="/plans" label="Plans" Icon={CalendarDays} end onNavigate={() => onOpenChange(false)} />
             <SideLink to="/favorites" label="Favorites" Icon={Heart} end onNavigate={() => onOpenChange(false)} disabled />
             <SideLink to="/explore" label="Explore" Icon={Compass} end onNavigate={() => onOpenChange(false)} />
             <SideLink to="/help" label="Help Center" Icon={HelpCircle} end onNavigate={() => onOpenChange(false)} disabled />

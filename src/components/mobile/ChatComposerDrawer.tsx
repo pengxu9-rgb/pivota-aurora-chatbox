@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Beaker, Copy, FlaskConical, Search, Sparkles, X } from 'lucide-react';
+import { Activity, ArrowRight, Beaker, Copy, FlaskConical, Search, Sparkles, X } from 'lucide-react';
 
 import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
 import { cn } from '@/lib/utils';
@@ -50,6 +50,13 @@ const QUICK_ACTIONS: QuickAction[] = [
     subtitle: 'Cheaper alternatives',
     Icon: Copy,
     intent: { chip_id: 'chip.start.dupes' },
+  },
+  {
+    id: 'checkin',
+    title: 'Check-in',
+    subtitle: 'Daily check-in',
+    Icon: Activity,
+    intent: { chip_id: 'chip_checkin_now' },
   },
 ];
 
