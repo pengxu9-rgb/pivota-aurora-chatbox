@@ -19,7 +19,7 @@ export default function Home() {
             <button
               type="button"
               onClick={openSidebar}
-              className="ml-1 inline-flex h-[var(--aurora-home-menu-size)] w-[var(--aurora-home-menu-size)] items-center justify-center rounded-2xl border border-white/25 bg-white/15 text-white shadow-card backdrop-blur active:scale-[0.97]"
+              className="ml-1 inline-flex h-[var(--aurora-home-menu-size)] w-[var(--aurora-home-menu-size)] items-center justify-center rounded-2xl border border-white/35 bg-white/25 text-white shadow-card backdrop-blur active:scale-[0.97]"
               aria-label="Open menu"
             >
               <Menu className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />
