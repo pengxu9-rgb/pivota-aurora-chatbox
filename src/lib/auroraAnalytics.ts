@@ -146,3 +146,57 @@ export const emitAuroraConflictHeatmapCellTap = (
     num_steps?: number;
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_conflict_heatmap_cell_tap', ctx, props);
+
+export const emitAuroraPhotoModulesSchemaFail = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    error_count?: number;
+    errors?: string[];
+    sanitizer_drop_count?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_photo_modules_schema_fail', ctx, props);
+
+export const emitAuroraPhotoModulesModuleTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    module_id: string;
+    selected: boolean;
+    quality_grade?: string | null;
+    sanitizer_drop_count?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_photo_modules_module_tap', ctx, props);
+
+export const emitAuroraPhotoModulesIssueTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    module_id: string;
+    issue_type: string;
+    selected: boolean;
+    quality_grade?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_photo_modules_issue_tap', ctx, props);
+
+export const emitAuroraPhotoModulesActionTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    module_id: string;
+    action_type: string;
+    ingredient_id: string;
+    issue_types?: string[];
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_photo_modules_action_tap', ctx, props);
+
+export const emitAuroraPhotoModulesProductTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    module_id: string;
+    product_id?: string | null;
+    merchant_id?: string | null;
+    title?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_photo_modules_product_tap', ctx, props);

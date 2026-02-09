@@ -16,11 +16,13 @@ import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCa
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
+import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
 import { humanizeKbNote } from '@/lib/auroraKbHumanize';
+import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 import {
   inferTextExplicitTransition,
   normalizeAgentState,
@@ -36,6 +38,7 @@ import {
   emitUiLanguageSwitched,
   emitUiOutboundOpened,
   emitUiPdpOpened,
+  emitAuroraPhotoModulesSchemaFail,
   emitUiRecosRequested,
   emitUiReturnVisit,
   emitUiSessionStarted,
@@ -202,6 +205,13 @@ type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt
 
 const FF_RETURN_WELCOME = (() => {
   const raw = String(import.meta.env.VITE_FF_RETURN_WELCOME ?? 'true')
+    .trim()
+    .toLowerCase();
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+})();
+
+const FF_PHOTO_MODULES_CARD = (() => {
+  const raw = String(import.meta.env.VITE_DIAG_PHOTO_MODULES_CARD ?? 'true')
     .trim()
     .toLowerCase();
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
@@ -1798,6 +1808,49 @@ function BffCardView({
 
   if (isConflictHeatmapCard(card)) {
     return <ConflictHeatmapCard payload={payload} language={language} debug={debug} />;
+  }
+
+  if (cardType === 'photo_modules_v1') {
+    if (!FF_PHOTO_MODULES_CARD) return null;
+
+    const { model, errors, sanitizer_drops } = normalizePhotoModulesUiModelV1(payload);
+    if (!model) {
+      if (analyticsCtx) {
+        emitAuroraPhotoModulesSchemaFail(analyticsCtx, {
+          card_id: card.card_id ?? null,
+          error_count: errors.length,
+          errors: errors.slice(0, 8),
+          sanitizer_drop_count: sanitizer_drops.length,
+        });
+      }
+      return (
+        <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-muted-foreground">
+          {language === 'CN'
+            ? '照片模块卡片暂不可用（数据格式异常），已自动降级。'
+            : 'Photo modules card is temporarily unavailable (invalid payload), downgraded safely.'}
+        </div>
+      );
+    }
+
+    if (!model.used_photos || model.quality_grade === 'fail') {
+      return (
+        <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-muted-foreground">
+          {language === 'CN'
+            ? '当前照片条件不足，暂不展示模块叠加卡片。'
+            : 'Photo conditions are insufficient for module overlay rendering right now.'}
+        </div>
+      );
+    }
+
+    return (
+      <PhotoModulesCard
+        model={model}
+        language={language}
+        analyticsCtx={analyticsCtx}
+        cardId={card.card_id}
+        sanitizerDrops={sanitizer_drops}
+      />
+    );
   }
 
   if (cardType === 'diagnosis_gate') {
