@@ -47,6 +47,7 @@ import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product
 import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
+import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
 import { toast } from '@/components/ui/use-toast';
 import {
   buildPdpUrl,
@@ -1861,7 +1862,7 @@ function BffCardView({
   const title = titleForCard(card.type, language);
   const fieldMissingCount = Array.isArray(card.field_missing) ? card.field_missing.length : 0;
 
-  const qcStatus = asString((payload as any)?.qc_status);
+  const qcStatus = normalizePhotoQcStatus(asString((payload as any)?.qc_status));
   const qcObj = asObject((payload as any)?.qc);
   const qcAdvice = asObject(qcObj?.advice);
   const qcSummary = asString(qcAdvice?.summary) || null;
@@ -2401,17 +2402,21 @@ function BffCardView({
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
           <div className="text-xs text-muted-foreground">{language === 'CN' ? '照片质检结果' : 'Photo QC result'}</div>
           <div className="mt-2 text-sm font-semibold text-foreground">
-            {qcStatus
-              ? qcStatus === 'passed'
+            {qcStatus === 'passed'
+              ? language === 'CN'
+                ? '通过 ✅'
+                : 'Passed ✅'
+              : qcStatus === 'degraded'
                 ? language === 'CN'
-                  ? '通过 ✅'
-                  : 'Passed ✅'
-                : language === 'CN'
-                  ? `需要重拍：${qcStatus}`
-                  : `Needs retry: ${qcStatus}`
-              : language === 'CN'
-                ? '质检中…'
-                : 'Checking…'}
+                  ? '可用（质量一般）⚠️'
+                  : 'Usable (degraded) ⚠️'
+                : qcStatus === 'pending' || qcStatus === 'unknown'
+                  ? language === 'CN'
+                    ? '质检中…'
+                    : 'Checking…'
+                  : language === 'CN'
+                    ? `需要重拍：${qcStatus}`
+                    : `Needs retry: ${qcStatus}`}
           </div>
           {qcSummary ? <div className="mt-2 text-xs text-muted-foreground">{qcSummary}</div> : null}
           {qcSuggestions.length ? (
@@ -2802,9 +2807,14 @@ export default function BffChat() {
         },
         {
           chip_id: 'chip.start.ingredients',
-          label: lang === 'CN' ? '问成分机理/证据链' : 'Ask ingredient science (evidence/mechanism)',
+          label: lang === 'CN' ? '成分机理/证据链' : 'Ingredient science (evidence)',
           kind: 'quick_reply',
-          data: { reply_text: lang === 'CN' ? '解释成分机理并给证据链' : 'Explain ingredient science with evidence/mechanism' },
+          data: {
+            reply_text:
+              lang === 'CN'
+                ? '我想聊成分科学（证据/机制），先不做产品推荐。'
+                : 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
+          },
         },
       ];
 
@@ -3132,10 +3142,10 @@ export default function BffChat() {
         applyEnvelope(confirmEnv);
 
         const confirmCard = confirmEnv.cards.find((c) => c && c.type === 'photo_confirm');
-        const qcStatus = asString(confirmCard && (confirmCard.payload as any)?.qc_status);
+        const qcStatus = normalizePhotoQcStatus(asString(confirmCard && (confirmCard.payload as any)?.qc_status));
         const photoId = asString(confirmCard && (confirmCard.payload as any)?.photo_id);
 
-        if (qcStatus === 'passed' && photoId) {
+        if (isPhotoUsableForDiagnosis(qcStatus) && photoId) {
           result = { slot_id: slotId, photo_id: photoId, qc_status: qcStatus };
           setAnalysisPhotoRefs((prev) => {
             const next = prev.filter((p) => p.slot_id !== slotId);
@@ -3231,7 +3241,7 @@ export default function BffChat() {
         ]);
         // eslint-disable-next-line no-await-in-loop
         const uploaded = await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
-        if (uploaded && uploaded.qc_status === 'passed' && uploaded.photo_id) uploadedPassedRefs.push(uploaded);
+        if (uploaded && isPhotoUsableForDiagnosis(uploaded.qc_status) && uploaded.photo_id) uploadedPassedRefs.push(uploaded);
       }
 
       setPhotoSheetOpen(false);
@@ -3239,7 +3249,7 @@ export default function BffChat() {
         .map((p) => ({
           slot_id: String(p?.slot_id || '').trim(),
           photo_id: String(p?.photo_id || '').trim(),
-          qc_status: String(p?.qc_status || '').trim(),
+          qc_status: normalizePhotoQcStatus(p?.qc_status),
         }))
         .filter((p) => p.slot_id && p.photo_id)
         .slice(0, 4);
@@ -3887,7 +3897,7 @@ export default function BffChat() {
       .map((p) => ({
         slot_id: String(p?.slot_id || '').trim(),
         photo_id: String(p?.photo_id || '').trim(),
-        qc_status: String(p?.qc_status || '').trim(),
+        qc_status: normalizePhotoQcStatus(p?.qc_status),
       }))
       .filter((p) => p.slot_id && p.photo_id)
       .slice(0, 4);
@@ -4287,11 +4297,18 @@ export default function BffChat() {
       };
 
       const label = (labelMap[id]?.[isCN ? 'CN' : 'EN'] ?? id).slice(0, 80);
+      const replyTextMap: Record<string, { EN: string; CN: string }> = {
+        'chip.start.ingredients': {
+          EN: 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
+          CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
+        },
+      };
+      const reply_text = (replyTextMap[id]?.[isCN ? 'CN' : 'EN'] ?? label).slice(0, 160);
       return {
         chip_id: id,
         label,
         kind: 'quick_reply',
-        data: { reply_text: label, trigger_source: 'deeplink' },
+        data: { reply_text, trigger_source: 'deeplink' },
       };
     },
     [language],
@@ -4771,8 +4788,8 @@ export default function BffChat() {
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
                 {language === 'CN'
-                  ? '强烈建议填写你最近在用的 AM/PM 产品/步骤；否则只给低置信度 7 天基线（不评分/不推推荐）。'
-                  : 'Strongly recommended: add your current AM/PM products. Otherwise you’ll only get a low-confidence 7‑day baseline (no scoring, no recommendations).'}
+                  ? '如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先给低置信度 7 天安全基线（不评分/不推推荐）。'
+                  : 'If you want, add your current AM/PM products for higher accuracy. You can also skip and I will give a low-confidence 7-day safe baseline first (no scoring, no recommendations).'}
               </div>
 
               <div
@@ -4965,7 +4982,9 @@ export default function BffChat() {
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
-                {language === 'CN' ? '粘贴产品名或链接，我会先解析再评估。' : 'Paste a product name or link. I will parse it, then deep-scan.'}
+                {language === 'CN'
+                  ? '把产品名或链接发我，我会先帮你解析，再做单品评估。'
+                  : 'Share a product name or link, and I will parse it first, then run a product deep scan.'}
               </div>
               <input
                 className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
@@ -5007,8 +5026,8 @@ export default function BffChat() {
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
                 {language === 'CN'
-                  ? '粘贴目标商品名称或链接，我会自动匹配平替和同类对标，并总结 tradeoffs。'
-                  : 'Paste the target product name or link. I will match dupes + comparables and summarize tradeoffs.'}
+                  ? '把目标商品名或链接发我，我会自动匹配平替和同类对标，并给你清晰的 tradeoffs。'
+                  : 'Share the target product name or link, and I will match dupes/comparables and summarize clear tradeoffs.'}
               </div>
 
               <label className="space-y-1 text-xs text-muted-foreground">
