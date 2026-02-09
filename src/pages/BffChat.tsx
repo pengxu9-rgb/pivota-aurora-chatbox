@@ -778,6 +778,8 @@ type BootstrapInfo = {
   db_ready: boolean | null;
 };
 
+type AnalysisPhotoRef = { slot_id: string; photo_id: string; qc_status: string };
+
 type BootstrapInfoPatch = {
   profile?: Record<string, unknown> | null;
   recent_logs?: Array<Record<string, unknown>>;
@@ -862,6 +864,13 @@ const readBootstrapInfo = (env: V1Envelope): BootstrapInfo | null => {
   }
 
   return merged;
+};
+
+const mergeAnalysisPhotoRefs = (left: AnalysisPhotoRef[], right: AnalysisPhotoRef[]): AnalysisPhotoRef[] => {
+  const merged = [...left, ...right].filter((p) => p.slot_id && p.photo_id);
+  const dedup = new Map<string, AnalysisPhotoRef>();
+  for (const entry of merged) dedup.set(entry.slot_id, entry);
+  return Array.from(dedup.values()).slice(0, 4);
 };
 
 function Sheet({
@@ -2564,7 +2573,7 @@ export default function BffChat() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
-  const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<Array<{ slot_id: string; photo_id: string; qc_status: string }>>([]);
+  const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<AnalysisPhotoRef[]>([]);
   const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
   const [promptRoutineAfterPhoto, setPromptRoutineAfterPhoto] = useState(false);
   const [routineSheetOpen, setRoutineSheetOpen] = useState(false);
@@ -3108,6 +3117,7 @@ export default function BffChat() {
   const uploadPhotoViaProxy = useCallback(
     async ({ file, slotId, consent }: { file: File; slotId: string; consent: boolean }) => {
       setPhotoUploading(true);
+      let result: AnalysisPhotoRef | null = null;
       try {
         const requestHeaders = { ...headers, lang: language };
         const form = new FormData();
@@ -3126,14 +3136,17 @@ export default function BffChat() {
         const photoId = asString(confirmCard && (confirmCard.payload as any)?.photo_id);
 
         if (qcStatus === 'passed' && photoId) {
+          result = { slot_id: slotId, photo_id: photoId, qc_status: qcStatus };
           setAnalysisPhotoRefs((prev) => {
             const next = prev.filter((p) => p.slot_id !== slotId);
             next.push({ slot_id: slotId, photo_id: photoId, qc_status: qcStatus });
             return next.slice(0, 4);
           });
         }
+        return result;
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        return result;
       } finally {
         setPhotoUploading(false);
       }
@@ -3197,6 +3210,7 @@ export default function BffChat() {
       if (!entries.length) return;
       setSessionPhotos({ daylight: photos.daylight, indoor_white: photos.indoor_white });
 
+      const uploadedPassedRefs: AnalysisPhotoRef[] = [];
       for (const entry of entries) {
         const slotLabel =
           entry.slotId === 'daylight'
@@ -3216,10 +3230,50 @@ export default function BffChat() {
           },
         ]);
         // eslint-disable-next-line no-await-in-loop
-        await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
+        const uploaded = await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
+        if (uploaded && uploaded.qc_status === 'passed' && uploaded.photo_id) uploadedPassedRefs.push(uploaded);
       }
 
       setPhotoSheetOpen(false);
+      const existingPhotos: AnalysisPhotoRef[] = analysisPhotoRefs
+        .map((p) => ({
+          slot_id: String(p?.slot_id || '').trim(),
+          photo_id: String(p?.photo_id || '').trim(),
+          qc_status: String(p?.qc_status || '').trim(),
+        }))
+        .filter((p) => p.slot_id && p.photo_id)
+        .slice(0, 4);
+      const photosForAnalysis = mergeAnalysisPhotoRefs(existingPhotos, uploadedPassedRefs);
+      if (photosForAnalysis.length > 0) {
+        setPromptRoutineAfterPhoto(false);
+        const profileCurrentRoutine = bootstrapInfo?.profile?.currentRoutine;
+        const hasCurrentRoutine =
+          typeof profileCurrentRoutine === 'string'
+            ? Boolean(profileCurrentRoutine.trim())
+            : Boolean(profileCurrentRoutine && typeof profileCurrentRoutine === 'object');
+        setIsLoading(true);
+        setError(null);
+        try {
+          setSessionState('S4_ANALYSIS_LOADING');
+          const requestHeaders = { ...headers, lang: language };
+          const body: Record<string, unknown> = {
+            use_photo: true,
+            photos: photosForAnalysis,
+            ...(hasCurrentRoutine ? { currentRoutine: profileCurrentRoutine } : {}),
+          };
+          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          applyEnvelope(env);
+        } catch (err) {
+          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       if (promptRoutineAfterPhoto) {
         setPromptRoutineAfterPhoto(false);
         const prompt =
@@ -3247,7 +3301,16 @@ export default function BffChat() {
         ]);
       }
     },
-    [language, promptRoutineAfterPhoto, uploadPhotoViaProxy],
+    [
+      analysisPhotoRefs,
+      applyEnvelope,
+      bootstrapInfo?.profile,
+      headers,
+      language,
+      promptRoutineAfterPhoto,
+      tryApplyEnvelopeFromBffError,
+      uploadPhotoViaProxy,
+    ],
   );
 
   const sendChat = useCallback(
@@ -3849,7 +3912,7 @@ export default function BffChat() {
   }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
 
   const runRoutineSkinAnalysis = useCallback(
-    async (routineInput: string | Record<string, unknown>) => {
+    async (routineInput: string | Record<string, unknown>, photoRefsOverride?: AnalysisPhotoRef[]) => {
       const routine =
         typeof routineInput === 'string'
           ? String(routineInput || '').trim()
@@ -3863,7 +3926,7 @@ export default function BffChat() {
 
       try {
         setSessionState('S4_ANALYSIS_LOADING');
-        const photos = getSanitizedAnalysisPhotos();
+        const photos = mergeAnalysisPhotoRefs(getSanitizedAnalysisPhotos(), Array.isArray(photoRefsOverride) ? photoRefsOverride : []);
         const usePhoto = photos.length > 0;
         const body: Record<string, unknown> = {
           use_photo: usePhoto,
