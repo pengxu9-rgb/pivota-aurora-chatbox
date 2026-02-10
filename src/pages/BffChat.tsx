@@ -1007,12 +1007,32 @@ function RecommendationsCard({
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
   const [detailsOpen, setDetailsOpen] = useState(() => hasAnyAlternatives);
 
+  const openExternalUrl = useCallback((rawUrl: string): boolean => {
+    const url = String(rawUrl || '').trim();
+    if (!url) return false;
+    try {
+      const popup = window.open(url, '_blank', 'noopener,noreferrer');
+      if (popup) return true;
+    } catch {
+      // noop, fallback to same-tab navigation below
+    }
+    try {
+      window.location.assign(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const openFallback = useCallback((brand: string | null, name: string | null) => {
     const q = [brand, name]
       .map((v) => String(v || '').trim())
       .filter(Boolean)
       .join(' ')
       .trim();
+    const generatedSearchUrl = buildGoogleSearchFallbackUrl(q, language);
+    if (generatedSearchUrl && openExternalUrl(generatedSearchUrl)) return;
+
     const label = q || (language === 'CN' ? '该商品' : 'This product');
     toast({
       title: language === 'CN' ? '暂时无法打开商品详情' : 'Unable to open product details',
@@ -1021,7 +1041,7 @@ function RecommendationsCard({
           ? `我们还没在商品库中找到「${label}」。建议稍后重试，或换一个商品。`
           : `We couldn’t find “${label}” in the catalog yet. Try again later or pick a different item.`,
     });
-  }, [language]);
+  }, [language, openExternalUrl]);
 
   const openPurchase = useCallback(
     async ({
@@ -1057,12 +1077,12 @@ function RecommendationsCard({
       }
       if (!anchorKey) {
         if (fallback && isLikelyUrl(fallback)) {
-          window.open(fallback, '_blank', 'noopener,noreferrer');
+          openExternalUrl(fallback);
           return;
         }
         const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
         if (generatedSearchUrl) {
-          window.open(generatedSearchUrl, '_blank', 'noopener,noreferrer');
+          openExternalUrl(generatedSearchUrl);
           return;
         }
         return openFallback(brand, name);
@@ -1071,7 +1091,6 @@ function RecommendationsCard({
       const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
       const looksLikeUuid = (value: string | null | undefined): boolean =>
         typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
-      const productIdLooksUuid = looksLikeUuid(productId);
 
       const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
         const pdpUrl = buildPdpUrl({
@@ -1098,13 +1117,13 @@ function RecommendationsCard({
         if (onOpenPdp) {
           onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
         } else {
-          window.open(pdpUrl, '_blank', 'noopener,noreferrer');
+          openExternalUrl(pdpUrl);
         }
       };
 
-      const openOutboundUrl = (rawUrl: string, args?: { reason?: string }) => {
+      const openOutboundUrl = (rawUrl: string, args?: { reason?: string }): boolean => {
         const url = normalizeOutboundFallbackUrl(rawUrl);
-        if (!url) return;
+        if (!url) return false;
 
         setOfferCache((prev) => ({ ...prev, [anchorKey]: { url, route: 'outbound' } }));
         if (analyticsCtx) {
@@ -1128,7 +1147,7 @@ function RecommendationsCard({
             ...(args?.reason ? { reason: args.reason } : {}),
           });
         }
-        window.open(url, '_blank', 'noopener,noreferrer');
+        return openExternalUrl(url);
       };
 
       const cached = offerCache[anchorKey];
@@ -1159,23 +1178,21 @@ function RecommendationsCard({
         if (cached.route === 'pdp' && onOpenPdp) {
           onOpenPdp({ url: cached.url, ...(title ? { title } : {}) });
         } else {
-          window.open(cached.url, '_blank', 'noopener,noreferrer');
+          openExternalUrl(cached.url);
         }
         return;
       }
 
-      // PDP-first only when we have both ids.
-      // If merchant_id is missing, we prefer resolver to avoid opening UUID-like non-shop ids.
-      if (productId && merchantId) {
+      // Legacy fallback only: if resolver is unavailable, open known explicit PDP target.
+      if (!resolveProductRef && productId && merchantId) {
         openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
         return;
       }
 
-      const tryResolveProductRef = async (): Promise<{ target: { product_id: string; merchant_id?: string | null } | null; hadInfraFailure: boolean }> => {
-        if (!resolveProductRef) return { target: null, hadInfraFailure: false };
+      const tryResolveProductRef = async (): Promise<{ target: { product_id: string; merchant_id?: string | null } | null }> => {
+        if (!resolveProductRef) return { target: null };
         const tried = new Set<string>();
         const queue: string[] = [];
-        let hadInfraFailure = false;
         const enqueue = (value: string | null | undefined) => {
           const normalized = String(value || '').trim();
           if (!normalized || tried.has(normalized)) return;
@@ -1195,11 +1212,6 @@ function RecommendationsCard({
           const sourceReasons = Array.isArray((resp as any)?.metadata?.sources)
             ? ((resp as any).metadata.sources as Array<any>).map((s) => String(s?.reason || '').toLowerCase()).filter(Boolean)
             : [];
-          const infraLikeReasons = ['timeout', 'upstream_error', 'upstream_4xx', 'upstream_5xx', 'db_error', 'db_not_configured', 'products_cache_missing'];
-          const infraLike =
-            infraLikeReasons.some((r) => resolveReason.includes(r)) ||
-            sourceReasons.some((sourceReason) => infraLikeReasons.some((r) => sourceReason.includes(r)));
-          if (infraLike) hadInfraFailure = true;
           if (debug) {
             // eslint-disable-next-line no-console
             console.info('[RecoViewDetails] resolve query attempt', {
@@ -1210,10 +1222,10 @@ function RecommendationsCard({
             });
           }
           if (pdpTarget?.product_id) {
-            return { target: { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null }, hadInfraFailure };
+            return { target: { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null } };
           }
         }
-        return { target: null, hadInfraFailure };
+        return { target: null };
       };
 
       setOffersLoading(anchorKey);
@@ -1226,12 +1238,6 @@ function RecommendationsCard({
         }
         if (resolved.target?.product_id) {
           openPdpTarget(resolved.target);
-          return;
-        }
-
-        // If resolver had infrastructure failures, allow best-effort direct PDP open even for UUID-like ids.
-        if (productId && (!productIdLooksUuid || resolved.hadInfraFailure)) {
-          openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
           return;
         }
 
@@ -1270,17 +1276,30 @@ function RecommendationsCard({
 
       // 3) If still not resolvable, use explicit upstream link, then generated Google search fallback.
       if (fallback && isLikelyUrl(fallback)) {
-        openOutboundUrl(fallback, { reason: 'no_pdp_target' });
+        const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
+        if (!opened) openFallback(brand, name);
         return;
       }
       const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
       if (generatedSearchUrl) {
-        openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
+        const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
+        if (!opened) openFallback(brand, name);
         return;
       }
       openFallback(brand, name);
     },
-    [analyticsCtx, card.card_id, debug, language, offerCache, onOpenPdp, openFallback, resolveOffers, resolveProductRef],
+    [
+      analyticsCtx,
+      card.card_id,
+      debug,
+      language,
+      offerCache,
+      onOpenPdp,
+      openExternalUrl,
+      openFallback,
+      resolveOffers,
+      resolveProductRef,
+    ],
   );
 
   const groups = items.reduce(
