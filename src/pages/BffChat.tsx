@@ -1063,6 +1063,9 @@ function RecommendationsCard({
       }
 
       const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
+      const looksLikeUuid = (value: string | null | undefined): boolean =>
+        typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
+      const productIdLooksUuid = looksLikeUuid(productId);
 
       const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
         const pdpUrl = buildPdpUrl({
@@ -1177,9 +1180,9 @@ function RecommendationsCard({
         return;
       }
 
-      // PDP-first: if we already have a product_id from reco payload, open PDP immediately.
-      // merchant_id is optional for PDP route and may be missing for some catalog rows.
-      if (productId) {
+      // PDP-first only when we have both ids.
+      // If merchant_id is missing, we prefer resolver to avoid opening UUID-like non-shop ids.
+      if (productId && merchantId) {
         openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
         return;
       }
@@ -1207,9 +1210,13 @@ function RecommendationsCard({
           return;
         }
 
+        // If resolver fails but we have a non-UUID product id, best-effort direct PDP open.
+        if (productId && !productIdLooksUuid) {
+          openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
+          return;
+        }
+
         // 2) Next: offers.resolve (only if we actually have ids).
-        const looksLikeUuid = (value: string | null | undefined): boolean =>
-          typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
 
         // UUID-like ids are not PDP-openable in our shop; offers.resolve will not help.
         const shouldTryOffersResolve =
