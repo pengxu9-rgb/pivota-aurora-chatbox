@@ -1001,12 +1001,13 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
   return map[c]?.[language] ?? c;
 }
 
-function RecommendationsCard({
+export function RecommendationsCard({
   card,
   language,
   debug,
   resolveOffers,
   resolveProductRef,
+  onDeepScanProduct,
   onOpenPdp,
   analyticsCtx,
 }: {
@@ -1024,6 +1025,7 @@ function RecommendationsCard({
       title?: string | null;
     };
   }) => Promise<any>;
+  onDeepScanProduct?: (inputText: string) => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
 }) {
@@ -1053,19 +1055,29 @@ function RecommendationsCard({
     if (!s) return false;
     if (/^kb:/i.test(s)) return true;
     if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(s)) return true;
+    const compactUuid = s.replace(/[\s_-]/g, '').replace(/-/g, '');
+    if (/^[0-9a-f]{32}$/i.test(compactUuid)) return true;
     if (/^[0-9a-f]{24,}$/i.test(s) && /[a-f]/i.test(s)) return true;
     return false;
   }, []);
 
   const openExternalUrl = useCallback(
     (rawUrl: string, opts?: { allowSameTabFallback?: boolean; preopenedWindow?: Window | null }): boolean => {
-    const url = String(rawUrl || '').trim();
-    if (!url) return false;
-    if (opts?.preopenedWindow && !opts.preopenedWindow.closed) {
+      const url = String(rawUrl || '').trim();
+      if (!url) return false;
       try {
-        opts.preopenedWindow.location.replace(url);
-        opts.preopenedWindow.focus();
-        return true;
+        // Avoid opening a blank tab when the input URL is malformed.
+        // (e.g. a UUID-like string mistakenly treated as a URL)
+        // eslint-disable-next-line no-new
+        new URL(url);
+      } catch {
+        return false;
+      }
+      if (opts?.preopenedWindow && !opts.preopenedWindow.closed) {
+        try {
+          opts.preopenedWindow.location.replace(url);
+          opts.preopenedWindow.focus();
+          return true;
       } catch {
         // Continue to regular open fallback.
       }
@@ -1148,6 +1160,27 @@ function RecommendationsCard({
       const query = String(title || '').trim();
       const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
+
+      // Aurora policy: "View details" should stay inside Aurora (product deep scan),
+      // and must not divert users into the Pivota Shopping Agent browse/search flows.
+      if (onDeepScanProduct) {
+        const deepScanInput = (() => {
+          if (fallback && isLikelyUrl(fallback)) return fallback;
+          if (query) return query;
+          const compact = [safeBrand, safeName].filter(Boolean).join(' ').trim();
+          return compact;
+        })();
+        if (deepScanInput) {
+          if (analyticsCtx) {
+            emitUiInternalCheckoutClicked(analyticsCtx, {
+              from_card_id: card.card_id,
+              reason: 'aurora_product_deep_scan',
+            });
+          }
+          onDeepScanProduct(deepScanInput);
+          return;
+        }
+      }
       const resolverHints = (() => {
         const aliases = Array.from(
           new Set(
@@ -1407,6 +1440,7 @@ function RecommendationsCard({
       onOpenPdp,
       openExternalUrl,
       openFallback,
+      onDeepScanProduct,
       resolveOffers,
       resolveProductRef,
     ],
@@ -1944,6 +1978,7 @@ function BffCardView({
   onAction,
   resolveOffers,
   resolveProductRef,
+  onDeepScanProduct,
   bootstrapInfo,
   onOpenCheckin,
   onOpenPdp,
@@ -1965,6 +2000,7 @@ function BffCardView({
       title?: string | null;
     };
   }) => Promise<any>;
+  onDeepScanProduct?: (inputText: string) => void;
   bootstrapInfo?: BootstrapInfo | null;
   onOpenCheckin?: () => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
@@ -2169,6 +2205,7 @@ function BffCardView({
           debug={debug}
           resolveOffers={resolveOffers}
           resolveProductRef={resolveProductRef}
+          onDeepScanProduct={onDeepScanProduct}
           onOpenPdp={onOpenPdp}
           analyticsCtx={analyticsCtx}
         />
@@ -5676,6 +5713,7 @@ export default function BffChat() {
                           onAction={onCardAction}
                           resolveOffers={resolveOffers}
                           resolveProductRef={resolveProductRef}
+                          onDeepScanProduct={runProductDeepScan}
                           bootstrapInfo={bootstrapInfo}
                           onOpenCheckin={() => setCheckinSheetOpen(true)}
                           onOpenPdp={openPdpDrawer}
