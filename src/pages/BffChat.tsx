@@ -1115,9 +1115,10 @@ function RecommendationsCard({
     }) => {
       const looksLikeUuid = (value: string | null | undefined): boolean =>
         typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
+      const inferredProductId = productId || (looksLikeUuid(skuId) ? skuId : null);
       const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
-      const query = String(productId || skuId || title || '').trim();
-      const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
+      const query = String(inferredProductId || skuId || title || '').trim();
+      const anchorKey = String(inferredProductId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
       const resolverHints = (() => {
         const aliases = Array.from(
@@ -1128,9 +1129,9 @@ function RecommendationsCard({
           ),
         ).slice(0, 4);
         const hint: Record<string, any> = {};
-        if (productId) {
+        if (inferredProductId) {
           hint.product_ref = {
-            product_id: productId,
+            product_id: inferredProductId,
             ...(merchantId ? { merchant_id: merchantId } : {}),
           };
         }
@@ -1139,7 +1140,7 @@ function RecommendationsCard({
         if (aliases.length) hint.aliases = aliases;
         return hint;
       })();
-      const shouldPrimeExternalPopup = !productId || (looksLikeUuid(productId) && !merchantId);
+      const shouldPrimeExternalPopup = !inferredProductId || (looksLikeUuid(inferredProductId) && !merchantId);
       const preopenedWindow =
         shouldPrimeExternalPopup
           ? (() => {
@@ -1166,7 +1167,7 @@ function RecommendationsCard({
         console.info('[RecoViewDetails] click', {
           title,
           skuId,
-          productId,
+          productId: inferredProductId || productId,
           merchantId,
           fallbackUrl: fallback || null,
         });
@@ -1186,7 +1187,7 @@ function RecommendationsCard({
         return openFallback(brand, name, { preopenedWindow });
       }
 
-      const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
+      const skuType = inferredProductId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
 
       const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
         const pdpUrl = buildPdpUrl({
@@ -1269,7 +1270,7 @@ function RecommendationsCard({
             merchant_domain: merchantDomain,
             card_position: position ?? 0,
             sku_type: outboundSkuType,
-            ...(skuId ? { sku_id: skuId } : productId ? { product_id: productId } : {}),
+            ...(skuId ? { sku_id: skuId } : inferredProductId ? { product_id: inferredProductId } : {}),
             ...(args?.reason ? { reason: args.reason } : {}),
           });
         }
@@ -1313,8 +1314,8 @@ function RecommendationsCard({
       }
 
       // Legacy fallback only: if resolver is unavailable, open known explicit PDP target.
-      if (!resolveProductRef && productId) {
-        openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
+      if (!resolveProductRef && inferredProductId) {
+        openPdpTarget({ product_id: inferredProductId, merchant_id: merchantId ?? null });
         return;
       }
 
@@ -1330,7 +1331,7 @@ function RecommendationsCard({
           queue.push(normalized);
         };
 
-        enqueue(productId);
+        enqueue(inferredProductId);
         enqueue(skuId);
         enqueue(title);
         enqueue(query);
@@ -1381,8 +1382,8 @@ function RecommendationsCard({
         }
         // Resolver false-negatives happen in production; when card already has a canonical product_id,
         // keep users on internal PDP instead of falling through to external search.
-        if (productId) {
-          openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
+        if (inferredProductId) {
+          openPdpTarget({ product_id: inferredProductId, merchant_id: merchantId ?? null });
           return;
         }
         // Infra failures (db/search timeouts) should still prefer internal navigation.
