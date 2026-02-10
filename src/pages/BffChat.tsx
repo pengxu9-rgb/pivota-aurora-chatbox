@@ -53,6 +53,7 @@ import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
 import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
 import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
 import { toast } from '@/components/ui/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import {
   buildProductsSearchUrl,
   buildPdpUrl,
@@ -1076,14 +1077,16 @@ function RecommendationsCard({
     return false;
   }, []);
 
-  const openFallback = useCallback((brand: string | null, name: string | null, opts?: { preopenedWindow?: Window | null }) => {
+  const openFallback = useCallback((brand: string | null, name: string | null, opts?: { fallbackUrl?: string | null }) => {
     const q = [brand, name]
       .map((v) => String(v || '').trim())
       .filter(Boolean)
       .join(' ')
       .trim();
     const generatedSearchUrl = buildGoogleSearchFallbackUrl(q, language);
-    if (generatedSearchUrl && openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false, preopenedWindow: opts?.preopenedWindow })) return;
+    const normalizedFallbackUrl = normalizeOutboundFallbackUrl(opts?.fallbackUrl ?? '') || '';
+    const preferredOutboundUrl = normalizedFallbackUrl || generatedSearchUrl || '';
+    if (preferredOutboundUrl && openExternalUrl(preferredOutboundUrl, { allowSameTabFallback: false })) return;
 
     const label = q || (language === 'CN' ? '该商品' : 'This product');
     toast({
@@ -1092,6 +1095,20 @@ function RecommendationsCard({
         language === 'CN'
           ? `我们还没在商品库中找到「${label}」。建议稍后重试，或换一个商品。`
           : `We couldn’t find “${label}” in the catalog yet. Try again later or pick a different item.`,
+      ...(preferredOutboundUrl
+        ? {
+            action: (
+              <ToastAction
+                altText={language === 'CN' ? '在新标签页打开' : 'Open in new tab'}
+                onClick={() => {
+                  openExternalUrl(preferredOutboundUrl, { allowSameTabFallback: false });
+                }}
+              >
+                {language === 'CN' ? '在新标签页打开' : 'Open in new tab'}
+              </ToastAction>
+            ),
+          }
+        : {}),
     });
   }, [language, openExternalUrl]);
 
@@ -1113,12 +1130,9 @@ function RecommendationsCard({
       fallbackUrl?: string | null;
       position?: number;
     }) => {
-      const looksLikeUuid = (value: string | null | undefined): boolean =>
-        typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
-      const inferredProductId = productId || (looksLikeUuid(skuId) ? skuId : null);
       const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
-      const query = String(inferredProductId || skuId || title || '').trim();
-      const anchorKey = String(inferredProductId || skuId || (query ? `q:${query}` : '')).trim();
+      const query = String(title || '').trim();
+      const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
       const resolverHints = (() => {
         const aliases = Array.from(
@@ -1129,65 +1143,36 @@ function RecommendationsCard({
           ),
         ).slice(0, 4);
         const hint: Record<string, any> = {};
-        if (inferredProductId) {
-          hint.product_ref = {
-            product_id: inferredProductId,
-            ...(merchantId ? { merchant_id: merchantId } : {}),
-          };
-        }
         if (brand) hint.brand = brand;
         if (title || name) hint.title = String(title || name || '').trim();
         if (aliases.length) hint.aliases = aliases;
         return hint;
       })();
-      const shouldPrimeExternalPopup = !inferredProductId || (looksLikeUuid(inferredProductId) && !merchantId);
-      const preopenedWindow =
-        shouldPrimeExternalPopup
-          ? (() => {
-              try {
-                return window.open('', '_blank', 'noopener,noreferrer');
-              } catch {
-                return null;
-              }
-            })()
-          : null;
-      let preopenedWindowUsed = false;
-
-      const closePreopenedWindowIfUnused = () => {
-        if (!preopenedWindow || preopenedWindowUsed || preopenedWindow.closed) return;
-        try {
-          preopenedWindow.close();
-        } catch {
-          // ignore
-        }
-      };
 
       if (debug) {
         // eslint-disable-next-line no-console
         console.info('[RecoViewDetails] click', {
           title,
           skuId,
-          productId: inferredProductId || productId,
+          productId,
           merchantId,
           fallbackUrl: fallback || null,
         });
       }
       if (!anchorKey) {
         if (fallback && isLikelyUrl(fallback)) {
-          const opened = openExternalUrl(fallback, { allowSameTabFallback: false, preopenedWindow });
-          preopenedWindowUsed = preopenedWindowUsed || opened;
+          openExternalUrl(fallback, { allowSameTabFallback: false });
           return;
         }
-        const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
+        const generatedSearchUrl = buildGoogleSearchFallbackUrl(query, language);
         if (generatedSearchUrl) {
-          const opened = openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false, preopenedWindow });
-          preopenedWindowUsed = preopenedWindowUsed || opened;
+          openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false });
           return;
         }
-        return openFallback(brand, name, { preopenedWindow });
+        return openFallback(brand, name, { fallbackUrl: fallback || null });
       }
 
-      const skuType = inferredProductId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
+      const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
 
       const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
         const pdpUrl = buildPdpUrl({
@@ -1216,7 +1201,6 @@ function RecommendationsCard({
         } else {
           openExternalUrl(pdpUrl, { allowSameTabFallback: true });
         }
-        closePreopenedWindowIfUnused();
       };
 
       const openInternalSearch = (queryText: string, args?: { reason?: string }): boolean => {
@@ -1239,13 +1223,10 @@ function RecommendationsCard({
 
         if (onOpenPdp) {
           onOpenPdp({ url: searchUrl, ...(title ? { title } : {}) });
-          closePreopenedWindowIfUnused();
           return true;
         }
 
-        const opened = openExternalUrl(searchUrl, { allowSameTabFallback: false, preopenedWindow });
-        preopenedWindowUsed = preopenedWindowUsed || opened;
-        return opened;
+        return openExternalUrl(searchUrl, { allowSameTabFallback: false });
       };
 
       const openOutboundUrl = (rawUrl: string, args?: { reason?: string }): boolean => {
@@ -1274,9 +1255,7 @@ function RecommendationsCard({
             ...(args?.reason ? { reason: args.reason } : {}),
           });
         }
-        const opened = openExternalUrl(url, { allowSameTabFallback: false, preopenedWindow });
-        preopenedWindowUsed = preopenedWindowUsed || opened;
-        return opened;
+        return openExternalUrl(url, { allowSameTabFallback: false });
       };
 
       const cached = offerCache[anchorKey];
@@ -1309,99 +1288,48 @@ function RecommendationsCard({
         } else {
           openExternalUrl(cached.url, { allowSameTabFallback: cached.route === 'pdp' || cached.route === 'internal' });
         }
-        closePreopenedWindowIfUnused();
-        return;
-      }
-
-      // Legacy fallback only: if resolver is unavailable, open known explicit PDP target.
-      if (!resolveProductRef && inferredProductId) {
-        openPdpTarget({ product_id: inferredProductId, merchant_id: merchantId ?? null });
         return;
       }
 
       const tryResolveProductRef = async (): Promise<{ target: { product_id: string; merchant_id?: string | null } | null; hadInfraFailure: boolean }> => {
         if (!resolveProductRef) return { target: null, hadInfraFailure: false };
-        const tried = new Set<string>();
-        const queue: string[] = [];
-        let hadInfraFailure = false;
-        const enqueue = (value: string | null | undefined) => {
-          const normalized = String(value || '').trim();
-          if (!normalized || tried.has(normalized)) return;
-          tried.add(normalized);
-          queue.push(normalized);
-        };
-
-        enqueue(inferredProductId);
-        enqueue(skuId);
-        enqueue(title);
-        enqueue(query);
-
-        for (const q of queue) {
-          const resp = await resolveProductRef({
-            query: q,
+        if (!query) return { target: null, hadInfraFailure: false };
+        const resp = await resolveProductRef({
+            query,
             lang: language === 'CN' ? 'cn' : 'en',
             ...(Object.keys(resolverHints).length ? { hints: resolverHints } : {}),
           });
-          const pdpTarget = extractPdpTargetFromProductsResolveResponse(resp);
-          const resolveReason = String((resp as any)?.reason || '').toLowerCase();
-          const sourceReasons = Array.isArray((resp as any)?.metadata?.sources)
-            ? ((resp as any).metadata.sources as Array<any>).map((s) => String(s?.reason || '').toLowerCase()).filter(Boolean)
-            : [];
-          const infraLikeReasons = ['timeout', 'upstream_error', 'upstream_4xx', 'upstream_5xx', 'db_error', 'db_not_configured', 'products_cache_missing'];
-          const infraLike =
-            infraLikeReasons.some((r) => resolveReason.includes(r)) ||
-            sourceReasons.some((sourceReason) => infraLikeReasons.some((r) => sourceReason.includes(r)));
-          if (infraLike) hadInfraFailure = true;
-          if (debug) {
-            // eslint-disable-next-line no-console
-            console.info('[RecoViewDetails] resolve query attempt', {
-              query: q,
-              resolved: Boolean(pdpTarget?.product_id),
-              reason: resolveReason || null,
-              sourceReasons,
-            });
-          }
-          if (pdpTarget?.product_id) {
-            return { target: { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null }, hadInfraFailure };
-          }
+        const pdpTarget = extractPdpTargetFromProductsResolveResponse(resp);
+        const resolveReason = String((resp as any)?.reason || '').toLowerCase();
+        const sourceReasons = Array.isArray((resp as any)?.metadata?.sources)
+          ? ((resp as any).metadata.sources as Array<any>).map((s) => String(s?.reason || '').toLowerCase()).filter(Boolean)
+          : [];
+        const infraLikeReasons = ['timeout', 'upstream_error', 'upstream_4xx', 'upstream_5xx', 'db_error', 'db_not_configured', 'products_cache_missing'];
+        const hadInfraFailure =
+          infraLikeReasons.some((r) => resolveReason.includes(r)) ||
+          sourceReasons.some((sourceReason) => infraLikeReasons.some((r) => sourceReason.includes(r)));
+        if (debug) {
+          // eslint-disable-next-line no-console
+          console.info('[RecoViewDetails] resolver attempt', {
+            query,
+            resolved: Boolean(pdpTarget?.product_id),
+            reason: resolveReason || null,
+            sourceReasons,
+          });
+        }
+        if (pdpTarget?.product_id) {
+          return { target: { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null }, hadInfraFailure };
         }
         return { target: null, hadInfraFailure };
       };
 
       setOffersLoading(anchorKey);
       try {
-        // 1) Best-effort: resolve to a PDP-openable product_ref (preferred; no Google fallback).
-        const resolved = await tryResolveProductRef();
-        if (debug) {
-          // eslint-disable-next-line no-console
-          console.info('[RecoViewDetails] resolver result', { resolved });
-        }
-        if (resolved.target?.product_id) {
-          openPdpTarget(resolved.target);
-          return;
-        }
-        // Resolver false-negatives happen in production; when card already has a canonical product_id,
-        // keep users on internal PDP instead of falling through to external search.
-        if (inferredProductId) {
-          openPdpTarget({ product_id: inferredProductId, merchant_id: merchantId ?? null });
-          return;
-        }
-        // Infra failures (db/search timeouts) should still prefer internal navigation.
-        if (resolved.hadInfraFailure) {
-          const searchQuery = String(title || query || '').trim();
-          if (searchQuery && openInternalSearch(searchQuery, { reason: 'resolver_infra_fallback' })) {
-            return;
-          }
-        }
-
-        // 2) Next: offers.resolve (only if we actually have ids).
-        const shouldTryOffersResolve =
-          Boolean(resolveOffers) &&
-          (Boolean(skuId) || Boolean(productId));
-
-        if (shouldTryOffersResolve) {
+        // 1) Fast path: offers.resolve when we have a sku_id (maps to product_id).
+        const shouldTryOffersResolve = Boolean(resolveOffers) && Boolean(skuId);
+        if (shouldTryOffersResolve && resolveOffers) {
           const resp = await resolveOffers({
-            ...(productId ? { product_id: productId } : skuId ? { sku_id: skuId } : {}),
+            ...(skuId ? { sku_id: skuId } : {}),
             ...(merchantId ? { merchant_id: merchantId } : {}),
           });
           const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
@@ -1413,9 +1341,27 @@ function RecommendationsCard({
             openPdpTarget({ product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null });
             return;
           }
-        } else if (debug && (skuId || productId)) {
+        } else if (debug && skuId) {
           // eslint-disable-next-line no-console
-          console.info('[RecoViewDetails] skip offers.resolve', { skuId, productId });
+          console.info('[RecoViewDetails] skip offers.resolve', { skuId });
+        }
+
+        // 2) Best-effort: resolve to a PDP-openable product_ref from text query.
+        const resolved = await tryResolveProductRef();
+        if (debug) {
+          // eslint-disable-next-line no-console
+          console.info('[RecoViewDetails] resolver result', { resolved });
+        }
+        if (resolved.target?.product_id) {
+          openPdpTarget(resolved.target);
+          return;
+        }
+
+        // Infra failures (db/search timeouts) should still prefer internal navigation.
+        if (resolved.hadInfraFailure) {
+          if (query && openInternalSearch(query, { reason: 'resolver_infra_fallback' })) {
+            return;
+          }
         }
       } catch {
         // ignore
@@ -1424,24 +1370,23 @@ function RecommendationsCard({
       }
 
       // 3) If still not resolvable:
-      //    - prefer explicit outbound URL / generated external search (new tab),
-      //    - only then fallback to internal search.
-      const searchQuery = String(title || query || '').trim();
+      //    - prefer internal search (drawer) so users don't lose context,
+      //    - then outbound URL / Google in a new tab.
+      if (query && openInternalSearch(query, { reason: 'internal_search_fallback' })) {
+        return;
+      }
       if (fallback && isLikelyUrl(fallback)) {
         const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
-        if (!opened) openFallback(brand, name, { preopenedWindow });
+        if (!opened) openFallback(brand, name, { fallbackUrl: fallback || null });
         return;
       }
-      const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
+      const generatedSearchUrl = buildGoogleSearchFallbackUrl(query, language);
       if (generatedSearchUrl) {
         const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
-        if (!opened) openFallback(brand, name, { preopenedWindow });
+        if (!opened) openFallback(brand, name, { fallbackUrl: generatedSearchUrl });
         return;
       }
-      if (searchQuery && openInternalSearch(searchQuery, { reason: 'internal_search_fallback' })) {
-        return;
-      }
-      openFallback(brand, name, { preopenedWindow });
+      openFallback(brand, name, { fallbackUrl: fallback || null });
     },
     [
       analyticsCtx,
