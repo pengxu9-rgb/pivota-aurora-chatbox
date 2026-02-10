@@ -51,6 +51,7 @@ import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
 import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
+import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
 import { toast } from '@/components/ui/use-toast';
 import {
   buildPdpUrl,
@@ -1059,6 +1060,11 @@ function RecommendationsCard({
           window.open(fallback, '_blank', 'noopener,noreferrer');
           return;
         }
+        const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
+        if (generatedSearchUrl) {
+          window.open(generatedSearchUrl, '_blank', 'noopener,noreferrer');
+          return;
+        }
         return openFallback(brand, name);
       }
 
@@ -1097,30 +1103,8 @@ function RecommendationsCard({
       };
 
       const openOutboundUrl = (rawUrl: string, args?: { reason?: string }) => {
-        const url = String(rawUrl || '').trim();
+        const url = normalizeOutboundFallbackUrl(rawUrl);
         if (!url) return;
-
-        const isDisallowedFallbackOutbound = (() => {
-          try {
-            const u = new URL(url);
-            const host = u.hostname.toLowerCase();
-            const path = u.pathname.toLowerCase();
-            const isGoogle = host === 'google.com' || host.endsWith('.google.com') || host.endsWith('.google.cn') || host === 'google.cn';
-            if (isGoogle && (path === '/search' || path === '/url')) return true;
-            return false;
-          } catch {
-            return false;
-          }
-        })();
-
-        if (isDisallowedFallbackOutbound) {
-          if (debug) {
-            // eslint-disable-next-line no-console
-            console.info('[RecoViewDetails] blocked outbound fallback url', { url });
-          }
-          openFallback(brand, name);
-          return;
-        }
 
         setOfferCache((prev) => ({ ...prev, [anchorKey]: { url, route: 'outbound' } }));
         if (analyticsCtx) {
@@ -1187,14 +1171,49 @@ function RecommendationsCard({
         return;
       }
 
-      const tryResolveProductRef = async (): Promise<{ product_id: string; merchant_id?: string | null } | null> => {
-        if (!resolveProductRef) return null;
-        const q = title || query;
-        if (!q) return null;
-        const resp = await resolveProductRef({ query: q, lang: language === 'CN' ? 'cn' : 'en' });
-        const pdpTarget = extractPdpTargetFromProductsResolveResponse(resp);
-        if (pdpTarget?.product_id) return { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null };
-        return null;
+      const tryResolveProductRef = async (): Promise<{ target: { product_id: string; merchant_id?: string | null } | null; hadInfraFailure: boolean }> => {
+        if (!resolveProductRef) return { target: null, hadInfraFailure: false };
+        const tried = new Set<string>();
+        const queue: string[] = [];
+        let hadInfraFailure = false;
+        const enqueue = (value: string | null | undefined) => {
+          const normalized = String(value || '').trim();
+          if (!normalized || tried.has(normalized)) return;
+          tried.add(normalized);
+          queue.push(normalized);
+        };
+
+        enqueue(productId);
+        enqueue(skuId);
+        enqueue(title);
+        enqueue(query);
+
+        for (const q of queue) {
+          const resp = await resolveProductRef({ query: q, lang: language === 'CN' ? 'cn' : 'en' });
+          const pdpTarget = extractPdpTargetFromProductsResolveResponse(resp);
+          const resolveReason = String((resp as any)?.reason || '').toLowerCase();
+          const sourceReasons = Array.isArray((resp as any)?.metadata?.sources)
+            ? ((resp as any).metadata.sources as Array<any>).map((s) => String(s?.reason || '').toLowerCase()).filter(Boolean)
+            : [];
+          const infraLikeReasons = ['timeout', 'upstream_error', 'upstream_4xx', 'upstream_5xx', 'db_error', 'db_not_configured', 'products_cache_missing'];
+          const infraLike =
+            infraLikeReasons.some((r) => resolveReason.includes(r)) ||
+            sourceReasons.some((sourceReason) => infraLikeReasons.some((r) => sourceReason.includes(r)));
+          if (infraLike) hadInfraFailure = true;
+          if (debug) {
+            // eslint-disable-next-line no-console
+            console.info('[RecoViewDetails] resolve query attempt', {
+              query: q,
+              resolved: Boolean(pdpTarget?.product_id),
+              reason: resolveReason || null,
+              sourceReasons,
+            });
+          }
+          if (pdpTarget?.product_id) {
+            return { target: { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null }, hadInfraFailure };
+          }
+        }
+        return { target: null, hadInfraFailure };
       };
 
       setOffersLoading(anchorKey);
@@ -1205,13 +1224,13 @@ function RecommendationsCard({
           // eslint-disable-next-line no-console
           console.info('[RecoViewDetails] resolver result', { resolved });
         }
-        if (resolved?.product_id) {
-          openPdpTarget(resolved);
+        if (resolved.target?.product_id) {
+          openPdpTarget(resolved.target);
           return;
         }
 
-        // If resolver fails but we have a non-UUID product id, best-effort direct PDP open.
-        if (productId && !productIdLooksUuid) {
+        // If resolver had infrastructure failures, allow best-effort direct PDP open even for UUID-like ids.
+        if (productId && (!productIdLooksUuid || resolved.hadInfraFailure)) {
           openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
           return;
         }
@@ -1249,9 +1268,14 @@ function RecommendationsCard({
         setOffersLoading(null);
       }
 
-      // 3) If still not resolvable, allow explicit upstream links only (no Google fallback).
+      // 3) If still not resolvable, use explicit upstream link, then generated Google search fallback.
       if (fallback && isLikelyUrl(fallback)) {
         openOutboundUrl(fallback, { reason: 'no_pdp_target' });
+        return;
+      }
+      const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
+      if (generatedSearchUrl) {
+        openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
         return;
       }
       openFallback(brand, name);
@@ -4595,7 +4619,10 @@ export default function BffChat() {
           caller: 'aurora_chatbox',
           session_id: headers.brief_id,
           options: {
-            timeout_ms: 3200,
+            timeout_ms: 4200,
+            search_all_merchants: true,
+            upstream_retries: 0,
+            candidates_limit: 8,
             allow_external_seed: false,
           },
         }),
