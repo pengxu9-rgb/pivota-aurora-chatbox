@@ -1177,8 +1177,9 @@ function RecommendationsCard({
         return;
       }
 
-      // PDP-first: if we have both ids, open PDP immediately (in-app drawer).
-      if (productId && merchantId) {
+      // PDP-first: if we already have a product_id from reco payload, open PDP immediately.
+      // merchant_id is optional for PDP route and may be missing for some catalog rows.
+      if (productId) {
         openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
         return;
       }
