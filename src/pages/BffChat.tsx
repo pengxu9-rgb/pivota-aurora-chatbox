@@ -4638,11 +4638,11 @@ export default function BffChat() {
           caller: 'aurora_chatbox',
           session_id: headers.brief_id,
           options: {
-            timeout_ms: 4200,
+            timeout_ms: 6500,
             search_all_merchants: true,
-            upstream_retries: 0,
-            candidates_limit: 8,
-            allow_external_seed: false,
+            upstream_retries: 1,
+            candidates_limit: 12,
+            allow_external_seed: true,
           },
         }),
       });
