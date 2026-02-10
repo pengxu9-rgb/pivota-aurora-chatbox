@@ -1379,13 +1379,14 @@ function RecommendationsCard({
           openPdpTarget(resolved.target);
           return;
         }
-        // Infra failures (db/search timeouts) should prefer direct PDP target when available.
+        // Resolver false-negatives happen in production; when card already has a canonical product_id,
+        // keep users on internal PDP instead of falling through to external search.
+        if (productId) {
+          openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
+          return;
+        }
+        // Infra failures (db/search timeouts) should still prefer internal navigation.
         if (resolved.hadInfraFailure) {
-          // Infra failures from resolver/search should prefer internal navigation.
-          if (productId) {
-            openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
-            return;
-          }
           const searchQuery = String(title || query || '').trim();
           if (searchQuery && openInternalSearch(searchQuery, { reason: 'resolver_infra_fallback' })) {
             return;
@@ -1421,23 +1422,25 @@ function RecommendationsCard({
         setOffersLoading(null);
       }
 
-      // 3) If still not resolvable, use explicit upstream link, then generated Google search fallback.
-        const searchQuery = String(title || query || '').trim();
-        if (searchQuery && openInternalSearch(searchQuery, { reason: 'internal_search_fallback' })) {
-          return;
-        }
-        if (fallback && isLikelyUrl(fallback)) {
-          const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
-          if (!opened) openFallback(brand, name, { preopenedWindow });
-          return;
-        }
-        const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
-        if (generatedSearchUrl) {
-          const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
-          if (!opened) openFallback(brand, name, { preopenedWindow });
-          return;
-        }
-        openFallback(brand, name, { preopenedWindow });
+      // 3) If still not resolvable:
+      //    - prefer explicit outbound URL / generated external search (new tab),
+      //    - only then fallback to internal search.
+      const searchQuery = String(title || query || '').trim();
+      if (fallback && isLikelyUrl(fallback)) {
+        const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
+        if (!opened) openFallback(brand, name, { preopenedWindow });
+        return;
+      }
+      const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
+      if (generatedSearchUrl) {
+        const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
+        if (!opened) openFallback(brand, name, { preopenedWindow });
+        return;
+      }
+      if (searchQuery && openInternalSearch(searchQuery, { reason: 'internal_search_fallback' })) {
+        return;
+      }
+      openFallback(brand, name, { preopenedWindow });
     },
     [
       analyticsCtx,
