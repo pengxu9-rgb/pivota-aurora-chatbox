@@ -1013,7 +1013,16 @@ function RecommendationsCard({
   language: 'EN' | 'CN';
   debug: boolean;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
-  resolveProductRef?: (args: { query: string; lang: 'en' | 'cn' }) => Promise<any>;
+  resolveProductRef?: (args: {
+    query: string;
+    lang: 'en' | 'cn';
+    hints?: {
+      product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+      aliases?: Array<string | null | undefined>;
+      brand?: string | null;
+      title?: string | null;
+    };
+  }) => Promise<any>;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
 }) {
@@ -1104,10 +1113,32 @@ function RecommendationsCard({
       fallbackUrl?: string | null;
       position?: number;
     }) => {
+      const looksLikeUuid = (value: string | null | undefined): boolean =>
+        typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
       const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
       const query = String(productId || skuId || title || '').trim();
       const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
+      const resolverHints = (() => {
+        const aliases = Array.from(
+          new Set(
+            [title, name, brand]
+              .map((value) => String(value || '').trim())
+              .filter(Boolean),
+          ),
+        ).slice(0, 4);
+        const hint: Record<string, any> = {};
+        if (productId) {
+          hint.product_ref = {
+            product_id: productId,
+            ...(merchantId ? { merchant_id: merchantId } : {}),
+          };
+        }
+        if (brand) hint.brand = brand;
+        if (title || name) hint.title = String(title || name || '').trim();
+        if (aliases.length) hint.aliases = aliases;
+        return hint;
+      })();
       const shouldPrimeExternalPopup = !productId || (looksLikeUuid(productId) && !merchantId);
       const preopenedWindow =
         shouldPrimeExternalPopup
@@ -1156,8 +1187,6 @@ function RecommendationsCard({
       }
 
       const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
-      const looksLikeUuid = (value: string | null | undefined): boolean =>
-        typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
 
       const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
         const pdpUrl = buildPdpUrl({
@@ -1284,7 +1313,7 @@ function RecommendationsCard({
       }
 
       // Legacy fallback only: if resolver is unavailable, open known explicit PDP target.
-      if (!resolveProductRef && productId && (merchantId || !looksLikeUuid(productId))) {
+      if (!resolveProductRef && productId) {
         openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
         return;
       }
@@ -1307,7 +1336,11 @@ function RecommendationsCard({
         enqueue(query);
 
         for (const q of queue) {
-          const resp = await resolveProductRef({ query: q, lang: language === 'CN' ? 'cn' : 'en' });
+          const resp = await resolveProductRef({
+            query: q,
+            lang: language === 'CN' ? 'cn' : 'en',
+            ...(Object.keys(resolverHints).length ? { hints: resolverHints } : {}),
+          });
           const pdpTarget = extractPdpTargetFromProductsResolveResponse(resp);
           const resolveReason = String((resp as any)?.reason || '').toLowerCase();
           const sourceReasons = Array.isArray((resp as any)?.metadata?.sources)
@@ -1349,7 +1382,7 @@ function RecommendationsCard({
         // Infra failures (db/search timeouts) should prefer direct PDP target when available.
         if (resolved.hadInfraFailure) {
           // Infra failures from resolver/search should prefer internal navigation.
-          if (productId && !looksLikeUuid(productId)) {
+          if (productId) {
             openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
             return;
           }
@@ -1360,13 +1393,9 @@ function RecommendationsCard({
         }
 
         // 2) Next: offers.resolve (only if we actually have ids).
-
-        // UUID-like ids are not PDP-openable in our shop; offers.resolve will not help.
         const shouldTryOffersResolve =
           Boolean(resolveOffers) &&
-          (Boolean(skuId) || Boolean(productId)) &&
-          !looksLikeUuid(productId) &&
-          !looksLikeUuid(skuId);
+          (Boolean(skuId) || Boolean(productId));
 
         if (shouldTryOffersResolve) {
           const resp = await resolveOffers({
@@ -1961,7 +1990,16 @@ function BffCardView({
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
-  resolveProductRef?: (args: { query: string; lang: 'en' | 'cn' }) => Promise<any>;
+  resolveProductRef?: (args: {
+    query: string;
+    lang: 'en' | 'cn';
+    hints?: {
+      product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+      aliases?: Array<string | null | undefined>;
+      brand?: string | null;
+      title?: string | null;
+    };
+  }) => Promise<any>;
   bootstrapInfo?: BootstrapInfo | null;
   onOpenCheckin?: () => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
@@ -4802,10 +4840,24 @@ export default function BffChat() {
   );
 
   const resolveProductRef = useCallback(
-    async ({ query, lang }: { query: string; lang: 'en' | 'cn' }) => {
+    async ({
+      query,
+      lang,
+      hints,
+    }: {
+      query: string;
+      lang: 'en' | 'cn';
+      hints?: {
+        product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+        aliases?: Array<string | null | undefined>;
+        brand?: string | null;
+        title?: string | null;
+      };
+    }) => {
       const q = String(query || '').trim();
       if (!q) throw new Error('products.resolve requires query');
       const requestHeaders = { ...headers, lang: language };
+      const hintObject = hints && typeof hints === 'object' ? hints : undefined;
       return await bffJson<any>('/agent/v1/products/resolve', requestHeaders, {
         method: 'POST',
         body: JSON.stringify({
@@ -4813,6 +4865,7 @@ export default function BffChat() {
           lang,
           caller: 'aurora_chatbox',
           session_id: headers.brief_id,
+          ...(hintObject ? { hints: hintObject } : {}),
           options: {
             timeout_ms: 6500,
             search_all_merchants: true,
