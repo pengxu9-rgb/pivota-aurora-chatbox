@@ -455,10 +455,18 @@ export function PhotoModulesCard({
 
             <canvas
               ref={baseCanvasRef}
+              data-testid="photo-modules-base-canvas"
+              data-focused={hasFocusedSelection ? '1' : '0'}
               className="pointer-events-none absolute inset-0 h-full w-full"
               style={{ opacity: hasFocusedSelection ? 0.2 : 1 }}
             />
-            <canvas ref={highlightCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+            <canvas
+              ref={highlightCanvasRef}
+              data-testid="photo-modules-highlight-canvas"
+              data-visible-count={visibleRegionIds.size}
+              data-highlight-count={highlightedRegionIds.size}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+            />
           </div>
 
           <div className="flex flex-wrap gap-2 text-[11px]">
@@ -483,6 +491,7 @@ export function PhotoModulesCard({
                 <button
                   key={module.module_id}
                   type="button"
+                  data-testid={`photo-modules-module-${module.module_id}`}
                   onClick={() => handleModuleSelect(module.module_id)}
                   className={cn(
                     'rounded-full border px-3 py-1.5 text-xs transition-colors',
@@ -510,6 +519,7 @@ export function PhotoModulesCard({
                       <button
                         key={`${selectedModule.module_id}_${issue.issue_type}`}
                         type="button"
+                        data-testid={`photo-modules-issue-${issue.issue_type}`}
                         className={cn(
                           'w-full rounded-xl border px-3 py-2 text-left transition-colors',
                           active ? 'border-primary bg-primary/10' : 'border-border/60 bg-muted/20 hover:bg-muted/30',
