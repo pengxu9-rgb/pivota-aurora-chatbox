@@ -1047,6 +1047,16 @@ function RecommendationsCard({
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
   const [detailsOpen, setDetailsOpen] = useState(() => hasAnyAlternatives);
 
+  const looksLikeOpaqueId = useCallback((value: unknown): boolean => {
+    if (typeof value !== 'string') return false;
+    const s = value.trim();
+    if (!s) return false;
+    if (/^kb:/i.test(s)) return true;
+    if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(s)) return true;
+    if (/^[0-9a-f]{24,}$/i.test(s) && /[a-f]/i.test(s)) return true;
+    return false;
+  }, []);
+
   const openExternalUrl = useCallback(
     (rawUrl: string, opts?: { allowSameTabFallback?: boolean; preopenedWindow?: Window | null }): boolean => {
     const url = String(rawUrl || '').trim();
@@ -1081,12 +1091,12 @@ function RecommendationsCard({
     const q = [brand, name]
       .map((v) => String(v || '').trim())
       .filter(Boolean)
+      .filter((v) => !looksLikeOpaqueId(v))
       .join(' ')
       .trim();
     const generatedSearchUrl = buildGoogleSearchFallbackUrl(q, language);
     const normalizedFallbackUrl = normalizeOutboundFallbackUrl(opts?.fallbackUrl ?? '') || '';
     const preferredOutboundUrl = normalizedFallbackUrl || generatedSearchUrl || '';
-    if (preferredOutboundUrl && openExternalUrl(preferredOutboundUrl, { allowSameTabFallback: false })) return;
 
     const label = q || (language === 'CN' ? '该商品' : 'This product');
     toast({
@@ -1110,7 +1120,7 @@ function RecommendationsCard({
           }
         : {}),
     });
-  }, [language, openExternalUrl]);
+  }, [language, looksLikeOpaqueId, openExternalUrl]);
 
   const openPurchase = useCallback(
     async ({
@@ -1130,21 +1140,25 @@ function RecommendationsCard({
       fallbackUrl?: string | null;
       position?: number;
     }) => {
-      const title = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
+      const safeBrand = String(brand || '').trim();
+      const safeName = String(name || '').trim();
+      const queryBrand = safeBrand && !looksLikeOpaqueId(safeBrand) ? safeBrand : '';
+      const queryName = safeName && !looksLikeOpaqueId(safeName) ? safeName : '';
+      const title = [queryBrand, queryName].filter(Boolean).join(' ').trim();
       const query = String(title || '').trim();
       const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
       const resolverHints = (() => {
         const aliases = Array.from(
           new Set(
-            [title, name, brand]
+            [title, queryName, queryBrand]
               .map((value) => String(value || '').trim())
               .filter(Boolean),
           ),
         ).slice(0, 4);
         const hint: Record<string, any> = {};
-        if (brand) hint.brand = brand;
-        if (title || name) hint.title = String(title || name || '').trim();
+        if (queryBrand) hint.brand = queryBrand;
+        if (title || queryName) hint.title = String(title || queryName || '').trim();
         if (aliases.length) hint.aliases = aliases;
         return hint;
       })();
@@ -1251,7 +1265,7 @@ function RecommendationsCard({
             merchant_domain: merchantDomain,
             card_position: position ?? 0,
             sku_type: outboundSkuType,
-            ...(skuId ? { sku_id: skuId } : inferredProductId ? { product_id: inferredProductId } : {}),
+            ...(skuId ? { sku_id: skuId } : productId ? { product_id: productId } : {}),
             ...(args?.reason ? { reason: args.reason } : {}),
           });
         }
@@ -1323,13 +1337,15 @@ function RecommendationsCard({
         return { target: null, hadInfraFailure };
       };
 
+      let sawResolveError = false;
       setOffersLoading(anchorKey);
       try {
-        // 1) Fast path: offers.resolve when we have a sku_id (maps to product_id).
-        const shouldTryOffersResolve = Boolean(resolveOffers) && Boolean(skuId);
+        // 1) Fast path: offers.resolve when we have sku_id/product_id (maps to PDP target).
+        const shouldTryOffersResolve = Boolean(resolveOffers) && Boolean(skuId || productId);
         if (shouldTryOffersResolve && resolveOffers) {
           const resp = await resolveOffers({
             ...(skuId ? { sku_id: skuId } : {}),
+            ...(productId ? { product_id: productId } : {}),
             ...(merchantId ? { merchant_id: merchantId } : {}),
           });
           const pdpTarget = extractPdpTargetFromOffersResolveResponse(resp);
@@ -1341,9 +1357,9 @@ function RecommendationsCard({
             openPdpTarget({ product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null });
             return;
           }
-        } else if (debug && skuId) {
+        } else if (debug && (skuId || productId)) {
           // eslint-disable-next-line no-console
-          console.info('[RecoViewDetails] skip offers.resolve', { skuId });
+          console.info('[RecoViewDetails] skip offers.resolve', { skuId, productId });
         }
 
         // 2) Best-effort: resolve to a PDP-openable product_ref from text query.
@@ -1364,23 +1380,25 @@ function RecommendationsCard({
           }
         }
       } catch {
-        // ignore
+        sawResolveError = true;
       } finally {
         setOffersLoading(null);
       }
 
+      if (sawResolveError && query && openInternalSearch(query, { reason: 'resolver_exception_fallback' })) {
+        return;
+      }
+
       // 3) If still not resolvable:
-      //    - prefer outbound URL / Google in a new tab,
-      //    - fallback to internal search only when external open is blocked.
+      //    - show a user-clickable "open in new tab" action for outbound/Google,
+      //    - keep the chatbox page in place (avoid popup-blocker + blank-tab surprises).
       if (fallback && isLikelyUrl(fallback)) {
-        const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
-        if (!opened) openFallback(brand, name, { fallbackUrl: fallback || null });
+        openFallback(brand, name, { fallbackUrl: fallback || null });
         return;
       }
       const generatedSearchUrl = buildGoogleSearchFallbackUrl(query, language);
       if (generatedSearchUrl) {
-        const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
-        if (!opened) openFallback(brand, name, { fallbackUrl: generatedSearchUrl });
+        openFallback(brand, name, { fallbackUrl: generatedSearchUrl });
         return;
       }
       if (query && openInternalSearch(query, { reason: 'internal_search_fallback' })) {
@@ -1423,7 +1441,13 @@ function RecommendationsCard({
     const sku = asObject(item.sku) || asObject(item.product) || null;
     const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
     const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
-    const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
+    const nameFromName = asString(sku?.name) || asString((sku as any)?.Name) || null;
+    const nameFromDisplay = asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
+    const name =
+      (nameFromName && !looksLikeOpaqueId(nameFromName) ? nameFromName : null) ||
+      nameFromDisplay ||
+      nameFromName ||
+      null;
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
     const productId =
       asString((sku as any)?.product_id) ||
