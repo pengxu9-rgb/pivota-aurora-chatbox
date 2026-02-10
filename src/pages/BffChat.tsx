@@ -1007,7 +1007,7 @@ function RecommendationsCard({
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
   const [detailsOpen, setDetailsOpen] = useState(() => hasAnyAlternatives);
 
-  const openExternalUrl = useCallback((rawUrl: string): boolean => {
+  const openExternalUrl = useCallback((rawUrl: string, opts?: { allowSameTabFallback?: boolean }): boolean => {
     const url = String(rawUrl || '').trim();
     if (!url) return false;
     try {
@@ -1016,12 +1016,15 @@ function RecommendationsCard({
     } catch {
       // noop, fallback to same-tab navigation below
     }
-    try {
-      window.location.assign(url);
-      return true;
-    } catch {
-      return false;
+    if (opts?.allowSameTabFallback) {
+      try {
+        window.location.assign(url);
+        return true;
+      } catch {
+        return false;
+      }
     }
+    return false;
   }, []);
 
   const openFallback = useCallback((brand: string | null, name: string | null) => {
@@ -1031,7 +1034,7 @@ function RecommendationsCard({
       .join(' ')
       .trim();
     const generatedSearchUrl = buildGoogleSearchFallbackUrl(q, language);
-    if (generatedSearchUrl && openExternalUrl(generatedSearchUrl)) return;
+    if (generatedSearchUrl && openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false })) return;
 
     const label = q || (language === 'CN' ? '该商品' : 'This product');
     toast({
@@ -1077,12 +1080,12 @@ function RecommendationsCard({
       }
       if (!anchorKey) {
         if (fallback && isLikelyUrl(fallback)) {
-          openExternalUrl(fallback);
+          openExternalUrl(fallback, { allowSameTabFallback: false });
           return;
         }
         const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
         if (generatedSearchUrl) {
-          openExternalUrl(generatedSearchUrl);
+          openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false });
           return;
         }
         return openFallback(brand, name);
@@ -1117,7 +1120,7 @@ function RecommendationsCard({
         if (onOpenPdp) {
           onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
         } else {
-          openExternalUrl(pdpUrl);
+          openExternalUrl(pdpUrl, { allowSameTabFallback: true });
         }
       };
 
@@ -1147,7 +1150,7 @@ function RecommendationsCard({
             ...(args?.reason ? { reason: args.reason } : {}),
           });
         }
-        return openExternalUrl(url);
+        return openExternalUrl(url, { allowSameTabFallback: false });
       };
 
       const cached = offerCache[anchorKey];
@@ -1178,7 +1181,7 @@ function RecommendationsCard({
         if (cached.route === 'pdp' && onOpenPdp) {
           onOpenPdp({ url: cached.url, ...(title ? { title } : {}) });
         } else {
-          openExternalUrl(cached.url);
+          openExternalUrl(cached.url, { allowSameTabFallback: cached.route === 'pdp' });
         }
         return;
       }
@@ -1189,10 +1192,11 @@ function RecommendationsCard({
         return;
       }
 
-      const tryResolveProductRef = async (): Promise<{ target: { product_id: string; merchant_id?: string | null } | null }> => {
-        if (!resolveProductRef) return { target: null };
+      const tryResolveProductRef = async (): Promise<{ target: { product_id: string; merchant_id?: string | null } | null; hadInfraFailure: boolean }> => {
+        if (!resolveProductRef) return { target: null, hadInfraFailure: false };
         const tried = new Set<string>();
         const queue: string[] = [];
+        let hadInfraFailure = false;
         const enqueue = (value: string | null | undefined) => {
           const normalized = String(value || '').trim();
           if (!normalized || tried.has(normalized)) return;
@@ -1212,6 +1216,11 @@ function RecommendationsCard({
           const sourceReasons = Array.isArray((resp as any)?.metadata?.sources)
             ? ((resp as any).metadata.sources as Array<any>).map((s) => String(s?.reason || '').toLowerCase()).filter(Boolean)
             : [];
+          const infraLikeReasons = ['timeout', 'upstream_error', 'upstream_4xx', 'upstream_5xx', 'db_error', 'db_not_configured', 'products_cache_missing'];
+          const infraLike =
+            infraLikeReasons.some((r) => resolveReason.includes(r)) ||
+            sourceReasons.some((sourceReason) => infraLikeReasons.some((r) => sourceReason.includes(r)));
+          if (infraLike) hadInfraFailure = true;
           if (debug) {
             // eslint-disable-next-line no-console
             console.info('[RecoViewDetails] resolve query attempt', {
@@ -1222,10 +1231,10 @@ function RecommendationsCard({
             });
           }
           if (pdpTarget?.product_id) {
-            return { target: { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null } };
+            return { target: { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null }, hadInfraFailure };
           }
         }
-        return { target: null };
+        return { target: null, hadInfraFailure };
       };
 
       setOffersLoading(anchorKey);
@@ -1238,6 +1247,10 @@ function RecommendationsCard({
         }
         if (resolved.target?.product_id) {
           openPdpTarget(resolved.target);
+          return;
+        }
+        if (resolved.hadInfraFailure && productId && merchantId) {
+          openPdpTarget({ product_id: productId, merchant_id: merchantId });
           return;
         }
 
