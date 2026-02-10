@@ -1109,6 +1109,17 @@ export function RecommendationsCard({
     const generatedSearchUrl = buildGoogleSearchFallbackUrl(q, language);
     const normalizedFallbackUrl = normalizeOutboundFallbackUrl(opts?.fallbackUrl ?? '') || '';
     const preferredOutboundUrl = normalizedFallbackUrl || generatedSearchUrl || '';
+    const safeOutboundUrl = (() => {
+      const url = String(preferredOutboundUrl || '').trim();
+      if (!url) return '';
+      try {
+        // eslint-disable-next-line no-new
+        new URL(url);
+        return url;
+      } catch {
+        return '';
+      }
+    })();
 
     const label = q || (language === 'CN' ? '该商品' : 'This product');
     toast({
@@ -1117,22 +1128,22 @@ export function RecommendationsCard({
         language === 'CN'
           ? `我们还没在商品库中找到「${label}」。建议稍后重试，或换一个商品。`
           : `We couldn’t find “${label}” in the catalog yet. Try again later or pick a different item.`,
-      ...(preferredOutboundUrl
+      ...(safeOutboundUrl
         ? {
             action: (
               <ToastAction
+                asChild
                 altText={language === 'CN' ? '在新标签页打开' : 'Open in new tab'}
-                onClick={() => {
-                  openExternalUrl(preferredOutboundUrl, { allowSameTabFallback: false });
-                }}
               >
-                {language === 'CN' ? '在新标签页打开' : 'Open in new tab'}
+                <a href={safeOutboundUrl} target="_blank" rel="noopener noreferrer">
+                  {language === 'CN' ? '在新标签页打开' : 'Open in new tab'}
+                </a>
               </ToastAction>
             ),
           }
         : {}),
     });
-  }, [language, looksLikeOpaqueId, openExternalUrl]);
+  }, [language, looksLikeOpaqueId]);
 
   const openPurchase = useCallback(
     async ({
@@ -1167,8 +1178,7 @@ export function RecommendationsCard({
         const deepScanInput = (() => {
           if (fallback && isLikelyUrl(fallback)) return fallback;
           if (query) return query;
-          const compact = [safeBrand, safeName].filter(Boolean).join(' ').trim();
-          return compact;
+          return '';
         })();
         if (deepScanInput) {
           if (analyticsCtx) {
@@ -1180,6 +1190,17 @@ export function RecommendationsCard({
           onDeepScanProduct(deepScanInput);
           return;
         }
+
+        // With deep scan enabled, do not fall back into shopping/PDP flows when the
+        // recommendation is missing a usable name/link.
+        toast({
+          title: language === 'CN' ? '暂时无法打开商品详情' : 'Unable to open product details',
+          description:
+            language === 'CN'
+              ? '这条推荐缺少可用的商品名称或链接。请复制商品名称或链接后再试。'
+              : 'This recommendation is missing a usable product name or link. Please paste a product name or URL and try again.',
+        });
+        return;
       }
       const resolverHints = (() => {
         const aliases = Array.from(
