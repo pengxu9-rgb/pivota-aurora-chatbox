@@ -54,6 +54,7 @@ import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc
 import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
 import { toast } from '@/components/ui/use-toast';
 import {
+  buildProductsSearchUrl,
   buildPdpUrl,
   extractPdpTargetFromOffersResolveResponse,
   extractPdpTargetFromProductsResolveResponse,
@@ -800,6 +801,35 @@ type BootstrapInfoPatch = {
   db_ready?: boolean | null;
 };
 
+const mapQuickProfileToAuroraProfilePatch = (patch: QuickProfileProfilePatch): Record<string, unknown> | null => {
+  if (!patch) return null;
+  const out: Record<string, unknown> = {};
+
+  const skinFeel = patch.skin_feel;
+  if (skinFeel) {
+    out.skinType = skinFeel === 'unsure' ? 'unknown' : skinFeel;
+  }
+
+  const goalPrimary = patch.goal_primary;
+  if (goalPrimary) {
+    if (goalPrimary === 'breakouts') out.goals = ['acne'];
+    else if (goalPrimary === 'brightening') out.goals = ['brightening'];
+    else if (goalPrimary === 'antiaging') out.goals = ['wrinkles'];
+    else if (goalPrimary === 'barrier') out.goals = ['barrier'];
+    else if (goalPrimary === 'spf') out.goals = ['uv_protection'];
+    else out.goals = ['other'];
+  }
+
+  const sensitivityFlag = patch.sensitivity_flag;
+  if (sensitivityFlag) {
+    if (sensitivityFlag === 'yes') out.sensitivity = 'high';
+    else if (sensitivityFlag === 'no') out.sensitivity = 'low';
+    else out.sensitivity = 'unknown';
+  }
+
+  return Object.keys(out).length ? out : null;
+};
+
 const profileRecoCompleteness = (profile: Record<string, unknown> | null | undefined) => {
   const p = profile ?? {};
   const goals = (p as any).goals;
@@ -1007,9 +1037,19 @@ function RecommendationsCard({
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
   const [detailsOpen, setDetailsOpen] = useState(() => hasAnyAlternatives);
 
-  const openExternalUrl = useCallback((rawUrl: string, opts?: { allowSameTabFallback?: boolean }): boolean => {
+  const openExternalUrl = useCallback(
+    (rawUrl: string, opts?: { allowSameTabFallback?: boolean; preopenedWindow?: Window | null }): boolean => {
     const url = String(rawUrl || '').trim();
     if (!url) return false;
+    if (opts?.preopenedWindow && !opts.preopenedWindow.closed) {
+      try {
+        opts.preopenedWindow.location.replace(url);
+        opts.preopenedWindow.focus();
+        return true;
+      } catch {
+        // Continue to regular open fallback.
+      }
+    }
     try {
       const popup = window.open(url, '_blank', 'noopener,noreferrer');
       if (popup) return true;
@@ -1027,14 +1067,14 @@ function RecommendationsCard({
     return false;
   }, []);
 
-  const openFallback = useCallback((brand: string | null, name: string | null) => {
+  const openFallback = useCallback((brand: string | null, name: string | null, opts?: { preopenedWindow?: Window | null }) => {
     const q = [brand, name]
       .map((v) => String(v || '').trim())
       .filter(Boolean)
       .join(' ')
       .trim();
     const generatedSearchUrl = buildGoogleSearchFallbackUrl(q, language);
-    if (generatedSearchUrl && openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false })) return;
+    if (generatedSearchUrl && openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false, preopenedWindow: opts?.preopenedWindow })) return;
 
     const label = q || (language === 'CN' ? '该商品' : 'This product');
     toast({
@@ -1068,6 +1108,28 @@ function RecommendationsCard({
       const query = String(productId || skuId || title || '').trim();
       const anchorKey = String(productId || skuId || (query ? `q:${query}` : '')).trim();
       const fallback = String(fallbackUrl || '').trim();
+      const shouldPrimeExternalPopup = !productId || (looksLikeUuid(productId) && !merchantId);
+      const preopenedWindow =
+        shouldPrimeExternalPopup
+          ? (() => {
+              try {
+                return window.open('', '_blank', 'noopener,noreferrer');
+              } catch {
+                return null;
+              }
+            })()
+          : null;
+      let preopenedWindowUsed = false;
+
+      const closePreopenedWindowIfUnused = () => {
+        if (!preopenedWindow || preopenedWindowUsed || preopenedWindow.closed) return;
+        try {
+          preopenedWindow.close();
+        } catch {
+          // ignore
+        }
+      };
+
       if (debug) {
         // eslint-disable-next-line no-console
         console.info('[RecoViewDetails] click', {
@@ -1080,15 +1142,17 @@ function RecommendationsCard({
       }
       if (!anchorKey) {
         if (fallback && isLikelyUrl(fallback)) {
-          openExternalUrl(fallback, { allowSameTabFallback: false });
+          const opened = openExternalUrl(fallback, { allowSameTabFallback: false, preopenedWindow });
+          preopenedWindowUsed = preopenedWindowUsed || opened;
           return;
         }
         const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
         if (generatedSearchUrl) {
-          openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false });
+          const opened = openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false, preopenedWindow });
+          preopenedWindowUsed = preopenedWindowUsed || opened;
           return;
         }
-        return openFallback(brand, name);
+        return openFallback(brand, name, { preopenedWindow });
       }
 
       const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
@@ -1122,6 +1186,36 @@ function RecommendationsCard({
         } else {
           openExternalUrl(pdpUrl, { allowSameTabFallback: true });
         }
+        closePreopenedWindowIfUnused();
+      };
+
+      const openInternalSearch = (queryText: string, args?: { reason?: string }): boolean => {
+        const searchUrl = buildProductsSearchUrl({ query: queryText });
+        if (!searchUrl) return false;
+
+        setOfferCache((prev) => ({
+          ...prev,
+          [anchorKey]: {
+            url: searchUrl,
+            route: 'internal',
+          },
+        }));
+        if (analyticsCtx) {
+          emitUiInternalCheckoutClicked(analyticsCtx, {
+            from_card_id: card.card_id,
+            ...(args?.reason ? { reason: args.reason } : {}),
+          });
+        }
+
+        if (onOpenPdp) {
+          onOpenPdp({ url: searchUrl, ...(title ? { title } : {}) });
+          closePreopenedWindowIfUnused();
+          return true;
+        }
+
+        const opened = openExternalUrl(searchUrl, { allowSameTabFallback: false, preopenedWindow });
+        preopenedWindowUsed = preopenedWindowUsed || opened;
+        return opened;
       };
 
       const openOutboundUrl = (rawUrl: string, args?: { reason?: string }): boolean => {
@@ -1150,7 +1244,9 @@ function RecommendationsCard({
             ...(args?.reason ? { reason: args.reason } : {}),
           });
         }
-        return openExternalUrl(url, { allowSameTabFallback: false });
+        const opened = openExternalUrl(url, { allowSameTabFallback: false, preopenedWindow });
+        preopenedWindowUsed = preopenedWindowUsed || opened;
+        return opened;
       };
 
       const cached = offerCache[anchorKey];
@@ -1178,16 +1274,17 @@ function RecommendationsCard({
             emitUiInternalCheckoutClicked(analyticsCtx, { from_card_id: card.card_id });
           }
         }
-        if (cached.route === 'pdp' && onOpenPdp) {
+        if ((cached.route === 'pdp' || cached.route === 'internal') && onOpenPdp) {
           onOpenPdp({ url: cached.url, ...(title ? { title } : {}) });
         } else {
-          openExternalUrl(cached.url, { allowSameTabFallback: cached.route === 'pdp' });
+          openExternalUrl(cached.url, { allowSameTabFallback: cached.route === 'pdp' || cached.route === 'internal' });
         }
+        closePreopenedWindowIfUnused();
         return;
       }
 
       // Legacy fallback only: if resolver is unavailable, open known explicit PDP target.
-      if (!resolveProductRef && productId && merchantId) {
+      if (!resolveProductRef && productId && (merchantId || !looksLikeUuid(productId))) {
         openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
         return;
       }
@@ -1249,9 +1346,17 @@ function RecommendationsCard({
           openPdpTarget(resolved.target);
           return;
         }
-        if (resolved.hadInfraFailure && productId && merchantId) {
-          openPdpTarget({ product_id: productId, merchant_id: merchantId });
-          return;
+        // Infra failures (db/search timeouts) should prefer direct PDP target when available.
+        if (resolved.hadInfraFailure) {
+          // Infra failures from resolver/search should prefer internal navigation.
+          if (productId && !looksLikeUuid(productId)) {
+            openPdpTarget({ product_id: productId, merchant_id: merchantId ?? null });
+            return;
+          }
+          const searchQuery = String(title || query || '').trim();
+          if (searchQuery && openInternalSearch(searchQuery, { reason: 'resolver_infra_fallback' })) {
+            return;
+          }
         }
 
         // 2) Next: offers.resolve (only if we actually have ids).
@@ -1288,18 +1393,22 @@ function RecommendationsCard({
       }
 
       // 3) If still not resolvable, use explicit upstream link, then generated Google search fallback.
-      if (fallback && isLikelyUrl(fallback)) {
-        const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
-        if (!opened) openFallback(brand, name);
-        return;
-      }
-      const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
-      if (generatedSearchUrl) {
-        const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
-        if (!opened) openFallback(brand, name);
-        return;
-      }
-      openFallback(brand, name);
+        const searchQuery = String(title || query || '').trim();
+        if (searchQuery && openInternalSearch(searchQuery, { reason: 'internal_search_fallback' })) {
+          return;
+        }
+        if (fallback && isLikelyUrl(fallback)) {
+          const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
+          if (!opened) openFallback(brand, name, { preopenedWindow });
+          return;
+        }
+        const generatedSearchUrl = buildGoogleSearchFallbackUrl(title || query, language);
+        if (generatedSearchUrl) {
+          const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
+          if (!opened) openFallback(brand, name, { preopenedWindow });
+          return;
+        }
+        openFallback(brand, name, { preopenedWindow });
     },
     [
       analyticsCtx,
@@ -1334,16 +1443,28 @@ function RecommendationsCard({
 
   const renderStep = (item: RecoItem, idx: number) => {
     const sku = asObject(item.sku) || asObject(item.product) || null;
+    const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
     const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
     const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
-    const productId = asString((sku as any)?.product_id) || asString((sku as any)?.productId) || asString((sku as any)?.id) || null;
+    const productId =
+      asString((sku as any)?.product_id) ||
+      asString((sku as any)?.productId) ||
+      asString((item as any)?.product_id) ||
+      asString((item as any)?.productId) ||
+      asString((itemRef as any)?.product_id) ||
+      asString((itemRef as any)?.productId) ||
+      null;
     const merchantId =
       asString((sku as any)?.merchant_id) ||
       asString((sku as any)?.merchantId) ||
       asString((sku as any)?.merchant?.id) ||
       asString((sku as any)?.merchant?.merchant_id) ||
       asString((sku as any)?.merchant?.merchantId) ||
+      asString((item as any)?.merchant_id) ||
+      asString((item as any)?.merchantId) ||
+      asString((itemRef as any)?.merchant_id) ||
+      asString((itemRef as any)?.merchantId) ||
       null;
     const itemUrl =
       asString((sku as any)?.affiliate_url) ||
@@ -1351,6 +1472,11 @@ function RecommendationsCard({
       asString((sku as any)?.external_url) ||
       asString((sku as any)?.externalUrl) ||
       asString((sku as any)?.url) ||
+      asString((item as any)?.affiliate_url) ||
+      asString((item as any)?.affiliateUrl) ||
+      asString((item as any)?.external_url) ||
+      asString((item as any)?.externalUrl) ||
+      asString((item as any)?.url) ||
       null;
     const q = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
     const anchorId = productId || skuId || (q ? `q:${q}` : null);
@@ -1450,13 +1576,19 @@ function RecommendationsCard({
                   asString((altProduct as any)?.skuId) ||
                   null;
                 const altProductId =
-                  asString((altProduct as any)?.product_id) || asString((altProduct as any)?.productId) || asString((altProduct as any)?.id) || null;
+                  asString((altProduct as any)?.product_id) ||
+                  asString((altProduct as any)?.productId) ||
+                  asString((alt as any)?.product_id) ||
+                  asString((alt as any)?.productId) ||
+                  null;
                 const altMerchantId =
                   asString((altProduct as any)?.merchant_id) ||
                   asString((altProduct as any)?.merchantId) ||
                   asString((altProduct as any)?.merchant?.id) ||
                   asString((altProduct as any)?.merchant?.merchant_id) ||
                   asString((altProduct as any)?.merchant?.merchantId) ||
+                  asString((alt as any)?.merchant_id) ||
+                  asString((alt as any)?.merchantId) ||
                   null;
                 const altUrl =
                   asString((altProduct as any)?.affiliate_url) ||
@@ -1464,6 +1596,11 @@ function RecommendationsCard({
                   asString((altProduct as any)?.external_url) ||
                   asString((altProduct as any)?.externalUrl) ||
                   asString((altProduct as any)?.url) ||
+                  asString((alt as any)?.affiliate_url) ||
+                  asString((alt as any)?.affiliateUrl) ||
+                  asString((alt as any)?.external_url) ||
+                  asString((alt as any)?.externalUrl) ||
+                  asString((alt as any)?.url) ||
                   null;
                 const altAnchorId = altProductId || altSkuId || '';
                 const tradeoffs = uniqueStrings((alt as any).tradeoffs).slice(0, 4);
@@ -3453,8 +3590,10 @@ export default function BffChat() {
       setIsLoading(true);
       try {
         const requestHeaders = { ...headers, lang: language };
+        const session: Record<string, unknown> = { state: sessionState };
+        if (bootstrapInfo?.profile) session.profile = bootstrapInfo.profile;
         const body: Record<string, unknown> = {
-          session: { state: sessionState },
+          session,
           ...(message ? { message } : {}),
           ...(action ? { action } : {}),
           language,
@@ -3477,7 +3616,7 @@ export default function BffChat() {
         setLoadingIntent('default');
       }
     },
-    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, debug, headers, language, sessionState]
+    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, bootstrapInfo?.profile, debug, headers, language, sessionState]
   );
 
   const parseMaybeUrl = useCallback((text: string) => {
@@ -4249,6 +4388,30 @@ export default function BffChat() {
 
           const nextDraft: QuickProfileProfilePatch = { ...quickProfileDraft, ...profilePatch };
           setQuickProfileDraft(nextDraft);
+
+          const auroraProfilePatch = mapQuickProfileToAuroraProfilePatch(profilePatch);
+          if (auroraProfilePatch) {
+            // Always update local snapshot so subsequent /v1/chat calls don't re-ask for already-known fields.
+            setBootstrapInfo((prev) => {
+              const merged: BootstrapInfo = prev
+                ? { ...prev }
+                : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+              const baseProfile = asObject(merged.profile) ?? {};
+              merged.profile = { ...baseProfile, ...auroraProfilePatch };
+              return merged;
+            });
+
+            // Best-effort persist to BFF storage (do not block quick-profile progression).
+            try {
+              const requestHeaders = { ...headers, lang: language };
+              await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+                method: 'POST',
+                body: JSON.stringify(auroraProfilePatch),
+              });
+            } catch {
+              // ignore (local snapshot already updated)
+            }
+          }
 
           if (qpQuestionId === 'skin_feel') setQuickProfileStep('goal_primary');
           else if (qpQuestionId === 'goal_primary') setQuickProfileStep('sensitivity_flag');

@@ -193,3 +193,13 @@ export const buildPdpUrl = (args: { product_id: string; merchant_id?: string | n
   url.searchParams.set('entry', 'aurora_chatbox');
   return url.toString();
 };
+
+export const buildProductsSearchUrl = (args: { query: string; baseUrl?: string }): string | null => {
+  const q = String(args.query || '').trim();
+  if (!q) return null;
+  const baseUrl = normalizeBaseUrl(args.baseUrl ?? getPivotaShopBaseUrl());
+  const url = new URL(`${baseUrl}/products`);
+  url.searchParams.set('q', q);
+  url.searchParams.set('entry', 'aurora_chatbox');
+  return url.toString();
+};

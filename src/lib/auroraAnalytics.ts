@@ -88,7 +88,7 @@ export const emitUiInternalCheckoutClicked = (
   ctx: AnalyticsContext,
   props: {
     from_card_id: string;
-  }
+  } & Record<string, unknown>
 ) => emitWithContext('ui_internal_checkout_clicked', ctx, props);
 
 export const emitAgentStateEntered = (

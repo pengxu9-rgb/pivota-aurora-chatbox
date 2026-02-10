@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildProductsSearchUrl,
   buildPdpUrl,
   extractPdpTargetFromOffersResolveResponse,
   extractPdpTargetFromProductsResolveResponse,
@@ -54,6 +55,19 @@ describe('pivotaShop', () => {
     it('omits merchant_id when missing', () => {
       const url = buildPdpUrl({ baseUrl: 'https://agent.pivota.cc/', product_id: 'prod_2' });
       expect(url).toBe('https://agent.pivota.cc/products/prod_2?entry=aurora_chatbox');
+    });
+  });
+
+  describe('buildProductsSearchUrl', () => {
+    it('builds products search URL with entry', () => {
+      const url = buildProductsSearchUrl({ baseUrl: 'https://agent.pivota.cc', query: 'The Ordinary Niacinamide 10% + Zinc 1%' });
+      expect(url).toBe(
+        'https://agent.pivota.cc/products?q=The+Ordinary+Niacinamide+10%25+%2B+Zinc+1%25&entry=aurora_chatbox',
+      );
+    });
+
+    it('returns null for empty query', () => {
+      expect(buildProductsSearchUrl({ baseUrl: 'https://agent.pivota.cc', query: '   ' })).toBeNull();
     });
   });
 
