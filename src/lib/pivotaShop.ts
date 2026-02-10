@@ -59,6 +59,30 @@ export const extractPdpTargetFromOffersResolveResponse = (input: unknown): PdpTa
   const resp = asObject(input);
   if (!resp) return null;
 
+  const readTargetFromRef = (refRaw: unknown): PdpTarget | null => {
+    const ref = asObject(refRaw);
+    if (!ref) return null;
+    const productId =
+      asNonEmptyString(ref.product_id) ||
+      asNonEmptyString(ref.productId) ||
+      asNonEmptyString(ref.id) ||
+      null;
+    const merchantId =
+      asNonEmptyString(ref.merchant_id) ||
+      asNonEmptyString(ref.merchantId) ||
+      asNonEmptyString(ref.merchant?.id) ||
+      null;
+    if (!productId) return null;
+    return { product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) };
+  };
+
+  const canonicalRef =
+    readTargetFromRef(resp.canonical_product_ref) ||
+    readTargetFromRef(resp.canonicalProductRef) ||
+    readTargetFromRef(resp.product_ref) ||
+    readTargetFromRef(resp.productRef);
+  if (canonicalRef) return canonicalRef;
+
   const rootProduct = asObject(resp.product) || asObject(resp.data?.product);
   const rootProductId =
     asNonEmptyString(resp.product_id) ||
@@ -76,6 +100,33 @@ export const extractPdpTargetFromOffersResolveResponse = (input: unknown): PdpTa
     null;
   if (rootProductId) {
     return { product_id: rootProductId, ...(rootMerchantId ? { merchant_id: rootMerchantId } : {}) };
+  }
+
+  const membersRaw =
+    Array.isArray(resp.members) ? resp.members
+      : Array.isArray(resp.data?.members) ? resp.data.members
+        : [];
+  const members = membersRaw.map(asObject).filter(Boolean) as Array<Record<string, any>>;
+  for (const member of members) {
+    const fromMember =
+      readTargetFromRef(member.product_ref) ||
+      readTargetFromRef(member.productRef) ||
+      readTargetFromRef(member.canonical_product_ref) ||
+      readTargetFromRef(member.canonicalProductRef) ||
+      readTargetFromRef(member.product);
+    if (fromMember) return fromMember;
+  }
+
+  const mappingCandidatesRaw = Array.isArray(resp.mapping?.candidates) ? resp.mapping.candidates : [];
+  const mappingCandidates = mappingCandidatesRaw.map(asObject).filter(Boolean) as Array<Record<string, any>>;
+  for (const candidate of mappingCandidates) {
+    const fromCandidate =
+      readTargetFromRef(candidate.product_ref) ||
+      readTargetFromRef(candidate.productRef) ||
+      readTargetFromRef(candidate.canonical_product_ref) ||
+      readTargetFromRef(candidate.canonicalProductRef) ||
+      readTargetFromRef(candidate.product);
+    if (fromCandidate) return fromCandidate;
   }
 
   const offersRaw =

@@ -10,6 +10,33 @@ import {
 
 describe('pivotaShop', () => {
   describe('extractPdpTargetFromOffersResolveResponse', () => {
+    it('extracts from canonical_product_ref', () => {
+      const resp = { status: 'success', canonical_product_ref: { product_id: 'prod_canon', merchant_id: 'merch_canon' } };
+      expect(extractPdpTargetFromOffersResolveResponse(resp)).toEqual({ product_id: 'prod_canon', merchant_id: 'merch_canon' });
+    });
+
+    it('extracts from mapping.candidates product_ref', () => {
+      const resp = {
+        status: 'success',
+        mapping: {
+          candidates: [
+            { score: 0.91, product_ref: { product_id: 'prod_map', merchant_id: 'merch_map' } },
+          ],
+        },
+      };
+      expect(extractPdpTargetFromOffersResolveResponse(resp)).toEqual({ product_id: 'prod_map', merchant_id: 'merch_map' });
+    });
+
+    it('extracts from members canonical refs', () => {
+      const resp = {
+        status: 'success',
+        members: [
+          { canonical_product_ref: { product_id: 'prod_member', merchant_id: 'merch_member' } },
+        ],
+      };
+      expect(extractPdpTargetFromOffersResolveResponse(resp)).toEqual({ product_id: 'prod_member', merchant_id: 'merch_member' });
+    });
+
     it('extracts from root product fields', () => {
       const resp = { product: { product_id: 'prod_1', merchant_id: 'merch_1' }, offers: [] };
       expect(extractPdpTargetFromOffersResolveResponse(resp)).toEqual({ product_id: 'prod_1', merchant_id: 'merch_1' });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/ui/use-toast', () => ({
@@ -9,9 +9,14 @@ vi.mock('@/components/ui/use-toast', () => ({
 
 import type { Card } from '@/lib/pivotaAgentBff';
 import { RecommendationsCard } from '@/pages/BffChat';
-import { toast } from '@/components/ui/use-toast';
+import { buildGoogleSearchFallbackUrl } from '@/lib/externalSearchFallback';
 
-const buildRecoCard = (args: { brand?: string; name?: string; url?: string | null }): Card => ({
+const buildRecoCard = (args: {
+  brand?: string;
+  name?: string;
+  skuId?: string | null;
+  productId?: string | null;
+}): Card => ({
   card_id: 'reco_card_1',
   type: 'recommendations',
   payload: {
@@ -21,22 +26,27 @@ const buildRecoCard = (args: { brand?: string; name?: string; url?: string | nul
         sku: {
           brand: args.brand ?? 'The Ordinary',
           display_name: args.name ?? 'Niacinamide 10% + Zinc 1%',
-          sku_id: 'sku_test_1',
-          url: args.url ?? null,
+          ...(args.skuId != null ? { sku_id: args.skuId } : {}),
+          ...(args.productId != null ? { product_id: args.productId } : {}),
         },
       },
     ],
   },
 });
 
-describe('RecommendationsCard View details', () => {
-  it('routes to Aurora product deep scan (no shop drawer)', () => {
+describe('RecommendationsCard View details routing', () => {
+  it('opens PDP from offers.resolve target and does not deep-scan', async () => {
     const onDeepScanProduct = vi.fn();
     const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn();
+    const resolveOffers = vi.fn().mockResolvedValue({
+      status: 'success',
+      mapping: {
+        candidates: [{ product_ref: { product_id: 'prod_123', merchant_id: 'merch_abc' } }],
+      },
+    });
     const resolveProductRef = vi.fn();
 
-    const card = buildRecoCard({ url: 'https://example.com/product/123' });
+    const card = buildRecoCard({ skuId: 'sku_test_1' });
     render(
       <RecommendationsCard
         card={card}
@@ -51,45 +61,73 @@ describe('RecommendationsCard View details', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
-    expect(onDeepScanProduct).toHaveBeenCalledTimes(1);
-    expect(onDeepScanProduct).toHaveBeenCalledWith('https://example.com/product/123');
-    expect(onOpenPdp).not.toHaveBeenCalled();
-    expect(resolveOffers).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/prod_123');
+    expect(resolveOffers).toHaveBeenCalledTimes(1);
     expect(resolveProductRef).not.toHaveBeenCalled();
+    expect(onDeepScanProduct).not.toHaveBeenCalled();
   });
 
-  it('ignores opaque UUID-like names when building deep scan input', () => {
-    const onDeepScanProduct = vi.fn();
+  it('does not call products.resolve for sku-backed item and falls back to Google tab', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const resolveOffers = vi.fn().mockResolvedValue({
+      status: 'success',
+      offers: [],
+      mapping: { candidates: [] },
+    });
+    const resolveProductRef = vi.fn();
+
+    const card = buildRecoCard({
+      brand: 'IPSA',
+      name: 'Time Reset Aqua',
+      skuId: 'sku_unknown',
+      productId: 'prod_unknown',
+    });
+    render(
+      <RecommendationsCard
+        card={card}
+        language="EN"
+        debug={false}
+        resolveOffers={resolveOffers}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(resolveOffers).toHaveBeenCalled();
+    });
+    expect(resolveProductRef).not.toHaveBeenCalled();
+    expect(openSpy).toHaveBeenCalledWith(
+      buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN'),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    openSpy.mockRestore();
+  });
+
+  it('uses products.resolve only for name-only item', async () => {
+    const onOpenPdp = vi.fn();
+    const resolveOffers = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: true,
+      product_ref: { product_id: 'prod_by_query', merchant_id: 'merch_q' },
+    });
+
     const card = buildRecoCard({
       brand: 'The Ordinary',
-      name: 'e7c90e06 8673 4c97 835d 074a26ab2162',
-      url: null,
+      name: 'Niacinamide 10% + Zinc 1%',
+      skuId: null,
+      productId: null,
     });
-
-    render(<RecommendationsCard card={card} language="EN" debug={false} onDeepScanProduct={onDeepScanProduct} />);
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    expect(onDeepScanProduct).toHaveBeenCalledWith('The Ordinary');
-  });
-
-  it('does not fall back into shop/PDP flows when deep scan input is missing', () => {
-    const onDeepScanProduct = vi.fn();
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn();
-    const resolveProductRef = vi.fn();
-
-    const card = buildRecoCard({
-      brand: 'kb:opaque_brand',
-      name: 'e7c90e06 8673 4c97 835d 074a26ab2162',
-      url: null,
-    });
-
     render(
       <RecommendationsCard
         card={card}
         language="EN"
         debug={false}
-        onDeepScanProduct={onDeepScanProduct}
         onOpenPdp={onOpenPdp}
         resolveOffers={resolveOffers}
         resolveProductRef={resolveProductRef}
@@ -98,10 +136,11 @@ describe('RecommendationsCard View details', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
-    expect(onDeepScanProduct).not.toHaveBeenCalled();
-    expect(onOpenPdp).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
     expect(resolveOffers).not.toHaveBeenCalled();
-    expect(resolveProductRef).not.toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledTimes(1);
+    expect(resolveProductRef).toHaveBeenCalledTimes(1);
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/prod_by_query');
   });
 });
