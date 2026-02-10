@@ -44,6 +44,7 @@ import {
   emitUiSessionStarted,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
+import { buildChatSession } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
@@ -2836,6 +2837,7 @@ export default function BffChat() {
   const actionIntentConsumedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
+  const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
 
   const shop = useShop();
@@ -2918,13 +2920,15 @@ export default function BffChat() {
       const next = (env.session_patch as Record<string, unknown>)['next_state'];
       if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
 
+      const profilePatch = asObject(patch.profile);
+      if (profilePatch) setProfileSnapshot(profilePatch);
+
       setBootstrapInfo((prev) => {
         const merged: BootstrapInfo = prev
           ? { ...prev }
           : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
 
-        const profile = asObject(patch.profile);
-        if (profile) merged.profile = profile;
+        if (profilePatch) merged.profile = profilePatch;
 
         const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
         if (recentLogs.length) merged.recent_logs = recentLogs;
@@ -2993,6 +2997,7 @@ export default function BffChat() {
       const info = readBootstrapInfo(env);
       setBootstrapInfo(info);
       const profile = info?.profile;
+      if (profile) setProfileSnapshot(profile);
       const isReturning = Boolean(info?.is_returning);
       const returnWelcomeSummary = buildReturnWelcomeSummary({
         profile,
@@ -3166,7 +3171,7 @@ export default function BffChat() {
 
   useEffect(() => {
     if (!profileSheetOpen) return;
-    const p = bootstrapInfo?.profile;
+    const p = profileSnapshot ?? bootstrapInfo?.profile;
     const itineraryRaw = (p as any)?.itinerary;
     const itineraryText =
       typeof itineraryRaw === 'string'
@@ -3183,7 +3188,7 @@ export default function BffChat() {
       budgetTier: asString(p?.budgetTier) ?? '',
       itinerary: itineraryText ?? '',
     });
-  }, [profileSheetOpen, bootstrapInfo]);
+  }, [profileSheetOpen, bootstrapInfo, profileSnapshot]);
 
   const saveProfile = useCallback(async () => {
     setIsLoading(true);
@@ -3251,6 +3256,7 @@ export default function BffChat() {
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
       const info = readBootstrapInfo(env);
       if (info) setBootstrapInfo(info);
+      if (info?.profile) setProfileSnapshot(info.profile);
     } catch {
       // ignore
     }
@@ -3538,7 +3544,7 @@ export default function BffChat() {
       const photosForAnalysis = mergeAnalysisPhotoRefs(existingPhotos, uploadedPassedRefs);
       if (photosForAnalysis.length > 0) {
         setPromptRoutineAfterPhoto(false);
-        const profileCurrentRoutine = bootstrapInfo?.profile?.currentRoutine;
+        const profileCurrentRoutine = (profileSnapshot ?? bootstrapInfo?.profile)?.currentRoutine;
         const hasCurrentRoutine =
           typeof profileCurrentRoutine === 'string'
             ? Boolean(profileCurrentRoutine.trim())
@@ -3597,6 +3603,7 @@ export default function BffChat() {
       analysisPhotoRefs,
       applyEnvelope,
       bootstrapInfo?.profile,
+      profileSnapshot,
       headers,
       language,
       promptRoutineAfterPhoto,
@@ -3618,8 +3625,11 @@ export default function BffChat() {
       setIsLoading(true);
       try {
         const requestHeaders = { ...headers, lang: language };
-        const session: Record<string, unknown> = { state: sessionState };
-        if (bootstrapInfo?.profile) session.profile = bootstrapInfo.profile;
+        const session = buildChatSession({
+          state: sessionState,
+          profileSnapshot,
+          bootstrapProfile: bootstrapInfo?.profile ?? null,
+        });
         const body: Record<string, unknown> = {
           session,
           ...(message ? { message } : {}),
@@ -3644,7 +3654,18 @@ export default function BffChat() {
         setLoadingIntent('default');
       }
     },
-    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, bootstrapInfo?.profile, debug, headers, language, sessionState]
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyEnvelope,
+      bootstrapInfo?.profile,
+      debug,
+      headers,
+      language,
+      profileSnapshot,
+      sessionState,
+    ]
   );
 
   const parseMaybeUrl = useCallback((text: string) => {
@@ -4513,7 +4534,7 @@ export default function BffChat() {
       // the backend will gate. Remember this intent so we can resume recommendations
       // immediately after the user completes the diagnosis card.
       if (id === 'chip.start.reco_products' || id === 'chip_get_recos') {
-        const { score } = profileRecoCompleteness(bootstrapInfo?.profile ?? null);
+        const { score } = profileRecoCompleteness(profileSnapshot ?? bootstrapInfo?.profile ?? null);
         if (score < 3) {
           pendingActionAfterDiagnosisRef.current = {
             action_id: chip.chip_id,
@@ -4583,7 +4604,17 @@ export default function BffChat() {
         { client_state: fromState, requested_transition: requestedTransition },
       );
     },
-    [agentState, bootstrapInfo?.profile, headers, language, quickProfileBusy, quickProfileDraft, runLowConfidenceSkinAnalysis, sendChat]
+    [
+      agentState,
+      bootstrapInfo?.profile,
+      headers,
+      language,
+      profileSnapshot,
+      quickProfileBusy,
+      quickProfileDraft,
+      runLowConfidenceSkinAnalysis,
+      sendChat,
+    ]
   );
 
   const deepLinkChip = useCallback(
