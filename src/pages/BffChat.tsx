@@ -1370,11 +1370,8 @@ function RecommendationsCard({
       }
 
       // 3) If still not resolvable:
-      //    - prefer internal search (drawer) so users don't lose context,
-      //    - then outbound URL / Google in a new tab.
-      if (query && openInternalSearch(query, { reason: 'internal_search_fallback' })) {
-        return;
-      }
+      //    - prefer outbound URL / Google in a new tab,
+      //    - fallback to internal search only when external open is blocked.
       if (fallback && isLikelyUrl(fallback)) {
         const opened = openOutboundUrl(fallback, { reason: 'no_pdp_target' });
         if (!opened) openFallback(brand, name, { fallbackUrl: fallback || null });
@@ -1384,6 +1381,9 @@ function RecommendationsCard({
       if (generatedSearchUrl) {
         const opened = openOutboundUrl(generatedSearchUrl, { reason: 'generated_google_search' });
         if (!opened) openFallback(brand, name, { fallbackUrl: generatedSearchUrl });
+        return;
+      }
+      if (query && openInternalSearch(query, { reason: 'internal_search_fallback' })) {
         return;
       }
       openFallback(brand, name, { fallbackUrl: fallback || null });
