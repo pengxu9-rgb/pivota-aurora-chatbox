@@ -1174,16 +1174,8 @@ function RecommendationsCard({
         });
       }
       if (!anchorKey) {
-        if (fallback && isLikelyUrl(fallback)) {
-          openExternalUrl(fallback, { allowSameTabFallback: false });
-          return;
-        }
-        const generatedSearchUrl = buildGoogleSearchFallbackUrl(query, language);
-        if (generatedSearchUrl) {
-          openExternalUrl(generatedSearchUrl, { allowSameTabFallback: false });
-          return;
-        }
-        return openFallback(brand, name, { fallbackUrl: fallback || null });
+        openFallback(brand, name, { fallbackUrl: fallback || null });
+        return;
       }
 
       const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
