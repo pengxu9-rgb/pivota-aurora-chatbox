@@ -136,6 +136,34 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
+  it('internal resolve success: opens PDP drawer and never opens a new tab', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: true,
+      canonical_product_ref: { product_id: '9886499864904', merchant_id: 'merch_efbc46b4619cfbdf' },
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ brand: 'The Ordinary', name: 'Niacinamide 10% + Zinc 1%' })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(resolveProductRef).toHaveBeenCalledTimes(1);
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
   it('4) never opens blank tab', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
     const resolveProductRef = vi.fn().mockResolvedValue({

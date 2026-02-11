@@ -1073,6 +1073,7 @@ export function RecommendationsCard({
   };
   const [detailsFlow, setDetailsFlow] = useState<{ key: string | null; state: PdpOpenState }>({ key: null, state: 'idle' });
   const inflightByKeyRef = useRef<Map<string, { controller: AbortController; promise: Promise<void> }>>(new Map());
+  const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
   const payload = asObject(card.payload) || {};
   const items = asArray(payload.recommendations) as RecoItem[];
@@ -1099,6 +1100,7 @@ export function RecommendationsCard({
         entry.controller.abort('component_unmount');
       }
       inflightByKeyRef.current.clear();
+      clickLockByKeyRef.current.clear();
     },
     [],
   );
@@ -1136,6 +1138,8 @@ export function RecommendationsCard({
         await existing.promise;
         return;
       }
+      if (clickLockByKeyRef.current.has(anchorKey)) return;
+      clickLockByKeyRef.current.add(anchorKey);
 
       for (const [key, entry] of inflightByKeyRef.current.entries()) {
         if (key !== anchorKey) {
@@ -1323,6 +1327,7 @@ export function RecommendationsCard({
           });
         } finally {
           inflightByKeyRef.current.delete(anchorKey);
+          clickLockByKeyRef.current.delete(anchorKey);
           const superseded = controller.signal.aborted && controller.signal.reason === 'superseded';
           if (!superseded && analyticsCtx) {
             if (openPath === 'external' && failReason) {
