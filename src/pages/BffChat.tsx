@@ -1263,7 +1263,9 @@ export function RecommendationsCard({
       };
 
       const cached = offerCache[anchorKey];
-      if (cached) {
+      const hasIdentifier = Boolean(productId || skuId);
+      const shouldBypassCachedOutbound = hasIdentifier && cached?.route === 'outbound';
+      if (cached && !shouldBypassCachedOutbound) {
         if (analyticsCtx) {
           if (cached.route === 'pdp') {
             if (cached.product_id) {
@@ -1331,8 +1333,14 @@ export function RecommendationsCard({
       let resolverInfraFailure = false;
       setOffersLoading(anchorKey);
       try {
-        // 1) Fast path: offers.resolve when we have sku_id/product_id (maps to PDP target).
-        const shouldTryOffersResolve = Boolean(resolveOffers) && Boolean(skuId || productId);
+        // 1) Stable product_id should go straight to PDP (do not block on resolver infra).
+        if (productId) {
+          openPdpTarget({ product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
+          return;
+        }
+
+        // 2) sku-only path: use offers.resolve to map sku -> PDP target.
+        const shouldTryOffersResolve = Boolean(resolveOffers) && Boolean(skuId) && !productId;
         if (shouldTryOffersResolve && resolveOffers) {
           const offerInputs: Array<{ sku_id?: string; product_id?: string; merchant_id?: string }> = [];
           const pushInput = (input: { sku_id?: string; product_id?: string; merchant_id?: string }) => {
@@ -1342,21 +1350,7 @@ export function RecommendationsCard({
             offerInputs.push(input);
           };
 
-          if (skuId && productId && skuId !== productId) {
-            pushInput({ sku_id: skuId, product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
-            pushInput({ sku_id: skuId, ...(merchantId ? { merchant_id: merchantId } : {}) });
-            pushInput({ product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
-          } else {
-            pushInput({
-              ...(skuId ? { sku_id: skuId } : {}),
-              ...(productId ? { product_id: productId } : {}),
-              ...(merchantId ? { merchant_id: merchantId } : {}),
-            });
-            if (skuId && productId && skuId === productId) {
-              pushInput({ sku_id: skuId, ...(merchantId ? { merchant_id: merchantId } : {}) });
-              pushInput({ product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
-            }
-          }
+          pushInput({ sku_id: skuId || undefined, ...(merchantId ? { merchant_id: merchantId } : {}) });
 
           for (const input of offerInputs) {
             const resp = await resolveOffers(input);
@@ -1370,14 +1364,12 @@ export function RecommendationsCard({
               return;
             }
           }
-        } else if (debug && (skuId || productId)) {
+        } else if (debug && skuId) {
           // eslint-disable-next-line no-console
-          console.info('[RecoViewDetails] skip offers.resolve', { skuId, productId });
+          console.info('[RecoViewDetails] skip offers.resolve', { skuId });
         }
 
-        // 2) Text-query resolver only for products lacking sku/product identifiers.
-        // Avoid routing SKU-backed clicks into generic products.resolve, which can
-        // drift to non-beauty catalogs when upstream is degraded.
+        // 3) Text-query resolver only for products lacking any stable identifier.
         if (!skuId && !productId) {
           const resolved = await tryResolveProductRef();
           if (debug) {
@@ -1396,11 +1388,18 @@ export function RecommendationsCard({
         setOffersLoading(null);
       }
 
-      // Resolver infra can be flaky (db/search timeout). If we already have a concrete
-      // product id from recommendation payload, try direct PDP before external fallback.
-      if (productId && (sawResolveError || resolverInfraFailure || (!resolveOffers && !resolveProductRef))) {
-        openPdpTarget({ product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
-        return;
+      // 4) sku-only fallback: one products.resolve attempt to avoid blind external fallback.
+      if (skuId && (sawResolveError || resolverInfraFailure || !resolveOffers) && resolveProductRef) {
+        try {
+          const resolved = await tryResolveProductRef();
+          if (resolved.target?.product_id) {
+            openPdpTarget(resolved.target);
+            return;
+          }
+          resolverInfraFailure = resolverInfraFailure || resolved.hadInfraFailure;
+        } catch {
+          sawResolveError = true;
+        }
       }
 
       // 3) If still not resolvable:

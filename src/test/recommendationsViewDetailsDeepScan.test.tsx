@@ -70,20 +70,56 @@ describe('RecommendationsCard View details routing', () => {
     expect(onDeepScanProduct).not.toHaveBeenCalled();
   });
 
-  it('does not call products.resolve for sku-backed item and falls back to Google tab', async () => {
+  it('opens PDP directly for product-backed item and skips resolver network calls', async () => {
+    const onOpenPdp = vi.fn();
+    const resolveOffers = vi.fn();
+    const resolveProductRef = vi.fn();
+
+    const card = buildRecoCard({
+      brand: 'The Ordinary',
+      name: 'Niacinamide 10% + Zinc 1%',
+      skuId: 'sku_known',
+      productId: 'prod_known',
+    });
+    render(
+      <RecommendationsCard
+        card={card}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveOffers={resolveOffers}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/prod_known');
+    expect(resolveOffers).not.toHaveBeenCalled();
+    expect(resolveProductRef).not.toHaveBeenCalled();
+  });
+
+  it('falls back to Google tab for sku-only item when resolver returns no candidates', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const resolveOffers = vi.fn().mockResolvedValue({
       status: 'success',
       offers: [],
       mapping: { candidates: [] },
     });
-    const resolveProductRef = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: false,
+      reason: 'no_candidates',
+      candidates: [],
+    });
 
     const card = buildRecoCard({
       brand: 'IPSA',
       name: 'Time Reset Aqua',
       skuId: 'sku_unknown',
-      productId: 'prod_unknown',
+      productId: null,
     });
     render(
       <RecommendationsCard
@@ -98,7 +134,7 @@ describe('RecommendationsCard View details routing', () => {
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
     await waitFor(() => {
-      expect(resolveOffers).toHaveBeenCalled();
+      expect(resolveOffers).toHaveBeenCalledTimes(1);
     });
     expect(resolveProductRef).not.toHaveBeenCalled();
     expect(openSpy).toHaveBeenCalledWith(
