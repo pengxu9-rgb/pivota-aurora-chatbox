@@ -643,6 +643,18 @@ const asConcern = (v: unknown): SkinConcern | null => {
   return GOAL_TO_CONCERN[norm] ?? null;
 };
 
+const pickPreferredId = (
+  values: Array<string | null | undefined>,
+  isOpaque: (value: unknown) => boolean,
+): string | null => {
+  const candidates = values
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (!candidates.length) return null;
+  const nonOpaque = candidates.find((value) => !isOpaque(value));
+  return nonOpaque || candidates[0] || null;
+};
+
 function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisResult {
   const skinType = asSkinType(profile?.skinType);
   const goals = asArray(profile?.goals);
@@ -1485,9 +1497,22 @@ export function RecommendationsCard({
   const renderStep = (item: RecoItem, idx: number) => {
     const sku = asObject(item.sku) || asObject(item.product) || null;
     const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
+    const skuRef = asObject((sku as any)?.product_ref) || asObject((sku as any)?.productRef) || null;
+    const itemCanonicalTop =
+      asObject((item as any).canonical_product_ref) ||
+      asObject((item as any).canonicalProductRef) ||
+      null;
+    const skuCanonicalTop =
+      asObject((sku as any)?.canonical_product_ref) ||
+      asObject((sku as any)?.canonicalProductRef) ||
+      null;
     const itemCanonicalRef =
+      itemCanonicalTop ||
       asObject((itemRef as any)?.canonical_product_ref) ||
       asObject((itemRef as any)?.canonicalProductRef) ||
+      skuCanonicalTop ||
+      asObject((skuRef as any)?.canonical_product_ref) ||
+      asObject((skuRef as any)?.canonicalProductRef) ||
       null;
     const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
     const nameFromName = asString(sku?.name) || asString((sku as any)?.Name) || null;
@@ -1498,29 +1523,43 @@ export function RecommendationsCard({
       nameFromName ||
       null;
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
-    const productId =
-      asString((sku as any)?.product_id) ||
-      asString((sku as any)?.productId) ||
-      asString((item as any)?.product_id) ||
-      asString((item as any)?.productId) ||
-      asString((itemRef as any)?.product_id) ||
-      asString((itemRef as any)?.productId) ||
+    const canonicalProductId =
       asString((itemCanonicalRef as any)?.product_id) ||
       asString((itemCanonicalRef as any)?.productId) ||
       null;
-    const merchantId =
+    const refProductId =
+      asString((itemRef as any)?.product_id) ||
+      asString((itemRef as any)?.productId) ||
+      asString((skuRef as any)?.product_id) ||
+      asString((skuRef as any)?.productId) ||
+      null;
+    const rawProductId =
+      asString((item as any)?.product_id) ||
+      asString((item as any)?.productId) ||
+      asString((sku as any)?.product_id) ||
+      asString((sku as any)?.productId) ||
+      null;
+    const productId = pickPreferredId([canonicalProductId, refProductId, rawProductId], looksLikeOpaqueId);
+    const canonicalMerchantId =
+      asString((itemCanonicalRef as any)?.merchant_id) ||
+      asString((itemCanonicalRef as any)?.merchantId) ||
+      null;
+    const refMerchantId =
+      asString((itemRef as any)?.merchant_id) ||
+      asString((itemRef as any)?.merchantId) ||
+      asString((skuRef as any)?.merchant_id) ||
+      asString((skuRef as any)?.merchantId) ||
+      null;
+    const rawMerchantId =
+      asString((item as any)?.merchant_id) ||
+      asString((item as any)?.merchantId) ||
       asString((sku as any)?.merchant_id) ||
       asString((sku as any)?.merchantId) ||
       asString((sku as any)?.merchant?.id) ||
       asString((sku as any)?.merchant?.merchant_id) ||
       asString((sku as any)?.merchant?.merchantId) ||
-      asString((item as any)?.merchant_id) ||
-      asString((item as any)?.merchantId) ||
-      asString((itemRef as any)?.merchant_id) ||
-      asString((itemRef as any)?.merchantId) ||
-      asString((itemCanonicalRef as any)?.merchant_id) ||
-      asString((itemCanonicalRef as any)?.merchantId) ||
       null;
+    const merchantId = pickPreferredId([canonicalMerchantId, refMerchantId, rawMerchantId], looksLikeOpaqueId);
     const itemUrl =
       asString((sku as any)?.affiliate_url) ||
       asString((sku as any)?.affiliateUrl) ||
@@ -1624,9 +1663,19 @@ export function RecommendationsCard({
                 const similarity = asNumber((alt as any).similarity);
                 const altProduct = asObject((alt as any).product) || null;
                 const altRef = asObject((alt as any).product_ref) || asObject((alt as any).productRef) || null;
+                const altProductRef = asObject((altProduct as any)?.product_ref) || asObject((altProduct as any)?.productRef) || null;
+                const altCanonicalTop =
+                  asObject((alt as any).canonical_product_ref) ||
+                  asObject((alt as any).canonicalProductRef) ||
+                  asObject((altProduct as any)?.canonical_product_ref) ||
+                  asObject((altProduct as any)?.canonicalProductRef) ||
+                  null;
                 const altCanonicalRef =
+                  altCanonicalTop ||
                   asObject((altRef as any)?.canonical_product_ref) ||
                   asObject((altRef as any)?.canonicalProductRef) ||
+                  asObject((altProductRef as any)?.canonical_product_ref) ||
+                  asObject((altProductRef as any)?.canonicalProductRef) ||
                   null;
                 const altBrand = asString(altProduct?.brand) || null;
                 const altName =
@@ -1635,17 +1684,37 @@ export function RecommendationsCard({
                   asString((altProduct as any)?.sku_id) ||
                   asString((altProduct as any)?.skuId) ||
                   null;
-                const altProductId =
+                const altCanonicalProductId =
+                  asString((altCanonicalRef as any)?.product_id) ||
+                  asString((altCanonicalRef as any)?.productId) ||
+                  null;
+                const altRefProductId =
+                  asString((altRef as any)?.product_id) ||
+                  asString((altRef as any)?.productId) ||
+                  asString((altProductRef as any)?.product_id) ||
+                  asString((altProductRef as any)?.productId) ||
+                  null;
+                const altRawProductId =
                   asString((altProduct as any)?.product_id) ||
                   asString((altProduct as any)?.productId) ||
                   asString((alt as any)?.product_id) ||
                   asString((alt as any)?.productId) ||
-                  asString((altRef as any)?.product_id) ||
-                  asString((altRef as any)?.productId) ||
-                  asString((altCanonicalRef as any)?.product_id) ||
-                  asString((altCanonicalRef as any)?.productId) ||
                   null;
-                const altMerchantId =
+                const altProductId = pickPreferredId(
+                  [altCanonicalProductId, altRefProductId, altRawProductId],
+                  looksLikeOpaqueId,
+                );
+                const altCanonicalMerchantId =
+                  asString((altCanonicalRef as any)?.merchant_id) ||
+                  asString((altCanonicalRef as any)?.merchantId) ||
+                  null;
+                const altRefMerchantId =
+                  asString((altRef as any)?.merchant_id) ||
+                  asString((altRef as any)?.merchantId) ||
+                  asString((altProductRef as any)?.merchant_id) ||
+                  asString((altProductRef as any)?.merchantId) ||
+                  null;
+                const altRawMerchantId =
                   asString((altProduct as any)?.merchant_id) ||
                   asString((altProduct as any)?.merchantId) ||
                   asString((altProduct as any)?.merchant?.id) ||
@@ -1653,11 +1722,11 @@ export function RecommendationsCard({
                   asString((altProduct as any)?.merchant?.merchantId) ||
                   asString((alt as any)?.merchant_id) ||
                   asString((alt as any)?.merchantId) ||
-                  asString((altRef as any)?.merchant_id) ||
-                  asString((altRef as any)?.merchantId) ||
-                  asString((altCanonicalRef as any)?.merchant_id) ||
-                  asString((altCanonicalRef as any)?.merchantId) ||
                   null;
+                const altMerchantId = pickPreferredId(
+                  [altCanonicalMerchantId, altRefMerchantId, altRawMerchantId],
+                  looksLikeOpaqueId,
+                );
                 const altUrl =
                   asString((altProduct as any)?.affiliate_url) ||
                   asString((altProduct as any)?.affiliateUrl) ||
