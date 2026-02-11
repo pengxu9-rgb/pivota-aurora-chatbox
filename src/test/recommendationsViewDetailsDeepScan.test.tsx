@@ -181,6 +181,50 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
+  it('resolves opaque UUID sku_id after empty offers.resolve', async () => {
+    const onOpenPdp = vi.fn();
+    const resolveOffers = vi.fn().mockResolvedValue({
+      status: 'success',
+      input: { product_id: null, sku_id: 'c231aaaa-8b00-4145-a704-684931049303' },
+      offers: [],
+      offers_count: 0,
+      mapping: { candidates: [] },
+      metadata: { source: 'offers.resolve', has_external: false, has_internal: false },
+    });
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: true,
+      product_ref: { product_id: '9886499864904', merchant_id: 'merch_efbc46b4619cfbdf' },
+    });
+
+    const card = buildRecoCard({
+      brand: 'The Ordinary',
+      name: 'Niacinamide 10% + Zinc 1%',
+      skuId: 'c231aaaa-8b00-4145-a704-684931049303',
+      productId: null,
+    });
+
+    render(
+      <RecommendationsCard
+        card={card}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveOffers={resolveOffers}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(resolveOffers).toHaveBeenCalledTimes(1);
+    expect(resolveProductRef).toHaveBeenCalledTimes(1);
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
+  });
+
   it('uses products.resolve only for name-only item', async () => {
     const onOpenPdp = vi.fn();
     const resolveOffers = vi.fn();

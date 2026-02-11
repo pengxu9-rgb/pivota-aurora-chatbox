@@ -1190,6 +1190,7 @@ export function RecommendationsCard({
             ...(merchantId ? { merchant_id: merchantId } : {}),
           };
         }
+        if (skuId) hint.sku_id = skuId;
         return hint;
       })();
 
@@ -1210,6 +1211,7 @@ export function RecommendationsCard({
 
       const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
       const isOpaqueProductId = Boolean(productId && looksLikeOpaqueId(productId));
+      const isOpaqueSkuId = Boolean(skuId && looksLikeOpaqueId(skuId));
 
       const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
         const pdpUrl = buildPdpUrl({
@@ -1412,7 +1414,7 @@ export function RecommendationsCard({
       // 4) sku fallback: one products.resolve attempt to avoid blind external fallback.
       if (
         skuId &&
-        (isOpaqueProductId || sawResolveError || resolverInfraFailure || !resolveOffers) &&
+        (isOpaqueProductId || isOpaqueSkuId || sawResolveError || resolverInfraFailure || !resolveOffers) &&
         resolveProductRef
       ) {
         try {
