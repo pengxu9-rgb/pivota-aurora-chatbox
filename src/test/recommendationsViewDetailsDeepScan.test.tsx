@@ -102,6 +102,42 @@ describe('RecommendationsCard View details routing', () => {
     expect(resolveProductRef).not.toHaveBeenCalled();
   });
 
+  it('resolves opaque UUID product_id before opening PDP', async () => {
+    const onOpenPdp = vi.fn();
+    const resolveOffers = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: true,
+      product_ref: { product_id: '9886499864904', merchant_id: 'merch_efbc46b4619cfbdf' },
+    });
+
+    const card = buildRecoCard({
+      brand: 'The Ordinary',
+      name: 'Niacinamide 10% + Zinc 1%',
+      skuId: null,
+      productId: 'c231aaaa-8b00-4145-a704-684931049303',
+    });
+    render(
+      <RecommendationsCard
+        card={card}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveOffers={resolveOffers}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(resolveProductRef).toHaveBeenCalledTimes(1);
+    expect(resolveOffers).not.toHaveBeenCalled();
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
+  });
+
   it('falls back to Google tab for sku-only item when resolver returns no candidates', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const resolveOffers = vi.fn().mockResolvedValue({

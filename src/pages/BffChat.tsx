@@ -1184,6 +1184,12 @@ export function RecommendationsCard({
         if (queryBrand) hint.brand = queryBrand;
         if (title || queryName) hint.title = String(title || queryName || '').trim();
         if (aliases.length) hint.aliases = aliases;
+        if (productId || merchantId) {
+          hint.product_ref = {
+            ...(productId ? { product_id: productId } : {}),
+            ...(merchantId ? { merchant_id: merchantId } : {}),
+          };
+        }
         return hint;
       })();
 
@@ -1203,6 +1209,7 @@ export function RecommendationsCard({
       }
 
       const skuType = productId ? 'product_id' : skuId ? 'sku_id' : 'name_query';
+      const isOpaqueProductId = Boolean(productId && looksLikeOpaqueId(productId));
 
       const openPdpTarget = (target: { product_id: string; merchant_id?: string | null }) => {
         const pdpUrl = buildPdpUrl({
@@ -1299,9 +1306,10 @@ export function RecommendationsCard({
 
       const tryResolveProductRef = async (): Promise<{ target: { product_id: string; merchant_id?: string | null } | null; hadInfraFailure: boolean }> => {
         if (!resolveProductRef) return { target: null, hadInfraFailure: false };
-        if (!query) return { target: null, hadInfraFailure: false };
+        const resolveQuery = query || String(productId || skuId || '').trim();
+        if (!resolveQuery) return { target: null, hadInfraFailure: false };
         const resp = await resolveProductRef({
-            query,
+            query: resolveQuery,
             lang: language === 'CN' ? 'cn' : 'en',
             ...(Object.keys(resolverHints).length ? { hints: resolverHints } : {}),
           });
@@ -1317,7 +1325,7 @@ export function RecommendationsCard({
         if (debug) {
           // eslint-disable-next-line no-console
           console.info('[RecoViewDetails] resolver attempt', {
-            query,
+            query: resolveQuery,
             resolved: Boolean(pdpTarget?.product_id),
             reason: resolveReason || null,
             sourceReasons,
@@ -1333,14 +1341,27 @@ export function RecommendationsCard({
       let resolverInfraFailure = false;
       setOffersLoading(anchorKey);
       try {
-        // 1) Stable product_id should go straight to PDP (do not block on resolver infra).
-        if (productId) {
+        // 1) Product id routing:
+        //    - non-opaque id: open PDP directly
+        //    - opaque id (uuid/hash): resolve to real PDP id first
+        if (productId && !isOpaqueProductId) {
           openPdpTarget({ product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
           return;
         }
+        if (productId && isOpaqueProductId) {
+          const resolved = await tryResolveProductRef();
+          if (resolved.target?.product_id && !looksLikeOpaqueId(resolved.target.product_id)) {
+            openPdpTarget(resolved.target);
+            return;
+          }
+          resolverInfraFailure = resolved.hadInfraFailure;
+        }
 
         // 2) sku-only path: use offers.resolve to map sku -> PDP target.
-        const shouldTryOffersResolve = Boolean(resolveOffers) && Boolean(skuId) && !productId;
+        const shouldTryOffersResolve =
+          Boolean(resolveOffers) &&
+          Boolean(skuId) &&
+          (!productId || isOpaqueProductId);
         if (shouldTryOffersResolve && resolveOffers) {
           const offerInputs: Array<{ sku_id?: string; product_id?: string; merchant_id?: string }> = [];
           const pushInput = (input: { sku_id?: string; product_id?: string; merchant_id?: string }) => {
@@ -1369,7 +1390,7 @@ export function RecommendationsCard({
           console.info('[RecoViewDetails] skip offers.resolve', { skuId });
         }
 
-        // 3) Text-query resolver only for products lacking any stable identifier.
+        // 3) Text-query resolver only for cards with no identifiers at all.
         if (!skuId && !productId) {
           const resolved = await tryResolveProductRef();
           if (debug) {
@@ -1388,8 +1409,12 @@ export function RecommendationsCard({
         setOffersLoading(null);
       }
 
-      // 4) sku-only fallback: one products.resolve attempt to avoid blind external fallback.
-      if (skuId && (sawResolveError || resolverInfraFailure || !resolveOffers) && resolveProductRef) {
+      // 4) sku fallback: one products.resolve attempt to avoid blind external fallback.
+      if (
+        skuId &&
+        (isOpaqueProductId || sawResolveError || resolverInfraFailure || !resolveOffers) &&
+        resolveProductRef
+      ) {
         try {
           const resolved = await tryResolveProductRef();
           if (resolved.target?.product_id) {
