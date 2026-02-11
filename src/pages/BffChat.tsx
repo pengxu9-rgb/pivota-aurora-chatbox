@@ -60,6 +60,7 @@ import {
   extractPdpTargetFromOffersResolveResponse,
   extractPdpTargetFromProductsSearchResponse,
   extractPdpTargetFromProductsResolveResponse,
+  getPivotaShopBaseUrl,
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { useShop } from '@/contexts/shop';
@@ -1076,6 +1077,39 @@ export function RecommendationsCard({
     return false;
   }, []);
 
+  const shouldIgnoreFallbackUrl = useCallback((rawUrl: string | null | undefined): boolean => {
+    const normalized = normalizeOutboundFallbackUrl(String(rawUrl || '').trim());
+    if (!normalized) return false;
+    try {
+      const fallbackUrl = new URL(normalized);
+      const fallbackHost = fallbackUrl.hostname.toLowerCase();
+      const fallbackPath = (fallbackUrl.pathname || '/').replace(/\/+$/, '').toLowerCase() || '/';
+      const looksLikePdpPath = /^\/products\/[^/]+$/.test(fallbackPath);
+      const looksLikeBrowsePath =
+        fallbackPath === '/' ||
+        fallbackPath === '/products' ||
+        fallbackPath === '/collections' ||
+        fallbackPath.startsWith('/collections/') ||
+        fallbackPath.startsWith('/search');
+
+      const shopHost = (() => {
+        try {
+          return new URL(getPivotaShopBaseUrl()).hostname.toLowerCase();
+        } catch {
+          return '';
+        }
+      })();
+      const isPivotaHost =
+        fallbackHost === shopHost ||
+        fallbackHost === 'agent.pivota.cc' ||
+        fallbackHost.endsWith('.pivota.cc');
+
+      return isPivotaHost && !looksLikePdpPath && looksLikeBrowsePath;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const openExternalUrl = useCallback(
     (rawUrl: string, opts?: { allowSameTabFallback?: boolean; preopenedWindow?: Window | null }): boolean => {
       const url = String(rawUrl || '').trim();
@@ -1123,9 +1157,10 @@ export function RecommendationsCard({
       .trim();
     const generatedSearchUrl = buildGoogleSearchFallbackUrl(q, language);
     const normalizedFallbackUrl = normalizeOutboundFallbackUrl(opts?.fallbackUrl ?? '') || '';
-    const preferredOutboundUrl = normalizedFallbackUrl || generatedSearchUrl || '';
+    const fallbackCandidateUrl = shouldIgnoreFallbackUrl(normalizedFallbackUrl) ? '' : normalizedFallbackUrl;
+    const effectiveOutboundUrl = fallbackCandidateUrl || generatedSearchUrl || '';
     const safeOutboundUrl = (() => {
-      const url = String(preferredOutboundUrl || '').trim();
+      const url = String(effectiveOutboundUrl || '').trim();
       if (!url) return '';
       try {
         // eslint-disable-next-line no-new
@@ -1158,7 +1193,7 @@ export function RecommendationsCard({
           }
         : {}),
     });
-  }, [language, looksLikeOpaqueId]);
+  }, [language, looksLikeOpaqueId, shouldIgnoreFallbackUrl]);
 
   const openPurchase = useCallback(
     async ({
@@ -1488,7 +1523,7 @@ export function RecommendationsCard({
       // 6) If still not resolvable:
       //    - fallback to outbound URL / Google in a new tab.
       //    - if popup is blocked, keep a toast action as manual fallback.
-      if (fallback && isLikelyUrl(fallback)) {
+      if (fallback && isLikelyUrl(fallback) && !shouldIgnoreFallbackUrl(fallback)) {
         if (!openOutboundUrl(fallback, { reason: 'fallback_url' })) {
           openFallback(brand, name, { fallbackUrl: fallback || null });
         }
@@ -1515,6 +1550,7 @@ export function RecommendationsCard({
       resolveOffers,
       resolveProductsSearch,
       resolveProductRef,
+      shouldIgnoreFallbackUrl,
     ],
   );
 
@@ -5076,18 +5112,31 @@ export default function BffChat() {
     }) => {
       const q = String(query || '').trim();
       if (!q) throw new Error('products.search requires query');
-      const requestHeaders = { ...headers, lang: language };
-      const params = new URLSearchParams();
-      params.set('query', q);
-      params.set('search_all_merchants', 'true');
-      params.set('allow_external_seed', 'false');
-      params.set('in_stock_only', 'false');
-      params.set('limit', String(Math.max(1, Math.min(12, Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 8))));
-      params.set('offset', '0');
       const brand = String(preferBrand || '').trim();
-      if (brand) params.set('brand', brand);
-      return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
-        method: 'GET',
+      const requestHeaders = { ...headers, lang: language };
+      const requestedLimit = Math.max(1, Math.min(12, Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 8));
+      const queryWithHint =
+        brand && !q.toLowerCase().includes(brand.toLowerCase())
+          ? `${brand} ${q}`.trim()
+          : q;
+      return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify({
+          operation: 'find_products_multi',
+          payload: {
+            search: {
+              query: queryWithHint,
+              in_stock_only: false,
+              search_all_merchants: true,
+              limit: requestedLimit,
+              offset: 0,
+            },
+          },
+          metadata: {
+            source: 'aurora_chatbox',
+            ...(brand ? { prefer_brand: brand } : {}),
+          },
+        }),
       });
     },
     [headers, language],
