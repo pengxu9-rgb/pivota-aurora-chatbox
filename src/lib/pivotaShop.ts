@@ -67,6 +67,16 @@ const parseOfferIdForProduct = (value: string | null): { merchant_id: string; pr
   return null;
 };
 
+export const extractPdpTargetFromProductGroupId = (value: unknown): PdpTarget | null => {
+  const parsed = parseProductGroupId(asNonEmptyString(value));
+  if (!parsed?.product_id) return null;
+  if (looksLikeOpaqueId(parsed.product_id)) return null;
+  return {
+    product_id: parsed.product_id,
+    ...(parsed.merchant_id ? { merchant_id: parsed.merchant_id } : {}),
+  };
+};
+
 export const extractPdpTargetFromOffersResolveResponse = (input: unknown): PdpTarget | null => {
   const resp = asObject(input);
   if (!resp) return null;
@@ -228,6 +238,9 @@ export const extractPdpTargetFromProductsSearchResponse = (
 };
 
 export const extractPdpTargetFromProductsResolveResponse = (input: unknown): PdpTarget | null => {
+  const strictTarget = extractStablePdpTargetFromProductsResolveResponse(input);
+  if (strictTarget?.product_id) return strictTarget;
+
   const resp = asObject(input);
   if (!resp) return null;
   const resolvedFlag = (resp as any).resolved;
@@ -265,6 +278,33 @@ export const extractPdpTargetFromProductsResolveResponse = (input: unknown): Pdp
     null;
   if (!rootProductId || looksLikeOpaqueId(rootProductId)) return null;
   return { product_id: rootProductId, ...(rootMerchantId ? { merchant_id: rootMerchantId } : {}) };
+};
+
+export const extractStablePdpTargetFromProductsResolveResponse = (input: unknown): PdpTarget | null => {
+  const resp = asObject(input);
+  if (!resp) return null;
+  if ((resp as any).resolved !== true) return null;
+
+  const readRef = (raw: unknown): PdpTarget | null => {
+    const ref = asObject(raw);
+    if (!ref) return null;
+    const productId = asNonEmptyString((ref as any).product_id) || asNonEmptyString((ref as any).productId) || null;
+    const merchantId = asNonEmptyString((ref as any).merchant_id) || asNonEmptyString((ref as any).merchantId) || null;
+    if (!productId || looksLikeOpaqueId(productId)) return null;
+    return { product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) };
+  };
+
+  return (
+    readRef((resp as any).canonical_product_ref) ||
+    readRef((resp as any).canonicalProductRef) ||
+    readRef((resp as any).product_ref) ||
+    readRef((resp as any).productRef) ||
+    readRef((resp as any).data?.canonical_product_ref) ||
+    readRef((resp as any).data?.canonicalProductRef) ||
+    readRef((resp as any).data?.product_ref) ||
+    readRef((resp as any).data?.productRef) ||
+    null
+  );
 };
 
 export const buildPdpUrl = (args: { product_id: string; merchant_id?: string | null; baseUrl?: string }): string => {

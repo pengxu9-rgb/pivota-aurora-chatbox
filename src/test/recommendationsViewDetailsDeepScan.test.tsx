@@ -8,14 +8,14 @@ vi.mock('@/components/ui/use-toast', () => ({
 }));
 
 import type { Card } from '@/lib/pivotaAgentBff';
-import { RecommendationsCard } from '@/pages/BffChat';
 import { buildGoogleSearchFallbackUrl } from '@/lib/externalSearchFallback';
+import { RecommendationsCard } from '@/pages/BffChat';
 
 const buildRecoCard = (args: {
   brand?: string;
   name?: string;
-  skuId?: string | null;
-  productId?: string | null;
+  subjectProductGroupId?: string | null;
+  canonicalProductRef?: { product_id: string; merchant_id?: string } | null;
 }): Card => ({
   card_id: 'reco_card_1',
   type: 'recommendations',
@@ -23,11 +23,20 @@ const buildRecoCard = (args: {
     recommendations: [
       {
         step: 'treatment',
+        ...(args.subjectProductGroupId
+          ? {
+              subject: { product_group_id: args.subjectProductGroupId },
+              product_group_id: args.subjectProductGroupId,
+            }
+          : {}),
+        ...(args.canonicalProductRef
+          ? {
+              canonical_product_ref: args.canonicalProductRef,
+            }
+          : {}),
         sku: {
           brand: args.brand ?? 'The Ordinary',
           display_name: args.name ?? 'Niacinamide 10% + Zinc 1%',
-          ...(args.skuId != null ? { sku_id: args.skuId } : {}),
-          ...(args.productId != null ? { product_id: args.productId } : {}),
         },
       },
     ],
@@ -35,13 +44,137 @@ const buildRecoCard = (args: {
 });
 
 describe('RecommendationsCard View details routing', () => {
-  it('prefers canonical product_ref id over opaque sku.product_id', async () => {
+  it('1) uses subject.product_group_id first: opens internal only, no resolve, no new tab', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn();
     const resolveProductRef = vi.fn();
 
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ subjectProductGroupId: 'pg:merch_pg:prod_pg' })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/prod_pg');
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_pg');
+    expect(resolveProductRef).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('2) uses canonical_product_ref second: opens internal only, no resolve, no new tab', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn();
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({
+          canonicalProductRef: {
+            product_id: '9886499864904',
+            merchant_id: 'merch_efbc46b4619cfbdf',
+          },
+        })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
+    expect(resolveProductRef).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('3) no stable key + resolve fail: opens one Google new tab only once', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: false,
+      reason: 'no_candidates',
+      candidates: [],
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ brand: 'IPSA', name: 'Time Reset Aqua' })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(resolveProductRef).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(openSpy).toHaveBeenCalledWith(
+      buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN'),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(onOpenPdp).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('4) never opens blank tab', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: false,
+      reason: 'no_candidates',
+      candidates: [],
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ brand: 'The Ordinary', name: 'Niacinamide 10% + Zinc 1%' })}
+        language="EN"
+        debug={false}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    const firstUrl = String(openSpy.mock.calls[0]?.[0] || '');
+    expect(firstUrl).toMatch(/^https:\/\/www\.google\./);
+    expect(firstUrl).not.toBe('');
+    expect(firstUrl).not.toBe('about:blank');
+    openSpy.mockRestore();
+  });
+
+  it('5) never routes to shopping-agent browse', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: false,
+      reason: 'no_candidates',
+      candidates: [],
+    });
+
     const card: Card = {
-      card_id: 'reco_card_canonical_priority',
+      card_id: 'reco_card_browse_guard',
       type: 'recommendations',
       payload: {
         recommendations: [
@@ -50,13 +183,7 @@ describe('RecommendationsCard View details routing', () => {
             sku: {
               brand: 'The Ordinary',
               display_name: 'Niacinamide 10% + Zinc 1%',
-              product_id: 'c231aaaa-8b00-4145-a704-684931049303',
-            },
-            product_ref: {
-              canonical_product_ref: {
-                product_id: '9886499864904',
-                merchant_id: 'merch_efbc46b4619cfbdf',
-              },
+              url: 'https://agent.pivota.cc/products?open=browse',
             },
           },
         ],
@@ -68,8 +195,6 @@ describe('RecommendationsCard View details routing', () => {
         card={card}
         language="EN"
         debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
         resolveProductRef={resolveProductRef}
       />,
     );
@@ -77,459 +202,48 @@ describe('RecommendationsCard View details routing', () => {
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
     await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledTimes(1);
     });
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(resolveProductRef).not.toHaveBeenCalled();
+    const openedUrl = String(openSpy.mock.calls[0]?.[0] || '');
+    expect(openedUrl).toMatch(/^https:\/\/www\.google\./);
+    expect(openedUrl).not.toContain('agent.pivota.cc/products');
+    expect(openedUrl).not.toContain('open=browse');
+    openSpy.mockRestore();
   });
 
-  it('opens PDP from offers.resolve target and does not deep-scan', async () => {
-    const onDeepScanProduct = vi.fn();
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn().mockResolvedValue({
-      status: 'success',
-      mapping: {
-        candidates: [{ product_ref: { product_id: 'prod_123', merchant_id: 'merch_abc' } }],
-      },
-    });
-    const resolveProductRef = vi.fn();
-
-    const card = buildRecoCard({ skuId: 'sku_test_1' });
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onDeepScanProduct={onDeepScanProduct}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
-    });
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/prod_123');
-    expect(resolveOffers).toHaveBeenCalledTimes(1);
-    expect(resolveProductRef).not.toHaveBeenCalled();
-    expect(onDeepScanProduct).not.toHaveBeenCalled();
-  });
-
-  it('opens PDP directly for product-backed item and skips resolver network calls', async () => {
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn();
-    const resolveProductRef = vi.fn();
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: 'sku_known',
-      productId: 'prod_known',
-    });
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
-    });
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/prod_known');
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(resolveProductRef).not.toHaveBeenCalled();
-  });
-
-  it('resolves opaque UUID product_id before opening PDP', async () => {
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn();
-    const resolveProductRef = vi.fn().mockResolvedValue({
-      resolved: true,
-      product_ref: { product_id: '9886499864904', merchant_id: 'merch_efbc46b4619cfbdf' },
-    });
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: null,
-      productId: 'c231aaaa-8b00-4145-a704-684931049303',
-    });
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
-    });
-    expect(resolveProductRef).toHaveBeenCalledTimes(1);
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
-  });
-
-  it('falls back to Google tab for sku-only item when resolver returns no candidates', async () => {
+  it('6) same click is idempotent: one gateway resolve request only', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
-    const resolveOffers = vi.fn().mockResolvedValue({
-      status: 'success',
-      offers: [],
-      mapping: { candidates: [] },
+
+    let finishResolve: ((value: unknown) => void) | null = null;
+    const resolvePromise = new Promise((resolve) => {
+      finishResolve = resolve;
     });
-    const resolveProductRef = vi.fn().mockResolvedValue({
+    const resolveProductRef = vi.fn().mockReturnValue(resolvePromise);
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ brand: 'The Ordinary', name: 'Niacinamide 10% + Zinc 1%' })}
+        language="EN"
+        debug={false}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: /view details/i });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(resolveProductRef).toHaveBeenCalledTimes(1);
+
+    finishResolve?.({
       resolved: false,
       reason: 'no_candidates',
       candidates: [],
     });
 
-    const card = buildRecoCard({
-      brand: 'IPSA',
-      name: 'Time Reset Aqua',
-      skuId: 'sku_unknown',
-      productId: null,
-    });
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
     await waitFor(() => {
-      expect(resolveOffers).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledTimes(1);
     });
-    expect(resolveProductRef).not.toHaveBeenCalled();
-    expect(openSpy).toHaveBeenCalledWith(
-      buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN'),
-      '_blank',
-      'noopener,noreferrer',
-    );
     openSpy.mockRestore();
-  });
-
-  it('resolves opaque UUID sku_id after empty offers.resolve', async () => {
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn().mockResolvedValue({
-      status: 'success',
-      input: { product_id: null, sku_id: 'c231aaaa-8b00-4145-a704-684931049303' },
-      offers: [],
-      offers_count: 0,
-      mapping: { candidates: [] },
-      metadata: { source: 'offers.resolve', has_external: false, has_internal: false },
-    });
-    const resolveProductRef = vi.fn().mockResolvedValue({
-      resolved: true,
-      product_ref: { product_id: '9886499864904', merchant_id: 'merch_efbc46b4619cfbdf' },
-    });
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: 'c231aaaa-8b00-4145-a704-684931049303',
-      productId: null,
-    });
-
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
-    });
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(resolveProductRef).toHaveBeenCalledTimes(1);
-    expect(resolveProductRef).toHaveBeenCalledWith(
-      expect.objectContaining({
-        hints: expect.objectContaining({
-          product_ref: expect.objectContaining({
-            product_id: 'c231aaaa-8b00-4145-a704-684931049303',
-          }),
-          sku_id: 'c231aaaa-8b00-4145-a704-684931049303',
-          product_id: 'c231aaaa-8b00-4145-a704-684931049303',
-        }),
-      }),
-    );
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
-  });
-
-  it('does not auto-open Google fallback when resolver reports infra failure', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
-    const resolveOffers = vi.fn().mockResolvedValue({
-      status: 'success',
-      input: { product_id: null, sku_id: 'c231aaaa-8b00-4145-a704-684931049303' },
-      offers: [],
-      offers_count: 0,
-      mapping: { candidates: [] },
-      metadata: { source: 'offers.resolve', has_external: false, has_internal: false },
-    });
-    const resolveProductRef = vi.fn().mockResolvedValue({
-      resolved: false,
-      reason: 'no_candidates',
-      candidates: [],
-      metadata: {
-        sources: [{ source: 'agent_search_scoped', ok: false, reason: 'upstream_timeout' }],
-      },
-    });
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: 'c231aaaa-8b00-4145-a704-684931049303',
-      productId: null,
-    });
-
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(resolveProductRef).toHaveBeenCalledTimes(1);
-    });
-    expect(openSpy).not.toHaveBeenCalled();
-    openSpy.mockRestore();
-  });
-
-  it('does not open opaque resolved ids and falls back to Google', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn().mockResolvedValue({
-      status: 'success',
-      input: { product_id: null, sku_id: 'c231aaaa-8b00-4145-a704-684931049303' },
-      offers: [],
-      offers_count: 0,
-      mapping: { candidates: [] },
-      metadata: { source: 'offers.resolve', has_external: false, has_internal: false },
-    });
-    const resolveProductRef = vi.fn().mockResolvedValue({
-      resolved: false,
-      product_id: 'c231aaaa-8b00-4145-a704-684931049303',
-      merchant_id: 'merch_efbc46b4619cfbdf',
-      product_ref: null,
-      candidates: [],
-    });
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: 'c231aaaa-8b00-4145-a704-684931049303',
-      productId: null,
-    });
-
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(resolveProductRef).toHaveBeenCalledTimes(1);
-    });
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(onOpenPdp).not.toHaveBeenCalled();
-    expect(openSpy).toHaveBeenCalledWith(
-      buildGoogleSearchFallbackUrl('The Ordinary Niacinamide 10% + Zinc 1%', 'EN'),
-      '_blank',
-      'noopener,noreferrer',
-    );
-    openSpy.mockRestore();
-  });
-
-  it('uses internal products.search fast-path for name-only cards', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn().mockResolvedValue({
-      status: 'success',
-      input: { product_id: 'c231aaaa-8b00-4145-a704-684931049303', sku_id: 'c231aaaa-8b00-4145-a704-684931049303' },
-      offers: [],
-      offers_count: 0,
-      mapping: { candidates: [] },
-      metadata: { source: 'offers.resolve', has_external: false, has_internal: false },
-    });
-    const resolveProductRef = vi.fn().mockResolvedValue({
-      resolved: false,
-      reason: 'no_candidates',
-      candidates: [],
-    });
-    const resolveProductsSearch = vi.fn().mockResolvedValue({
-      status: 'success',
-      products: [
-        {
-          product_id: '9886499864904',
-          merchant_id: 'merch_efbc46b4619cfbdf',
-          brand: 'The Ordinary',
-          name: 'Niacinamide 10% + Zinc 1%',
-        },
-      ],
-    });
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: null,
-      productId: null,
-    });
-
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-        resolveProductsSearch={resolveProductsSearch}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
-    });
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(resolveProductRef).not.toHaveBeenCalled();
-    expect(resolveProductsSearch).toHaveBeenCalledTimes(1);
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
-    expect(openSpy).not.toHaveBeenCalled();
-    openSpy.mockRestore();
-  });
-
-  it('tries products.search first for opaque identifier cards', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn().mockResolvedValue({
-      status: 'success',
-      offers: [],
-      mapping: { candidates: [] },
-    });
-    const resolveProductRef = vi.fn();
-    const resolveProductsSearch = vi.fn().mockResolvedValue({
-      status: 'success',
-      products: [
-        {
-          product_id: '9886499864904',
-          merchant_id: 'merch_efbc46b4619cfbdf',
-          brand: 'The Ordinary',
-          name: 'Niacinamide 10% + Zinc 1%',
-        },
-      ],
-    });
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: 'c231aaaa-8b00-4145-a704-684931049303',
-      productId: 'c231aaaa-8b00-4145-a704-684931049303',
-    });
-
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-        resolveProductsSearch={resolveProductsSearch}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
-    });
-    expect(resolveProductsSearch).toHaveBeenCalledTimes(1);
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(resolveProductRef).not.toHaveBeenCalled();
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
-    expect(openSpy).not.toHaveBeenCalled();
-    openSpy.mockRestore();
-  });
-
-  it('uses products.resolve only for name-only item', async () => {
-    const onOpenPdp = vi.fn();
-    const resolveOffers = vi.fn();
-    const resolveProductRef = vi.fn().mockResolvedValue({
-      resolved: true,
-      product_ref: { product_id: 'prod_by_query', merchant_id: 'merch_q' },
-    });
-
-    const card = buildRecoCard({
-      brand: 'The Ordinary',
-      name: 'Niacinamide 10% + Zinc 1%',
-      skuId: null,
-      productId: null,
-    });
-    render(
-      <RecommendationsCard
-        card={card}
-        language="EN"
-        debug={false}
-        onOpenPdp={onOpenPdp}
-        resolveOffers={resolveOffers}
-        resolveProductRef={resolveProductRef}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
-
-    await waitFor(() => {
-      expect(onOpenPdp).toHaveBeenCalledTimes(1);
-    });
-    expect(resolveOffers).not.toHaveBeenCalled();
-    expect(resolveProductRef).toHaveBeenCalledTimes(1);
-    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/prod_by_query');
   });
 });

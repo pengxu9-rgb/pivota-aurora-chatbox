@@ -91,6 +91,42 @@ export const emitUiInternalCheckoutClicked = (
   } & Record<string, unknown>
 ) => emitWithContext('ui_internal_checkout_clicked', ctx, props);
 
+export const emitPdpClick = (
+  ctx: AnalyticsContext,
+  props: {
+    card_position: number;
+    anchor_key?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('pdp_click', ctx, props);
+
+export const emitPdpOpenPath = (
+  ctx: AnalyticsContext,
+  props: {
+    card_position: number;
+    path: 'group' | 'ref' | 'resolve' | 'external';
+    anchor_key?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('pdp_open_path', ctx, props);
+
+export const emitPdpFailReason = (
+  ctx: AnalyticsContext,
+  props: {
+    card_position: number;
+    reason: string;
+    anchor_key?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('pdp_fail_reason', ctx, props);
+
+export const emitPdpLatencyMs = (
+  ctx: AnalyticsContext,
+  props: {
+    card_position: number;
+    path: 'group' | 'ref' | 'resolve' | 'external';
+    pdp_latency_ms: number;
+    anchor_key?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('pdp_latency_ms', ctx, props);
+
 export const emitAgentStateEntered = (
   ctx: AnalyticsContext,
   props: {

@@ -4,8 +4,10 @@ import {
   buildProductsSearchUrl,
   buildPdpUrl,
   extractPdpTargetFromOffersResolveResponse,
+  extractPdpTargetFromProductGroupId,
   extractPdpTargetFromProductsResolveResponse,
   extractPdpTargetFromProductsSearchResponse,
+  extractStablePdpTargetFromProductsResolveResponse,
 } from '@/lib/pivotaShop';
 
 describe('pivotaShop', () => {
@@ -172,6 +174,51 @@ describe('pivotaShop', () => {
         product_id: '9886499864904',
         merchant_id: 'merch_efbc46b4619cfbdf',
       });
+    });
+  });
+
+  describe('extractPdpTargetFromProductGroupId', () => {
+    it('extracts target from valid group id', () => {
+      expect(extractPdpTargetFromProductGroupId('pg:merch_1:prod_1')).toEqual({
+        product_id: 'prod_1',
+        merchant_id: 'merch_1',
+      });
+    });
+
+    it('returns null for invalid group id', () => {
+      expect(extractPdpTargetFromProductGroupId('not_a_group')).toBeNull();
+    });
+  });
+
+  describe('extractStablePdpTargetFromProductsResolveResponse', () => {
+    it('requires resolved=true and stable ref', () => {
+      const resp = {
+        resolved: true,
+        canonical_product_ref: { product_id: '9886499864904', merchant_id: 'merch_efbc46b4619cfbdf' },
+      };
+      expect(extractStablePdpTargetFromProductsResolveResponse(resp)).toEqual({
+        product_id: '9886499864904',
+        merchant_id: 'merch_efbc46b4619cfbdf',
+      });
+    });
+
+    it('returns null for unresolved payload', () => {
+      expect(
+        extractStablePdpTargetFromProductsResolveResponse({
+          resolved: false,
+          canonical_product_ref: { product_id: '9886499864904', merchant_id: 'merch_efbc46b4619cfbdf' },
+        }),
+      ).toBeNull();
+    });
+
+    it('returns null when only root product_id exists', () => {
+      expect(
+        extractStablePdpTargetFromProductsResolveResponse({
+          resolved: true,
+          product_id: '9886499864904',
+          merchant_id: 'merch_efbc46b4619cfbdf',
+        }),
+      ).toBeNull();
     });
   });
 });
