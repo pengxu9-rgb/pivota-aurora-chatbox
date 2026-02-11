@@ -269,10 +269,66 @@ describe('RecommendationsCard View details routing', () => {
     await waitFor(() => {
       expect(onOpenPdp).toHaveBeenCalledTimes(1);
     });
-    expect(resolveOffers).toHaveBeenCalledTimes(1);
+    expect(resolveOffers).not.toHaveBeenCalled();
     expect(resolveProductRef).toHaveBeenCalledTimes(1);
+    expect(resolveProductRef).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hints: expect.objectContaining({
+          product_ref: expect.objectContaining({
+            product_id: 'c231aaaa-8b00-4145-a704-684931049303',
+          }),
+          sku_id: 'c231aaaa-8b00-4145-a704-684931049303',
+          product_id: 'c231aaaa-8b00-4145-a704-684931049303',
+        }),
+      }),
+    );
     expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
     expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
+  });
+
+  it('does not auto-open Google fallback when resolver reports infra failure', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const resolveOffers = vi.fn().mockResolvedValue({
+      status: 'success',
+      input: { product_id: null, sku_id: 'c231aaaa-8b00-4145-a704-684931049303' },
+      offers: [],
+      offers_count: 0,
+      mapping: { candidates: [] },
+      metadata: { source: 'offers.resolve', has_external: false, has_internal: false },
+    });
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: false,
+      reason: 'no_candidates',
+      candidates: [],
+      metadata: {
+        sources: [{ source: 'agent_search_scoped', ok: false, reason: 'upstream_timeout' }],
+      },
+    });
+
+    const card = buildRecoCard({
+      brand: 'The Ordinary',
+      name: 'Niacinamide 10% + Zinc 1%',
+      skuId: 'c231aaaa-8b00-4145-a704-684931049303',
+      productId: null,
+    });
+
+    render(
+      <RecommendationsCard
+        card={card}
+        language="EN"
+        debug={false}
+        resolveOffers={resolveOffers}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(resolveProductRef).toHaveBeenCalledTimes(1);
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
   });
 
   it('does not open opaque resolved ids and falls back to Google', async () => {
@@ -315,9 +371,9 @@ describe('RecommendationsCard View details routing', () => {
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
     await waitFor(() => {
-      expect(resolveOffers).toHaveBeenCalledTimes(1);
+      expect(resolveProductRef).toHaveBeenCalledTimes(1);
     });
-    expect(resolveProductRef).toHaveBeenCalledTimes(1);
+    expect(resolveOffers).not.toHaveBeenCalled();
     expect(onOpenPdp).not.toHaveBeenCalled();
     expect(openSpy).toHaveBeenCalledWith(
       buildGoogleSearchFallbackUrl('The Ordinary Niacinamide 10% + Zinc 1%', 'EN'),
@@ -388,7 +444,7 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
-  it('skips products.search for identifier cards to keep view-details fast', async () => {
+  it('tries products.search first for opaque identifier cards', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const onOpenPdp = vi.fn();
     const resolveOffers = vi.fn().mockResolvedValue({
@@ -396,11 +452,7 @@ describe('RecommendationsCard View details routing', () => {
       offers: [],
       mapping: { candidates: [] },
     });
-    const resolveProductRef = vi.fn().mockResolvedValue({
-      resolved: false,
-      reason: 'no_candidates',
-      candidates: [],
-    });
+    const resolveProductRef = vi.fn();
     const resolveProductsSearch = vi.fn().mockResolvedValue({
       status: 'success',
       products: [
@@ -435,16 +487,14 @@ describe('RecommendationsCard View details routing', () => {
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
     await waitFor(() => {
-      expect(resolveOffers).toHaveBeenCalledTimes(1);
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
     });
-    expect(resolveProductRef).toHaveBeenCalledTimes(1);
-    expect(resolveProductsSearch).not.toHaveBeenCalled();
-    expect(onOpenPdp).not.toHaveBeenCalled();
-    expect(openSpy).toHaveBeenCalledWith(
-      buildGoogleSearchFallbackUrl('The Ordinary Niacinamide 10% + Zinc 1%', 'EN'),
-      '_blank',
-      'noopener,noreferrer',
-    );
+    expect(resolveProductsSearch).toHaveBeenCalledTimes(1);
+    expect(resolveOffers).not.toHaveBeenCalled();
+    expect(resolveProductRef).not.toHaveBeenCalled();
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
+    expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
+    expect(openSpy).not.toHaveBeenCalled();
     openSpy.mockRestore();
   });
 

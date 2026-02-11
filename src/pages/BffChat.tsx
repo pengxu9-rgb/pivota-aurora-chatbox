@@ -675,8 +675,8 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
   };
 }
 
-const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 5000;
-const VIEW_DETAILS_TOTAL_BUDGET_MS = 12000;
+const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
+const VIEW_DETAILS_TOTAL_BUDGET_MS = 9000;
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
   const skuId =
@@ -1038,6 +1038,8 @@ export function RecommendationsCard({
     lang: 'en' | 'cn';
     hints?: {
       product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+      product_id?: string | null;
+      sku_id?: string | null;
       aliases?: Array<string | null | undefined>;
       brand?: string | null;
       title?: string | null;
@@ -1233,17 +1235,19 @@ export function RecommendationsCard({
               .filter(Boolean),
           ),
         ).slice(0, 4);
+        const hintedProductId = String(productId || skuId || '').trim();
         const hint: Record<string, any> = {};
         if (queryBrand) hint.brand = queryBrand;
         if (title || queryName) hint.title = String(title || queryName || '').trim();
         if (aliases.length) hint.aliases = aliases;
-        if ((productId && !looksLikeOpaqueId(productId)) || merchantId) {
+        if (hintedProductId || merchantId) {
           hint.product_ref = {
-            ...(productId && !looksLikeOpaqueId(productId) ? { product_id: productId } : {}),
+            ...(hintedProductId ? { product_id: hintedProductId } : {}),
             ...(merchantId ? { merchant_id: merchantId } : {}),
           };
         }
-        if (skuId && !looksLikeOpaqueId(skuId)) hint.sku_id = skuId;
+        if (hintedProductId) hint.product_id = hintedProductId;
+        if (skuId) hint.sku_id = skuId;
         return hint;
       })();
 
@@ -1431,19 +1435,24 @@ export function RecommendationsCard({
       let attemptedResolve = false;
       const flowStartedAt = Date.now();
       const hasIdentifiers = Boolean(productId || skuId);
+      const hasOpaqueIdentifier = Boolean(isOpaqueProductId || isOpaqueSkuId);
       const hasBudgetLeft = () => Date.now() - flowStartedAt < VIEW_DETAILS_TOTAL_BUDGET_MS;
       setOffersLoading(anchorKey);
       try {
         const shouldUseFastQueryPath =
           Boolean(resolveProductsSearch) &&
           Boolean(query) &&
-          !hasIdentifiers;
+          (!hasIdentifiers || hasOpaqueIdentifier);
 
         if (shouldUseFastQueryPath) {
-          attemptedSearch = true;
-          const searched = await trySearchProducts();
-          if (tryOpenResolvedTarget(searched)) {
-            return;
+          try {
+            attemptedSearch = true;
+            const searched = await trySearchProducts();
+            if (tryOpenResolvedTarget(searched)) {
+              return;
+            }
+          } catch {
+            // Continue with resolver chain. Search is an opportunistic fast-path.
           }
         }
 
@@ -1460,6 +1469,7 @@ export function RecommendationsCard({
           Boolean(resolveOffers) &&
           Boolean(skuId) &&
           (!productId || isOpaqueProductId) &&
+          !(isOpaqueSkuId && Boolean(query)) &&
           hasBudgetLeft();
         if (shouldTryOffersResolve && resolveOffers) {
           const offerInputs: Array<{ sku_id?: string; product_id?: string; merchant_id?: string }> = [];
@@ -1531,8 +1541,7 @@ export function RecommendationsCard({
 
       // 5) Last internal fallback before external search:
       //    - query products.search once and open PDP when available.
-      //    - only for name-only cards (identifier cards should not wait on search).
-      if (!attemptedSearch && !hasIdentifiers && hasBudgetLeft()) {
+      if (!attemptedSearch && Boolean(query) && hasBudgetLeft()) {
         try {
           attemptedSearch = true;
           const searched = await trySearchProducts();
@@ -1542,6 +1551,14 @@ export function RecommendationsCard({
         } catch {
           sawResolveError = true;
         }
+      }
+
+      // Infra errors (resolver timeout / cache DB errors) should not be treated
+      // as "no match". Keep user in-app and let them retry, instead of forcing
+      // a Google fallback path.
+      if (resolverInfraFailure || sawResolveError) {
+        openFallback(brand, name, { fallbackUrl: null });
+        return;
       }
 
       // 6) If still not resolvable:
@@ -5101,6 +5118,8 @@ export default function BffChat() {
       lang: 'en' | 'cn';
       hints?: {
         product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+        product_id?: string | null;
+        sku_id?: string | null;
         aliases?: Array<string | null | undefined>;
         brand?: string | null;
         title?: string | null;
