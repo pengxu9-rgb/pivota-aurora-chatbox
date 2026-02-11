@@ -58,6 +58,7 @@ import { ToastAction } from '@/components/ui/toast';
 import {
   buildPdpUrl,
   extractPdpTargetFromOffersResolveResponse,
+  extractPdpTargetFromProductsSearchResponse,
   extractPdpTargetFromProductsResolveResponse,
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
@@ -1019,6 +1020,7 @@ export function RecommendationsCard({
   debug,
   resolveOffers,
   resolveProductRef,
+  resolveProductsSearch,
   onDeepScanProduct,
   onOpenPdp,
   analyticsCtx,
@@ -1037,6 +1039,7 @@ export function RecommendationsCard({
       title?: string | null;
     };
   }) => Promise<any>;
+  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
@@ -1196,13 +1199,13 @@ export function RecommendationsCard({
         if (queryBrand) hint.brand = queryBrand;
         if (title || queryName) hint.title = String(title || queryName || '').trim();
         if (aliases.length) hint.aliases = aliases;
-        if (productId || merchantId) {
+        if ((productId && !looksLikeOpaqueId(productId)) || merchantId) {
           hint.product_ref = {
-            ...(productId ? { product_id: productId } : {}),
+            ...(productId && !looksLikeOpaqueId(productId) ? { product_id: productId } : {}),
             ...(merchantId ? { merchant_id: merchantId } : {}),
           };
         }
-        if (skuId) hint.sku_id = skuId;
+        if (skuId && !looksLikeOpaqueId(skuId)) hint.sku_id = skuId;
         return hint;
       })();
 
@@ -1358,6 +1361,32 @@ export function RecommendationsCard({
         return { target: null, hadInfraFailure };
       };
 
+      const trySearchProducts = async (): Promise<{ product_id: string; merchant_id?: string | null } | null> => {
+        if (!resolveProductsSearch) return null;
+        const searchQuery = query || [queryBrand, queryName].filter(Boolean).join(' ').trim();
+        if (!searchQuery) return null;
+        const resp = await resolveProductsSearch({
+          query: searchQuery,
+          limit: 8,
+          ...(queryBrand ? { preferBrand: queryBrand } : {}),
+        });
+        const pdpTarget = extractPdpTargetFromProductsSearchResponse(resp, {
+          prefer_brand: queryBrand || null,
+        });
+        if (debug) {
+          // eslint-disable-next-line no-console
+          console.info('[RecoViewDetails] products.search target', {
+            query: searchQuery,
+            resolved: Boolean(pdpTarget?.product_id),
+            preferBrand: queryBrand || null,
+          });
+        }
+        if (pdpTarget?.product_id && !looksLikeOpaqueId(pdpTarget.product_id)) {
+          return { product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null };
+        }
+        return null;
+      };
+
       let sawResolveError = false;
       let resolverInfraFailure = false;
       setOffersLoading(anchorKey);
@@ -1445,7 +1474,18 @@ export function RecommendationsCard({
         }
       }
 
-      // 3) If still not resolvable:
+      // 5) Last internal fallback before external search:
+      //    - query products.search once and open PDP when available.
+      try {
+        const searched = await trySearchProducts();
+        if (tryOpenResolvedTarget(searched)) {
+          return;
+        }
+      } catch {
+        sawResolveError = true;
+      }
+
+      // 6) If still not resolvable:
       //    - fallback to outbound URL / Google in a new tab.
       //    - if popup is blocked, keep a toast action as manual fallback.
       if (fallback && isLikelyUrl(fallback)) {
@@ -1473,6 +1513,7 @@ export function RecommendationsCard({
       openExternalUrl,
       openFallback,
       resolveOffers,
+      resolveProductsSearch,
       resolveProductRef,
     ],
   );
@@ -2087,6 +2128,7 @@ function BffCardView({
   onAction,
   resolveOffers,
   resolveProductRef,
+  resolveProductsSearch,
   onDeepScanProduct,
   bootstrapInfo,
   onOpenCheckin,
@@ -2109,6 +2151,7 @@ function BffCardView({
       title?: string | null;
     };
   }) => Promise<any>;
+  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   bootstrapInfo?: BootstrapInfo | null;
   onOpenCheckin?: () => void;
@@ -2314,6 +2357,7 @@ function BffCardView({
           debug={debug}
           resolveOffers={resolveOffers}
           resolveProductRef={resolveProductRef}
+          resolveProductsSearch={resolveProductsSearch}
           onDeepScanProduct={onDeepScanProduct}
           onOpenPdp={onOpenPdp}
           analyticsCtx={analyticsCtx}
@@ -5012,9 +5056,38 @@ export default function BffChat() {
             search_all_merchants: true,
             upstream_retries: 1,
             candidates_limit: 12,
-            allow_external_seed: true,
+            allow_external_seed: false,
           },
         }),
+      });
+    },
+    [headers, language],
+  );
+
+  const resolveProductsSearch = useCallback(
+    async ({
+      query,
+      limit,
+      preferBrand,
+    }: {
+      query: string;
+      limit?: number;
+      preferBrand?: string | null;
+    }) => {
+      const q = String(query || '').trim();
+      if (!q) throw new Error('products.search requires query');
+      const requestHeaders = { ...headers, lang: language };
+      const params = new URLSearchParams();
+      params.set('query', q);
+      params.set('search_all_merchants', 'true');
+      params.set('allow_external_seed', 'false');
+      params.set('in_stock_only', 'false');
+      params.set('limit', String(Math.max(1, Math.min(12, Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 8))));
+      params.set('offset', '0');
+      const brand = String(preferBrand || '').trim();
+      if (brand) params.set('brand', brand);
+      return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
+        method: 'GET',
       });
     },
     [headers, language],
@@ -5852,6 +5925,7 @@ export default function BffChat() {
                           onAction={onCardAction}
                           resolveOffers={resolveOffers}
                           resolveProductRef={resolveProductRef}
+                          resolveProductsSearch={resolveProductsSearch}
                           onDeepScanProduct={runProductDeepScan}
                           bootstrapInfo={bootstrapInfo}
                           onOpenCheckin={() => setCheckinSheetOpen(true)}
