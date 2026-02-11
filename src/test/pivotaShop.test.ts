@@ -109,6 +109,11 @@ describe('pivotaShop', () => {
       expect(extractPdpTargetFromProductsSearchResponse(resp)).toEqual({ product_id: 'prod_2', merchant_id: 'merch_2' });
     });
 
+    it('extracts from result.data.products[]', () => {
+      const resp = { result: { data: { products: [{ product_id: 'prod_2b', merchant_id: 'merch_2b' }] } } };
+      expect(extractPdpTargetFromProductsSearchResponse(resp)).toEqual({ product_id: 'prod_2b', merchant_id: 'merch_2b' });
+    });
+
     it('prefers brand match when provided', () => {
       const resp = {
         products: [
@@ -124,6 +129,11 @@ describe('pivotaShop', () => {
 
     it('returns null when empty', () => {
       expect(extractPdpTargetFromProductsSearchResponse({ products: [] })).toBeNull();
+    });
+
+    it('returns null for opaque ids', () => {
+      const resp = { products: [{ product_id: 'c231aaaa-8b00-4145-a704-684931049303', merchant_id: 'merch_1' }] };
+      expect(extractPdpTargetFromProductsSearchResponse(resp)).toBeNull();
     });
   });
 

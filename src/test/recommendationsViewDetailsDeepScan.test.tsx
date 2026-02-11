@@ -269,7 +269,7 @@ describe('RecommendationsCard View details routing', () => {
     await waitFor(() => {
       expect(onOpenPdp).toHaveBeenCalledTimes(1);
     });
-    expect(resolveOffers).toHaveBeenCalledTimes(1);
+    expect(resolveOffers).not.toHaveBeenCalled();
     expect(resolveProductRef).toHaveBeenCalledTimes(1);
     expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
     expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');
@@ -315,7 +315,7 @@ describe('RecommendationsCard View details routing', () => {
     fireEvent.click(screen.getByRole('button', { name: /view details/i }));
 
     await waitFor(() => {
-      expect(resolveOffers).toHaveBeenCalledTimes(1);
+      expect(resolveOffers).not.toHaveBeenCalled();
     });
     expect(resolveProductRef).toHaveBeenCalledTimes(1);
     expect(onOpenPdp).not.toHaveBeenCalled();
@@ -379,8 +379,8 @@ describe('RecommendationsCard View details routing', () => {
     await waitFor(() => {
       expect(onOpenPdp).toHaveBeenCalledTimes(1);
     });
-    expect(resolveOffers).toHaveBeenCalledTimes(1);
-    expect(resolveProductRef).toHaveBeenCalledTimes(2);
+    expect(resolveOffers).not.toHaveBeenCalled();
+    expect(resolveProductRef).not.toHaveBeenCalled();
     expect(resolveProductsSearch).toHaveBeenCalledTimes(1);
     expect(onOpenPdp.mock.calls[0][0].url).toContain('/products/9886499864904');
     expect(onOpenPdp.mock.calls[0][0].url).toContain('merchant_id=merch_efbc46b4619cfbdf');

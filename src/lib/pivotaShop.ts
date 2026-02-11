@@ -180,11 +180,18 @@ export const extractPdpTargetFromProductsSearchResponse = (
   const resp = asObject(input);
   if (!resp) return null;
 
-  const productsRaw =
-    Array.isArray(resp.products) ? resp.products
-      : Array.isArray(resp.data?.products) ? resp.data.products
-        : Array.isArray((resp as any).result?.products) ? (resp as any).result.products
-          : [];
+  const productsRaw = (
+    [
+      resp.products,
+      resp.data?.products,
+      (resp as any).result?.products,
+      (resp as any).result?.data?.products,
+      (resp as any).data?.result?.products,
+      (resp as any).payload?.products,
+      (resp as any).data?.payload?.products,
+      (resp as any).response?.products,
+    ].find((value) => Array.isArray(value)) || []
+  ) as unknown[];
   const products = productsRaw.map(asObject).filter(Boolean) as Array<Record<string, any>>;
 
   const normalizeBrand = (v: unknown) => String(typeof v === 'string' ? v : '').trim().toLowerCase();
@@ -203,7 +210,8 @@ export const extractPdpTargetFromProductsSearchResponse = (
         asNonEmptyString(p.merchant?.id) ||
         null;
       const brand = normalizeBrand(p.brand ?? (p as any).brand_name ?? (p as any).brandName);
-      return productId ? { product_id: productId, merchant_id: merchantId, brand } : null;
+      if (!productId || looksLikeOpaqueId(productId)) return null;
+      return { product_id: productId, merchant_id: merchantId, brand };
     })
     .filter(Boolean) as Array<{ product_id: string; merchant_id: string | null; brand: string }>;
 

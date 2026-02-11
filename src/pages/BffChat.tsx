@@ -675,6 +675,8 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
   };
 }
 
+const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 8000;
+
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
   const skuId =
     asString(raw.sku_id ?? raw.skuId ?? raw.product_id ?? raw.productId) ||
@@ -1424,16 +1426,32 @@ export function RecommendationsCard({
 
       let sawResolveError = false;
       let resolverInfraFailure = false;
+      let attemptedSearch = false;
+      let attemptedResolve = false;
       setOffersLoading(anchorKey);
       try {
+        const shouldUseFastQueryPath =
+          Boolean(resolveProductsSearch) &&
+          Boolean(query) &&
+          (isOpaqueProductId || isOpaqueSkuId || (!productId && !skuId));
+
+        if (shouldUseFastQueryPath) {
+          attemptedSearch = true;
+          const searched = await trySearchProducts();
+          if (tryOpenResolvedTarget(searched)) {
+            return;
+          }
+        }
+
         // 1) Product id routing:
         //    - non-opaque id: open PDP directly
-        //    - opaque id (uuid/hash): resolve to real PDP id first
+        //    - opaque id (uuid/hash): skip direct open; rely on query-based search/resolve
         if (productId && !isOpaqueProductId) {
           openPdpTarget({ product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
           return;
         }
         if (productId && isOpaqueProductId) {
+          attemptedResolve = true;
           const resolved = await tryResolveProductRef();
           if (tryOpenResolvedTarget(resolved.target)) {
             return;
@@ -1445,6 +1463,8 @@ export function RecommendationsCard({
         const shouldTryOffersResolve =
           Boolean(resolveOffers) &&
           Boolean(skuId) &&
+          !isOpaqueSkuId &&
+          !isOpaqueProductId &&
           (!productId || isOpaqueProductId);
         if (shouldTryOffersResolve && resolveOffers) {
           const offerInputs: Array<{ sku_id?: string; product_id?: string; merchant_id?: string }> = [];
@@ -1475,7 +1495,8 @@ export function RecommendationsCard({
         }
 
         // 3) Text-query resolver only for cards with no identifiers at all.
-        if (!skuId && !productId) {
+        if (!skuId && !productId && !attemptedResolve) {
+          attemptedResolve = true;
           const resolved = await tryResolveProductRef();
           if (debug) {
             // eslint-disable-next-line no-console
@@ -1496,9 +1517,11 @@ export function RecommendationsCard({
       if (
         skuId &&
         (isOpaqueProductId || isOpaqueSkuId || sawResolveError || resolverInfraFailure || !resolveOffers) &&
+        !attemptedResolve &&
         resolveProductRef
       ) {
         try {
+          attemptedResolve = true;
           const resolved = await tryResolveProductRef();
           if (tryOpenResolvedTarget(resolved.target)) {
             return;
@@ -1511,13 +1534,16 @@ export function RecommendationsCard({
 
       // 5) Last internal fallback before external search:
       //    - query products.search once and open PDP when available.
-      try {
-        const searched = await trySearchProducts();
-        if (tryOpenResolvedTarget(searched)) {
-          return;
+      if (!attemptedSearch) {
+        try {
+          attemptedSearch = true;
+          const searched = await trySearchProducts();
+          if (tryOpenResolvedTarget(searched)) {
+            return;
+          }
+        } catch {
+          sawResolveError = true;
         }
-      } catch {
-        sawResolveError = true;
       }
 
       // 6) If still not resolvable:
@@ -5048,14 +5074,21 @@ export default function BffChat() {
         throw new Error('offers.resolve requires sku_id or product_id');
       }
       const requestHeaders = { ...headers, lang: language };
-      return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({
-          operation: 'offers.resolve',
-          payload: { offers: { product, market: 'US', tool: '*', limit: 5 } },
-          metadata: { source: 'chatbox' },
-        }),
-      });
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      try {
+        return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
+          method: 'POST',
+          signal: controller.signal,
+          body: JSON.stringify({
+            operation: 'offers.resolve',
+            payload: { offers: { product, market: 'US', tool: '*', limit: 5 } },
+            metadata: { source: 'chatbox' },
+          }),
+        });
+      } finally {
+        window.clearTimeout(timer);
+      }
     },
     [headers, language],
   );
@@ -5079,23 +5112,30 @@ export default function BffChat() {
       if (!q) throw new Error('products.resolve requires query');
       const requestHeaders = { ...headers, lang: language };
       const hintObject = hints && typeof hints === 'object' ? hints : undefined;
-      return await bffJson<any>('/agent/v1/products/resolve', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({
-          query: q,
-          lang,
-          caller: 'aurora_chatbox',
-          session_id: headers.brief_id,
-          ...(hintObject ? { hints: hintObject } : {}),
-          options: {
-            timeout_ms: 6500,
-            search_all_merchants: true,
-            upstream_retries: 1,
-            candidates_limit: 12,
-            allow_external_seed: false,
-          },
-        }),
-      });
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      try {
+        return await bffJson<any>('/agent/v1/products/resolve', requestHeaders, {
+          method: 'POST',
+          signal: controller.signal,
+          body: JSON.stringify({
+            query: q,
+            lang,
+            caller: 'aurora_chatbox',
+            session_id: headers.brief_id,
+            ...(hintObject ? { hints: hintObject } : {}),
+            options: {
+              timeout_ms: 4500,
+              search_all_merchants: true,
+              upstream_retries: 0,
+              candidates_limit: 12,
+              allow_external_seed: false,
+            },
+          }),
+        });
+      } finally {
+        window.clearTimeout(timer);
+      }
     },
     [headers, language],
   );
@@ -5119,25 +5159,32 @@ export default function BffChat() {
         brand && !q.toLowerCase().includes(brand.toLowerCase())
           ? `${brand} ${q}`.trim()
           : q;
-      return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({
-          operation: 'find_products_multi',
-          payload: {
-            search: {
-              query: queryWithHint,
-              in_stock_only: false,
-              search_all_merchants: true,
-              limit: requestedLimit,
-              offset: 0,
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      try {
+        return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
+          method: 'POST',
+          signal: controller.signal,
+          body: JSON.stringify({
+            operation: 'find_products_multi',
+            payload: {
+              search: {
+                query: queryWithHint,
+                in_stock_only: false,
+                search_all_merchants: true,
+                limit: requestedLimit,
+                offset: 0,
+              },
             },
-          },
-          metadata: {
-            source: 'aurora_chatbox',
-            ...(brand ? { prefer_brand: brand } : {}),
-          },
-        }),
-      });
+            metadata: {
+              source: 'aurora_chatbox',
+              ...(brand ? { prefer_brand: brand } : {}),
+            },
+          }),
+        });
+      } finally {
+        window.clearTimeout(timer);
+      }
     },
     [headers, language],
   );
