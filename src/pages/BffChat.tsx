@@ -675,7 +675,8 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
   };
 }
 
-const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 8000;
+const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 5000;
+const VIEW_DETAILS_TOTAL_BUDGET_MS = 12000;
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
   const skuId =
@@ -1428,12 +1429,15 @@ export function RecommendationsCard({
       let resolverInfraFailure = false;
       let attemptedSearch = false;
       let attemptedResolve = false;
+      const flowStartedAt = Date.now();
+      const hasIdentifiers = Boolean(productId || skuId);
+      const hasBudgetLeft = () => Date.now() - flowStartedAt < VIEW_DETAILS_TOTAL_BUDGET_MS;
       setOffersLoading(anchorKey);
       try {
         const shouldUseFastQueryPath =
           Boolean(resolveProductsSearch) &&
           Boolean(query) &&
-          (isOpaqueProductId || isOpaqueSkuId || (!productId && !skuId));
+          !hasIdentifiers;
 
         if (shouldUseFastQueryPath) {
           attemptedSearch = true;
@@ -1450,22 +1454,13 @@ export function RecommendationsCard({
           openPdpTarget({ product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) });
           return;
         }
-        if (productId && isOpaqueProductId) {
-          attemptedResolve = true;
-          const resolved = await tryResolveProductRef();
-          if (tryOpenResolvedTarget(resolved.target)) {
-            return;
-          }
-          resolverInfraFailure = resolved.hadInfraFailure;
-        }
 
-        // 2) sku-only path: use offers.resolve to map sku -> PDP target.
+        // 2) sku path: use offers.resolve first (covers non-opaque and mapped opaque ids).
         const shouldTryOffersResolve =
           Boolean(resolveOffers) &&
           Boolean(skuId) &&
-          !isOpaqueSkuId &&
-          !isOpaqueProductId &&
-          (!productId || isOpaqueProductId);
+          (!productId || isOpaqueProductId) &&
+          hasBudgetLeft();
         if (shouldTryOffersResolve && resolveOffers) {
           const offerInputs: Array<{ sku_id?: string; product_id?: string; merchant_id?: string }> = [];
           const pushInput = (input: { sku_id?: string; product_id?: string; merchant_id?: string }) => {
@@ -1494,8 +1489,10 @@ export function RecommendationsCard({
           console.info('[RecoViewDetails] skip offers.resolve', { skuId });
         }
 
-        // 3) Text-query resolver only for cards with no identifiers at all.
-        if (!skuId && !productId && !attemptedResolve) {
+        // 3) Product/query resolve:
+        //    - for opaque product ids: resolve by query/hints
+        //    - for name-only cards: resolve by query
+        if ((productId && isOpaqueProductId && hasBudgetLeft()) || (!skuId && !productId && !attemptedResolve)) {
           attemptedResolve = true;
           const resolved = await tryResolveProductRef();
           if (debug) {
@@ -1534,7 +1531,8 @@ export function RecommendationsCard({
 
       // 5) Last internal fallback before external search:
       //    - query products.search once and open PDP when available.
-      if (!attemptedSearch) {
+      //    - only for name-only cards (identifier cards should not wait on search).
+      if (!attemptedSearch && !hasIdentifiers && hasBudgetLeft()) {
         try {
           attemptedSearch = true;
           const searched = await trySearchProducts();
