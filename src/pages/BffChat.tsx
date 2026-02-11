@@ -677,6 +677,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 2500;
+const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
   const skuId =
@@ -1061,7 +1062,7 @@ export function RecommendationsCard({
     brand?: string | null;
     title?: string | null;
   };
-  type ProductDetailsCardInput = {
+  type ProductPdpCardInput = {
     anchor_key: string;
     position: number;
     brand: string | null;
@@ -1105,11 +1106,32 @@ export function RecommendationsCard({
     [],
   );
 
-  const classifyResolveFailure = useCallback((resp: unknown): string => {
+  const classifyResolveFailure = useCallback((resp: unknown): { reason: string; allowExternalFallback: boolean } => {
     const root = asObject(resp);
-    if (!root) return 'resolve_invalid_schema';
-    if ((root as any).resolved !== true) return 'resolve_unresolved';
-    return 'resolve_missing_stable_key';
+    if (!root) return { reason: 'resolve_invalid_schema', allowExternalFallback: false };
+    if (typeof (root as any).resolved !== 'boolean') {
+      return { reason: 'resolve_invalid_schema', allowExternalFallback: false };
+    }
+    if ((root as any).resolved === true) {
+      return { reason: 'resolve_missing_stable_key', allowExternalFallback: false };
+    }
+
+    const reasonCodeRaw =
+      asString((root as any).reason_code) ||
+      asString((root as any).reasonCode) ||
+      asString((root as any).data?.reason_code) ||
+      asString((root as any).data?.reasonCode) ||
+      asString((root as any).error?.reason_code) ||
+      asString((root as any).error?.reasonCode) ||
+      null;
+    const reasonCode = reasonCodeRaw ? reasonCodeRaw.toUpperCase() : null;
+    if (!reasonCode) {
+      return { reason: 'resolve_missing_reason_code', allowExternalFallback: false };
+    }
+    return {
+      reason: `resolve_${reasonCode.toLowerCase()}`,
+      allowExternalFallback: PDP_EXTERNAL_FALLBACK_REASON_CODES.has(reasonCode),
+    };
   }, []);
 
   const openExternalGoogle = useCallback(
@@ -1128,8 +1150,8 @@ export function RecommendationsCard({
     [language],
   );
 
-  const openProductDetails = useCallback(
-    async (card: ProductDetailsCardInput) => {
+  const openPdpFromCard = useCallback(
+    async (card: ProductPdpCardInput) => {
       const anchorKey = String(card.anchor_key || '').trim();
       if (!anchorKey) return;
 
@@ -1218,7 +1240,7 @@ export function RecommendationsCard({
           if (canonicalRef && !canonicalProductId) {
             failReason = failReason || 'invalid_canonical_ref';
           }
-          if (canonicalProductId && !looksLikeOpaqueId(canonicalProductId)) {
+          if (canonicalProductId) {
             openInternalPdp(
               {
                 product_id: canonicalProductId,
@@ -1231,6 +1253,7 @@ export function RecommendationsCard({
           }
 
           let resolvedTarget: { product_id: string; merchant_id?: string | null } | null = null;
+          let allowExternalFallback = false;
           const resolveQuery = String(card.resolve_query || '').trim();
 
           if (!resolveProductRef) {
@@ -1238,6 +1261,7 @@ export function RecommendationsCard({
           } else if (!resolveQuery) {
             failReason = failReason || 'missing_resolve_query';
           } else {
+            openPath = 'resolve';
             const timeoutId = window.setTimeout(() => {
               if (!controller.signal.aborted) controller.abort('resolve_timeout');
             }, VIEW_DETAILS_RESOLVE_TIMEOUT_MS);
@@ -1253,7 +1277,9 @@ export function RecommendationsCard({
               if (strictTarget?.product_id) {
                 resolvedTarget = strictTarget;
               } else {
-                failReason = failReason || classifyResolveFailure(resp);
+                const failure = classifyResolveFailure(resp);
+                failReason = failReason || failure.reason;
+                allowExternalFallback = failure.allowExternalFallback;
               }
               if (debug) {
                 // eslint-disable-next-line no-console
@@ -1270,6 +1296,7 @@ export function RecommendationsCard({
                 controller.signal.aborted && controller.signal.reason === 'resolve_timeout'
                   ? 'resolve_timeout'
                   : 'resolve_request_error';
+              allowExternalFallback = false;
             } finally {
               window.clearTimeout(timeoutId);
             }
@@ -1284,6 +1311,18 @@ export function RecommendationsCard({
               'resolve',
             );
             setDetailsFlow({ key: anchorKey, state: 'done' });
+            return;
+          }
+
+          if (!allowExternalFallback) {
+            setDetailsFlow({ key: anchorKey, state: 'error' });
+            toast({
+              title: language === 'CN' ? '无法打开商品详情' : 'Unable to open product details',
+              description:
+                language === 'CN'
+                  ? '未找到稳定商品标识，请稍后重试。'
+                  : 'A stable product key was not available. Please retry shortly.',
+            });
             return;
           }
 
@@ -1330,7 +1369,7 @@ export function RecommendationsCard({
           clickLockByKeyRef.current.delete(anchorKey);
           const superseded = controller.signal.aborted && controller.signal.reason === 'superseded';
           if (!superseded && analyticsCtx) {
-            if (openPath === 'external' && failReason) {
+            if (failReason) {
               emitPdpFailReason(analyticsCtx, {
                 card_position: position,
                 anchor_key: anchorKey,
@@ -1340,7 +1379,7 @@ export function RecommendationsCard({
             emitPdpLatencyMs(analyticsCtx, {
               card_position: position,
               anchor_key: anchorKey,
-              path: openPath || 'external',
+              path: openPath || 'resolve',
               pdp_latency_ms: Math.max(0, Date.now() - startedAt),
             });
           }
@@ -1355,7 +1394,6 @@ export function RecommendationsCard({
       classifyResolveFailure,
       debug,
       language,
-      looksLikeOpaqueId,
       onOpenPdp,
       openExternalGoogle,
       resolveProductRef,
@@ -1557,7 +1595,7 @@ export function RecommendationsCard({
               className="chip-button"
               disabled={isResolving}
               onClick={() =>
-                void openProductDetails({
+                void openPdpFromCard({
                   anchor_key: anchorId,
                   position: idx + 1,
                   brand,
@@ -1753,7 +1791,7 @@ export function RecommendationsCard({
                       className="chip-button"
                       disabled={isAltResolving}
                       onClick={() =>
-                        void openProductDetails({
+                        void openPdpFromCard({
                           anchor_key: altAnchorId,
                           position: idx + 1,
                           brand: altBrand,
@@ -2999,9 +3037,28 @@ export default function BffChat() {
 
   const openPdpDrawer = useCallback(
     (args: { url: string; title?: string }) => {
-      shop.openShop({ url: args.url, title: args.title });
+      const rawUrl = String(args.url || '').trim();
+      if (!rawUrl) return;
+      let parsed: URL;
+      try {
+        parsed = new URL(rawUrl);
+      } catch {
+        return;
+      }
+
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      const isPdpPath = segments.length === 2 && segments[0] === 'products' && Boolean(segments[1]);
+      const isBrowseRoute = String(parsed.searchParams.get('open') || '').trim().toLowerCase() === 'browse';
+      if (!isPdpPath || isBrowseRoute) {
+        if (debug) {
+          // eslint-disable-next-line no-console
+          console.warn('[PDP Guard] blocked non-PDP route', { url: rawUrl });
+        }
+        return;
+      }
+      shop.openShop({ url: parsed.toString(), title: args.title });
     },
-    [shop],
+    [debug, shop],
   );
 
   const applyEnvelope = useCallback((env: V1Envelope) => {

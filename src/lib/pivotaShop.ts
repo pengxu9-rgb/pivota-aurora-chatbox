@@ -70,7 +70,6 @@ const parseOfferIdForProduct = (value: string | null): { merchant_id: string; pr
 export const extractPdpTargetFromProductGroupId = (value: unknown): PdpTarget | null => {
   const parsed = parseProductGroupId(asNonEmptyString(value));
   if (!parsed?.product_id) return null;
-  if (looksLikeOpaqueId(parsed.product_id)) return null;
   return {
     product_id: parsed.product_id,
     ...(parsed.merchant_id ? { merchant_id: parsed.merchant_id } : {}),
@@ -290,7 +289,7 @@ export const extractStablePdpTargetFromProductsResolveResponse = (input: unknown
     if (!ref) return null;
     const productId = asNonEmptyString((ref as any).product_id) || asNonEmptyString((ref as any).productId) || null;
     const merchantId = asNonEmptyString((ref as any).merchant_id) || asNonEmptyString((ref as any).merchantId) || null;
-    if (!productId || looksLikeOpaqueId(productId)) return null;
+    if (!productId) return null;
     return { product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) };
   };
 

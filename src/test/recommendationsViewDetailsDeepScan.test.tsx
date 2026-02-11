@@ -107,7 +107,7 @@ describe('RecommendationsCard View details routing', () => {
     const onOpenPdp = vi.fn();
     const resolveProductRef = vi.fn().mockResolvedValue({
       resolved: false,
-      reason: 'no_candidates',
+      reason_code: 'NO_CANDIDATES',
       candidates: [],
     });
 
@@ -133,6 +133,35 @@ describe('RecommendationsCard View details routing', () => {
       'noopener,noreferrer',
     );
     expect(onOpenPdp).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('4) unresolved without allowed reason_code: does not open external tab', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: false,
+      reason_code: 'UNAUTHORIZED',
+      candidates: [],
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ brand: 'IPSA', name: 'Time Reset Aqua' })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(resolveProductRef).toHaveBeenCalledTimes(1);
+      expect(onOpenPdp).not.toHaveBeenCalled();
+      expect(openSpy).not.toHaveBeenCalled();
+    });
     openSpy.mockRestore();
   });
 
@@ -164,11 +193,11 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
-  it('4) never opens blank tab', async () => {
+  it('5) never opens blank tab', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
     const resolveProductRef = vi.fn().mockResolvedValue({
       resolved: false,
-      reason: 'no_candidates',
+      reason_code: 'NO_CANDIDATES',
       candidates: [],
     });
 
@@ -193,11 +222,11 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
-  it('5) never routes to shopping-agent browse', async () => {
+  it('6) never routes to shopping-agent browse', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const resolveProductRef = vi.fn().mockResolvedValue({
       resolved: false,
-      reason: 'no_candidates',
+      reason_code: 'NO_CANDIDATES',
       candidates: [],
     });
 
@@ -239,7 +268,7 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
-  it('6) same click is idempotent: one gateway resolve request only', async () => {
+  it('7) same click is idempotent: one gateway resolve request only', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
 
     let finishResolve: ((value: unknown) => void) | null = null;
@@ -265,7 +294,7 @@ describe('RecommendationsCard View details routing', () => {
 
     finishResolve?.({
       resolved: false,
-      reason: 'no_candidates',
+      reason_code: 'NO_CANDIDATES',
       candidates: [],
     });
 

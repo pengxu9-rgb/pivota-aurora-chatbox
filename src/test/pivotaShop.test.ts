@@ -188,6 +188,13 @@ describe('pivotaShop', () => {
     it('returns null for invalid group id', () => {
       expect(extractPdpTargetFromProductGroupId('not_a_group')).toBeNull();
     });
+
+    it('accepts opaque product ids in product group keys', () => {
+      expect(extractPdpTargetFromProductGroupId('pg:merch_1:c231aaaa-8b00-4145-a704-684931049303')).toEqual({
+        product_id: 'c231aaaa-8b00-4145-a704-684931049303',
+        merchant_id: 'merch_1',
+      });
+    });
   });
 
   describe('extractStablePdpTargetFromProductsResolveResponse', () => {
@@ -219,6 +226,21 @@ describe('pivotaShop', () => {
           merchant_id: 'merch_efbc46b4619cfbdf',
         }),
       ).toBeNull();
+    });
+
+    it('accepts opaque canonical refs as stable keys', () => {
+      expect(
+        extractStablePdpTargetFromProductsResolveResponse({
+          resolved: true,
+          canonical_product_ref: {
+            product_id: 'c231aaaa-8b00-4145-a704-684931049303',
+            merchant_id: 'merch_efbc46b4619cfbdf',
+          },
+        }),
+      ).toEqual({
+        product_id: 'c231aaaa-8b00-4145-a704-684931049303',
+        merchant_id: 'merch_efbc46b4619cfbdf',
+      });
     });
   });
 });
