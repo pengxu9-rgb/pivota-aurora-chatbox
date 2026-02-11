@@ -1454,6 +1454,10 @@ export function RecommendationsCard({
   const renderStep = (item: RecoItem, idx: number) => {
     const sku = asObject(item.sku) || asObject(item.product) || null;
     const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
+    const itemCanonicalRef =
+      asObject((itemRef as any)?.canonical_product_ref) ||
+      asObject((itemRef as any)?.canonicalProductRef) ||
+      null;
     const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
     const nameFromName = asString(sku?.name) || asString((sku as any)?.Name) || null;
     const nameFromDisplay = asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
@@ -1470,6 +1474,8 @@ export function RecommendationsCard({
       asString((item as any)?.productId) ||
       asString((itemRef as any)?.product_id) ||
       asString((itemRef as any)?.productId) ||
+      asString((itemCanonicalRef as any)?.product_id) ||
+      asString((itemCanonicalRef as any)?.productId) ||
       null;
     const merchantId =
       asString((sku as any)?.merchant_id) ||
@@ -1481,6 +1487,8 @@ export function RecommendationsCard({
       asString((item as any)?.merchantId) ||
       asString((itemRef as any)?.merchant_id) ||
       asString((itemRef as any)?.merchantId) ||
+      asString((itemCanonicalRef as any)?.merchant_id) ||
+      asString((itemCanonicalRef as any)?.merchantId) ||
       null;
     const itemUrl =
       asString((sku as any)?.affiliate_url) ||
@@ -1584,6 +1592,11 @@ export function RecommendationsCard({
                 const kindLabel = labelKind(kind);
                 const similarity = asNumber((alt as any).similarity);
                 const altProduct = asObject((alt as any).product) || null;
+                const altRef = asObject((alt as any).product_ref) || asObject((alt as any).productRef) || null;
+                const altCanonicalRef =
+                  asObject((altRef as any)?.canonical_product_ref) ||
+                  asObject((altRef as any)?.canonicalProductRef) ||
+                  null;
                 const altBrand = asString(altProduct?.brand) || null;
                 const altName =
                   asString(altProduct?.name) || asString((altProduct as any)?.display_name) || asString((altProduct as any)?.displayName) || null;
@@ -1596,6 +1609,10 @@ export function RecommendationsCard({
                   asString((altProduct as any)?.productId) ||
                   asString((alt as any)?.product_id) ||
                   asString((alt as any)?.productId) ||
+                  asString((altRef as any)?.product_id) ||
+                  asString((altRef as any)?.productId) ||
+                  asString((altCanonicalRef as any)?.product_id) ||
+                  asString((altCanonicalRef as any)?.productId) ||
                   null;
                 const altMerchantId =
                   asString((altProduct as any)?.merchant_id) ||
@@ -1605,6 +1622,10 @@ export function RecommendationsCard({
                   asString((altProduct as any)?.merchant?.merchantId) ||
                   asString((alt as any)?.merchant_id) ||
                   asString((alt as any)?.merchantId) ||
+                  asString((altRef as any)?.merchant_id) ||
+                  asString((altRef as any)?.merchantId) ||
+                  asString((altCanonicalRef as any)?.merchant_id) ||
+                  asString((altCanonicalRef as any)?.merchantId) ||
                   null;
                 const altUrl =
                   asString((altProduct as any)?.affiliate_url) ||
