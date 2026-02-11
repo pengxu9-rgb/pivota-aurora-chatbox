@@ -142,5 +142,26 @@ describe('pivotaShop', () => {
       const resp = { resolved: false, product_ref: null };
       expect(extractPdpTargetFromProductsResolveResponse(resp)).toBeNull();
     });
+
+    it('ignores unresolved opaque root product_id echoes', () => {
+      const resp = {
+        resolved: false,
+        product_id: 'c231aaaa-8b00-4145-a704-684931049303',
+        merchant_id: 'merch_efbc46b4619cfbdf',
+      };
+      expect(extractPdpTargetFromProductsResolveResponse(resp)).toBeNull();
+    });
+
+    it('accepts resolved non-opaque root product_id for compatibility', () => {
+      const resp = {
+        resolved: true,
+        product_id: '9886499864904',
+        merchant_id: 'merch_efbc46b4619cfbdf',
+      };
+      expect(extractPdpTargetFromProductsResolveResponse(resp)).toEqual({
+        product_id: '9886499864904',
+        merchant_id: 'merch_efbc46b4619cfbdf',
+      });
+    });
   });
 });

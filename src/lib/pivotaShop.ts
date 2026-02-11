@@ -23,6 +23,18 @@ const asObject = (v: unknown): Record<string, any> | null => {
   return v as Record<string, any>;
 };
 
+const looksLikeOpaqueId = (value: string | null): boolean => {
+  if (!value) return false;
+  const s = String(value || '').trim();
+  if (!s) return false;
+  if (/^kb:/i.test(s)) return true;
+  if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(s)) return true;
+  const compactUuid = s.replace(/[\s_-]/g, '').replace(/-/g, '');
+  if (/^[0-9a-f]{32}$/i.test(compactUuid)) return true;
+  if (/^[0-9a-f]{24,}$/i.test(s) && /[a-f]/i.test(s)) return true;
+  return false;
+};
+
 const parseProductGroupId = (value: string | null): { merchant_id: string; product_id: string } | null => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -210,6 +222,8 @@ export const extractPdpTargetFromProductsSearchResponse = (
 export const extractPdpTargetFromProductsResolveResponse = (input: unknown): PdpTarget | null => {
   const resp = asObject(input);
   if (!resp) return null;
+  const resolvedFlag = (resp as any).resolved;
+  const isResolved = resolvedFlag === true;
 
   const ref =
     asObject((resp as any).product_ref) ||
@@ -221,18 +235,28 @@ export const extractPdpTargetFromProductsResolveResponse = (input: unknown): Pdp
   const productId =
     asNonEmptyString((ref as any)?.product_id) ||
     asNonEmptyString((ref as any)?.productId) ||
-    asNonEmptyString((resp as any).product_id) ||
-    asNonEmptyString((resp as any).productId) ||
     null;
   const merchantId =
     asNonEmptyString((ref as any)?.merchant_id) ||
     asNonEmptyString((ref as any)?.merchantId) ||
+    null;
+
+  if (productId && !looksLikeOpaqueId(productId)) {
+    return { product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) };
+  }
+
+  // Backward compatibility: only trust root fields when backend explicitly marks resolved=true.
+  if (!isResolved) return null;
+  const rootProductId =
+    asNonEmptyString((resp as any).product_id) ||
+    asNonEmptyString((resp as any).productId) ||
+    null;
+  const rootMerchantId =
     asNonEmptyString((resp as any).merchant_id) ||
     asNonEmptyString((resp as any).merchantId) ||
     null;
-
-  if (!productId) return null;
-  return { product_id: productId, ...(merchantId ? { merchant_id: merchantId } : {}) };
+  if (!rootProductId || looksLikeOpaqueId(rootProductId)) return null;
+  return { product_id: rootProductId, ...(rootMerchantId ? { merchant_id: rootMerchantId } : {}) };
 };
 
 export const buildPdpUrl = (args: { product_id: string; merchant_id?: string | null; baseUrl?: string }): string => {

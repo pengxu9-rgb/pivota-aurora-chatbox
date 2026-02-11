@@ -1242,6 +1242,13 @@ export function RecommendationsCard({
         }
       };
 
+      const tryOpenResolvedTarget = (target: { product_id: string; merchant_id?: string | null } | null | undefined): boolean => {
+        if (!target?.product_id) return false;
+        if (looksLikeOpaqueId(target.product_id)) return false;
+        openPdpTarget(target);
+        return true;
+      };
+
       const openOutboundUrl = (rawUrl: string, args?: { reason?: string }): boolean => {
         const url = normalizeOutboundFallbackUrl(rawUrl);
         if (!url) return false;
@@ -1352,8 +1359,7 @@ export function RecommendationsCard({
         }
         if (productId && isOpaqueProductId) {
           const resolved = await tryResolveProductRef();
-          if (resolved.target?.product_id && !looksLikeOpaqueId(resolved.target.product_id)) {
-            openPdpTarget(resolved.target);
+          if (tryOpenResolvedTarget(resolved.target)) {
             return;
           }
           resolverInfraFailure = resolved.hadInfraFailure;
@@ -1382,7 +1388,7 @@ export function RecommendationsCard({
               // eslint-disable-next-line no-console
               console.info('[RecoViewDetails] offers.resolve pdpTarget', { input, pdpTarget });
             }
-            if (pdpTarget?.product_id) {
+            if (pdpTarget?.product_id && !looksLikeOpaqueId(pdpTarget.product_id)) {
               openPdpTarget({ product_id: pdpTarget.product_id, merchant_id: pdpTarget.merchant_id ?? null });
               return;
             }
@@ -1399,8 +1405,7 @@ export function RecommendationsCard({
             // eslint-disable-next-line no-console
             console.info('[RecoViewDetails] resolver result', { resolved });
           }
-          if (resolved.target?.product_id) {
-            openPdpTarget(resolved.target);
+          if (tryOpenResolvedTarget(resolved.target)) {
             return;
           }
           resolverInfraFailure = resolved.hadInfraFailure;
@@ -1419,8 +1424,7 @@ export function RecommendationsCard({
       ) {
         try {
           const resolved = await tryResolveProductRef();
-          if (resolved.target?.product_id) {
-            openPdpTarget(resolved.target);
+          if (tryOpenResolvedTarget(resolved.target)) {
             return;
           }
           resolverInfraFailure = resolverInfraFailure || resolved.hadInfraFailure;
