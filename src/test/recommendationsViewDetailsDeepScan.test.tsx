@@ -165,6 +165,36 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
+  it('4b) resolve request error falls back to external search', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn().mockRejectedValue(new Error('network_error'));
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ brand: 'IPSA', name: 'Time Reset Aqua' })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(resolveProductRef).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(openSpy).toHaveBeenCalledWith(
+      buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN'),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(onOpenPdp).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
   it('internal resolve success: opens PDP drawer and never opens a new tab', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const onOpenPdp = vi.fn();

@@ -676,7 +676,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 }
 
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
-const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 2500;
+const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
@@ -1296,7 +1296,7 @@ export function RecommendationsCard({
                 controller.signal.aborted && controller.signal.reason === 'resolve_timeout'
                   ? 'resolve_timeout'
                   : 'resolve_request_error';
-              allowExternalFallback = false;
+              allowExternalFallback = true;
             } finally {
               window.clearTimeout(timeoutId);
             }
@@ -1960,8 +1960,17 @@ export function RecommendationsCard({
   const rawWarnings = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
 
   const showWarnings = uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))]).slice(0, 6);
+  const suppressWhenRecoPresent = new Set([
+    'analysis_missing',
+    'evidence_missing',
+    'upstream_missing_or_unstructured',
+    'upstream_missing_or_empty',
+  ]);
+  const displayWarnings = showWarnings.filter(
+    (c) => !(items.length > 0 && suppressWhenRecoPresent.has(String(c || '').trim())),
+  );
   const showMissing = rawMissing.filter((c) => !warningLike.has(String(c))).slice(0, 6);
-  const warningLabels = showWarnings
+  const warningLabels = displayWarnings
     .map((code) => {
       const label = labelMissing(code, language);
       if (!label) return null;
@@ -2073,10 +2082,10 @@ export function RecommendationsCard({
         </div>
       ) : null}
 
-      {showWarnings.length && (debug || warningLabels) ? (
+      {displayWarnings.length && (debug || warningLabels) ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           {language === 'CN' ? '提示：' : 'Note: '}
-          {warningLabels || showWarnings.join(' · ')}
+          {warningLabels || displayWarnings.join(' · ')}
         </div>
       ) : null}
     </div>
