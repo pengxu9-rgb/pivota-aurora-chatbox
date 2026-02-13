@@ -55,7 +55,7 @@ import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
 import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
-import { buildGoogleSearchFallbackUrl } from '@/lib/externalSearchFallback';
+import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
 import { toast } from '@/components/ui/use-toast';
 import {
   buildPdpUrl,
@@ -1071,6 +1071,10 @@ export function RecommendationsCard({
     canonical_product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
     resolve_query?: string | null;
     hints?: ProductResolverHints;
+    pdp_open?: {
+      path?: string | null;
+      external?: { query?: string | null; url?: string | null } | null;
+    } | null;
   };
   const [detailsFlow, setDetailsFlow] = useState<{ key: string | null; state: PdpOpenState }>({ key: null, state: 'idle' });
   const inflightByKeyRef = useRef<Map<string, { controller: AbortController; promise: Promise<void> }>>(new Map());
@@ -1224,6 +1228,50 @@ export function RecommendationsCard({
           }
           setDetailsFlow({ key: anchorKey, state: 'resolving' });
 
+          const preferredPdpPath = String(card.pdp_open?.path || '').trim().toLowerCase();
+          if (preferredPdpPath === 'external') {
+            openPath = 'external';
+            setDetailsFlow({ key: anchorKey, state: 'opening_external' });
+            const hintedExternalQuery =
+              String(card.pdp_open?.external?.query || '').trim() ||
+              String(card.resolve_query || '').trim() ||
+              [safeBrand, safeName]
+                .map((v) => String(v || '').trim())
+                .filter(Boolean)
+                .join(' ')
+                .trim();
+            const hintedExternalUrl = normalizeOutboundFallbackUrl(String(card.pdp_open?.external?.url || '').trim());
+            const external =
+              hintedExternalUrl
+                ? {
+                    opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
+                    url: hintedExternalUrl,
+                  }
+                : openExternalGoogle(hintedExternalQuery);
+            if (analyticsCtx) {
+              emitPdpOpenPath(analyticsCtx, {
+                card_position: position,
+                path: 'external',
+                anchor_key: anchorKey,
+                url: external.url,
+              });
+            }
+            if (external.opened) {
+              setDetailsFlow({ key: anchorKey, state: 'done' });
+              return;
+            }
+            failReason = failReason || (!external.url ? 'google_query_empty' : 'popup_blocked');
+            setDetailsFlow({ key: anchorKey, state: 'error' });
+            toast({
+              title: language === 'CN' ? '无法打开外部页面' : 'Unable to open external page',
+              description:
+                language === 'CN'
+                  ? '浏览器可能拦截了新标签页弹窗，请允许后重试。'
+                  : 'Your browser may have blocked the popup. Please allow popups and retry.',
+            });
+            return;
+          }
+
           const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
           if (card.subject_product_group_id && !groupTarget) {
             failReason = failReason || 'invalid_product_group_id';
@@ -1237,10 +1285,10 @@ export function RecommendationsCard({
           const canonicalRef = card.canonical_product_ref;
           const canonicalProductId = String(canonicalRef?.product_id || '').trim();
           const canonicalMerchantId = String(canonicalRef?.merchant_id || '').trim() || null;
-          if (canonicalRef && !canonicalProductId) {
+          if (canonicalRef && (!canonicalProductId || looksLikeOpaqueId(canonicalProductId))) {
             failReason = failReason || 'invalid_canonical_ref';
           }
-          if (canonicalProductId) {
+          if (canonicalProductId && !looksLikeOpaqueId(canonicalProductId)) {
             openInternalPdp(
               {
                 product_id: canonicalProductId,
@@ -1396,6 +1444,7 @@ export function RecommendationsCard({
       language,
       onOpenPdp,
       openExternalGoogle,
+      looksLikeOpaqueId,
       resolveProductRef,
     ],
   );
@@ -1495,9 +1544,23 @@ export function RecommendationsCard({
     const merchantId = pickPreferredId([canonicalMerchantId, refMerchantId, rawMerchantId], looksLikeOpaqueId);
     const q = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
     const canonicalRefTarget = canonicalProductId
+      && !looksLikeOpaqueId(canonicalProductId)
       ? {
           product_id: canonicalProductId,
           ...(canonicalMerchantId ? { merchant_id: canonicalMerchantId } : {}),
+        }
+      : null;
+    const pdpOpen = asObject((item as any).pdp_open) || asObject((item as any).pdpOpen) || null;
+    const pdpOpenExternal = asObject((pdpOpen as any)?.external) || null;
+    const pdpOpenHint = pdpOpen
+      ? {
+          path: asString((pdpOpen as any)?.path) || null,
+          external: pdpOpenExternal
+            ? {
+                query: asString((pdpOpenExternal as any)?.query) || null,
+                url: asString((pdpOpenExternal as any)?.url) || null,
+              }
+            : null,
         }
       : null;
     const resolveQuery =
@@ -1604,6 +1667,7 @@ export function RecommendationsCard({
                   canonical_product_ref: canonicalRefTarget,
                   resolve_query: resolveQuery || null,
                   hints: Object.keys(resolverHints).length ? resolverHints : undefined,
+                  pdp_open: pdpOpenHint,
                 })
               }
             >
@@ -1726,9 +1790,23 @@ export function RecommendationsCard({
                     : {}),
                 };
                 const altCanonicalRefTarget = altCanonicalProductId
+                  && !looksLikeOpaqueId(altCanonicalProductId)
                   ? {
                       product_id: altCanonicalProductId,
                       ...(altCanonicalMerchantId ? { merchant_id: altCanonicalMerchantId } : {}),
+                    }
+                  : null;
+                const altPdpOpen = asObject((alt as any)?.pdp_open) || asObject((alt as any)?.pdpOpen) || null;
+                const altPdpOpenExternal = asObject((altPdpOpen as any)?.external) || null;
+                const altPdpOpenHint = altPdpOpen
+                  ? {
+                      path: asString((altPdpOpen as any)?.path) || null,
+                      external: altPdpOpenExternal
+                        ? {
+                            query: asString((altPdpOpenExternal as any)?.query) || null,
+                            url: asString((altPdpOpenExternal as any)?.url) || null,
+                          }
+                        : null,
                     }
                   : null;
                 const altAnchorId = altSubjectProductGroupId || altCanonicalProductId || altProductId || altSkuId || (altQ ? `q:${altQ}` : '');
@@ -1800,6 +1878,7 @@ export function RecommendationsCard({
                           canonical_product_ref: altCanonicalRefTarget,
                           resolve_query: altResolveQuery || null,
                           hints: Object.keys(altResolverHints).length ? altResolverHints : undefined,
+                          pdp_open: altPdpOpenHint,
                         })
                       }
                     >

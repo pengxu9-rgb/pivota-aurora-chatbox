@@ -16,6 +16,7 @@ const buildRecoCard = (args: {
   name?: string;
   subjectProductGroupId?: string | null;
   canonicalProductRef?: { product_id: string; merchant_id?: string } | null;
+  pdpOpen?: { path?: string; external?: { query?: string; url?: string } } | null;
 }): Card => ({
   card_id: 'reco_card_1',
   type: 'recommendations',
@@ -32,6 +33,11 @@ const buildRecoCard = (args: {
         ...(args.canonicalProductRef
           ? {
               canonical_product_ref: args.canonicalProductRef,
+            }
+          : {}),
+        ...(args.pdpOpen
+          ? {
+              pdp_open: args.pdpOpen,
             }
           : {}),
         sku: {
@@ -136,6 +142,43 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
+  it('3b) pdp_open.path=external bypasses resolve and opens external directly', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn();
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({
+          brand: 'IPSA',
+          name: 'Time Reset Aqua',
+          pdpOpen: {
+            path: 'external',
+            external: { query: 'IPSA Time Reset Aqua' },
+          },
+        })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(resolveProductRef).not.toHaveBeenCalled();
+    expect(onOpenPdp).not.toHaveBeenCalled();
+    expect(openSpy).toHaveBeenCalledWith(
+      buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN'),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    openSpy.mockRestore();
+  });
+
   it('4) unresolved without allowed reason_code: does not open external tab', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const onOpenPdp = vi.fn();
@@ -192,6 +235,47 @@ describe('RecommendationsCard View details routing', () => {
       'noopener,noreferrer',
     );
     expect(onOpenPdp).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('4c) opaque canonical ref does not open internal directly and can fall back externally', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: false,
+      reason_code: 'NO_CANDIDATES',
+      candidates: [],
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({
+          brand: 'IPSA',
+          name: 'Time Reset Aqua',
+          canonicalProductRef: {
+            product_id: '7af2cdf9-6e10-472b-b766-67f27d37e991',
+            merchant_id: 'merch_efbc46b4619cfbdf',
+          },
+        })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(resolveProductRef).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(onOpenPdp).not.toHaveBeenCalled();
+    expect(openSpy).toHaveBeenCalledWith(
+      buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN'),
+      '_blank',
+      'noopener,noreferrer',
+    );
     openSpy.mockRestore();
   });
 
