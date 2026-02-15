@@ -417,4 +417,31 @@ describe('RecommendationsCard View details routing', () => {
     });
     openSpy.mockRestore();
   });
+
+  it('8) repeated click after completion opens internal again', async () => {
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn();
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ subjectProductGroupId: 'pg:merch_pg:prod_pg' })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: /view details/i });
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(2);
+    });
+    expect(resolveProductRef).not.toHaveBeenCalled();
+  });
 });

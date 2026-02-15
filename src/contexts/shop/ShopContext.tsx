@@ -84,6 +84,9 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const [shopOpen, setShopOpen] = useState(false);
   const [shopUrl, setShopUrl] = useState<string | null>(null);
   const [shopTitle, setShopTitle] = useState('');
+  const [drawerRenderKey, setDrawerRenderKey] = useState(0);
+  const [drawerEpoch, setDrawerEpoch] = useState(0);
+  const drawerEpochRef = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const handleIframeRef = useCallback((iframe: HTMLIFrameElement | null) => {
     iframeRef.current = iframe;
@@ -110,6 +113,10 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         lang: langPref,
       });
       if (!normalized) return;
+      const nextEpoch = drawerEpochRef.current + 1;
+      drawerEpochRef.current = nextEpoch;
+      setDrawerRenderKey((prev) => prev + 1);
+      setDrawerEpoch(nextEpoch);
       setBridgeReady(false);
       setShopUrl(normalized);
       setShopTitle(String(args.title || '').trim());
@@ -260,10 +267,13 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     <ShopContext.Provider value={value}>
       {children}
       <ShopDrawer
+        key={drawerRenderKey}
         open={shopOpen}
         url={shopUrl}
         title={shopTitle}
-        onOpenChange={(next) => {
+        epoch={drawerEpoch}
+        onOpenChange={(next, eventEpoch) => {
+          if (eventEpoch !== drawerEpochRef.current) return;
           if (!next) closeShop();
           else setShopOpen(true);
         }}

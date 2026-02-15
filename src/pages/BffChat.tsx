@@ -1161,8 +1161,9 @@ export function RecommendationsCard({
 
       const existing = inflightByKeyRef.current.get(anchorKey);
       if (existing) {
+        const allowReplayAfterSettle = detailsFlow.key === anchorKey && detailsFlow.state === 'done';
         await existing.promise;
-        return;
+        if (!allowReplayAfterSettle) return;
       }
       if (clickLockByKeyRef.current.has(anchorKey)) return;
       clickLockByKeyRef.current.add(anchorKey);
@@ -1441,6 +1442,7 @@ export function RecommendationsCard({
       analyticsCtx,
       classifyResolveFailure,
       debug,
+      detailsFlow,
       language,
       onOpenPdp,
       openExternalGoogle,

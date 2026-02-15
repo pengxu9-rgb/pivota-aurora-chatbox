@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
+import { Drawer, DrawerContent } from '@/components/ui/drawer';
 import { X } from 'lucide-react';
 
 export function ShopDrawer({
   open,
   url,
   title,
+  epoch,
   onOpenChange,
   onIframe,
   language,
@@ -14,7 +15,8 @@ export function ShopDrawer({
   open: boolean;
   url: string | null;
   title: string;
-  onOpenChange: (open: boolean) => void;
+  epoch: number;
+  onOpenChange: (open: boolean, epoch: number) => void;
   onIframe: (iframe: HTMLIFrameElement | null) => void;
   language: 'EN' | 'CN';
 }) {
@@ -89,11 +91,13 @@ export function ShopDrawer({
     return `${dvh}dvh`;
   }, [contentHeightPx, snapPoint]);
 
+  if (!open && !url) return null;
+
   return (
     <Drawer
       open={open}
       onOpenChange={(next) => {
-        onOpenChange(next);
+        onOpenChange(next, epoch);
         if (!next) {
           onIframe(null);
         }
@@ -110,15 +114,17 @@ export function ShopDrawer({
       >
         <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
           <div className="text-sm font-semibold text-foreground">{title || (language === 'CN' ? '购物' : 'Shopping')}</div>
-          <DrawerClose asChild>
-            <button
-              type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-              aria-label={language === 'CN' ? '关闭' : 'Close'}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </DrawerClose>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+            aria-label={language === 'CN' ? '关闭' : 'Close'}
+            onClick={() => {
+              onOpenChange(false, epoch);
+              onIframe(null);
+            }}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         {url ? (
@@ -139,4 +145,3 @@ export function ShopDrawer({
     </Drawer>
   );
 }
-
