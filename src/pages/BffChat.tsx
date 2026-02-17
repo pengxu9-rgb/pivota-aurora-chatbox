@@ -3942,16 +3942,17 @@ export default function BffChat() {
 
         const parseCard = Array.isArray(parseEnv.cards) ? parseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
         const parsedProduct = parseCard && parseCard.payload && typeof parseCard.payload === 'object' ? (parseCard.payload as any).product : null;
+        const analyzeBody = parsedProduct
+          ? asUrl
+            ? { product: parsedProduct, url: asUrl }
+            : { product: parsedProduct }
+          : asUrl
+            ? { url: asUrl }
+            : { name: inputText };
 
         const analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
           method: 'POST',
-          body: JSON.stringify(
-            parsedProduct
-              ? { product: parsedProduct }
-              : asUrl
-                ? { url: asUrl }
-                : { name: inputText },
-          ),
+          body: JSON.stringify(analyzeBody),
         });
         applyEnvelope(analyzeEnv);
         setSessionState('P2_PRODUCT_RESULT');
