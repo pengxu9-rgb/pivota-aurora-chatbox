@@ -2040,7 +2040,10 @@ export function RecommendationsCard({
   );
   const rawWarnings = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
 
-  const showWarnings = uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))]).slice(0, 6);
+  const warningCandidates = debug
+    ? uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))])
+    : uniqueStrings(rawWarnings);
+  const showWarnings = warningCandidates.slice(0, 6);
   const suppressWhenRecoPresent = new Set([
     'analysis_missing',
     'evidence_missing',
@@ -2050,7 +2053,7 @@ export function RecommendationsCard({
   const displayWarnings = showWarnings.filter(
     (c) => !(items.length > 0 && suppressWhenRecoPresent.has(String(c || '').trim())),
   );
-  const showMissing = rawMissing.filter((c) => !warningLike.has(String(c))).slice(0, 6);
+  const showMissing = debug ? rawMissing.filter((c) => !warningLike.has(String(c))).slice(0, 6) : [];
   const warningLabels = displayWarnings
     .map((code) => {
       const label = labelMissing(code, language);
@@ -2361,7 +2364,7 @@ function BffCardView({
 
   const Icon = iconForCard(card.type);
   const title = titleForCard(card.type, language);
-  const fieldMissingCount = Array.isArray(card.field_missing) ? card.field_missing.length : 0;
+  const fieldMissingCount = 0;
 
   const qcStatus = normalizePhotoQcStatus(asString((payload as any)?.qc_status));
   const qcObj = asObject((payload as any)?.qc);
@@ -2369,11 +2372,11 @@ function BffCardView({
   const qcSummary = asString(qcAdvice?.summary) || null;
   const qcSuggestions = asArray(qcAdvice?.suggestions).map((s) => asString(s)).filter(Boolean) as string[];
 
-  const missingInfo = uniqueStrings((payload as any)?.missing_info);
-
   const evidence = asObject((payload as any)?.evidence) || null;
   const science = asObject(evidence?.science) || null;
-  const social = asObject(evidence?.social_signals || (evidence as any)?.socialSignals) || null;
+  const socialEvidence = asObject(evidence?.social_signals || (evidence as any)?.socialSignals) || null;
+  const socialBlock = asObject((payload as any)?.social_signals || (payload as any)?.socialSignals) || null;
+  const socialSummary = asObject(socialBlock?.overall_summary || (socialBlock as any)?.overallSummary) || null;
   const expertNotes = uniqueStrings(evidence?.expert_notes || (evidence as any)?.expertNotes);
 
   const evidenceKeyIngredients = uniqueStrings(science?.key_ingredients || (science as any)?.keyIngredients).slice(0, 10);
@@ -2381,10 +2384,65 @@ function BffCardView({
   const evidenceFitNotes = uniqueStrings(science?.fit_notes || (science as any)?.fitNotes).slice(0, 6);
   const evidenceRiskNotes = uniqueStrings(science?.risk_notes || (science as any)?.riskNotes).slice(0, 6);
 
-  const platformScores = asObject(social?.platform_scores || (social as any)?.platformScores) || null;
-  const socialPositive = uniqueStrings(social?.typical_positive || (social as any)?.typicalPositive).slice(0, 6);
-  const socialNegative = uniqueStrings(social?.typical_negative || (social as any)?.typicalNegative).slice(0, 6);
-  const socialRisks = uniqueStrings(social?.risk_for_groups || (social as any)?.riskForGroups).slice(0, 6);
+  const platformScores = asObject(socialEvidence?.platform_scores || (socialEvidence as any)?.platformScores) || null;
+  const socialPositive = uniqueStrings([
+    ...uniqueStrings(socialEvidence?.typical_positive || (socialEvidence as any)?.typicalPositive),
+    ...uniqueStrings(socialSummary?.top_pos_themes || (socialSummary as any)?.topPosThemes),
+  ]).slice(0, 6);
+  const socialNegative = uniqueStrings([
+    ...uniqueStrings(socialEvidence?.typical_negative || (socialEvidence as any)?.typicalNegative),
+    ...uniqueStrings(socialSummary?.top_neg_themes || (socialSummary as any)?.topNegThemes),
+  ]).slice(0, 6);
+  const socialRisks = uniqueStrings([
+    ...uniqueStrings(socialEvidence?.risk_for_groups || (socialEvidence as any)?.riskForGroups),
+    ...uniqueStrings(socialSummary?.watchouts),
+  ]).slice(0, 6);
+
+  const socialOverall = (() => {
+    const pos = socialPositive.length;
+    const neg = socialNegative.length;
+    const risk = socialRisks.length;
+    if (!pos && !neg && !risk) return null;
+
+    const tone: 'positive' | 'mixed' | 'caution' =
+      pos >= neg + 2 ? 'positive' : neg >= pos + 2 || risk >= 2 ? 'caution' : 'mixed';
+
+    const headline =
+      language === 'CN'
+        ? tone === 'positive'
+          ? '整体口碑偏正向（多为保湿、肤感轻薄）'
+          : tone === 'caution'
+            ? '整体口碑偏谨慎（负向/风险反馈相对更多）'
+            : '整体口碑中性偏混合（正负反馈并存）'
+        : tone === 'positive'
+          ? 'Overall feedback is mostly positive.'
+          : tone === 'caution'
+            ? 'Overall feedback suggests caution.'
+            : 'Overall feedback is mixed.';
+
+    const detailParts = [
+      socialPositive.length
+        ? language === 'CN'
+          ? `常见好评：${socialPositive.slice(0, 3).join('、')}`
+          : `Common positives: ${socialPositive.slice(0, 3).join(', ')}`
+        : '',
+      socialNegative.length
+        ? language === 'CN'
+          ? `常见担忧：${socialNegative.slice(0, 3).join('、')}`
+          : `Common concerns: ${socialNegative.slice(0, 3).join(', ')}`
+        : '',
+      socialRisks.length
+        ? language === 'CN'
+          ? `人群注意：${socialRisks.slice(0, 2).join('；')}`
+          : `Watchouts: ${socialRisks.slice(0, 2).join('; ')}`
+        : '',
+    ].filter(Boolean);
+
+    return {
+      headline,
+      details: detailParts.join(language === 'CN' ? '。' : '. '),
+    };
+  })();
 
   return (
     <div className="chat-card space-y-3">
@@ -2528,7 +2586,6 @@ function BffCardView({
         const productRaw = asObject((payload as any).product);
         const product = productRaw ? toUiProduct(productRaw, language) : null;
         const confidence = asNumber((payload as any).confidence);
-        const parsedMissing = uniqueStrings((payload as any).missing_info);
 
         return (
           <div className="space-y-3">
@@ -2546,14 +2603,6 @@ function BffCardView({
                   {language === 'CN' ? `置信度 ${(confidence * 100).toFixed(0)}%` : `Confidence ${(confidence * 100).toFixed(0)}%`}
                 </span>
               ) : null}
-              {parsedMissing.slice(0, 4).map((m) => (
-                <span
-                  key={m}
-                  className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground"
-                >
-                  {labelMissing(m, language as any) || m}
-                </span>
-              ))}
             </div>
           </div>
         );
@@ -2571,6 +2620,11 @@ function BffCardView({
         const anchorRaw = asObject((assessment as any)?.anchor_product || (assessment as any)?.anchorProduct);
         const product = anchorRaw ? toUiProduct(anchorRaw, language) : null;
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
+        const competitorsObj = asObject((payload as any).competitors) || null;
+        const competitorCandidates = asArray((competitorsObj as any)?.candidates)
+          .map((v) => asObject(v))
+          .filter(Boolean) as Array<Record<string, unknown>>;
+        const originalForCompare = anchorRaw || asObject((payload as any).product) || null;
 
         const verdictStyle = (() => {
           const v = String(verdict || '').toLowerCase();
@@ -2669,6 +2723,94 @@ function BffCardView({
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '怎么用更安全' : 'How to use safely'}</div>
                 <div className="mt-2">{renderHowToUse()}</div>
+              </div>
+            ) : null}
+
+            {socialOverall ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '社媒总体评价' : 'Overall social feedback'}</div>
+                <div className="mt-1 text-sm font-semibold text-foreground">{socialOverall.headline}</div>
+                {socialOverall.details ? <div className="mt-2 text-xs text-muted-foreground">{socialOverall.details}</div> : null}
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  {language === 'CN'
+                    ? '说明：这是聚合口碑信号，用于辅助判断，不等同于医疗建议。'
+                    : 'Note: this is aggregated feedback for guidance, not medical advice.'}
+                </div>
+              </div>
+            ) : null}
+
+            {competitorCandidates.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '同类可替代产品' : 'Comparable alternatives'}</div>
+                <div className="mt-2 space-y-2">
+                  {competitorCandidates.slice(0, 4).map((candidate, idx) => {
+                    const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+                    const cName =
+                      asString(candidate.name) ||
+                      asString((candidate as any).display_name) ||
+                      asString((candidate as any).displayName) ||
+                      (language === 'CN' ? '未知产品' : 'Unknown product');
+                    const cSimilarity = asNumber((candidate as any).similarity_score ?? (candidate as any).similarityScore);
+                    const cWhy = uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate).slice(0, 2);
+                    const cHighlights = uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights).slice(0, 2);
+                    const cUrl = cHighlights.find((x) => isLikelyUrl(x)) || asString((candidate as any).url) || '';
+
+                    return (
+                      <div key={`${cBrand}_${cName}_${idx}`} className="rounded-xl border border-border/50 bg-muted/30 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-[11px] text-muted-foreground">#{idx + 1}</div>
+                            <div className="truncate text-sm font-semibold text-foreground">{cBrand}</div>
+                            <div className="truncate text-xs text-muted-foreground">{cName}</div>
+                          </div>
+                          {typeof cSimilarity === 'number' && Number.isFinite(cSimilarity) ? (
+                            <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                              {language === 'CN'
+                                ? `相似度 ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`
+                                : `Similarity ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {(cWhy.length || cHighlights.length) ? (
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                            {cWhy.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                            {cHighlights
+                              .filter((x) => !isLikelyUrl(x))
+                              .map((x) => (
+                                <li key={x}>{x}</li>
+                              ))}
+                          </ul>
+                        ) : null}
+
+                        {(originalForCompare || (cUrl && onOpenPdp)) ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {originalForCompare ? (
+                              <button
+                                type="button"
+                                className="chip-button"
+                                onClick={() => onAction('dupe_compare', { original: originalForCompare, dupe: candidate })}
+                              >
+                                {language === 'CN' ? '对比差异' : 'Compare tradeoffs'}
+                              </button>
+                            ) : null}
+                            {(cUrl && onOpenPdp) ? (
+                              <button
+                                type="button"
+                                className="chip-button"
+                                onClick={() => onOpenPdp({ url: cUrl, title: `${cBrand} ${cName}`.trim() })}
+                              >
+                                {language === 'CN' ? '查看商品页' : 'Open product page'}
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
 
@@ -2795,18 +2937,6 @@ function BffCardView({
               </details>
             ) : null}
 
-            {missingInfo.length ? (
-              <div className="flex flex-wrap gap-2">
-                {missingInfo.slice(0, 6).map((m) => (
-                  <span
-                    key={m}
-                    className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground"
-                  >
-                    {labelMissing(m, language as any) || m}
-                  </span>
-                ))}
-              </div>
-            ) : null}
           </div>
         );
       })() : null}
