@@ -14,6 +14,7 @@ interface AuroraAnchorCardProps {
   };
   language: Language;
   onSelect?: () => void;
+  hidePriceWhenUnknown?: boolean;
 }
 
 export function AuroraAnchorCard({ 
@@ -22,9 +23,16 @@ export function AuroraAnchorCard({
   vetoReason, 
   mechanismVector,
   language,
-  onSelect 
+  onSelect,
+  hidePriceWhenUnknown = false,
 }: AuroraAnchorCardProps) {
   const bestOffer = offers[0];
+  const hasKnownPrice = typeof bestOffer?.price === 'number' && Number.isFinite(bestOffer.price);
+  const categoryToken = String(product.category || '').trim();
+  const isUnknownCategory = /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(categoryToken);
+  const categoryLabel = isUnknownCategory
+    ? (language === 'CN' ? '护肤' : 'Skincare')
+    : categoryToken;
   
   const vector = mechanismVector || null;
   const hasVector =
@@ -71,7 +79,7 @@ export function AuroraAnchorCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {product.category}
+              {categoryLabel}
             </p>
             <p className="text-sm font-semibold text-foreground truncate">
               {product.brand}
@@ -79,20 +87,22 @@ export function AuroraAnchorCard({
             <p className="text-xs text-muted-foreground truncate">
               {product.name}
             </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-base font-bold text-foreground font-mono-nums">
-                {typeof bestOffer?.price === 'number' && Number.isFinite(bestOffer.price)
-                  ? `$${bestOffer.price.toFixed(2)}`
-                  : language === 'EN'
-                    ? 'Price unknown'
-                    : '价格未知'}
-              </span>
-              {bestOffer?.original_price && (
-                <span className="text-xs text-muted-foreground line-through font-mono-nums">
-                  ${bestOffer.original_price.toFixed(2)}
+            {hasKnownPrice || !hidePriceWhenUnknown ? (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-base font-bold text-foreground font-mono-nums">
+                  {hasKnownPrice
+                    ? `$${bestOffer.price.toFixed(2)}`
+                    : language === 'EN'
+                      ? 'Price unknown'
+                      : '价格未知'}
                 </span>
-              )}
-            </div>
+                {hasKnownPrice && bestOffer?.original_price ? (
+                  <span className="text-xs text-muted-foreground line-through font-mono-nums">
+                    ${bestOffer.original_price.toFixed(2)}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
 

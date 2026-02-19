@@ -680,12 +680,25 @@ const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
+  const isUnknownToken = (value: unknown) => /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(String(value ?? '').trim());
+  const inferCategoryFromName = (nameText: string) => {
+    const n = nameText.toLowerCase();
+    if (/\bserum|ampoule\b/.test(n)) return language === 'CN' ? '精华' : 'Serum';
+    if (/\bcleanser|wash|foam\b/.test(n)) return language === 'CN' ? '洁面' : 'Cleanser';
+    if (/\bmoisturi[sz]er|cream|lotion|gel\b/.test(n)) return language === 'CN' ? '面霜' : 'Moisturizer';
+    if (/\btoner|essence\b/.test(n)) return language === 'CN' ? '化妆水' : 'Toner';
+    if (/\bspf|sunscreen|sun screen\b/.test(n)) return language === 'CN' ? '防晒' : 'Sunscreen';
+    if (/\bmask\b/.test(n)) return language === 'CN' ? '面膜' : 'Mask';
+    return language === 'CN' ? '护肤' : 'Skincare';
+  };
+
   const skuId =
     asString(raw.sku_id ?? raw.skuId ?? raw.product_id ?? raw.productId) ||
     `unknown_${Math.random().toString(16).slice(2)}`.slice(0, 24);
   const brand = asString(raw.brand) || '';
   const name = asString(raw.name) || asString(raw.display_name ?? raw.displayName) || '';
-  const category = asString(raw.category) || '';
+  const categoryRaw = asString(raw.category) || asString((raw as any).category_name ?? (raw as any).categoryName) || '';
+  const category = (!categoryRaw || isUnknownToken(categoryRaw)) ? inferCategoryFromName(name) : categoryRaw;
   const description = asString(raw.description) || '';
   const image_url = asString(raw.image_url ?? raw.imageUrl) || '';
   const size = asString(raw.size) || '';
@@ -716,6 +729,55 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
   if (keyActives.length) product.key_actives = keyActives;
 
   return product;
+}
+
+function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Offer[] {
+  const explicitOffers = asArray((raw as any).offers)
+    .map((v) => asObject(v))
+    .filter(Boolean)
+    .map((v) => toUiOffer(v as Record<string, unknown>))
+    .filter((o) => Number.isFinite(o.price));
+  if (explicitOffers.length) return explicitOffers;
+
+  const priceObj = asObject((raw as any).price);
+  if (priceObj && (priceObj as any).unknown === true) return [];
+
+  let price: number | null = null;
+  let currency = asString((raw as any).currency) || 'USD';
+  if (priceObj) {
+    const usd = asNumber((priceObj as any).usd ?? (priceObj as any).USD);
+    const cny = asNumber((priceObj as any).cny ?? (priceObj as any).CNY);
+    if (usd != null) {
+      price = usd;
+      currency = 'USD';
+    } else if (cny != null) {
+      price = cny;
+      currency = 'CNY';
+    } else {
+      price = asNumber((priceObj as any).amount ?? (priceObj as any).value ?? (priceObj as any).price) ?? null;
+      currency = asString((priceObj as any).currency) || currency;
+    }
+  }
+  if (price == null) price = asNumber((raw as any).price) ?? null;
+  if (price == null || !Number.isFinite(price)) return [];
+
+  const originalPrice = asNumber((raw as any).original_price ?? (raw as any).originalPrice);
+  const seller = asString((raw as any).seller) || asString((raw as any).brand) || (language === 'CN' ? '官方渠道' : 'Official');
+  return [
+    {
+      offer_id: `offer_anchor_${asString((raw as any).sku_id ?? (raw as any).product_id ?? (raw as any).name) || Math.random().toString(16).slice(2)}`.slice(0, 40),
+      seller,
+      price,
+      currency: currency || 'USD',
+      ...(originalPrice != null && originalPrice > price ? { original_price: originalPrice } : {}),
+      shipping_days: 0,
+      returns_policy: '',
+      reliability_score: 0,
+      badges: [],
+      in_stock: true,
+      purchase_route: 'internal_checkout',
+    },
+  ];
 }
 
 function toUiOffer(raw: Record<string, unknown>): Offer {
@@ -2585,12 +2647,13 @@ function BffCardView({
       {cardType === 'product_parse' ? (() => {
         const productRaw = asObject((payload as any).product);
         const product = productRaw ? toUiProduct(productRaw, language) : null;
+        const productOffers = productRaw ? toAnchorOffers(productRaw, language) : [];
         const confidence = asNumber((payload as any).confidence);
 
         return (
           <div className="space-y-3">
             {product ? (
-              <AuroraAnchorCard product={product} offers={[]} language={language} />
+              <AuroraAnchorCard product={product} offers={productOffers} language={language} hidePriceWhenUnknown />
             ) : (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
                 {language === 'CN' ? '未能解析出产品实体（上游缺失）。' : 'Failed to parse a product entity (upstream missing).'}
@@ -2619,6 +2682,7 @@ function BffCardView({
         const heroWhy = asString(heroRaw?.why);
         const anchorRaw = asObject((assessment as any)?.anchor_product || (assessment as any)?.anchorProduct);
         const product = anchorRaw ? toUiProduct(anchorRaw, language) : null;
+        const anchorOffers = anchorRaw ? toAnchorOffers(anchorRaw, language) : [];
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
         const competitorsObj = asObject((payload as any).competitors) || null;
         const competitorCandidates = asArray((competitorsObj as any)?.candidates)
@@ -2687,7 +2751,7 @@ function BffCardView({
 
         return (
           <div className="space-y-3">
-            {product ? <AuroraAnchorCard product={product} offers={[]} language={language} /> : null}
+            {product ? <AuroraAnchorCard product={product} offers={anchorOffers} language={language} hidePriceWhenUnknown /> : null}
 
             {verdict ? (
               <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}>
