@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { Card, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
-import { bffJson, makeDefaultHeaders, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
+import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
+import { bffJson, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { ChatRichText } from '@/components/chat/ChatRichText';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
@@ -512,6 +512,26 @@ const asString = (v: unknown) => (typeof v === 'string' ? v : v == null ? null :
 const asNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+};
+
+const isRecoBlockType = (v: unknown): v is RecoBlockType =>
+  v === 'competitors' || v === 'dupes' || v === 'related_products';
+
+const normalizeRecoLabel = (v: unknown): RecoEmployeeFeedbackType | null => {
+  const token = String(v || '').trim().toLowerCase();
+  if (token === 'relevant' || token === 'not_relevant' || token === 'wrong_block') return token;
+  return null;
+};
+
+const formatRecoLabel = (label: RecoEmployeeFeedbackType, language: UiLanguage) => {
+  if (language === 'CN') {
+    if (label === 'relevant') return '相关';
+    if (label === 'not_relevant') return '不相关';
+    return '分块错了';
+  }
+  if (label === 'relevant') return 'Relevant';
+  if (label === 'not_relevant') return 'Not relevant';
+  return 'Wrong block';
 };
 
 const isInternalKbCitationId = (raw: string): boolean => {
@@ -2242,6 +2262,7 @@ function BffCardView({
   card,
   language,
   debug,
+  requestHeaders,
   session,
   onAction,
   resolveOffers,
@@ -2256,6 +2277,7 @@ function BffCardView({
   card: Card;
   language: UiLanguage;
   debug: boolean;
+  requestHeaders: BffHeaders;
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
@@ -2283,6 +2305,79 @@ function BffCardView({
 
   const payloadObj = asObject(card.payload);
   const payload = payloadObj ?? (card.payload as any);
+  const [feedbackBusyByKey, setFeedbackBusyByKey] = useState<Record<string, boolean>>({});
+  const [feedbackSavedByKey, setFeedbackSavedByKey] = useState<Record<string, RecoEmployeeFeedbackType>>({});
+  const [feedbackErrorByKey, setFeedbackErrorByKey] = useState<Record<string, string>>({});
+
+  const submitRecoFeedback = useCallback(
+    async ({
+      candidate,
+      block,
+      rankPosition,
+      feedbackType,
+      wrongBlockTarget,
+      anchorProductId,
+      pipelineVersion,
+      models,
+    }: {
+      candidate: Record<string, unknown>;
+      block: RecoBlockType;
+      rankPosition: number;
+      feedbackType: RecoEmployeeFeedbackType;
+      wrongBlockTarget?: RecoBlockType;
+      anchorProductId: string;
+      pipelineVersion?: string;
+      models?: string | Record<string, unknown>;
+    }) => {
+      const anchorId = String(anchorProductId || '').trim();
+      if (!anchorId) return;
+      const candidateId = String((candidate as any)?.product_id || (candidate as any)?.sku_id || '').trim();
+      const candidateName = String((candidate as any)?.name || (candidate as any)?.display_name || (candidate as any)?.displayName || '').trim();
+      if (!candidateId && !candidateName) return;
+      const key = `${block}::${candidateId || candidateName}`.toLowerCase();
+      setFeedbackBusyByKey((prev) => ({ ...prev, [key]: true }));
+      setFeedbackErrorByKey((prev) => ({ ...prev, [key]: '' }));
+
+      const llmSuggestion = asObject((candidate as any)?.llm_suggestion || (candidate as any)?.llmSuggestion) || null;
+      const suggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
+      const suggestionId = asString(llmSuggestion?.id) || '';
+      const suggestionConfidence = asNumber(llmSuggestion?.confidence);
+
+      try {
+        await sendRecoEmployeeFeedback(requestHeaders, {
+          anchor_product_id: anchorId,
+          block,
+          ...(candidateId ? { candidate_product_id: candidateId } : {}),
+          ...(candidateName ? { candidate_name: candidateName } : {}),
+          feedback_type: feedbackType,
+          ...(feedbackType === 'wrong_block' && wrongBlockTarget ? { wrong_block_target: wrongBlockTarget } : {}),
+          rank_position: Math.max(1, rankPosition),
+          ...(pipelineVersion ? { pipeline_version: pipelineVersion } : {}),
+          ...(models ? { models } : {}),
+          ...(suggestionId ? { suggestion_id: suggestionId } : {}),
+          ...(suggestedLabel ? { llm_suggested_label: suggestedLabel } : {}),
+          ...(typeof suggestionConfidence === 'number' ? { llm_confidence: suggestionConfidence } : {}),
+          request_id: requestHeaders.trace_id,
+          session_id: requestHeaders.aurora_uid || requestHeaders.brief_id,
+          timestamp: Date.now(),
+        });
+        setFeedbackSavedByKey((prev) => ({ ...prev, [key]: feedbackType }));
+        toast({
+          title: language === 'CN' ? '反馈已记录' : 'Feedback saved',
+          description:
+            language === 'CN'
+              ? `已标记为：${formatRecoLabel(feedbackType, language)}`
+              : `Marked as ${formatRecoLabel(feedbackType, language)}`,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setFeedbackErrorByKey((prev) => ({ ...prev, [key]: msg }));
+      } finally {
+        setFeedbackBusyByKey((prev) => ({ ...prev, [key]: false }));
+      }
+    },
+    [language, requestHeaders],
+  );
 
   const structuredCitations = cardType === 'aurora_structured' ? extractExternalVerificationCitations(payload) : [];
 
@@ -2689,6 +2784,20 @@ function BffCardView({
           .map((v) => asObject(v))
           .filter(Boolean) as Array<Record<string, unknown>>;
         const originalForCompare = anchorRaw || asObject((payload as any).product) || null;
+        const provenance = asObject((payload as any).provenance) || null;
+        const dogfoodFeatures = asObject((provenance as any)?.dogfood_features_effective || (provenance as any)?.dogfoodFeaturesEffective) || null;
+        const showEmployeeFeedbackControls = dogfoodFeatures?.show_employee_feedback_controls === true;
+        const pipelineVersion = asString((provenance as any)?.pipeline) || 'reco_blocks_dag.v1';
+        const feedbackModels = asString((provenance as any)?.source) || 'aurora_bff';
+        const anchorProductIdForFeedback = (() => {
+          const pid = asString((anchorRaw as any)?.product_id) || asString((anchorRaw as any)?.productId);
+          if (pid && pid.trim()) return pid.trim();
+          const sku = asString((anchorRaw as any)?.sku_id) || asString((anchorRaw as any)?.skuId);
+          if (sku && sku.trim()) return sku.trim();
+          const name = asString((anchorRaw as any)?.name);
+          if (name && name.trim()) return name.trim();
+          return '';
+        })();
 
         const verdictStyle = (() => {
           const v = String(verdict || '').toLowerCase();
@@ -2815,9 +2924,28 @@ function BffCardView({
                       asString((candidate as any).displayName) ||
                       (language === 'CN' ? '未知产品' : 'Unknown product');
                     const cSimilarity = asNumber((candidate as any).similarity_score ?? (candidate as any).similarityScore);
-                    const cWhy = uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate).slice(0, 2);
+                    const cWhyObj = asObject((candidate as any).why_candidate || (candidate as any).whyCandidate) || null;
+                    const cWhy = cWhyObj
+                      ? uniqueStrings([
+                          asString((cWhyObj as any).summary),
+                          ...asArray((cWhyObj as any).reasons_user_visible || (cWhyObj as any).reasonsUserVisible).map((x) => asString(x)),
+                        ]).slice(0, 2)
+                      : uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate).slice(0, 2);
                     const cHighlights = uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights).slice(0, 2);
                     const cUrl = cHighlights.find((x) => isLikelyUrl(x)) || asString((candidate as any).url) || '';
+                    const llmSuggestion = asObject((candidate as any).llm_suggestion || (candidate as any).llmSuggestion) || null;
+                    const llmSuggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
+                    const llmWrongBlockTarget = isRecoBlockType(llmSuggestion?.wrong_block_target)
+                      ? llmSuggestion?.wrong_block_target
+                      : undefined;
+                    const llmRationale = asString(llmSuggestion?.rationale_user_visible);
+                    const llmFlags = uniqueStrings(llmSuggestion?.flags).slice(0, 4);
+                    const llmConfidence = asNumber(llmSuggestion?.confidence);
+                    const candidateId = asString((candidate as any).product_id) || asString((candidate as any).sku_id) || cName;
+                    const feedbackKey = `competitors::${candidateId}`.toLowerCase();
+                    const feedbackBusy = feedbackBusyByKey[feedbackKey] === true;
+                    const feedbackSaved = feedbackSavedByKey[feedbackKey] || null;
+                    const feedbackError = asString(feedbackErrorByKey[feedbackKey]);
 
                     return (
                       <div key={`${cBrand}_${cName}_${idx}`} className="rounded-xl border border-border/50 bg-muted/30 p-3">
@@ -2847,6 +2975,101 @@ function BffCardView({
                                 <li key={x}>{x}</li>
                               ))}
                           </ul>
+                        ) : null}
+
+                        {(showEmployeeFeedbackControls && anchorProductIdForFeedback) ? (
+                          <div className="mt-2 space-y-2 rounded-xl border border-border/60 bg-background/70 p-2">
+                            {llmSuggestedLabel ? (
+                              <div className="space-y-1 text-[11px] text-muted-foreground">
+                                <div className="font-medium text-foreground">
+                                  {language === 'CN' ? 'LLM 预标注：' : 'LLM prelabel: '}
+                                  {formatRecoLabel(llmSuggestedLabel, language)}
+                                  {typeof llmConfidence === 'number' ? ` (${Math.round(llmConfidence * 100)}%)` : ''}
+                                </div>
+                                {llmRationale ? <div>{llmRationale}</div> : null}
+                                {llmFlags.length ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {llmFlags.map((flag) => (
+                                      <span key={flag} className="rounded-full border border-border/60 bg-muted/70 px-2 py-0.5 text-[10px]">
+                                        {flag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="chip-button"
+                                disabled={feedbackBusy}
+                                onClick={() => {
+                                  void submitRecoFeedback({
+                                    candidate,
+                                    block: 'competitors',
+                                    rankPosition: idx + 1,
+                                    feedbackType: 'relevant',
+                                    anchorProductId: anchorProductIdForFeedback,
+                                    pipelineVersion,
+                                    models: feedbackModels,
+                                  });
+                                }}
+                              >
+                                {language === 'CN' ? '✅ 相关' : '✅ Relevant'}
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-button"
+                                disabled={feedbackBusy}
+                                onClick={() => {
+                                  void submitRecoFeedback({
+                                    candidate,
+                                    block: 'competitors',
+                                    rankPosition: idx + 1,
+                                    feedbackType: 'not_relevant',
+                                    anchorProductId: anchorProductIdForFeedback,
+                                    pipelineVersion,
+                                    models: feedbackModels,
+                                  });
+                                }}
+                              >
+                                {language === 'CN' ? '❌ 不相关' : '❌ Not relevant'}
+                              </button>
+                              <button
+                                type="button"
+                                className="chip-button"
+                                disabled={feedbackBusy}
+                                onClick={() => {
+                                  void submitRecoFeedback({
+                                    candidate,
+                                    block: 'competitors',
+                                    rankPosition: idx + 1,
+                                    feedbackType: 'wrong_block',
+                                    wrongBlockTarget: llmWrongBlockTarget || 'dupes',
+                                    anchorProductId: anchorProductIdForFeedback,
+                                    pipelineVersion,
+                                    models: feedbackModels,
+                                  });
+                                }}
+                              >
+                                {language === 'CN' ? '⚠️ 分块错了' : '⚠️ Wrong block'}
+                              </button>
+                            </div>
+
+                            {feedbackSaved ? (
+                              <div className="text-[11px] text-emerald-700">
+                                {language === 'CN'
+                                  ? `已记录：${formatRecoLabel(feedbackSaved, language)}`
+                                  : `Saved: ${formatRecoLabel(feedbackSaved, language)}`}
+                              </div>
+                            ) : null}
+                            {feedbackError ? (
+                              <div className="text-[11px] text-rose-700">
+                                {language === 'CN' ? `提交失败：${feedbackError}` : `Submit failed: ${feedbackError}`}
+                              </div>
+                            ) : null}
+                          </div>
                         ) : null}
 
                         {(originalForCompare || (cUrl && onOpenPdp)) ? (
@@ -6223,6 +6446,7 @@ export default function BffChat() {
                           card={card}
                           language={language}
                           debug={debug}
+                          requestHeaders={headers}
                           session={sessionForCards}
                           onAction={onCardAction}
                           resolveOffers={resolveOffers}

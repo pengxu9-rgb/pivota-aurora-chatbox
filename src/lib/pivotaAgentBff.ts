@@ -139,3 +139,35 @@ export const bffJson = async <TResponse>(
 
   return body as TResponse;
 };
+
+export type RecoEmployeeFeedbackType = 'relevant' | 'not_relevant' | 'wrong_block';
+export type RecoBlockType = 'competitors' | 'dupes' | 'related_products';
+
+export type RecoEmployeeFeedbackRequest = {
+  anchor_product_id: string;
+  block: RecoBlockType;
+  candidate_product_id?: string;
+  candidate_name?: string;
+  feedback_type: RecoEmployeeFeedbackType;
+  wrong_block_target?: RecoBlockType;
+  reason_tags?: string[];
+  rank_position?: number;
+  pipeline_version?: string;
+  models?: string | Record<string, unknown>;
+  suggestion_id?: string;
+  llm_suggested_label?: RecoEmployeeFeedbackType;
+  llm_confidence?: number;
+  request_id?: string;
+  session_id?: string;
+  timestamp?: number;
+};
+
+export const sendRecoEmployeeFeedback = async (
+  headers: BffHeaders,
+  body: RecoEmployeeFeedbackRequest,
+): Promise<{ ok: boolean; event?: Record<string, unknown> }> => {
+  return bffJson('/v1/reco/employee-feedback', headers, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+};
