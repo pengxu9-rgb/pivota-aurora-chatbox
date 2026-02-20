@@ -7,6 +7,7 @@ import { ChatRichText } from '@/components/chat/ChatRichText';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
+import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompatibilityFooter';
 import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
 import { looksLikeProductPicksRawText, ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
@@ -23,6 +24,8 @@ import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
 import { humanizeKbNote } from '@/lib/auroraKbHumanize';
 import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
+import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
+import type { CompatibilityProductInput } from '@/lib/routineCompatibility/types';
 import {
   inferTextExplicitTransition,
   normalizeAgentState,
@@ -2992,6 +2995,33 @@ function BffCardView({
           ...expertNotes.filter((note) => /(evidence source|ingredient list|inci|entries|product page|parsed)/i.test(String(note || ''))),
         ]).slice(0, 3);
 
+        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine((bootstrapInfo?.profile as any)?.currentRoutine);
+        const compatibilityBaseProduct: CompatibilityProductInput = {
+          id:
+            asString((anchorRaw as any)?.product_id) ||
+            asString((anchorRaw as any)?.sku_id) ||
+            asString((anchorRaw as any)?.name) ||
+            asString((assessment as any)?.product_id) ||
+            'product_analysis_base',
+          name:
+            asString((anchorRaw as any)?.name) ||
+            asString((assessment as any)?.product_name) ||
+            asString((assessment as any)?.productName) ||
+            (language === 'CN' ? '当前产品' : 'Current product'),
+          brand: asString((anchorRaw as any)?.brand) || undefined,
+          ingredientTokens: uniqueStrings([
+            ...allDetectedIngredients,
+            ...evidenceKeyIngredients,
+            ...(heroName ? [heroName] : []),
+            ...cautionSignals.filter((line) => /\b(acid|aha|bha|pha|retino|benzoyl|ascorb|peptide|fragrance|parfum|去角质|维a|维A|香精)\b/i.test(String(line || ''))),
+            ...howToUseBullets.filter((line) => /\b(acid|aha|bha|pha|retino|benzoyl|ascorb|peptide|fragrance|parfum|去角质|维a|维A|香精)\b/i.test(String(line || ''))),
+          ]).slice(0, 24),
+          irritationSignal: uniqueStrings([...cautionSignals, ...rawReasons, ...howToUseBullets]).some((line) =>
+            /\b(sting|stinging|redness|irritat|burn|drying|sensitive|刺痛|泛红|刺激|干燥|敏感)\b/i.test(String(line || '')),
+          ),
+          source: 'base',
+        };
+
         return (
           <div className="space-y-3">
             {product ? <AuroraAnchorCard product={product} offers={anchorOffers} language={language} hidePriceWhenUnknown /> : null}
@@ -3476,6 +3506,14 @@ function BffCardView({
                 </div>
               </details>
             ) : null}
+
+            <RoutineCompatibilityFooter
+              language={language}
+              baseProduct={compatibilityBaseProduct}
+              routineProducts={routineCompatibilityProducts}
+              resolveProductsSearch={resolveProductsSearch}
+              analyticsCtx={analyticsCtx}
+            />
 
           </div>
         );

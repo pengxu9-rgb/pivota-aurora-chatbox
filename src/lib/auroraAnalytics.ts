@@ -236,3 +236,32 @@ export const emitAuroraPhotoModulesProductTap = (
     title?: string;
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_photo_modules_product_tap', ctx, props);
+
+export const emitOpenedCompatibility = (
+  ctx: AnalyticsContext,
+  props: {
+    source: 'check_with_my_products' | 'how_to_layer';
+    base_product_name?: string;
+    selected_count?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('opened_compatibility', ctx, props);
+
+export const emitRanCompatibilityCheck = (
+  ctx: AnalyticsContext,
+  props: {
+    base_product_name?: string;
+    selected_count: number;
+    sensitivity: 'Low' | 'Medium' | 'High';
+    timing: 'AM' | 'PM' | 'Both';
+    rating: 'good' | 'caution' | 'avoid_same_routine';
+  } & Record<string, unknown>,
+) => emitWithContext('ran_compatibility_check', ctx, props);
+
+export const emitViewedCompatibilityResult = (
+  ctx: AnalyticsContext,
+  props: {
+    rating: 'good' | 'caution' | 'avoid_same_routine';
+    selected_count: number;
+    base_product_name?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('viewed_compatibility_result', ctx, props);

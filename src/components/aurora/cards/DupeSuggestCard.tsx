@@ -152,7 +152,6 @@ export function DupeSuggestCard({
           <div className="space-y-2">
             {dupes.map((it, idx) => (
               <AlternativeRow
-                // eslint-disable-next-line react/no-array-index-key
                 key={`${asString((it as any)?.product?.sku_id || (it as any)?.product?.product_id || idx)}`}
                 item={it}
                 original={original}
@@ -179,7 +178,6 @@ export function DupeSuggestCard({
           <div className="space-y-2">
             {comparables.map((it, idx) => (
               <AlternativeRow
-                // eslint-disable-next-line react/no-array-index-key
                 key={`${asString((it as any)?.product?.sku_id || (it as any)?.product?.product_id || idx)}`}
                 item={it}
                 original={original}

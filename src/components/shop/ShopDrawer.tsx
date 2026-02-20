@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Drawer, DrawerContent } from '@/components/ui/drawer';
+import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/components/ui/drawer';
 import { X } from 'lucide-react';
 
 export function ShopDrawer({
@@ -112,6 +112,10 @@ export function ShopDrawer({
         className="mt-0 h-[100dvh] max-h-[100dvh] flex flex-col rounded-t-3xl border border-border/50 bg-card/95 backdrop-blur-xl"
         style={{ paddingBottom: bottomPad }}
       >
+        <DrawerTitle className="sr-only">{title || (language === 'CN' ? '购物' : 'Shopping')}</DrawerTitle>
+        <DrawerDescription className="sr-only">
+          {language === 'CN' ? '商品详情抽屉' : 'Product details drawer'}
+        </DrawerDescription>
         <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-2">
           <div className="text-sm font-semibold text-foreground">{title || (language === 'CN' ? '购物' : 'Shopping')}</div>
           <button
