@@ -127,7 +127,10 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
 
   const lowConfidence = Boolean(payload.low_confidence);
   const photosProvided = Boolean(payload.photos_provided);
-  const photoQc = Array.isArray(payload.photo_qc) ? payload.photo_qc.map((v) => String(v || '').trim()).filter(Boolean) : [];
+  const photoQc = useMemo(
+    () => (Array.isArray(payload.photo_qc) ? payload.photo_qc.map((v) => String(v || '').trim()).filter(Boolean) : []),
+    [payload.photo_qc],
+  );
 
   const takeaways = useMemo(() => {
     const fallback = [

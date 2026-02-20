@@ -155,11 +155,11 @@ export function CompatibilityInsightsCard({
     [minSeverity, normalized],
   );
 
-  const steps = heatmapModel?.axes?.rows?.items?.length
-    ? heatmapModel.axes.rows.items
-    : heatmapModel?.axes?.cols?.items?.length
-      ? heatmapModel.axes.cols.items
-      : [];
+  const steps = useMemo(() => {
+    if (heatmapModel?.axes?.rows?.items?.length) return heatmapModel.axes.rows.items;
+    if (heatmapModel?.axes?.cols?.items?.length) return heatmapModel.axes.cols.items;
+    return [];
+  }, [heatmapModel?.axes?.cols?.items, heatmapModel?.axes?.rows?.items]);
 
   const stepLabels = useMemo(() => {
     const pick = (v: unknown) => tI18n(v, locale);
@@ -221,7 +221,10 @@ export function CompatibilityInsightsCard({
   const schemaVersion = heatmapModel?.schema_version ?? null;
   const heatmapState = heatmapModel?.state ?? null;
 
-  const heatmapCells = Array.isArray(heatmapModel?.cells?.items) ? heatmapModel.cells.items : [];
+  const heatmapCells = useMemo(() => {
+    if (Array.isArray(heatmapModel?.cells?.items)) return heatmapModel.cells.items;
+    return [];
+  }, [heatmapModel?.cells?.items]);
   const cellMap = useMemo(() => {
     const map = new Map<string, (typeof heatmapCells)[number]>();
     for (const cell of heatmapCells) map.set(`${cell.row_index}|${cell.col_index}`, cell);

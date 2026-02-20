@@ -47,7 +47,7 @@ export function AuroraCartPreviewDrawer({
   }, []);
 
   const language = langPref === 'cn' ? 'CN' : 'EN';
-  const items = shop.cart?.items ?? [];
+  const items = useMemo(() => shop.cart?.items ?? [], [shop.cart?.items]);
   const itemCount = Math.max(0, Number(shop.cart?.item_count) || 0);
 
   const totals = useMemo(() => {

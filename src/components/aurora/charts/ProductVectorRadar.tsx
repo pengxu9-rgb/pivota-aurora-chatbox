@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 export type ProductVectorAxis = 'Hydration' | 'Anti-Aging' | 'Acne Control' | 'Brightening' | 'Value';
+const PRODUCT_VECTOR_AXES: ProductVectorAxis[] = ['Hydration', 'Anti-Aging', 'Acne Control', 'Brightening', 'Value'];
 
 export type ProductVector = Record<ProductVectorAxis, number>;
 
@@ -45,15 +46,13 @@ function clampPercent(value: number) {
 }
 
 function computeMatchScore(product: ProductVector, ideal: ProductVector) {
-  const axes: ProductVectorAxis[] = ['Hydration', 'Anti-Aging', 'Acne Control', 'Brightening', 'Value'];
-  const diffs = axes.map((k) => Math.abs(clampPercent(product[k]) - clampPercent(ideal[k])) / 100);
+  const diffs = PRODUCT_VECTOR_AXES.map((k) => Math.abs(clampPercent(product[k]) - clampPercent(ideal[k])) / 100);
   const mismatch = diffs.reduce((a, b) => a + b, 0) / diffs.length;
   return clampPercent((1 - mismatch) * 100);
 }
 
 function generateSummary(product: ProductVector, ideal: ProductVector) {
-  const axes: ProductVectorAxis[] = ['Hydration', 'Anti-Aging', 'Acne Control', 'Brightening', 'Value'];
-  const deltas = axes.map((k) => ({ axis: k, delta: clampPercent(product[k]) - clampPercent(ideal[k]), abs: Math.abs(clampPercent(product[k]) - clampPercent(ideal[k])) }));
+  const deltas = PRODUCT_VECTOR_AXES.map((k) => ({ axis: k, delta: clampPercent(product[k]) - clampPercent(ideal[k]), abs: Math.abs(clampPercent(product[k]) - clampPercent(ideal[k])) }));
 
   const best = [...deltas].sort((a, b) => a.abs - b.abs)[0];
   const worst = [...deltas].sort((a, b) => b.abs - a.abs)[0];
@@ -115,10 +114,8 @@ export function ProductVectorRadar({
   summary,
   matchScore,
 }: ProductVectorRadarProps) {
-  const axes: ProductVectorAxis[] = ['Hydration', 'Anti-Aging', 'Acne Control', 'Brightening', 'Value'];
-
   const data: ChartRow[] = useMemo(() => {
-    return axes.map((axisKey) => ({
+    return PRODUCT_VECTOR_AXES.map((axisKey) => ({
       axisKey,
       axisLabel: axisKey,
       product: clampPercent(productVector[axisKey]),

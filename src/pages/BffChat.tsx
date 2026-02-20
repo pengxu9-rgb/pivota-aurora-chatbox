@@ -9,7 +9,7 @@ import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
 import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompatibilityFooter';
 import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
-import { looksLikeProductPicksRawText, ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
+import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard, type AuroraLoadingIntent } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
@@ -24,6 +24,7 @@ import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
 import { humanizeKbNote } from '@/lib/auroraKbHumanize';
 import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
+import { looksLikeProductPicksRawText } from '@/lib/productPicks';
 import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
 import type { CompatibilityProductInput } from '@/lib/routineCompatibility/types';
 import {
@@ -1455,7 +1456,6 @@ export function RecommendationsCard({
                 allowExternalFallback = failure.allowExternalFallback;
               }
               if (debug) {
-                // eslint-disable-next-line no-console
                 console.info('[RecoViewDetails] strict resolve result', {
                   query: resolveQuery,
                   resolved: Boolean(strictTarget?.product_id),
@@ -3849,7 +3849,6 @@ export default function BffChat() {
       const isBrowseRoute = String(parsed.searchParams.get('open') || '').trim().toLowerCase() === 'browse';
       if (!isPdpPath || isBrowseRoute) {
         if (debug) {
-          // eslint-disable-next-line no-console
           console.warn('[PDP Guard] blocked non-PDP route', { url: rawUrl });
         }
         return;
@@ -3920,7 +3919,7 @@ export default function BffChat() {
     }
 
     if (nextItems.length) setItems((prev) => [...prev, ...nextItems]);
-  }, []);
+  }, [debug]);
 
   const tryApplyEnvelopeFromBffError = useCallback(
     (err: unknown) => {
@@ -4396,7 +4395,7 @@ export default function BffChat() {
         setPhotoUploading(false);
       }
     },
-    [applyEnvelope, headers, language],
+    [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
   );
 
   const onPhotoAction = useCallback(
@@ -4474,7 +4473,6 @@ export default function BffChat() {
             content: language === 'CN' ? `上传照片（${slotLabel}）` : `Upload photo (${slotLabel})`,
           },
         ]);
-        // eslint-disable-next-line no-await-in-loop
         const uploaded = await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
         if (uploaded && isPhotoUsableForDiagnosis(uploaded.qc_status) && uploaded.photo_id) uploadedPassedRefs.push(uploaded);
       }
@@ -4612,6 +4610,7 @@ export default function BffChat() {
       language,
       profileSnapshot,
       sessionState,
+      tryApplyEnvelopeFromBffError,
     ]
   );
 
@@ -4670,7 +4669,7 @@ export default function BffChat() {
         setIsLoading(false);
       }
     },
-    [applyEnvelope, headers, language, parseMaybeUrl],
+    [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
   );
 
   const runDupeSearch = useCallback(
@@ -4709,7 +4708,7 @@ export default function BffChat() {
         setLoadingIntent('default');
       }
     },
-    [applyEnvelope, headers, language, parseMaybeUrl],
+    [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
   );
 
   const onCardAction = useCallback(
@@ -5574,6 +5573,7 @@ export default function BffChat() {
       quickProfileDraft,
       runLowConfidenceSkinAnalysis,
       sendChat,
+      setAgentStateSafe,
     ]
   );
 
