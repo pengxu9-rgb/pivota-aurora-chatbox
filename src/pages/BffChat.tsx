@@ -730,6 +730,12 @@ const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
 const PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES = new Set(['DB_ERROR', 'UPSTREAM_TIMEOUT']);
+const RECO_PDP_NO_CANDIDATES_RETRY_ENABLED = (() => {
+  const raw = String(import.meta.env.VITE_AURORA_RECO_PDP_NO_CANDIDATES_RETRY ?? 'true')
+    .trim()
+    .toLowerCase();
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+})();
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
   const isUnknownToken = (value: unknown) => /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(String(value ?? '').trim());
@@ -1367,9 +1373,56 @@ export function RecommendationsCard({
               .filter(Boolean)
               .join(' ')
               .trim();
+          const resolveQuery = String(card.resolve_query || '').trim();
           const hintedExternalUrl = normalizeOutboundFallbackUrl(String(card.pdp_open?.external?.url || '').trim());
+          const hasStrongNoCandidatesHint = (() => {
+            const normalizeHintToken = (value: unknown) =>
+              String(value || '')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase();
+            const isMeaningfulHintToken = (value: unknown) => {
+              const token = normalizeHintToken(value);
+              if (!token) return false;
+              if (token === 'unknown' || token === 'n/a' || token === 'na' || token === 'null' || token === 'undefined') return false;
+              const compact = token.replace(/[^a-z0-9\u4e00-\u9fff]/gi, '');
+              return compact.length >= 3;
+            };
+            const isStrongHumanQuery = (value: unknown) => {
+              const query = String(value || '')
+                .trim()
+                .replace(/\s+/g, ' ');
+              if (!query) return false;
+              if (looksLikeOpaqueId(query)) return false;
+              const words = query.split(/\s+/).filter(Boolean);
+              if (words.filter((w) => isMeaningfulHintToken(w)).length >= 2 && query.length >= 8) return true;
+              if (/[\u4e00-\u9fff]/.test(query) && query.length >= 4) return true;
+              return false;
+            };
+            const hintedProductId =
+              String(card.hints?.product_ref?.product_id || '').trim() ||
+              String(card.hints?.product_id || '').trim() ||
+              '';
+            const hasResolvableProductIdHint = Boolean(hintedProductId && !looksLikeOpaqueId(hintedProductId));
+            const hasBrandTitleHint = isMeaningfulHintToken(card.hints?.brand) && isMeaningfulHintToken(card.hints?.title);
+            const hasAliasHint = (card.hints?.aliases || []).some((alias) => isStrongHumanQuery(alias));
+            return (
+              hasResolvableProductIdHint ||
+              hasBrandTitleHint ||
+              hasAliasHint ||
+              isStrongHumanQuery(hintedExternalQuery) ||
+              isStrongHumanQuery(resolveQuery)
+            );
+          })();
+          const shouldRetryNoCandidatesBeforeExternal =
+            RECO_PDP_NO_CANDIDATES_RETRY_ENABLED &&
+            preferredPdpPath === 'external' &&
+            hintedReasonCode === 'NO_CANDIDATES' &&
+            hasStrongNoCandidatesHint;
           const shouldDirectExternalFromHint =
-            preferredPdpPath === 'external' && PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode);
+            preferredPdpPath === 'external' &&
+            PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
+            !shouldRetryNoCandidatesBeforeExternal;
 
           const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
           if (card.subject_product_group_id && !groupTarget) {
@@ -1436,7 +1489,6 @@ export function RecommendationsCard({
           let resolvedTarget: { product_id: string; merchant_id?: string | null } | null = null;
           let allowExternalFallback =
             preferredPdpPath === 'external' && !PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES.has(hintedReasonCode);
-          const resolveQuery = String(card.resolve_query || '').trim();
 
           if (!resolveProductRef) {
             failReason = failReason || 'resolve_unavailable';

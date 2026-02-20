@@ -178,7 +178,7 @@ describe('RecommendationsCard View details routing', () => {
     openSpy.mockRestore();
   });
 
-  it('3c) pdp_open.path=external + no_candidates opens external directly', async () => {
+  it('3c) pdp_open.path=external + no_candidates with weak hint opens external directly', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const onOpenPdp = vi.fn();
     const resolveProductRef = vi.fn();
@@ -186,12 +186,12 @@ describe('RecommendationsCard View details routing', () => {
     render(
       <RecommendationsCard
         card={buildRecoCard({
-          brand: 'IPSA',
-          name: 'Time Reset Aqua',
+          brand: '',
+          name: 'Serum',
           pdpOpen: {
             path: 'external',
             resolve_reason_code: 'NO_CANDIDATES',
-            external: { query: 'IPSA Time Reset Aqua' },
+            external: { query: 'serum' },
           },
         })}
         language="EN"
@@ -209,7 +209,7 @@ describe('RecommendationsCard View details routing', () => {
     expect(resolveProductRef).not.toHaveBeenCalled();
     expect(onOpenPdp).not.toHaveBeenCalled();
     expect(openSpy).toHaveBeenCalledWith(
-      buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN'),
+      buildGoogleSearchFallbackUrl('serum', 'EN'),
       '_blank',
       'noopener,noreferrer',
     );
@@ -250,6 +250,42 @@ describe('RecommendationsCard View details routing', () => {
       expect(openSpy).toHaveBeenCalledTimes(1);
     });
     expect(onOpenPdp).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it('3e) pdp_open.path=external + no_candidates with strong hint retries resolve first', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn().mockResolvedValue({
+      resolved: true,
+      canonical_product_ref: { product_id: '9886500127048', merchant_id: 'merch_efbc46b4619cfbdf' },
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({
+          brand: 'IPSA',
+          name: 'Time Reset Aqua',
+          pdpOpen: {
+            path: 'external',
+            resolve_reason_code: 'NO_CANDIDATES',
+            external: { query: 'IPSA Time Reset Aqua' },
+          },
+        })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(resolveProductRef).toHaveBeenCalledTimes(1);
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(openSpy).not.toHaveBeenCalled();
     openSpy.mockRestore();
   });
 
