@@ -728,6 +728,8 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
+const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
+const PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES = new Set(['DB_ERROR', 'UPSTREAM_TIMEOUT']);
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
   const isUnknownToken = (value: unknown) => /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(String(value ?? '').trim());
@@ -1198,6 +1200,7 @@ export function RecommendationsCard({
     hints?: ProductResolverHints;
     pdp_open?: {
       path?: string | null;
+      resolve_reason_code?: string | null;
       external?: { query?: string | null; url?: string | null } | null;
     } | null;
   };
@@ -1355,18 +1358,50 @@ export function RecommendationsCard({
           setDetailsFlow({ key: anchorKey, state: 'resolving' });
 
           const preferredPdpPath = String(card.pdp_open?.path || '').trim().toLowerCase();
-          if (preferredPdpPath === 'external') {
+          const hintedReasonCode = String(card.pdp_open?.resolve_reason_code || '').trim().toUpperCase();
+          const hintedExternalQuery =
+            String(card.pdp_open?.external?.query || '').trim() ||
+            String(card.resolve_query || '').trim() ||
+            [safeBrand, safeName]
+              .map((v) => String(v || '').trim())
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+          const hintedExternalUrl = normalizeOutboundFallbackUrl(String(card.pdp_open?.external?.url || '').trim());
+          const shouldDirectExternalFromHint =
+            preferredPdpPath === 'external' && PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode);
+
+          const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
+          if (card.subject_product_group_id && !groupTarget) {
+            failReason = failReason || 'invalid_product_group_id';
+          }
+          if (groupTarget?.product_id) {
+            openInternalPdp(groupTarget, 'group');
+            setDetailsFlow({ key: anchorKey, state: 'done' });
+            return;
+          }
+
+          const canonicalRef = card.canonical_product_ref;
+          const canonicalProductId = String(canonicalRef?.product_id || '').trim();
+          const canonicalMerchantId = String(canonicalRef?.merchant_id || '').trim() || null;
+          if (canonicalRef && (!canonicalProductId || looksLikeOpaqueId(canonicalProductId))) {
+            failReason = failReason || 'invalid_canonical_ref';
+          }
+          if (canonicalProductId && !looksLikeOpaqueId(canonicalProductId)) {
+            openInternalPdp(
+              {
+                product_id: canonicalProductId,
+                ...(canonicalMerchantId ? { merchant_id: canonicalMerchantId } : {}),
+              },
+              'ref',
+            );
+            setDetailsFlow({ key: anchorKey, state: 'done' });
+            return;
+          }
+
+          if (shouldDirectExternalFromHint) {
             openPath = 'external';
             setDetailsFlow({ key: anchorKey, state: 'opening_external' });
-            const hintedExternalQuery =
-              String(card.pdp_open?.external?.query || '').trim() ||
-              String(card.resolve_query || '').trim() ||
-              [safeBrand, safeName]
-                .map((v) => String(v || '').trim())
-                .filter(Boolean)
-                .join(' ')
-                .trim();
-            const hintedExternalUrl = normalizeOutboundFallbackUrl(String(card.pdp_open?.external?.url || '').trim());
             const external =
               hintedExternalUrl
                 ? {
@@ -1398,36 +1433,9 @@ export function RecommendationsCard({
             return;
           }
 
-          const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
-          if (card.subject_product_group_id && !groupTarget) {
-            failReason = failReason || 'invalid_product_group_id';
-          }
-          if (groupTarget?.product_id) {
-            openInternalPdp(groupTarget, 'group');
-            setDetailsFlow({ key: anchorKey, state: 'done' });
-            return;
-          }
-
-          const canonicalRef = card.canonical_product_ref;
-          const canonicalProductId = String(canonicalRef?.product_id || '').trim();
-          const canonicalMerchantId = String(canonicalRef?.merchant_id || '').trim() || null;
-          if (canonicalRef && (!canonicalProductId || looksLikeOpaqueId(canonicalProductId))) {
-            failReason = failReason || 'invalid_canonical_ref';
-          }
-          if (canonicalProductId && !looksLikeOpaqueId(canonicalProductId)) {
-            openInternalPdp(
-              {
-                product_id: canonicalProductId,
-                ...(canonicalMerchantId ? { merchant_id: canonicalMerchantId } : {}),
-              },
-              'ref',
-            );
-            setDetailsFlow({ key: anchorKey, state: 'done' });
-            return;
-          }
-
           let resolvedTarget: { product_id: string; merchant_id?: string | null } | null = null;
-          let allowExternalFallback = false;
+          let allowExternalFallback =
+            preferredPdpPath === 'external' && !PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES.has(hintedReasonCode);
           const resolveQuery = String(card.resolve_query || '').trim();
 
           if (!resolveProductRef) {
@@ -1453,7 +1461,7 @@ export function RecommendationsCard({
               } else {
                 const failure = classifyResolveFailure(resp);
                 failReason = failReason || failure.reason;
-                allowExternalFallback = failure.allowExternalFallback;
+                if (failure.allowExternalFallback) allowExternalFallback = true;
               }
               if (debug) {
                 console.info('[RecoViewDetails] strict resolve result', {
@@ -1502,13 +1510,20 @@ export function RecommendationsCard({
           openPath = 'external';
           setDetailsFlow({ key: anchorKey, state: 'opening_external' });
           const externalQuery =
+            hintedExternalQuery ||
             resolveQuery ||
             [safeBrand, safeName]
               .map((v) => String(v || '').trim())
               .filter(Boolean)
               .join(' ')
               .trim();
-          const external = openExternalGoogle(externalQuery);
+          const external =
+            hintedExternalUrl
+              ? {
+                  opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
+                  url: hintedExternalUrl,
+                }
+              : openExternalGoogle(externalQuery);
           if (analyticsCtx) {
             emitPdpOpenPath(analyticsCtx, {
               card_position: position,
@@ -1678,9 +1693,16 @@ export function RecommendationsCard({
       : null;
     const pdpOpen = asObject((item as any).pdp_open) || asObject((item as any).pdpOpen) || null;
     const pdpOpenExternal = asObject((pdpOpen as any)?.external) || null;
+    const itemResolveReasonCode =
+      asString((item as any)?.metadata?.resolve_reason_code) ||
+      asString((item as any)?.metadata?.resolveReasonCode) ||
+      asString((item as any)?.metadata?.pdp_open_fail_reason) ||
+      asString((item as any)?.metadata?.resolve_fail_reason) ||
+      null;
     const pdpOpenHint = pdpOpen
       ? {
           path: asString((pdpOpen as any)?.path) || null,
+          resolve_reason_code: asString((pdpOpen as any)?.resolve_reason_code) || itemResolveReasonCode || null,
           external: pdpOpenExternal
             ? {
                 query: asString((pdpOpenExternal as any)?.query) || null,
@@ -1924,9 +1946,16 @@ export function RecommendationsCard({
                   : null;
                 const altPdpOpen = asObject((alt as any)?.pdp_open) || asObject((alt as any)?.pdpOpen) || null;
                 const altPdpOpenExternal = asObject((altPdpOpen as any)?.external) || null;
+                const altResolveReasonCode =
+                  asString((alt as any)?.metadata?.resolve_reason_code) ||
+                  asString((alt as any)?.metadata?.resolveReasonCode) ||
+                  asString((alt as any)?.metadata?.pdp_open_fail_reason) ||
+                  asString((alt as any)?.metadata?.resolve_fail_reason) ||
+                  null;
                 const altPdpOpenHint = altPdpOpen
                   ? {
                       path: asString((altPdpOpen as any)?.path) || null,
+                      resolve_reason_code: asString((altPdpOpen as any)?.resolve_reason_code) || altResolveReasonCode || null,
                       external: altPdpOpenExternal
                         ? {
                             query: asString((altPdpOpenExternal as any)?.query) || null,
