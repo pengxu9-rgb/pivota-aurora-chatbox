@@ -635,6 +635,32 @@ const uniqueStrings = (items: unknown): string[] => {
   return out;
 };
 
+const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
+  /^reco_dag_/i,
+  /^url_/i,
+  /^upstream_/i,
+  /^internal_/i,
+  /^skin_fit\.profile\./i,
+  /^raw\./i,
+];
+
+const isInternalMissingInfoCode = (code: string): boolean => {
+  const token = String(code || '').trim();
+  if (!token) return false;
+  return INTERNAL_MISSING_INFO_PATTERNS.some((pattern) => pattern.test(token));
+};
+
+const normalizeSocialChannelName = (raw: unknown): string | null => {
+  const token = String(raw || '').trim().toLowerCase();
+  if (!token) return null;
+  if (token === 'reddit' || token === 'red') return 'Reddit';
+  if (token === 'xiaohongshu' || token === 'xhs') return 'Xiaohongshu';
+  if (token === 'tiktok') return 'TikTok';
+  if (token === 'youtube' || token === 'yt') return 'YouTube';
+  if (token === 'instagram' || token === 'ig') return 'Instagram';
+  return null;
+};
+
 const asSkinType = (v: unknown): SkinType | null => {
   const s = asString(v);
   if (!s) return null;
@@ -1089,7 +1115,8 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     budget_unknown: { CN: '预算信息缺失', EN: 'Budget missing' },
     routine_missing: { CN: '方案缺失', EN: 'Routine missing' },
     over_budget: { CN: '可能超出预算', EN: 'May be over budget' },
-    price_unknown: { CN: '价格未知', EN: 'Price unknown' },
+    price_unknown: { CN: '价格暂不可得', EN: 'Price unavailable' },
+    price_temporarily_unavailable: { CN: '价格暂不可得', EN: 'Price unavailable' },
     availability_unknown: { CN: '可购买渠道/地区未知', EN: 'Availability unknown' },
     recent_logs_missing: { CN: '缺少最近 7 天肤况记录', EN: 'No recent 7-day skin logs' },
     itinerary_unknown: { CN: '缺少行程/环境信息', EN: 'No itinerary / upcoming plan context' },
@@ -1097,8 +1124,20 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     upstream_missing_or_unstructured: { CN: '上游返回缺失/不规范', EN: 'Upstream missing/unstructured' },
     upstream_missing_or_empty: { CN: '上游返回为空', EN: 'Upstream empty' },
     alternatives_partial: { CN: '部分步骤缺少平替/相似选项', EN: 'Alternatives missing for some steps' },
+    social_data_limited: { CN: '跨平台讨论较少', EN: 'Cross-platform discussion is limited' },
+    competitors_low_coverage: { CN: '同类对比样本较少', EN: 'Limited comparable products' },
+    concentration_unknown: { CN: '成分浓度未披露', EN: 'Concentration is not disclosed' },
+    analysis_in_progress: { CN: '分析进行中，结果会继续补全', EN: 'Analysis is in progress and will continue to improve' },
+    upstream_analysis_missing: { CN: '分析进行中，结果会继续补全', EN: 'Analysis is in progress and will continue to improve' },
+    url_ingredient_analysis_used: { CN: '已从商品页补抓成分信息', EN: 'Ingredient details were retrieved from the product page' },
+    url_realtime_product_intel_used: { CN: '已启用实时分析补全结果', EN: 'Real-time analysis was used to fill missing data' },
+    'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
+    'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
+    'skin_fit.profile.barrierStatus': { CN: '未提供屏障状态', EN: 'Barrier status was not provided' },
   };
-  return map[c]?.[language] ?? c;
+  if (map[c]?.[language]) return map[c][language];
+  if (isInternalMissingInfoCode(c)) return '';
+  return c;
 }
 
 export function RecommendationsCard({
@@ -2534,6 +2573,14 @@ function BffCardView({
   const socialEvidence = asObject(evidence?.social_signals || (evidence as any)?.socialSignals) || null;
   const socialBlock = asObject((payload as any)?.social_signals || (payload as any)?.socialSignals) || null;
   const socialSummary = asObject(socialBlock?.overall_summary || (socialBlock as any)?.overallSummary) || null;
+  const provenanceTop = asObject((payload as any)?.provenance) || null;
+  const socialChannelsUsed = uniqueStrings([
+    ...asArray((provenanceTop as any)?.social_channels_used),
+    ...asArray((socialBlock as any)?.channels_used || (socialBlock as any)?.channelsUsed),
+    ...asArray((socialSummary as any)?.channels_used || (socialSummary as any)?.channelsUsed),
+  ])
+    .map((channel) => normalizeSocialChannelName(channel))
+    .filter(Boolean) as string[];
   const expertNotes = uniqueStrings(evidence?.expert_notes || (evidence as any)?.expertNotes);
 
   const evidenceKeyIngredients = uniqueStrings(science?.key_ingredients || (science as any)?.keyIngredients).slice(0, 10);
@@ -2559,7 +2606,24 @@ function BffCardView({
     const pos = socialPositive.length;
     const neg = socialNegative.length;
     const risk = socialRisks.length;
-    if (!pos && !neg && !risk) return null;
+    if (!pos && !neg && !risk) {
+      if (!socialChannelsUsed.length && !socialBlock && !socialEvidence) return null;
+      return {
+        headline:
+          language === 'CN'
+            ? '跨平台讨论较少，当前以有限信号为参考。'
+            : 'Cross-platform discussion is limited right now.',
+        details:
+          socialChannelsUsed.length > 0
+            ? language === 'CN'
+              ? `已覆盖渠道：${socialChannelsUsed.join('、')}`
+              : `Channels covered: ${socialChannelsUsed.join(', ')}`
+            : language === 'CN'
+              ? '暂未拿到足够的跨平台主题信号。'
+              : 'Not enough cross-platform topic signals yet.',
+        channels: socialChannelsUsed,
+      };
+    }
 
     const tone: 'positive' | 'mixed' | 'caution' =
       pos >= neg + 2 ? 'positive' : neg >= pos + 2 || risk >= 2 ? 'caution' : 'mixed';
@@ -2598,6 +2662,7 @@ function BffCardView({
     return {
       headline,
       details: detailParts.join(language === 'CN' ? '。' : '. '),
+      channels: socialChannelsUsed,
     };
   })();
 
@@ -2904,6 +2969,15 @@ function BffCardView({
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '社媒总体评价' : 'Overall social feedback'}</div>
                 <div className="mt-1 text-sm font-semibold text-foreground">{socialOverall.headline}</div>
                 {socialOverall.details ? <div className="mt-2 text-xs text-muted-foreground">{socialOverall.details}</div> : null}
+                {Array.isArray((socialOverall as any).channels) && (socialOverall as any).channels.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {((socialOverall as any).channels as string[]).slice(0, 5).map((channel) => (
+                      <span key={channel} className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                        {channel}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mt-2 text-[11px] text-muted-foreground">
                   {language === 'CN'
                     ? '说明：这是聚合口碑信号，用于辅助判断，不等同于医疗建议。'

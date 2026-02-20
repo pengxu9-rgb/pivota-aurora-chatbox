@@ -97,7 +97,7 @@ function normalizePercentFrom01(value: unknown): number | null {
 }
 
 function formatPrice(price: number | undefined, currency: string | undefined) {
-  if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price unknown';
+  if (typeof price !== 'number' || !Number.isFinite(price)) return 'Price unavailable';
   const curr = currency?.trim() || 'USD';
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency: curr, maximumFractionDigits: 0 }).format(price);

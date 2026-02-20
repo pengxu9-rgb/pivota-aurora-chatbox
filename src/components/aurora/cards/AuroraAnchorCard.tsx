@@ -93,8 +93,8 @@ export function AuroraAnchorCard({
                   {hasKnownPrice
                     ? `$${bestOffer.price.toFixed(2)}`
                     : language === 'EN'
-                      ? 'Price unknown'
-                      : '价格未知'}
+                      ? 'Price unavailable'
+                      : '价格暂不可得'}
                 </span>
                 {hasKnownPrice && bestOffer?.original_price ? (
                   <span className="text-xs text-muted-foreground line-through font-mono-nums">

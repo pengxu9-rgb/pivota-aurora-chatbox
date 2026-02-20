@@ -238,12 +238,18 @@ function normalizeScore01Or100(value: unknown): number | null {
   return Math.max(0, Math.min(100, Math.round(pct)));
 }
 
+function isUnknownPriceLabel(value: string | null | undefined): boolean {
+  const token = String(value || '').trim().toLowerCase();
+  if (!token) return false;
+  return token === 'price unknown' || token === 'price unavailable' || token === '价格未知' || token === '价格暂不可得';
+}
+
 function formatStructuredPrice(product: Record<string, unknown> | null): string | null {
   if (!product) return null;
   const priceObj = product.price && typeof product.price === 'object' && !Array.isArray(product.price) ? (product.price as Record<string, unknown>) : null;
   if (priceObj) {
     const unknown = Boolean((priceObj as any).unknown === true);
-    if (unknown) return 'Price unknown';
+    if (unknown) return 'Price unavailable';
     const usd = asNumber((priceObj as any).usd);
     const cny = asNumber((priceObj as any).cny);
     if (usd != null) return `$${Math.round(usd * 100) / 100}`;
@@ -394,7 +400,12 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
         const keyActives = Array.from(new Set([...a.keyActives, ...b.keyActives].map((x) => x.trim()).filter(Boolean))).slice(0, 10);
         const notes = Array.from(new Set([...a.notes, ...b.notes].map((x) => x.trim()).filter(Boolean))).slice(0, 10);
         const availability = a.availability || b.availability || null;
-        const priceText = (a.priceText && a.priceText !== 'Price unknown' ? a.priceText : null) || (b.priceText && b.priceText !== 'Price unknown' ? b.priceText : null) || a.priceText || b.priceText || null;
+        const priceText =
+          (a.priceText && !isUnknownPriceLabel(a.priceText) ? a.priceText : null) ||
+          (b.priceText && !isUnknownPriceLabel(b.priceText) ? b.priceText : null) ||
+          a.priceText ||
+          b.priceText ||
+          null;
         const sensitivityNote = a.sensitivityNote || b.sensitivityNote || null;
         return { ...a, score, keyActives, notes, availability, priceText, sensitivityNote, kbId: a.kbId || b.kbId || null };
       };
