@@ -2835,7 +2835,7 @@ function BffCardView({
         const assessment = asObject((payload as any).assessment);
         const verdictRaw = asString(assessment?.verdict);
         const verdict = verdictRaw ? verdictRaw.trim() : null;
-        const reasons = uniqueStrings(assessment?.reasons).slice(0, 6);
+        const rawReasons = uniqueStrings(assessment?.reasons).slice(0, 10);
         const heroRaw = asObject((assessment as any)?.hero_ingredient || (assessment as any)?.heroIngredient) || null;
         const heroName = asString(heroRaw?.name);
         const heroRole = asString(heroRaw?.role);
@@ -2864,6 +2864,59 @@ function BffCardView({
           return '';
         })();
 
+        const formulaIntent: string[] = [];
+        const usageHintsFromReasons: string[] = [];
+        const cautionFromReasons: string[] = [];
+        const dataNotesFromReasons: string[] = [];
+        const detectedIngredientsFromReasons: string[] = [];
+
+        rawReasons.forEach((entry) => {
+          const line = String(entry || '').trim();
+          if (!line) return;
+          const lower = line.toLowerCase();
+
+          if (/^i extracted the inci list/i.test(line)) {
+            dataNotesFromReasons.push(
+              line
+                .replace(/^i extracted/i, 'INCI list extracted')
+                .replace(/\s+for this assessment\.?$/i, '.')
+                .trim(),
+            );
+            return;
+          }
+
+          if (/^detected key ingredients:/i.test(line)) {
+            const parsed = line
+              .replace(/^detected key ingredients:\s*/i, '')
+              .split(',')
+              .map((token) => token.trim())
+              .filter(Boolean);
+            detectedIngredientsFromReasons.push(...parsed);
+            return;
+          }
+
+          if (/^how to use:/i.test(line)) {
+            usageHintsFromReasons.push(line.replace(/^how to use:\s*/i, '').trim());
+            return;
+          }
+
+          if (/contains exfoliating acids/i.test(lower)) {
+            cautionFromReasons.push(
+              language === 'CN'
+                ? '可能含去角质酸，频率和叠加活性时建议更保守。'
+                : 'Possible exfoliation signal: keep frequency and active layering conservative.',
+            );
+            return;
+          }
+
+          if (/^profile priorities:/i.test(lower)) {
+            formulaIntent.push(line.replace(/^profile priorities:\s*/i, '').trim());
+            return;
+          }
+
+          formulaIntent.push(line);
+        });
+
         const verdictStyle = (() => {
           const v = String(verdict || '').toLowerCase();
           if (v.includes('mismatch') || v.includes('not') || v.includes('avoid') || v.includes('veto')) return 'bg-rose-500/10 text-rose-600 border-rose-500/20';
@@ -2871,57 +2924,72 @@ function BffCardView({
           if (v.includes('suitable') || v.includes('good') || v.includes('yes')) return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
           return 'bg-muted/60 text-muted-foreground border-border/60';
         })();
+        const allDetectedIngredients = uniqueStrings([
+          ...detectedIngredientsFromReasons,
+          ...evidenceKeyIngredients,
+          ...(heroName ? [heroName] : []),
+        ]).slice(0, 12);
 
-        const renderHowToUse = () => {
-          if (howToUse == null) return null;
+        const bestForSignals = uniqueStrings([
+          ...formulaIntent,
+          ...evidenceFitNotes,
+          ...socialPositive,
+        ]).slice(0, 3);
+
+        const cautionSignals = uniqueStrings([
+          ...cautionFromReasons,
+          ...evidenceRiskNotes,
+          ...socialNegative,
+          ...socialRisks,
+        ]).slice(0, 4);
+
+        const keyTakeawayLines = uniqueStrings([
+          verdict ? (language === 'CN' ? `结论：${verdict}` : `Verdict: ${verdict}`) : '',
+          bestForSignals[0] || '',
+          cautionSignals[0] ? (language === 'CN' ? `主要注意：${cautionSignals[0]}` : `Main watchout: ${cautionSignals[0]}`) : '',
+        ]).slice(0, 2);
+
+        const howToUseBullets = (() => {
+          const out: string[] = [];
           if (typeof howToUse === 'string') {
-            const s = howToUse.trim();
-            if (!s) return null;
-            return <ChatRichText text={s} role="assistant" className="text-sm text-foreground" />;
+            const text = howToUse.trim();
+            if (text) out.push(text);
+          } else {
+            const o = asObject(howToUse);
+            if (o) {
+              const timing = asString((o as any).timing) || asString((o as any).time) || null;
+              const frequency = asString((o as any).frequency) || null;
+              const steps = uniqueStrings((o as any).steps).slice(0, 4);
+              const notes = uniqueStrings((o as any).notes).slice(0, 4);
+              if (timing) out.push(language === 'CN' ? `建议时段：${timing}` : `Timing: ${timing}`);
+              if (frequency) out.push(language === 'CN' ? `建议频率：${frequency}` : `Suggested frequency: ${frequency}`);
+              out.push(...steps);
+              out.push(...notes);
+            }
           }
-          const o = asObject(howToUse);
-          if (!o) return null;
+          out.push(...usageHintsFromReasons);
 
-          const timing = asString((o as any).timing) || asString((o as any).time) || null;
-          const frequency = asString((o as any).frequency) || null;
-          const notes = uniqueStrings((o as any).notes).slice(0, 6);
-          const steps = uniqueStrings((o as any).steps).slice(0, 6);
+          const hasExfoliationSignal = uniqueStrings([
+            ...allDetectedIngredients,
+            ...cautionSignals,
+            ...out,
+          ]).some((line) => /\b(acid|aha|bha|pha|exfoliat|去角质|酸类)\b/i.test(String(line || '')));
 
-          if (!timing && !frequency && !notes.length && !steps.length) return null;
+          if (hasExfoliationSignal) {
+            out.push(
+              language === 'CN'
+                ? '叠加提醒：若与其他强活性同用，建议降低频率并观察耐受。'
+                : 'Layering caution: if paired with other strong actives, reduce frequency and monitor tolerance.',
+            );
+          }
 
-          return (
-            <div className="space-y-2 text-sm text-foreground">
-              {(timing || frequency) ? (
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  {timing ? (
-                    <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1">
-                      {language === 'CN' ? `建议时段：${timing}` : `Timing: ${timing}`}
-                    </span>
-                  ) : null}
-                  {frequency ? (
-                    <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1">
-                      {language === 'CN' ? `频率：${frequency}` : `Frequency: ${frequency}`}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {steps.length ? (
-                <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {steps.map((s) => (
-                    <li key={s}>{s}</li>
-                  ))}
-                </ul>
-              ) : null}
-              {notes.length ? (
-                <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {notes.map((s) => (
-                    <li key={s}>{s}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          );
-        };
+          return uniqueStrings(out).slice(0, 5);
+        })();
+
+        const dataNotes = uniqueStrings([
+          ...dataNotesFromReasons,
+          ...expertNotes.filter((note) => /(evidence source|ingredient list|inci|entries|product page|parsed)/i.test(String(note || ''))),
+        ]).slice(0, 3);
 
         return (
           <div className="space-y-3">
@@ -2933,9 +3001,20 @@ function BffCardView({
               </div>
             ) : null}
 
+            {keyTakeawayLines.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '重点结论' : 'Key takeaway'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {keyTakeawayLines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {(heroName || heroWhy) ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '最关键成分' : 'Most impactful ingredient'}</div>
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '核心成分' : 'Hero ingredient(s)'}</div>
                 {heroName ? <div className="mt-1 text-sm font-semibold text-foreground">{heroName}</div> : null}
                 {heroRole ? (
                   <div className="mt-1 text-[11px] font-medium text-muted-foreground">
@@ -2946,27 +3025,73 @@ function BffCardView({
               </div>
             ) : null}
 
-            {reasons.length ? (
+            {formulaIntent.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '为什么' : 'Why'}</div>
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {language === 'CN' ? '这个配方主要在做什么' : 'What the formula is trying to do'}
+                </div>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {reasons.map((r) => (
+                  {formulaIntent.slice(0, 3).map((r) => (
                     <li key={r}>{r}</li>
                   ))}
                 </ul>
               </div>
             ) : null}
 
-            {renderHowToUse() ? (
+            {allDetectedIngredients.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '怎么用更安全' : 'How to use safely'}</div>
-                <div className="mt-2">{renderHowToUse()}</div>
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {language === 'CN' ? '关键活性与支持成分' : 'Notable actives & support ingredients'}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {allDetectedIngredients.map((ingredient) => (
+                    <span key={ingredient} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
+                      {ingredient}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {(bestForSignals.length || cautionSignals.length) ? (
+              <div className="grid grid-cols-1 gap-3 rounded-2xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2">
+                {bestForSignals.length ? (
+                  <div>
+                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {bestForSignals.slice(0, 3).map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {cautionSignals.length ? (
+                  <div>
+                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '使用注意' : 'Use with caution'}</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {cautionSignals.slice(0, 3).map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {howToUseBullets.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '安全使用建议' : 'How to use safely'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {howToUseBullets.map((tip) => (
+                    <li key={tip}>{tip}</li>
+                  ))}
+                </ul>
               </div>
             ) : null}
 
             {socialOverall ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '社媒总体评价' : 'Overall social feedback'}</div>
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '社媒反馈摘要' : 'Social feedback snapshot'}</div>
                 <div className="mt-1 text-sm font-semibold text-foreground">{socialOverall.headline}</div>
                 {socialOverall.details ? <div className="mt-2 text-xs text-muted-foreground">{socialOverall.details}</div> : null}
                 {Array.isArray((socialOverall as any).channels) && (socialOverall as any).channels.length ? (
@@ -2978,11 +3103,56 @@ function BffCardView({
                     ))}
                   </div>
                 ) : null}
+                {(socialPositive.length || socialNegative.length || socialRisks.length) ? (
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {socialPositive.length ? (
+                      <div>
+                        <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '常见好评' : 'Common positives'}</div>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                          {socialPositive.slice(0, 3).map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {socialNegative.length ? (
+                      <div>
+                        <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '常见担忧' : 'Common concerns'}</div>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                          {socialNegative.slice(0, 3).map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {socialRisks.length ? (
+                      <div>
+                        <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '重点提醒' : 'Watchouts'}</div>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                          {socialRisks.slice(0, 3).map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="mt-2 text-[11px] text-muted-foreground">
                   {language === 'CN'
                     ? '说明：这是聚合口碑信号，用于辅助判断，不等同于医疗建议。'
                     : 'Note: this is aggregated feedback for guidance, not medical advice.'}
                 </div>
+              </div>
+            ) : null}
+
+            {dataNotes.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '数据说明' : 'Data notes'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                  {dataNotes.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
               </div>
             ) : null}
 
