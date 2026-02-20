@@ -2869,6 +2869,7 @@ function BffCardView({
         const cautionFromReasons: string[] = [];
         const dataNotesFromReasons: string[] = [];
         const detectedIngredientsFromReasons: string[] = [];
+        const normalizeIngredientName = (token: string) => String(token || '').replace(/[.;:，。；：]+$/g, '').replace(/\s+/g, ' ').trim();
 
         rawReasons.forEach((entry) => {
           const line = String(entry || '').trim();
@@ -2889,7 +2890,7 @@ function BffCardView({
             const parsed = line
               .replace(/^detected key ingredients:\s*/i, '')
               .split(',')
-              .map((token) => token.trim())
+              .map((token) => normalizeIngredientName(token))
               .filter(Boolean);
             detectedIngredientsFromReasons.push(...parsed);
             return;
@@ -2928,7 +2929,7 @@ function BffCardView({
           ...detectedIngredientsFromReasons,
           ...evidenceKeyIngredients,
           ...(heroName ? [heroName] : []),
-        ]).slice(0, 12);
+        ].map((name) => normalizeIngredientName(name))).slice(0, 12);
 
         const bestForSignals = uniqueStrings([
           ...formulaIntent,
@@ -3045,9 +3046,15 @@ function BffCardView({
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {allDetectedIngredients.map((ingredient) => (
-                    <span key={ingredient} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
+                    <button
+                      key={ingredient}
+                      type="button"
+                      className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-foreground transition hover:bg-muted/80"
+                      title={language === 'CN' ? '点击查看成分分析' : 'Click to view ingredient analysis'}
+                      onClick={() => onAction('ingredient_drilldown', { ingredient_name: ingredient })}
+                    >
                       {ingredient}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -3093,7 +3100,9 @@ function BffCardView({
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '社媒反馈摘要' : 'Social feedback snapshot'}</div>
                 <div className="mt-1 text-sm font-semibold text-foreground">{socialOverall.headline}</div>
-                {socialOverall.details ? <div className="mt-2 text-xs text-muted-foreground">{socialOverall.details}</div> : null}
+                {socialOverall.details && !(socialPositive.length || socialNegative.length || socialRisks.length) ? (
+                  <div className="mt-2 text-xs text-muted-foreground">{socialOverall.details}</div>
+                ) : null}
                 {Array.isArray((socialOverall as any).channels) && (socialOverall as any).channels.length ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {((socialOverall as any).channels as string[]).slice(0, 5).map((channel) => (
@@ -4912,6 +4921,18 @@ export default function BffChat() {
 
         // IMPORTANT: keep quick-check UI-only to avoid accidentally triggering unrelated
         // backend flows (e.g. budget gating) from a short free-text message.
+        return;
+      }
+
+      if (actionId === 'ingredient_drilldown') {
+        const ingredientName = typeof data?.ingredient_name === 'string' ? data.ingredient_name.trim() : '';
+        if (!ingredientName) return;
+        const prompt =
+          language === 'CN'
+            ? `请分析成分“${ingredientName}”：说明常见功效、使用注意点，并给出含该成分的主流产品例子（按平价/中端/高端各举例）。`
+            : `Analyze ingredient "${ingredientName}": explain common benefits, key watchouts, and example mainstream products containing it (budget/mid/premium).`;
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: prompt }]);
+        await sendChat(prompt);
         return;
       }
 
