@@ -21,7 +21,9 @@ import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
+import { IngredientReportCard } from '@/components/aurora/cards/IngredientReportCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
+import { augmentEnvelopeWithIngredientReport } from '@/lib/ingredientReportCard';
 import { humanizeKbNote } from '@/lib/auroraKbHumanize';
 import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 import { looksLikeProductPicksRawText } from '@/lib/productPicks';
@@ -2520,6 +2522,10 @@ function BffCardView({
 
   if (!debug && cardType === 'aurora_structured' && structuredCitations.length === 0) return null;
 
+  if (cardType === 'aurora_ingredient_report') {
+    return <IngredientReportCard payload={payload} language={language} />;
+  }
+
   if (cardType === 'aurora_structured') {
     return (
       <div className="space-y-3">
@@ -4089,11 +4095,12 @@ export default function BffChat() {
   );
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
+    const enhancedEnv = augmentEnvelopeWithIngredientReport(env);
     setError(null);
 
-    if (env.session_patch && typeof env.session_patch === 'object') {
-      const patch = env.session_patch as Record<string, unknown>;
-      const next = (env.session_patch as Record<string, unknown>)['next_state'];
+    if (enhancedEnv.session_patch && typeof enhancedEnv.session_patch === 'object') {
+      const patch = enhancedEnv.session_patch as Record<string, unknown>;
+      const next = (enhancedEnv.session_patch as Record<string, unknown>)['next_state'];
       if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
 
       const profilePatch = asObject(patch.profile);
@@ -4118,13 +4125,13 @@ export default function BffChat() {
     }
 
     const nextItems: ChatItem[] = [];
-    if (env.assistant_message?.content) {
-      const raw = String(env.assistant_message.content || '');
+    if (enhancedEnv.assistant_message?.content) {
+      const raw = String(enhancedEnv.assistant_message.content || '');
       const cleaned = debug ? raw : stripInternalKbRefsFromText(raw);
       if (cleaned.trim()) nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: cleaned });
     }
 
-    const rawCards = Array.isArray(env.cards) ? env.cards : [];
+    const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const cards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
 
     if (cards.length) {
@@ -4133,7 +4140,7 @@ export default function BffChat() {
         role: 'assistant',
         kind: 'cards',
         cards,
-        meta: { request_id: env.request_id, trace_id: env.trace_id, events: env.events },
+        meta: { request_id: enhancedEnv.request_id, trace_id: enhancedEnv.trace_id, events: enhancedEnv.events },
       });
     }
 
@@ -4144,8 +4151,8 @@ export default function BffChat() {
         })
       : false;
 
-    if (!suppressChips && Array.isArray(env.suggested_chips) && env.suggested_chips.length) {
-      nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: env.suggested_chips });
+    if (!suppressChips && Array.isArray(enhancedEnv.suggested_chips) && enhancedEnv.suggested_chips.length) {
+      nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: enhancedEnv.suggested_chips });
     }
 
     if (nextItems.length) setItems((prev) => [...prev, ...nextItems]);
