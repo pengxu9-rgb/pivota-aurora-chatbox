@@ -31,6 +31,7 @@ export type V1Envelope = {
   cards: Card[];
   session_patch: Record<string, unknown>;
   events: Array<Record<string, unknown>>;
+  meta?: Record<string, unknown>;
 };
 
 export type V1Action =

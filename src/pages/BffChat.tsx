@@ -4029,6 +4029,14 @@ export default function BffChat() {
     goals: [] as string[],
     region: '',
     budgetTier: '',
+    age_band: 'unknown',
+    pregnancy_status: 'unknown',
+    lactation_status: 'unknown',
+    high_risk_medications_text: '',
+    travel_destination: '',
+    travel_start_date: '',
+    travel_end_date: '',
+    travel_indoor_outdoor_ratio: '',
     itinerary: '',
   });
 
@@ -4347,6 +4355,10 @@ export default function BffChat() {
         : itineraryRaw && typeof itineraryRaw === 'object'
           ? JSON.stringify(itineraryRaw)
           : '';
+    const travelPlan = asObject((p as any)?.travel_plan) ?? asObject((p as any)?.travelPlan);
+    const meds = asArray((p as any)?.high_risk_medications)
+      .map((item) => asString(item))
+      .filter(Boolean) as string[];
     setProfileDraft({
       skinType: asString(p?.skinType) ?? '',
       sensitivity: asString(p?.sensitivity) ?? '',
@@ -4354,6 +4366,18 @@ export default function BffChat() {
       goals: (asArray(p?.goals).map((g) => asString(g)).filter(Boolean) as string[]) ?? [],
       region: asString(p?.region) ?? '',
       budgetTier: asString(p?.budgetTier) ?? '',
+      age_band: asString((p as any)?.age_band) ?? 'unknown',
+      pregnancy_status: asString((p as any)?.pregnancy_status) ?? 'unknown',
+      lactation_status: asString((p as any)?.lactation_status) ?? 'unknown',
+      high_risk_medications_text: meds.join(', '),
+      travel_destination: asString((travelPlan as any)?.destination) ?? '',
+      travel_start_date: asString((travelPlan as any)?.start_date) ?? '',
+      travel_end_date: asString((travelPlan as any)?.end_date) ?? '',
+      travel_indoor_outdoor_ratio: (() => {
+        const ratio = asNumber((travelPlan as any)?.indoor_outdoor_ratio);
+        if (ratio == null) return '';
+        return String(Math.max(0, Math.min(1, ratio)));
+      })(),
       itinerary: itineraryText ?? '',
     });
   }, [profileSheetOpen, bootstrapInfo, profileSnapshot]);
@@ -4367,6 +4391,28 @@ export default function BffChat() {
       if (profileDraft.barrierStatus.trim()) patch.barrierStatus = profileDraft.barrierStatus.trim();
       if (profileDraft.region.trim()) patch.region = profileDraft.region.trim();
       if (profileDraft.budgetTier.trim()) patch.budgetTier = profileDraft.budgetTier.trim();
+      if (profileDraft.age_band.trim()) patch.age_band = profileDraft.age_band.trim();
+      if (profileDraft.pregnancy_status.trim()) patch.pregnancy_status = profileDraft.pregnancy_status.trim();
+      if (profileDraft.lactation_status.trim()) patch.lactation_status = profileDraft.lactation_status.trim();
+      if (profileDraft.high_risk_medications_text.trim()) {
+        const meds = profileDraft.high_risk_medications_text
+          .split(/[,\n，]/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .slice(0, 20);
+        if (meds.length) patch.high_risk_medications = meds;
+      }
+      const travelPlanPatch: Record<string, unknown> = {};
+      if (profileDraft.travel_destination.trim()) travelPlanPatch.destination = profileDraft.travel_destination.trim();
+      if (profileDraft.travel_start_date.trim()) travelPlanPatch.start_date = profileDraft.travel_start_date.trim();
+      if (profileDraft.travel_end_date.trim()) travelPlanPatch.end_date = profileDraft.travel_end_date.trim();
+      if (profileDraft.travel_indoor_outdoor_ratio.trim()) {
+        const ratio = asNumber(profileDraft.travel_indoor_outdoor_ratio);
+        if (ratio != null) {
+          travelPlanPatch.indoor_outdoor_ratio = Math.max(0, Math.min(1, ratio));
+        }
+      }
+      if (Object.keys(travelPlanPatch).length) patch.travel_plan = travelPlanPatch;
       if (profileDraft.itinerary.trim()) patch.itinerary = profileDraft.itinerary.trim().slice(0, 2000);
       if (profileDraft.goals.length) patch.goals = profileDraft.goals;
 
@@ -6735,6 +6781,110 @@ export default function BffChat() {
                     <option value="¥1000+">¥1000+</option>
                     <option value="不确定">{language === 'CN' ? '不确定' : 'Not sure'}</option>
                   </select>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '年龄段' : 'Age band'}
+                  <select
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.age_band}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, age_band: e.target.value }))}
+                  >
+                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
+                    <option value="under_13">&lt;13</option>
+                    <option value="13_17">13-17</option>
+                    <option value="18_24">18-24</option>
+                    <option value="25_34">25-34</option>
+                    <option value="35_44">35-44</option>
+                    <option value="45_54">45-54</option>
+                    <option value="55_plus">55+</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '孕期状态' : 'Pregnancy status'}
+                  <select
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.pregnancy_status}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}
+                  >
+                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
+                    <option value="not_pregnant">{language === 'CN' ? '未怀孕' : 'Not pregnant'}</option>
+                    <option value="pregnant">{language === 'CN' ? '怀孕中' : 'Pregnant'}</option>
+                    <option value="trying">{language === 'CN' ? '备孕中' : 'Trying'}</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '哺乳状态' : 'Lactation status'}
+                  <select
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.lactation_status}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, lactation_status: e.target.value }))}
+                  >
+                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
+                    <option value="not_lactating">{language === 'CN' ? '不哺乳' : 'Not lactating'}</option>
+                    <option value="lactating">{language === 'CN' ? '哺乳中' : 'Lactating'}</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '高风险用药（可选）' : 'High-risk meds (optional)'}
+                  <input
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                    value={profileDraft.high_risk_medications_text}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
+                    placeholder={language === 'CN' ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '旅行目的地' : 'Travel destination'}
+                  <input
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                    value={profileDraft.travel_destination}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_destination: e.target.value }))}
+                    placeholder={language === 'CN' ? '例如 Tokyo' : 'e.g., Tokyo'}
+                  />
+                </label>
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '户外比例(0-1)' : 'Outdoor ratio (0-1)'}
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="1"
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                    value={profileDraft.travel_indoor_outdoor_ratio}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_indoor_outdoor_ratio: e.target.value }))}
+                    placeholder="0.5"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '出行开始' : 'Travel start'}
+                  <input
+                    type="date"
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                    value={profileDraft.travel_start_date}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_start_date: e.target.value }))}
+                  />
+                </label>
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '出行结束' : 'Travel end'}
+                  <input
+                    type="date"
+                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                    value={profileDraft.travel_end_date}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_end_date: e.target.value }))}
+                  />
                 </label>
               </div>
 
