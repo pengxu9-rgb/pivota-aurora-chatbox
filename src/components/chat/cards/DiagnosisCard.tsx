@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Language } from '@/lib/types';
 import { t } from '@/lib/i18n';
-import { OptionCardGroup, PromptFooter, PromptHeader, type OptionCardGroupOption } from '@/components/prompt';
 
 interface DiagnosisCardProps {
   onAction: (actionId: string, data?: Record<string, any>) => void;
@@ -12,183 +11,159 @@ type SkinType = 'oily' | 'dry' | 'combination' | 'normal' | 'sensitive';
 type SkinConcern = 'acne' | 'dark_spots' | 'wrinkles' | 'dullness' | 'redness' | 'pores' | 'dehydration';
 type BarrierStatus = 'healthy' | 'impaired' | 'unknown';
 type SensitivityLevel = 'low' | 'medium' | 'high';
-type DiagnosisStep = 1 | 2 | 3;
 
 const SKIN_TYPES: SkinType[] = ['oily', 'dry', 'combination', 'normal', 'sensitive'];
 const SKIN_CONCERNS: SkinConcern[] = ['acne', 'dark_spots', 'wrinkles', 'dullness', 'redness', 'pores', 'dehydration'];
 const BARRIER_STATUSES: BarrierStatus[] = ['healthy', 'impaired', 'unknown'];
 const SENSITIVITY_LEVELS: SensitivityLevel[] = ['low', 'medium', 'high'];
-const TOTAL_STEPS = 3;
-
-const isSkinType = (value: string): value is SkinType => SKIN_TYPES.includes(value as SkinType);
-const isBarrierStatus = (value: string): value is BarrierStatus => BARRIER_STATUSES.includes(value as BarrierStatus);
-const isSensitivityLevel = (value: string): value is SensitivityLevel => SENSITIVITY_LEVELS.includes(value as SensitivityLevel);
-const isSkinConcern = (value: string): value is SkinConcern => SKIN_CONCERNS.includes(value as SkinConcern);
 
 export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
-  const [step, setStep] = useState<DiagnosisStep>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [skinType, setSkinType] = useState<SkinType | null>(null);
   const [barrierStatus, setBarrierStatus] = useState<BarrierStatus | null>(null);
   const [sensitivity, setSensitivity] = useState<SensitivityLevel | null>(null);
   const [concerns, setConcerns] = useState<SkinConcern[]>([]);
 
-  const skinTypeOptions = useMemo<OptionCardGroupOption[]>(
-    () =>
-      SKIN_TYPES.map((type) => ({
-        id: type,
-        label: t(`diagnosis.skin_type.${type}`, language),
-      })),
-    [language],
-  );
+  const toggleConcern = (concern: SkinConcern) => {
+    setConcerns(prev => 
+      prev.includes(concern) 
+        ? prev.filter(c => c !== concern)
+        : prev.length < 3 ? [...prev, concern] : prev
+    );
+  };
 
-  const barrierOptions = useMemo<OptionCardGroupOption[]>(
-    () =>
-      BARRIER_STATUSES.map((status) => ({
-        id: status,
-        label: t(`diagnosis.barrier.${status}`, language),
-      })),
-    [language],
-  );
-
-  const sensitivityOptions = useMemo<OptionCardGroupOption[]>(
-    () =>
-      SENSITIVITY_LEVELS.map((level) => ({
-        id: level,
-        label: t(`diagnosis.sensitivity.${level}`, language),
-      })),
-    [language],
-  );
-
-  const concernOptions = useMemo<OptionCardGroupOption[]>(
-    () =>
-      SKIN_CONCERNS.map((concern) => ({
-        id: concern,
-        label: t(`diagnosis.concern.${concern}`, language),
-      })),
-    [language],
-  );
-
-  const handlePrimary = () => {
+  const handleNext = () => {
     if (step < 3) {
-      setStep((step + 1) as DiagnosisStep);
+      setStep((step + 1) as 1 | 2 | 3);
     } else {
-      onAction('diagnosis_submit', {
-        skinType,
-        concerns,
+      onAction('diagnosis_submit', { 
+        skinType, 
+        concerns, 
         barrierStatus,
         sensitivity,
       });
     }
   };
 
-  const handleBack = () => {
-    if (step === 1) return;
-    setStep((step - 1) as DiagnosisStep);
-  };
-
-  const handleNotNow = () => {
-    onAction('diagnosis_skip');
-  };
-
   const canProceed = step === 1 ? skinType !== null : step === 2 ? barrierStatus !== null && sensitivity !== null : concerns.length > 0;
 
-  const headerModel = useMemo(() => {
-    if (step === 1) {
-      return {
-        title: t('diagnosis.skin_type.label', language),
-        helper: t('diagnosis.skin_type.hint', language),
-      };
-    }
-    if (step === 2) {
-      return {
-        title: t('diagnosis.barrier.label', language),
-        helper: t('diagnosis.barrier.hint', language),
-      };
-    }
-    return {
-      title: t('diagnosis.concerns.label', language),
-      helper: t('diagnosis.concerns.hint', language),
-    };
-  }, [language, step]);
-
   return (
-    <div className="chat-card">
-      <PromptHeader
-        title={headerModel.title}
-        helper={headerModel.helper}
-        language={language}
-        step={{ current: step, total: TOTAL_STEPS }}
-        showBack={step > 1}
-        onBack={handleBack}
-      />
-
-      <div className="mt-3 space-y-4">
+    <div className="chat-card space-y-3">
+      {/* Step 1: Skin Type */}
       {step === 1 && (
-          <OptionCardGroup
-            selectionMode="single"
-            ariaLabel={t('diagnosis.skin_type.label', language)}
-            options={skinTypeOptions}
-            value={skinType}
-            onChange={(nextValue) => {
-              const next = typeof nextValue === 'string' ? nextValue : '';
-              if (isSkinType(next)) setSkinType(next);
-            }}
-          />
-      )}
-
-      {step === 2 && (
         <div className="space-y-3">
-          <OptionCardGroup
-            selectionMode="single"
-            ariaLabel={t('diagnosis.barrier.label', language)}
-            options={barrierOptions}
-            value={barrierStatus}
-            onChange={(nextValue) => {
-              const next = typeof nextValue === 'string' ? nextValue : '';
-              if (isBarrierStatus(next)) setBarrierStatus(next);
-            }}
-          />
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-foreground">{t('diagnosis.sensitivity.label', language)}</div>
-            <p className="text-xs text-muted-foreground">{t('diagnosis.sensitivity.hint', language)}</p>
-            <OptionCardGroup
-              selectionMode="single"
-              ariaLabel={t('diagnosis.sensitivity.label', language)}
-              options={sensitivityOptions}
-              value={sensitivity}
-              onChange={(nextValue) => {
-                const next = typeof nextValue === 'string' ? nextValue : '';
-                if (isSensitivityLevel(next)) setSensitivity(next);
-              }}
-            />
+          <label className="text-sm font-medium text-foreground">
+            {t('diagnosis.skin_type.label', language)}
+          </label>
+          <p className="text-xs text-muted-foreground">
+            {t('diagnosis.skin_type.hint', language)}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {SKIN_TYPES.map((type) => (
+              <button
+                key={type}
+                onClick={() => setSkinType(type)}
+                className={`chip-button ${skinType === type ? 'chip-button-primary' : ''}`}
+              >
+                {t(`diagnosis.skin_type.${type}`, language)}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {step === 3 && (
-          <OptionCardGroup
-            selectionMode="multiple"
-            ariaLabel={t('diagnosis.concerns.label', language)}
-            options={concernOptions}
-            value={concerns}
-            maxSelections={3}
-            onChange={(nextValue) => {
-              const nextConcerns = Array.isArray(nextValue) ? nextValue.filter(isSkinConcern) : [];
-              setConcerns(nextConcerns.slice(0, 3));
-            }}
-          />
-      )}
-      </div>
+      {/* Step 2: Barrier + Sensitivity */}
+      {step === 2 && (
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">
+              {t('diagnosis.barrier.label', language)}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('diagnosis.barrier.hint', language)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {BARRIER_STATUSES.map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setBarrierStatus(status)}
+                  className={`chip-button ${barrierStatus === status ? 'chip-button-primary' : ''}`}
+                >
+                  {t(`diagnosis.barrier.${status}`, language)}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <PromptFooter
-        language={language}
-        primaryLabel={step === 3 ? t('diagnosis.btn.analyze', language) : t('prompt.common.next', language)}
-        onPrimary={handlePrimary}
-        primaryDisabled={!canProceed}
-        tertiaryLabel={t('prompt.common.notNow', language)}
-        onTertiary={handleNotNow}
-      />
+          <div className="space-y-2 pt-2">
+            <label className="text-sm font-medium text-foreground">
+              {t('diagnosis.sensitivity.label', language)}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t('diagnosis.sensitivity.hint', language)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {SENSITIVITY_LEVELS.map((lvl) => (
+                <button
+                  key={lvl}
+                  onClick={() => setSensitivity(lvl)}
+                  className={`chip-button ${sensitivity === lvl ? 'chip-button-primary' : ''}`}
+                >
+                  {t(`diagnosis.sensitivity.${lvl}`, language)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Concerns */}
+      {step === 3 && (
+        <div className="space-y-3">
+          <label className="text-sm font-medium text-foreground">
+            {t('diagnosis.concerns.label', language)}
+          </label>
+          <p className="text-xs text-muted-foreground">
+            {t('diagnosis.concerns.hint', language)}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {SKIN_CONCERNS.map((concern) => (
+              <button
+                key={concern}
+                onClick={() => toggleConcern(concern)}
+                className={`chip-button ${concerns.includes(concern) ? 'chip-button-primary' : ''}`}
+              >
+                {t(`diagnosis.concern.${concern}`, language)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-2">
+        {step > 1 && (
+          <button
+            onClick={() => setStep((step - 1) as 1 | 2 | 3)}
+            className="action-button action-button-ghost"
+          >
+            {t('diagnosis.btn.back', language)}
+          </button>
+        )}
+        <button
+          onClick={handleNext}
+          disabled={!canProceed}
+          className="action-button action-button-primary flex-1 disabled:opacity-50"
+        >
+          {step === 3 ? t('diagnosis.btn.analyze', language) : t('diagnosis.btn.next', language)}
+        </button>
+        <button
+          onClick={() => onAction('diagnosis_skip')}
+          className="action-button action-button-ghost"
+        >
+          {t('diagnosis.btn.skip', language)}
+        </button>
+      </div>
     </div>
   );
 }

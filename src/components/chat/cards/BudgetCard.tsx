@@ -9,10 +9,6 @@ interface BudgetCardProps {
 
 const BUDGETS: BudgetTier[] = ['$', '$$', '$$$'];
 
-/**
- * @deprecated Legacy prompt implementation. Not wired in current `/chat` runtime.
- * Use the unified prompt system (`PromptHeader`/`PromptFooter`/`OptionCardGroup`) for new ask flows.
- */
 export function BudgetCard({ onAction, language }: BudgetCardProps) {
   const [budget, setBudget] = useState<BudgetTier>('$$');
 

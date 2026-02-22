@@ -23,6 +23,7 @@ export async function requestWithTimeout(
 
   const controller = new AbortController();
   let didTimeout = false;
+  let timeoutHandle: number | undefined;
   const onExternalAbort = () => {
     if (controller.signal.aborted) return;
     controller.abort((externalSignal as any)?.reason);
@@ -33,7 +34,7 @@ export async function requestWithTimeout(
     else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
-  const timeoutHandle = window.setTimeout(() => {
+  timeoutHandle = window.setTimeout(() => {
     didTimeout = true;
     if (!controller.signal.aborted) controller.abort();
   }, timeoutMs);

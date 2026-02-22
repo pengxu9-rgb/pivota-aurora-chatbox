@@ -10,10 +10,6 @@ interface ContextCardProps {
 const MARKETS: Market[] = ['US', 'EU', 'UK', 'Canada', 'Singapore', 'Global'];
 const BUDGETS: BudgetTier[] = ['$', '$$', '$$$'];
 
-/**
- * @deprecated Legacy prompt implementation. Not wired in current `/chat` runtime.
- * Use the unified prompt system (`PromptHeader`/`PromptFooter`/`OptionCardGroup`) for new ask flows.
- */
 export function ContextCard({ onAction, language }: ContextCardProps) {
   const [market, setMarket] = useState<Market>('US');
   const [budget, setBudget] = useState<BudgetTier>('$$');

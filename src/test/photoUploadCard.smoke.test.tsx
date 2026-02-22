@@ -82,9 +82,8 @@ describe('PhotoUploadCard smoke', () => {
 
     await screen.findByText('High drift risk');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm & continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload photos' }));
 
     expect(onAction).not.toHaveBeenCalled();
     expect(screen.getByText('Some photos are outside the guide frame.')).toBeInTheDocument();
@@ -125,21 +124,10 @@ describe('PhotoUploadCard smoke', () => {
     uploadToFirstSlot(container);
 
     await screen.findByText('Usable but off');
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm & continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload photos' }));
 
     await waitFor(() => expect(onAction).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('Some photos are outside the guide frame.')).not.toBeInTheDocument();
-  });
-
-  it('maps tertiary continue-without action to photo_skip', () => {
-    const onAction = vi.fn();
-    render(<PhotoUploadCard onAction={onAction} language="EN" />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Continue without photos' }));
-
-    expect(onAction).toHaveBeenCalledTimes(1);
-    expect(onAction).toHaveBeenCalledWith('photo_skip');
   });
 });
