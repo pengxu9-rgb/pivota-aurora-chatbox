@@ -205,7 +205,7 @@ export default function Profile() {
 
       <div className="ios-panel mt-4">
         <div className="flex items-start gap-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
             <User className="h-[18px] w-[18px]" />
           </div>
           <div>
@@ -218,7 +218,7 @@ export default function Profile() {
 
         <button
           type="button"
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card active:scale-[0.99]"
+          className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
           onClick={() => startChat({ kind: 'chip', title: 'Quick Profile', chip_id: 'chip_quick_profile' })}
         >
           Start quick profile
@@ -227,7 +227,7 @@ export default function Profile() {
 
       <div className="ios-panel mt-3">
         <div className="flex items-start gap-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
             <Shield className="h-[18px] w-[18px]" />
           </div>
           <div className="flex-1">
@@ -275,7 +275,7 @@ export default function Profile() {
                 <button
                   type="button"
                   className={cn(
-                    'inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                    'aurora-home-role-primary inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
                     'active:scale-[0.99]',
                   )}
                   onClick={() => void savePassword()}
@@ -307,7 +307,7 @@ export default function Profile() {
                 type="button"
                 className={cn(
                   'flex-1 rounded-2xl border border-border/60 px-3 py-2 text-[14px] font-semibold',
-                  authMode === 'code' ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground',
+                  authMode === 'code' ? 'aurora-home-role-primary' : 'bg-background/60 text-foreground',
                 )}
                 onClick={() => {
                   setAuthMode('code');
@@ -323,7 +323,7 @@ export default function Profile() {
                 type="button"
                 className={cn(
                   'flex-1 rounded-2xl border border-border/60 px-3 py-2 text-[14px] font-semibold',
-                  authMode === 'password' ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground',
+                  authMode === 'password' ? 'aurora-home-role-primary' : 'bg-background/60 text-foreground',
                 )}
                 onClick={() => {
                   setAuthMode('password');
@@ -373,7 +373,7 @@ export default function Profile() {
                 <button
                   type="button"
                   className={cn(
-                    'inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                    'aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
                     'active:scale-[0.99]',
                   )}
                   onClick={() => void passwordLogin()}
@@ -387,7 +387,7 @@ export default function Profile() {
               <button
                 type="button"
                 className={cn(
-                  'inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                  'aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
                   'active:scale-[0.99]',
                 )}
                 onClick={() => void startAuth()}
@@ -430,7 +430,7 @@ export default function Profile() {
                   <button
                     type="button"
                     className={cn(
-                      'flex-1 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card',
+                      'aurora-home-role-primary flex-1 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
                       'active:scale-[0.99]',
                     )}
                     onClick={() => void verifyAuth()}
@@ -450,7 +450,7 @@ export default function Profile() {
 
       <div className="ios-panel-soft mt-3">
         <div className="flex items-start gap-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
             <HelpCircle className="h-[18px] w-[18px]" />
           </div>
           <div className="flex-1">

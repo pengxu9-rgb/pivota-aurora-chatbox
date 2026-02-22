@@ -142,7 +142,7 @@ export function ChatComposerDrawer({
                 type="submit"
                 className={cn(
                   'inline-flex h-10 w-10 items-center justify-center rounded-full',
-                  canSubmit ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                  canSubmit ? 'aurora-home-role-primary' : 'bg-muted text-muted-foreground',
                 )}
                 disabled={!canSubmit}
                 aria-label="Ask"
@@ -187,7 +187,7 @@ export function ChatComposerDrawer({
                     onOpenChange(false);
                   }}
                 >
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <div className="aurora-home-role-icon inline-flex h-10 w-10 items-center justify-center rounded-2xl border">
                     <a.Icon className="h-[18px] w-[18px]" />
                   </div>
                   <div className="min-w-0">

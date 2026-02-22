@@ -651,6 +651,120 @@
     @apply hover:bg-muted/50;
   }
 
+  /* Question Prompt system */
+  .prompt-line-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .prompt-surface {
+    @apply rounded-[22px] border border-border/60 bg-card/95;
+    padding: 16px 20px calc(env(safe-area-inset-bottom) + 16px);
+  }
+
+  .prompt-surface-unbordered {
+    @apply rounded-none border-0 bg-transparent;
+    padding: 0;
+  }
+
+  .prompt-sheet-content {
+    @apply rounded-t-[22px] border border-border/60 bg-card/95 p-0;
+    max-height: 92dvh;
+  }
+
+  .prompt-drawer-content {
+    @apply rounded-t-[22px] border border-border/60 bg-card/95;
+    max-height: 92dvh;
+  }
+
+  .prompt-header {
+    @apply space-y-3;
+  }
+
+  .prompt-header-top {
+    @apply flex min-h-8 items-center justify-between gap-3;
+  }
+
+  .prompt-back-button {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm font-medium text-muted-foreground transition-colors;
+    @apply hover:bg-muted/70 hover:text-foreground;
+  }
+
+  .prompt-step-label {
+    @apply text-xs font-semibold text-muted-foreground;
+    letter-spacing: 0.01em;
+  }
+
+  .prompt-progress {
+    @apply h-1.5 rounded-full bg-muted/70;
+  }
+
+  .prompt-title {
+    @apply text-base font-semibold tracking-[-0.01em] text-foreground;
+    line-height: 1.35;
+  }
+
+  .prompt-helper {
+    @apply text-sm text-muted-foreground;
+    line-height: 1.5;
+  }
+
+  .prompt-option-group {
+    @apply mt-3 grid gap-2;
+  }
+
+  .prompt-option-card {
+    @apply w-full rounded-2xl border border-border/60 bg-card px-4 py-3 text-left transition-colors;
+    @apply hover:border-primary/35 hover:bg-primary/[0.04];
+    min-height: 50px;
+  }
+
+  .prompt-option-card-multiline {
+    min-height: 64px;
+  }
+
+  .prompt-option-card-selected {
+    @apply border-primary/60 bg-primary/[0.08];
+  }
+
+  .prompt-option-card-disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  .prompt-option-card-check {
+    @apply inline-flex h-5 w-5 items-center justify-center rounded-full border border-border/70 text-transparent;
+  }
+
+  .prompt-option-card-check-selected {
+    @apply border-primary bg-primary text-primary-foreground;
+  }
+
+  .prompt-footer {
+    @apply mt-4 space-y-2;
+  }
+
+  .prompt-footer-sticky {
+    position: sticky;
+    bottom: 0;
+    margin-left: -20px;
+    margin-right: -20px;
+    border-top: 1px solid hsl(var(--border) / 0.5);
+    background: hsl(var(--card) / 0.96);
+    padding: 12px 20px calc(env(safe-area-inset-bottom) + 16px);
+    backdrop-filter: blur(10px);
+  }
+
+  .prompt-primary-cta {
+    @apply h-14 w-full rounded-2xl text-base font-semibold;
+  }
+
+  .prompt-tertiary-action {
+    @apply w-full rounded-xl bg-transparent py-1.5 text-sm font-medium text-muted-foreground transition-colors;
+    @apply hover:text-foreground hover:underline hover:underline-offset-4;
+  }
+
   /* Aurora Signal Pills */
   .signal-pill {
     @apply inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium;
@@ -890,6 +1004,27 @@
 }
 
 @layer utilities {
+  .aurora-home-role-icon {
+    background-color: hsl(var(--aurora-home-accent));
+    color: hsl(var(--aurora-home-accent-foreground));
+    border-color: hsl(var(--aurora-home-border) / 0.72);
+  }
+
+  .aurora-home-role-primary {
+    background-color: hsl(var(--aurora-home-primary));
+    color: hsl(var(--aurora-home-primary-foreground));
+  }
+
+  .aurora-home-role-primary-soft {
+    background-color: hsl(var(--aurora-home-primary) / 0.12);
+    color: hsl(var(--aurora-home-primary));
+  }
+
+  .aurora-home-role-muted {
+    background-color: hsl(var(--aurora-home-muted));
+    color: hsl(var(--aurora-home-muted-foreground));
+  }
+
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;

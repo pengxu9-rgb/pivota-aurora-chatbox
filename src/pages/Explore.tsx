@@ -24,7 +24,7 @@ export default function Explore() {
 
       <div className="ios-panel mt-4">
         <div className="flex items-start gap-3">
-          <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
             <Compass className="h-[18px] w-[18px]" />
           </div>
           <div>
@@ -37,7 +37,7 @@ export default function Explore() {
 
         <button
           type="button"
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card active:scale-[0.99]"
+          className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
           onClick={() => openComposer()}
         >
           <Sparkles className="h-4 w-4" />

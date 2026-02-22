@@ -31,7 +31,7 @@ export function AuroraSidebar({
             <div className="border-b border-border/60 px-[var(--aurora-page-x)] py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
                     <User className="h-[18px] w-[18px]" />
                   </div>
                   <div className="leading-tight">
@@ -175,7 +175,7 @@ function SideAction({
       <Icon className="h-[18px] w-[18px]" />
       <span className="flex-1 text-left">{label}</span>
       {badge ? (
-        <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">{badge}</span>
+        <span className="aurora-home-role-primary rounded-full px-2 py-0.5 text-[11px] font-semibold">{badge}</span>
       ) : null}
     </button>
   );
