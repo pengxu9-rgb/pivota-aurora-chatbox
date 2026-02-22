@@ -141,27 +141,29 @@ export function DiagnosisCard({ onAction, language }: DiagnosisCardProps) {
       )}
 
       {/* Actions */}
-      <div className="flex gap-2 pt-2">
-        {step > 1 && (
+      <div className="pt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] gap-2">
+        <div className="flex min-w-0 gap-2">
+          {step > 1 ? (
+            <button
+              onClick={() => setStep((step - 1) as 1 | 2 | 3)}
+              className="action-button action-button-ghost flex-1"
+            >
+              {t('diagnosis.btn.back', language)}
+            </button>
+          ) : null}
           <button
-            onClick={() => setStep((step - 1) as 1 | 2 | 3)}
-            className="action-button action-button-ghost"
+            onClick={() => onAction('diagnosis_skip')}
+            className={`action-button action-button-ghost ${step > 1 ? 'flex-1' : 'w-full'}`}
           >
-            {t('diagnosis.btn.back', language)}
+            {t('diagnosis.btn.skip', language)}
           </button>
-        )}
+        </div>
         <button
           onClick={handleNext}
           disabled={!canProceed}
-          className="action-button action-button-primary flex-1 disabled:opacity-50"
+          className="action-button action-button-primary w-full disabled:opacity-50"
         >
           {step === 3 ? t('diagnosis.btn.analyze', language) : t('diagnosis.btn.next', language)}
-        </button>
-        <button
-          onClick={() => onAction('diagnosis_skip')}
-          className="action-button action-button-ghost"
-        >
-          {t('diagnosis.btn.skip', language)}
         </button>
       </div>
     </div>

@@ -567,13 +567,17 @@
 
   /* Aurora Cards */
   .chat-card {
-    @apply rounded-2xl border border-border/60 bg-card/80;
+    @apply rounded-2xl border;
     @apply animate-scale-in;
+    border-color: hsl(var(--aurora-home-border) / 0.72);
+    background-color: hsl(var(--aurora-home-card) / 0.9);
     padding: var(--aurora-card-pad);
   }
 
   .chat-card-elevated {
-    @apply rounded-2xl border border-border/80 bg-card shadow-elevated;
+    @apply rounded-2xl border shadow-elevated;
+    border-color: hsl(var(--aurora-home-border) / 0.78);
+    background-color: hsl(var(--aurora-home-card));
     padding: var(--aurora-card-pad-elevated);
   }
 
@@ -603,52 +607,88 @@
   /* Aurora Chip Buttons - refined with better interaction */
   .chip-button {
     @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5;
-    @apply bg-muted/80 text-muted-foreground;
     @apply rounded-full text-[13px] font-medium tracking-[0.01em];
     @apply transition-all duration-200 ease-out;
-    @apply hover:bg-primary/10 hover:text-primary active:scale-[0.97];
-    @apply touch-manipulation border border-border/30;
+    @apply active:scale-[0.97];
+    @apply touch-manipulation border;
+    background-color: hsl(var(--aurora-home-muted));
+    color: hsl(var(--aurora-home-muted-foreground));
+    border-color: hsl(var(--aurora-home-border) / 0.82);
     min-height: 40px;
   }
 
+  .chip-button:hover {
+    background-color: hsl(var(--aurora-home-accent));
+    color: hsl(var(--aurora-home-accent-foreground));
+    border-color: hsl(var(--aurora-home-border));
+  }
+
   .chip-button-primary {
-    @apply bg-primary text-primary-foreground border-primary;
-    @apply hover:bg-primary/95 hover:text-primary-foreground;
-    box-shadow: 0 8px 20px -14px hsl(var(--primary) / 0.65);
+    background-color: hsl(var(--aurora-home-primary));
+    color: hsl(var(--aurora-home-primary-foreground));
+    border-color: hsl(var(--aurora-home-primary) / 0.45);
+    box-shadow: 0 8px 20px -14px hsl(var(--aurora-home-primary) / 0.6);
+  }
+
+  .chip-button-primary:hover {
+    background-color: hsl(var(--aurora-home-primary) / 0.92);
+    color: hsl(var(--aurora-home-primary-foreground));
   }
 
   .chip-button-outline {
-    @apply bg-transparent border-2 border-primary/50 text-primary;
-    @apply hover:bg-primary/10 hover:border-primary;
+    @apply bg-transparent border-2;
+    border-color: hsl(var(--aurora-home-primary) / 0.5);
+    color: hsl(var(--aurora-home-primary));
+  }
+
+  .chip-button-outline:hover {
+    background-color: hsl(var(--aurora-home-primary) / 0.1);
+    border-color: hsl(var(--aurora-home-primary));
   }
 
   /* Aurora Action Buttons - enhanced with better shadows */
   .action-button {
-    @apply w-full py-3 px-4 rounded-xl font-medium;
+    @apply w-full py-3 px-4 rounded-xl border font-medium;
     @apply transition-all duration-200 ease-out;
     @apply active:scale-[0.97] touch-manipulation;
+    border-color: hsl(var(--aurora-home-border) / 0.82);
     min-height: 44px;
   }
 
   .action-button-primary {
-    @apply bg-primary text-primary-foreground;
-    @apply hover:bg-primary/90;
-    box-shadow: 0 2px 8px hsl(var(--primary) / 0.35), 0 1px 2px hsl(var(--primary) / 0.2);
+    background-color: hsl(var(--aurora-home-primary));
+    color: hsl(var(--aurora-home-primary-foreground));
+    border-color: hsl(var(--aurora-home-primary) / 0.45);
+    box-shadow: 0 2px 8px hsl(var(--aurora-home-primary) / 0.35), 0 1px 2px hsl(var(--aurora-home-primary) / 0.2);
   }
 
   .action-button-primary:hover {
-    box-shadow: 0 4px 12px hsl(var(--primary) / 0.4), 0 2px 4px hsl(var(--primary) / 0.25);
+    background-color: hsl(var(--aurora-home-primary) / 0.92);
+    box-shadow: 0 4px 12px hsl(var(--aurora-home-primary) / 0.4), 0 2px 4px hsl(var(--aurora-home-primary) / 0.25);
     transform: translateY(-1px);
   }
 
   .action-button-secondary {
-    @apply bg-muted text-foreground border border-border/50;
-    @apply hover:bg-muted/80 hover:border-border;
+    background-color: hsl(var(--aurora-home-muted));
+    color: hsl(var(--aurora-home-foreground));
+    border-color: hsl(var(--aurora-home-border) / 0.9);
+  }
+
+  .action-button-secondary:hover {
+    background-color: hsl(var(--aurora-home-accent));
+    border-color: hsl(var(--aurora-home-border));
   }
 
   .action-button-ghost {
-    @apply bg-transparent text-muted-foreground;
-    @apply hover:bg-muted/50;
+    background-color: transparent;
+    color: hsl(var(--aurora-home-muted-foreground));
+    border-color: hsl(var(--aurora-home-border) / 0.6);
+  }
+
+  .action-button-ghost:hover {
+    background-color: hsl(var(--aurora-home-muted) / 0.7);
+    color: hsl(var(--aurora-home-foreground));
+    border-color: hsl(var(--aurora-home-border) / 0.9);
   }
 
   /* Question Prompt system */
@@ -716,9 +756,15 @@
   }
 
   .prompt-option-card {
-    @apply w-full rounded-2xl border border-border/60 bg-card px-4 py-3 text-left transition-colors;
-    @apply hover:border-primary/35 hover:bg-primary/[0.04];
+    @apply w-full rounded-2xl border bg-card px-4 py-3 text-left transition-colors;
+    border-color: hsl(var(--aurora-home-border) / 0.72);
+    background-color: hsl(var(--aurora-home-card));
     min-height: 50px;
+  }
+
+  .prompt-option-card:hover {
+    border-color: hsl(var(--aurora-home-primary) / 0.35);
+    background-color: hsl(var(--aurora-home-primary) / 0.05);
   }
 
   .prompt-option-card-multiline {
@@ -726,7 +772,8 @@
   }
 
   .prompt-option-card-selected {
-    @apply border-primary/60 bg-primary/[0.08];
+    border-color: hsl(var(--aurora-home-primary) / 0.6);
+    background-color: hsl(var(--aurora-home-primary) / 0.12);
   }
 
   .prompt-option-card-disabled {
@@ -738,7 +785,9 @@
   }
 
   .prompt-option-card-check-selected {
-    @apply border-primary bg-primary text-primary-foreground;
+    border-color: hsl(var(--aurora-home-primary));
+    background-color: hsl(var(--aurora-home-primary));
+    color: hsl(var(--aurora-home-primary-foreground));
   }
 
   .prompt-footer {
@@ -763,6 +812,18 @@
   .prompt-tertiary-action {
     @apply w-full rounded-xl bg-transparent py-1.5 text-sm font-medium text-muted-foreground transition-colors;
     @apply hover:text-foreground hover:underline hover:underline-offset-4;
+  }
+
+  /* Decision rows: put preferred(primary) action on right and wider */
+  .dialog-choice-row {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+
+  .dialog-choice-row > * {
+    min-width: 0;
   }
 
   /* Aurora Signal Pills */

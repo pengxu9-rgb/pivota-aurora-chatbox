@@ -570,23 +570,22 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => openCamera(slot)}
-            className="action-button action-button-secondary !py-2 !px-2 text-[11px] flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={uploading}
-          >
-            <ScanFace className="w-3 h-3" />
-            {photo ? copy.retakeCamera : copy.openCamera}
-          </button>
-
+        <div className="dialog-choice-row">
           <button
             onClick={() => inputRef.current?.click()}
-            className="action-button action-button-ghost !py-2 !px-2 text-[11px] flex items-center justify-center gap-1 border border-border/50 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+            className="action-button action-button-ghost !py-2 !px-2 text-[11px] flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={uploading}
           >
             <Upload className="w-3 h-3" />
             {copy.uploadAlbum}
+          </button>
+          <button
+            onClick={() => openCamera(slot)}
+            className="action-button action-button-primary !py-2 !px-2 text-[11px] flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={uploading}
+          >
+            <ScanFace className="w-3 h-3" />
+            {photo ? copy.retakeCamera : copy.openCamera}
           </button>
         </div>
 
@@ -614,13 +613,19 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
   return (
     <div className="chat-card space-y-3">
       {cameraSlot && (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-3">
+        <div
+          className="rounded-xl border p-3 space-y-3 max-h-[72dvh] overflow-y-auto lg:max-h-[720px]"
+          style={{
+            borderColor: 'hsl(var(--aurora-home-primary) / 0.35)',
+            backgroundColor: 'hsl(var(--aurora-home-primary) / 0.06)',
+          }}
+        >
           <div className="space-y-1">
             <div className="text-xs font-semibold text-primary">{copy.cameraGuideTitle}</div>
             <div className="text-[11px] text-muted-foreground">{copy.cameraGuideTip}</div>
           </div>
 
-          <div className="relative aspect-square rounded-xl overflow-hidden border border-border bg-black">
+          <div className="relative mx-auto w-full max-w-[340px] aspect-square rounded-xl overflow-hidden border border-border bg-black">
             <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover scale-x-[-1]" />
             <div className="pointer-events-none absolute inset-0 bg-black/15" />
             <div className="pointer-events-none absolute inset-[12%] rounded-[42%] border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.20)]" />
@@ -653,7 +658,14 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="dialog-choice-row">
+            <button
+              onClick={closeCamera}
+              className="action-button action-button-secondary !py-2.5"
+              disabled={uploading}
+            >
+              {copy.cancel}
+            </button>
             <button
               onClick={captureFromCamera}
               disabled={!isCameraReady || Boolean(cameraError) || uploading}
@@ -661,13 +673,6 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
             >
               <Camera className="w-4 h-4" />
               {copy.capture}
-            </button>
-            <button
-              onClick={closeCamera}
-              className="action-button action-button-secondary !py-2.5"
-              disabled={uploading}
-            >
-              {copy.cancel}
             </button>
           </div>
         </div>
@@ -733,13 +738,13 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
           </button>
         )}
 
-        <div className="flex gap-2">
+        <div className="dialog-choice-row">
           <button
             onClick={() => {
               closeCamera();
               onAction('photo_skip');
             }}
-            className="action-button action-button-secondary flex-1"
+            className="action-button action-button-secondary"
             disabled={uploading}
           >
             {t('s3.btn.skip', language)}
@@ -749,7 +754,7 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
               closeCamera();
               onAction('photo_use_sample_sample_set_A');
             }}
-            className="action-button action-button-ghost flex-1"
+            className="action-button action-button-primary"
             disabled={uploading}
           >
             {t('s3.btn.sample', language)}

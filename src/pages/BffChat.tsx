@@ -1145,7 +1145,7 @@ function Sheet({
               {onOpenMenu ? (
                 <button
                   type="button"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+                  className="aurora-home-role-icon inline-flex h-9 w-9 items-center justify-center rounded-full border"
                   onClick={() => {
                     onOpenMenu();
                   }}
@@ -1157,7 +1157,7 @@ function Sheet({
               <div className="text-sm font-semibold text-foreground">{title}</div>
             </div>
             <button
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+              className="aurora-home-role-icon inline-flex h-9 w-9 items-center justify-center rounded-full border"
               onClick={onClose}
               aria-label="Close"
             >
@@ -6563,13 +6563,13 @@ export default function BffChat() {
                               autoComplete="one-time-code"
                             />
                           </label>
-                          <div className="flex gap-2">
+                          <div className="dialog-choice-row">
                             <button type="button" className="chip-button" onClick={() => setAuthStage('email')} disabled={authLoading}>
                               {language === 'CN' ? '返回' : 'Back'}
                             </button>
                             <button
                               type="button"
-                              className="chip-button chip-button-primary flex-1"
+                              className="chip-button chip-button-primary"
                               onClick={() => void verifyAuth()}
                               disabled={authLoading || !authDraft.code.trim()}
                             >
@@ -6821,7 +6821,7 @@ export default function BffChat() {
                 placeholder={language === 'CN' ? '例如：Nivea Creme / https://…' : 'e.g., Nivea Creme / https://…'}
                 disabled={isLoading}
               />
-              <div className="flex gap-2">
+              <div className="dialog-choice-row">
                 <button type="button" className="chip-button" onClick={() => setProductSheetOpen(false)} disabled={isLoading}>
                   {language === 'CN' ? '取消' : 'Cancel'}
                 </button>
@@ -6869,7 +6869,7 @@ export default function BffChat() {
                 />
               </label>
 
-              <div className="flex gap-2">
+              <div className="dialog-choice-row">
                 <button type="button" className="chip-button" onClick={() => setDupeSheetOpen(false)} disabled={isLoading}>
                   {language === 'CN' ? '取消' : 'Cancel'}
                 </button>
@@ -7115,7 +7115,7 @@ export default function BffChat() {
                 />
               </label>
 
-              <div className="flex gap-2">
+              <div className="dialog-choice-row">
                 <button
                   type="button"
                   className="chip-button"
@@ -7178,7 +7178,7 @@ export default function BffChat() {
                 />
               </label>
 
-              <div className="flex gap-2">
+              <div className="dialog-choice-row">
                 <button type="button" className="chip-button" onClick={() => setCheckinSheetOpen(false)} disabled={isLoading}>
                   {language === 'CN' ? '取消' : 'Cancel'}
                 </button>
