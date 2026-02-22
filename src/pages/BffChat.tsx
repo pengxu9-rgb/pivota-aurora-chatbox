@@ -21,7 +21,7 @@ import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
-import { IngredientReportCard } from '@/components/aurora/cards/IngredientReportCard';
+import { IngredientReportCard, type IngredientReportQuestionSelection } from '@/components/aurora/cards/IngredientReportCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
 import { augmentEnvelopeWithIngredientReport } from '@/lib/ingredientReportCard';
 import { humanizeKbNote } from '@/lib/auroraKbHumanize';
@@ -990,6 +990,46 @@ const profileRecoCompleteness = (profile: Record<string, unknown> | null | undef
     .map(([k]) => k);
   return { score, missing };
 };
+
+const getIngredientFitProfileStatus = (profile: Record<string, unknown> | null | undefined) => {
+  const p = profile ?? {};
+  const goals = (p as any).goals;
+  const hasGoals = Array.isArray(goals) ? goals.length > 0 : Boolean(asString(goals));
+  const hasSensitivity = Boolean(asString((p as any).sensitivity));
+  return {
+    hasGoals,
+    hasSensitivity,
+    isComplete: hasGoals && hasSensitivity,
+  };
+};
+
+function normalizeSelectionKey(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[’‘`´]/g, "'")
+    .replace(/[_-]/g, ' ');
+}
+
+function mapIngredientGoalChipToProfileGoal(chip: string): string | null {
+  const key = normalizeSelectionKey(chip);
+  if (!key) return null;
+  if (key.includes('fine line') || key.includes('firmness') || key.includes('细纹') || key.includes('紧致')) return 'wrinkles';
+  if (key.includes('sensitive') || key.includes('repair') || key.includes('敏感') || key.includes('修护')) return 'barrier';
+  if (key.includes('acne') || key.includes('痘')) return 'acne';
+  if (key.includes('bright') || key.includes('提亮')) return 'brightening';
+  return null;
+}
+
+function mapIngredientSensitivityChipToProfileSensitivity(chip: string): string | null {
+  const key = normalizeSelectionKey(chip);
+  if (!key) return null;
+  if (key.includes('sensitive') || key.includes('敏感')) return 'high';
+  if (key.includes('normal') || key.includes('一般')) return 'medium';
+  if (key.includes('resilient') || key.includes('耐受')) return 'low';
+  return null;
+}
 
 const readBootstrapInfoFromSessionBootstrapCard = (env: V1Envelope): BootstrapInfoPatch | null => {
   const cards = Array.isArray(env.cards) ? env.cards : [];
@@ -2399,8 +2439,11 @@ function BffCardView({
   resolveProductsSearch,
   onDeepScanProduct,
   bootstrapInfo,
+  profileSnapshot,
   onOpenCheckin,
   onOpenProfile,
+  onIngredientQuestionSelect,
+  ingredientQuestionBusy,
   onOpenPdp,
   analyticsCtx,
 }: {
@@ -2427,8 +2470,11 @@ function BffCardView({
   resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   bootstrapInfo?: BootstrapInfo | null;
+  profileSnapshot?: Record<string, unknown> | null;
   onOpenCheckin?: () => void;
   onOpenProfile?: () => void;
+  onIngredientQuestionSelect?: (selection: IngredientReportQuestionSelection) => void;
+  ingredientQuestionBusy?: boolean;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
 }) {
@@ -2523,7 +2569,23 @@ function BffCardView({
   if (!debug && cardType === 'aurora_structured' && structuredCitations.length === 0) return null;
 
   if (cardType === 'aurora_ingredient_report') {
-    return <IngredientReportCard payload={payload} language={language} />;
+    const profileForFit = profileSnapshot ?? bootstrapInfo?.profile ?? null;
+    const fitStatus = getIngredientFitProfileStatus(profileForFit);
+    const hiddenQuestionIds = [
+      ...(fitStatus.hasGoals ? ['goal'] : []),
+      ...(fitStatus.hasSensitivity ? ['sensitivity'] : []),
+    ];
+    return (
+      <IngredientReportCard
+        payload={payload}
+        language={language}
+        showNextQuestions={!fitStatus.isComplete}
+        hiddenQuestionIds={hiddenQuestionIds}
+        nextQuestionBusy={Boolean(ingredientQuestionBusy)}
+        onSelectNextQuestion={onIngredientQuestionSelect}
+        onOpenProfile={onOpenProfile}
+      />
+    );
   }
 
   if (cardType === 'aurora_structured') {
@@ -3994,6 +4056,7 @@ export default function BffChat() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
+  const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
 
   const shop = useShop();
@@ -4326,6 +4389,7 @@ export default function BffChat() {
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setBootstrapInfo(null);
+    setIngredientQuestionBusy(false);
     pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
@@ -4441,6 +4505,64 @@ export default function BffChat() {
       setIsLoading(false);
     }
   }, [applyEnvelope, headers, language, profileDraft, tryApplyEnvelopeFromBffError]);
+
+  const onIngredientQuestionSelect = useCallback(
+    async (selection: IngredientReportQuestionSelection) => {
+      const questionId = asString(selection.questionId);
+      const chip = asString(selection.chip);
+      if (!questionId || !chip) return;
+
+      const patch: Record<string, unknown> = {};
+      if (questionId === 'goal') {
+        const mapped = mapIngredientGoalChipToProfileGoal(chip);
+        if (!mapped) return;
+        patch.goals = [mapped];
+      } else if (questionId === 'sensitivity') {
+        const mapped = mapIngredientSensitivityChipToProfileSensitivity(chip);
+        if (!mapped) return;
+        patch.sensitivity = mapped;
+      } else {
+        return;
+      }
+
+      setIngredientQuestionBusy(true);
+
+      // Optimistic profile update so "Next questions" can auto-hide immediately after required fields are filled.
+      setProfileSnapshot((prev) => {
+        const base = asObject(prev) ?? {};
+        return { ...base, ...patch };
+      });
+      setBootstrapInfo((prev) => {
+        const merged: BootstrapInfo = prev
+          ? { ...prev }
+          : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+        const baseProfile = asObject(merged.profile) ?? {};
+        merged.profile = { ...baseProfile, ...patch };
+        return merged;
+      });
+
+      try {
+        const requestHeaders = { ...headers, lang: language };
+        await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(patch),
+        });
+
+        toast({
+          title: language === 'CN' ? '已记录偏好' : 'Preference saved',
+          description:
+            language === 'CN'
+              ? '已用于后续成分适配度分析。'
+              : 'This will be used for ingredient skin-fit analysis.',
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIngredientQuestionBusy(false);
+      }
+    },
+    [headers, language],
+  );
 
   const saveCheckin = useCallback(async () => {
     setIsLoading(true);
@@ -5901,6 +6023,7 @@ export default function BffChat() {
     setQuickProfileStep('skin_feel');
     setQuickProfileDraft({});
     setQuickProfileBusy(false);
+    setIngredientQuestionBusy(false);
     setItems([]);
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
@@ -7136,8 +7259,11 @@ export default function BffChat() {
                           resolveProductsSearch={resolveProductsSearch}
                           onDeepScanProduct={runProductDeepScan}
                           bootstrapInfo={bootstrapInfo}
+                          profileSnapshot={profileSnapshot}
                           onOpenCheckin={() => setCheckinSheetOpen(true)}
                           onOpenProfile={() => setProfileSheetOpen(true)}
+                          onIngredientQuestionSelect={onIngredientQuestionSelect}
+                          ingredientQuestionBusy={ingredientQuestionBusy}
                           onOpenPdp={openPdpDrawer}
                           analyticsCtx={{
                             brief_id: headers.brief_id,

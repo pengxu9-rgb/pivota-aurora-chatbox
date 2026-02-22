@@ -172,7 +172,30 @@ function chipTone(relevance: string): string {
   return 'border-border/60 bg-muted/60 text-muted-foreground';
 }
 
-export function IngredientReportCard({ payload: rawPayload, language }: { payload: unknown; language: UiLanguage }) {
+export type IngredientReportQuestionSelection = {
+  questionId: string;
+  chip: string;
+};
+
+type IngredientReportCardProps = {
+  payload: unknown;
+  language: UiLanguage;
+  showNextQuestions?: boolean;
+  hiddenQuestionIds?: string[];
+  nextQuestionBusy?: boolean;
+  onSelectNextQuestion?: (selection: IngredientReportQuestionSelection) => void;
+  onOpenProfile?: () => void;
+};
+
+export function IngredientReportCard({
+  payload: rawPayload,
+  language,
+  showNextQuestions = true,
+  hiddenQuestionIds = [],
+  nextQuestionBusy = false,
+  onSelectNextQuestion,
+  onOpenProfile,
+}: IngredientReportCardProps) {
   const payload = normalizePayload(rawPayload);
 
   if (!payload) {
@@ -184,6 +207,8 @@ export function IngredientReportCard({ payload: rawPayload, language }: { payloa
   }
 
   const confidencePct = `${Math.round(Math.max(0, Math.min(1, payload.verdict.confidence)) * 100)}%`;
+  const hiddenSet = new Set(hiddenQuestionIds.map((id) => asString(id)).filter(Boolean));
+  const visibleQuestions = payload.next_questions.filter((q) => !hiddenSet.has(q.id));
 
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/80 p-4">
@@ -325,23 +350,52 @@ export function IngredientReportCard({ payload: rawPayload, language }: { payloa
         </div>
       </details>
 
-      {payload.next_questions.length ? (
+      {visibleQuestions.length && showNextQuestions ? (
         <div className="space-y-2">
           <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Next questions' : 'Next questions'}</div>
+          <div className="rounded-xl border border-border/60 bg-background/60 p-2 text-xs text-muted-foreground">
+            {zh(language)
+              ? '补充你的目标和皮肤耐受后，我会更准确评估这个成分与你肤况的适用性/匹配度。'
+              : 'Add your goal and sensitivity, and I can score ingredient suitability/match for your skin more accurately.'}
+            {onOpenProfile ? (
+              <button
+                type="button"
+                className="ml-2 inline-flex items-center rounded-full border border-border/60 bg-muted/70 px-2 py-1 text-[11px] text-foreground"
+                onClick={onOpenProfile}
+                disabled={nextQuestionBusy}
+              >
+                {zh(language) ? '完善肤况' : 'Complete profile'}
+              </button>
+            ) : null}
+          </div>
           <div className="space-y-2">
-            {payload.next_questions.slice(0, 2).map((q) => (
+            {visibleQuestions.slice(0, 2).map((q) => (
               <div key={q.id} className="rounded-xl border border-border/60 bg-background/60 p-2">
                 <div className="text-xs text-muted-foreground">{q.label}</div>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {q.chips.slice(0, 6).map((chip) => (
-                    <span key={chip} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
+                    <button
+                      key={chip}
+                      type="button"
+                      className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-muted"
+                      disabled={nextQuestionBusy || !onSelectNextQuestion}
+                      onClick={() => onSelectNextQuestion?.({ questionId: q.id, chip })}
+                    >
                       {chip}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {payload.next_questions.length && (!showNextQuestions || !visibleQuestions.length) ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-2 text-xs text-emerald-800">
+          {zh(language)
+            ? '已记录你的目标与皮肤耐受，后续会优先按成分适配度给建议。'
+            : 'Saved your goal and sensitivity. Next ingredient guidance will prioritize skin-fit relevance.'}
         </div>
       ) : null}
     </div>
