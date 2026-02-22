@@ -86,6 +86,12 @@ export interface PhotoSlot {
   preview?: string;
   qcStatus?: 'pending' | 'passed' | 'too_dark' | 'has_filter' | 'blurry';
   qcAdvice?: Record<string, any>;
+  frameCheck?: {
+    level: 'good' | 'warn' | 'bad' | 'unknown';
+    score: number;
+    issues: Array<'no_face' | 'off_center' | 'too_small' | 'too_large' | 'cutoff' | 'detector_unavailable'>;
+    hint: string;
+  };
   retryCount: number;
 }
 
