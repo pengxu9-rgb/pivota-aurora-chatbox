@@ -19,6 +19,10 @@ function barrierSummary(status: DiagnosisResult['barrierStatus'] | undefined, la
   return language === 'EN' ? 'Barrier: not provided' : '屏障：未填写';
 }
 
+/**
+ * @deprecated Legacy prompt implementation. Not wired in current `/chat` runtime.
+ * Use the unified prompt system (`PromptHeader`/`PromptFooter`/`OptionCardGroup`) for new ask flows.
+ */
 export function AuroraScoringCard({ payload, onAction, language }: AuroraScoringCardProps) {
   const { analysis, session } = payload;
   const photoCount = Object.values(session.photos).filter(p => p?.preview).length;

@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   TriangleAlert,
 } from 'lucide-react';
+import { PromptFooter, PromptHeader } from '@/components/prompt';
 
 interface PhotoUploadCardProps {
   onAction: (actionId: string, data?: Record<string, any>) => void;
@@ -24,6 +25,7 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
   type FrameCheck = NonNullable<PhotoSlot['frameCheck']>;
   type FrameIssue = FrameCheck['issues'][number];
   type FrameLevel = FrameCheck['level'];
+  type PhotoStep = 'selection' | 'consent';
 
   const SLOT_IDS: SlotId[] = ['daylight', 'indoor_white'];
 
@@ -32,6 +34,7 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
     indoor_white: undefined,
   });
   const [consent, setConsent] = useState(false);
+  const [step, setStep] = useState<PhotoStep>('selection');
 
   const daylightInputRef = useRef<HTMLInputElement>(null);
   const indoorInputRef = useRef<HTMLInputElement>(null);
@@ -501,6 +504,11 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
   };
 
   const hasPhotos = Boolean(photos.daylight || photos.indoor_white);
+  const consentRequired = true;
+
+  useEffect(() => {
+    if (step === 'consent' && !hasPhotos) setStep('selection');
+  }, [hasPhotos, step]);
 
   const statusChipClass = (level: FrameLevel | undefined) => {
     if (level === 'good') return 'bg-success/15 text-success border-success/40';
@@ -611,151 +619,186 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
     );
   };
 
+  const handleContinueFromSelection = () => {
+    if (uploading || !hasPhotos) return;
+    closeCamera();
+    setGuardNeedsConfirm(false);
+    setGuardSlots([]);
+    if (consentRequired) {
+      setStep('consent');
+      return;
+    }
+    setConsent(true);
+    handleUpload();
+  };
+
+  const handleContinueWithoutPhotos = () => {
+    if (uploading) return;
+    closeCamera();
+    setStep('selection');
+    setGuardNeedsConfirm(false);
+    setGuardSlots([]);
+    onAction('photo_skip');
+  };
+
+  const handleBackFromConsent = () => {
+    if (uploading) return;
+    setStep('selection');
+    setGuardNeedsConfirm(false);
+    setGuardSlots([]);
+  };
+
   return (
-    <div className="chat-card space-y-3">
-      {cameraSlot && (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-3">
-          <div className="space-y-1">
-            <div className="text-xs font-semibold text-primary">{copy.cameraGuideTitle}</div>
-            <div className="text-[11px] text-muted-foreground">{copy.cameraGuideTip}</div>
-          </div>
+    <div className="chat-card space-y-3 pb-2">
+      <PromptHeader
+        title={step === 'selection' ? t('photo.step1.title', language) : t('photo.step2.title', language)}
+        helper={step === 'selection' ? t('photo.step1.helper', language) : t('photo.step2.helper', language)}
+        language={language}
+        step={{ current: step === 'selection' ? 1 : 2, total: 2 }}
+        showBack={step === 'consent'}
+        onBack={step === 'consent' ? handleBackFromConsent : undefined}
+      />
 
-          <div className="relative aspect-square rounded-xl overflow-hidden border border-border bg-black">
-            <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover scale-x-[-1]" />
-            <div className="pointer-events-none absolute inset-0 bg-black/15" />
-            <div className="pointer-events-none absolute inset-[12%] rounded-[42%] border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.20)]" />
-            <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3">
-              {Array.from({ length: 9 }).map((_, idx) => (
-                <div key={idx} className="border border-white/10" />
-              ))}
-            </div>
-          </div>
-
-          {cameraError ? (
-            <div className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
-              {cameraError}
-            </div>
-          ) : (
-            <div className={`rounded-lg border px-2 py-1.5 text-[11px] ${statusChipClass(liveFrameCheck?.level)}`}>
-              <div className="flex items-center gap-1.5">
-                {liveFrameCheck?.level === 'good' ? (
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                ) : liveFrameCheck?.level === 'bad' ? (
-                  <TriangleAlert className="w-3.5 h-3.5" />
-                ) : (
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                )}
-                <span className="font-medium">{statusLabel(liveFrameCheck?.level)}</span>
-                {isLiveAnalyzing && <span className="opacity-80">· {copy.analyzing}</span>}
-                {liveFrameCheck && <span className="ml-auto tabular-nums">score {liveFrameCheck.score}</span>}
+      {step === 'selection' ? (
+        <div className="space-y-3 pb-28">
+          {cameraSlot && (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-3">
+              <div className="space-y-1">
+                <div className="text-xs font-semibold text-primary">{copy.cameraGuideTitle}</div>
+                <div className="text-[11px] text-muted-foreground">{copy.cameraGuideTip}</div>
               </div>
-              {liveFrameCheck?.hint && <div className="mt-1">{liveFrameCheck.hint}</div>}
+
+              <div className="relative aspect-square rounded-xl overflow-hidden border border-border bg-black">
+                <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover scale-x-[-1]" />
+                <div className="pointer-events-none absolute inset-0 bg-black/15" />
+                <div className="pointer-events-none absolute inset-[12%] rounded-[42%] border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.20)]" />
+                <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3">
+                  {Array.from({ length: 9 }).map((_, idx) => (
+                    <div key={idx} className="border border-white/10" />
+                  ))}
+                </div>
+              </div>
+
+              {cameraError ? (
+                <div className="rounded-lg border border-warning/40 bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+                  {cameraError}
+                </div>
+              ) : (
+                <div className={`rounded-lg border px-2 py-1.5 text-[11px] ${statusChipClass(liveFrameCheck?.level)}`}>
+                  <div className="flex items-center gap-1.5">
+                    {liveFrameCheck?.level === 'good' ? (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    ) : liveFrameCheck?.level === 'bad' ? (
+                      <TriangleAlert className="w-3.5 h-3.5" />
+                    ) : (
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    )}
+                    <span className="font-medium">{statusLabel(liveFrameCheck?.level)}</span>
+                    {isLiveAnalyzing && <span className="opacity-80">· {copy.analyzing}</span>}
+                    {liveFrameCheck && <span className="ml-auto tabular-nums">score {liveFrameCheck.score}</span>}
+                  </div>
+                  {liveFrameCheck?.hint && <div className="mt-1">{liveFrameCheck.hint}</div>}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={captureFromCamera}
+                  disabled={!isCameraReady || Boolean(cameraError) || uploading}
+                  className="action-button action-button-primary !py-2.5 flex items-center justify-center gap-1 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <Camera className="w-4 h-4" />
+                  {copy.capture}
+                </button>
+                <button
+                  onClick={closeCamera}
+                  className="action-button action-button-secondary !py-2.5"
+                  disabled={uploading}
+                >
+                  {copy.cancel}
+                </button>
+              </div>
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
+            {renderSlot('daylight', Sun, daylightInputRef)}
+            {renderSlot('indoor_white', Lightbulb, indoorInputRef)}
+          </div>
+
+          {hasPhotos && gentleAlertSlots.length > 0 && !guardNeedsConfirm ? (
+            <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              {copy.warningBanner}
+            </div>
+          ) : null}
+
+          <div className="flex justify-end">
             <button
-              onClick={captureFromCamera}
-              disabled={!isCameraReady || Boolean(cameraError) || uploading}
-              className="action-button action-button-primary !py-2.5 flex items-center justify-center gap-1 disabled:opacity-50 disabled:pointer-events-none"
-            >
-              <Camera className="w-4 h-4" />
-              {copy.capture}
-            </button>
-            <button
-              onClick={closeCamera}
-              className="action-button action-button-secondary !py-2.5"
+              type="button"
+              className="text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              onClick={() => {
+                closeCamera();
+                onAction('photo_use_sample_sample_set_A');
+              }}
               disabled={uploading}
             >
-              {copy.cancel}
+              {t('s3.btn.sample', language)}
             </button>
           </div>
         </div>
-      )}
+      ) : (
+        <div className="space-y-3 pb-28">
+          <div className="rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+            {SLOT_IDS.filter((slot) => photos[slot]).map((slot) => slotLabel(slot)).join(' · ')}
+          </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        {renderSlot('daylight', Sun, daylightInputRef)}
-        {renderSlot('indoor_white', Lightbulb, indoorInputRef)}
-      </div>
+          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              className="mt-0.5"
+              disabled={uploading}
+            />
+            <span>{t('s3.consent', language)}</span>
+          </label>
 
-      {hasPhotos && gentleAlertSlots.length > 0 && !guardNeedsConfirm && (
-        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-          {copy.warningBanner}
+          {guardNeedsConfirm && guardSlots.length > 0 ? (
+            <div className="rounded-lg border border-destructive/45 bg-destructive/10 px-3 py-2 space-y-2">
+              <div className="text-xs font-semibold text-destructive">{copy.guardTitle}</div>
+              <div className="text-[11px] text-destructive/90">{copy.guardBody}</div>
+              <div className="text-[11px] text-destructive/90">{guardSlots.map((slot) => slotLabel(slot)).join(' · ')}</div>
+              <button
+                type="button"
+                onClick={handleBackFromConsent}
+                className="action-button action-button-secondary w-full"
+                disabled={uploading}
+              >
+                {copy.retakeFirst}
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
 
-      {guardNeedsConfirm && guardSlots.length > 0 && (
-        <div className="rounded-lg border border-destructive/45 bg-destructive/10 px-3 py-2 space-y-1.5">
-          <div className="text-xs font-semibold text-destructive">{copy.guardTitle}</div>
-          <div className="text-[11px] text-destructive/90">{copy.guardBody}</div>
-          <div className="text-[11px] text-destructive/90">{guardSlots.map((slot) => slotLabel(slot)).join(' · ')}</div>
-        </div>
-      )}
-
-      <label className="flex items-start gap-2 text-xs text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={consent}
-          onChange={(e) => setConsent(e.target.checked)}
-          className="mt-0.5"
-          disabled={uploading}
-        />
-        <span>{t('s3.consent', language)}</span>
-      </label>
-
-      <div className="space-y-2">
-        {hasPhotos && (
-          <button
-            onClick={handleUpload}
-            disabled={!consent || uploading}
-            className="action-button action-button-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploading
-              ? language === 'CN'
-                ? '上传中…'
-                : 'Uploading…'
+      <PromptFooter
+        language={language}
+        sticky
+        primaryLabel={
+          step === 'selection'
+            ? t('prompt.common.continue', language)
+            : uploading
+              ? t('s3.uploading', language)
               : guardNeedsConfirm
-              ? copy.continueAnyway
-              : t('s3.btn.upload', language)}
-          </button>
-        )}
-
-        {guardNeedsConfirm && (
-          <button
-            onClick={() => {
-              setGuardNeedsConfirm(false);
-              setGuardSlots([]);
-            }}
-            className="action-button action-button-secondary w-full"
-            disabled={uploading}
-          >
-            {copy.retakeFirst}
-          </button>
-        )}
-
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              closeCamera();
-              onAction('photo_skip');
-            }}
-            className="action-button action-button-secondary flex-1"
-            disabled={uploading}
-          >
-            {t('s3.btn.skip', language)}
-          </button>
-          <button
-            onClick={() => {
-              closeCamera();
-              onAction('photo_use_sample_sample_set_A');
-            }}
-            className="action-button action-button-ghost flex-1"
-            disabled={uploading}
-          >
-            {t('s3.btn.sample', language)}
-          </button>
-        </div>
-      </div>
+                ? copy.continueAnyway
+                : t('photo.btn.confirmContinue', language)
+        }
+        onPrimary={step === 'selection' ? handleContinueFromSelection : handleUpload}
+        primaryDisabled={step === 'selection' ? !hasPhotos || uploading : !consent || uploading}
+        tertiaryLabel={t('photo.btn.continueWithout', language)}
+        onTertiary={step === 'selection' ? handleContinueWithoutPhotos : undefined}
+        tertiaryHidden={step !== 'selection'}
+      />
     </div>
   );
 }

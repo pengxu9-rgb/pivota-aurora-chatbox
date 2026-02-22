@@ -29,6 +29,10 @@ const SKIN_CONCERNS: { id: SkinConcern; icon: string }[] = [
   { id: 'dehydration', icon: '💦' },
 ];
 
+/**
+ * @deprecated Legacy prompt implementation. Not wired in current `/chat` runtime.
+ * Use the unified prompt system (`PromptHeader`/`PromptFooter`/`OptionCardGroup`) for new ask flows.
+ */
 export function AuroraProfileCard({ onAction, language }: AuroraProfileCardProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [skinType, setSkinType] = useState<SkinType | null>(null);

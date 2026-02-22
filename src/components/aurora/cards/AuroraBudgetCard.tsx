@@ -28,6 +28,10 @@ const BUDGETS: { tier: BudgetTier; icon: React.ReactNode; desc: { EN: string; CN
   },
 ];
 
+/**
+ * @deprecated Legacy prompt implementation. Not wired in current `/chat` runtime.
+ * Use the unified prompt system (`PromptHeader`/`PromptFooter`/`OptionCardGroup`) for new ask flows.
+ */
 export function AuroraBudgetCard({ onAction, language }: AuroraBudgetCardProps) {
   const [budget, setBudget] = useState<BudgetTier>('$$');
 

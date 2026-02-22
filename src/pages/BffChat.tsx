@@ -73,6 +73,8 @@ import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
+import { prioritizeChips } from '@/components/prompt/chipPriority';
+import { PromptFooter, PromptHeader } from '@/components/prompt';
 import {
   Activity,
   ArrowRight,
@@ -213,6 +215,15 @@ const toBffErrorMessage = (err: unknown): string => {
 };
 
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
+
+const previousQuickProfileStep = (step: QuickProfileStep): QuickProfileStep => {
+  if (step === 'goal_primary') return 'skin_feel';
+  if (step === 'sensitivity_flag') return 'goal_primary';
+  if (step === 'opt_in_more') return 'sensitivity_flag';
+  if (step === 'routine_complexity') return 'opt_in_more';
+  if (step === 'rx_flag') return 'routine_complexity';
+  return 'skin_feel';
+};
 
 const FF_RETURN_WELCOME = (() => {
   const raw = String(import.meta.env.VITE_FF_RETURN_WELCOME ?? 'true')
@@ -4631,7 +4642,7 @@ export default function BffChat() {
 
       setItems((prev) => [
         ...prev,
-        { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '今日打卡' : 'Daily check-in' },
+        { id: nextId(), role: 'user', kind: 'text', content: t('checkin.userText', language) },
       ]);
       applyEnvelope(env);
       setCheckinSheetOpen(false);
@@ -6606,24 +6617,24 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={routineSheetOpen}
-            title={language === 'CN' ? '填写你在用的 AM/PM 产品（更准）' : 'Add your AM/PM products (more accurate)'}
+            title={t('routine.sheet.title', language)}
             onClose={() => setRoutineSheetOpen(false)}
             onOpenMenu={() => {
               setRoutineSheetOpen(false);
               setSidebarOpen(true);
             }}
           >
-            <div className="space-y-3">
-              <div className="text-xs text-muted-foreground">
-                {language === 'CN'
-                  ? '如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先给低置信度 7 天安全基线（不评分/不推推荐）。'
-                  : 'If you want, add your current AM/PM products for higher accuracy. You can also skip and I will give a low-confidence 7-day safe baseline first (no scoring, no recommendations).'}
-              </div>
+            <div className="space-y-3 pb-2">
+              <PromptHeader
+                title={t('routine.sheet.title', language)}
+                helper={t('routine.sheet.helper', language)}
+                language={language}
+              />
 
               <div
                 className="inline-flex w-full items-center justify-between gap-2 rounded-2xl border border-border/50 bg-background/40 p-1"
                 role="tablist"
-                aria-label={language === 'CN' ? '选择早晚' : 'Choose AM/PM'}
+                aria-label={t('routine.tabs.aria', language)}
               >
                 <button
                   type="button"
@@ -6635,7 +6646,7 @@ export default function BffChat() {
                   onClick={() => setRoutineTab('am')}
                   disabled={isLoading}
                 >
-                  {language === 'CN' ? '早上（AM）' : 'Morning (AM)'}
+                  {t('routine.tab.am', language)}
                 </button>
                 <button
                   type="button"
@@ -6647,86 +6658,88 @@ export default function BffChat() {
                   onClick={() => setRoutineTab('pm')}
                   disabled={isLoading}
                 >
-                  {language === 'CN' ? '晚上（PM）' : 'Evening (PM)'}
+                  {t('routine.tab.pm', language)}
                 </button>
               </div>
 
-              <div className="space-y-3 pb-20">
+              <div className="space-y-3 pb-28">
                 {routineTab === 'am' ? (
-                  <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
-                    <div className="grid gap-2">
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '洁面' : 'Cleanser'}
+                  <div className="rounded-2xl border border-border/50 bg-background/40 p-3.5">
+                    <div className="mb-2 text-xs font-semibold text-foreground">{t('routine.section.am', language)}</div>
+                    <div className="grid gap-3">
+                      <label className="space-y-1.5 text-xs text-muted-foreground">
+                        {t('routine.field.cleanser.label', language)}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.cleanser}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
+                          placeholder={t('routine.field.cleanser.placeholder.am', language)}
                           disabled={isLoading}
                         />
                       </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                      <label className="space-y-1.5 text-xs text-muted-foreground">
+                        {t('routine.field.treatment.label', language)}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.treatment}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
+                          placeholder={t('routine.field.treatment.placeholder.am', language)}
                           disabled={isLoading}
                         />
                       </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                      <label className="space-y-1.5 text-xs text-muted-foreground">
+                        {t('routine.field.moisturizer.label', language)}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.moisturizer}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                          placeholder={t('routine.field.moisturizer.placeholder', language)}
                           disabled={isLoading}
                         />
                       </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
+                      <label className="space-y-1.5 text-xs text-muted-foreground">
+                        {t('routine.field.spf.label', language)}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.spf}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
+                          placeholder={t('routine.field.spf.placeholder', language)}
                           disabled={isLoading}
                         />
                       </label>
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
-                    <div className="grid gap-2">
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '洁面' : 'Cleanser'}
+                  <div className="rounded-2xl border border-border/50 bg-background/40 p-3.5">
+                    <div className="mb-2 text-xs font-semibold text-foreground">{t('routine.section.pm', language)}</div>
+                    <div className="grid gap-3">
+                      <label className="space-y-1.5 text-xs text-muted-foreground">
+                        {t('routine.field.cleanser.label', language)}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.pm.cleanser}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
+                          placeholder={t('routine.field.cleanser.placeholder.pm', language)}
                           disabled={isLoading}
                         />
                       </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                      <label className="space-y-1.5 text-xs text-muted-foreground">
+                        {t('routine.field.treatment.label', language)}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.pm.treatment}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
+                          placeholder={t('routine.field.treatment.placeholder.pm', language)}
                           disabled={isLoading}
                         />
                       </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                      <label className="space-y-1.5 text-xs text-muted-foreground">
+                        {t('routine.field.moisturizer.label', language)}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.pm.moisturizer}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                          placeholder={t('routine.field.moisturizer.placeholder', language)}
                           disabled={isLoading}
                         />
                       </label>
@@ -6736,18 +6749,14 @@ export default function BffChat() {
 
                 <details className="rounded-2xl border border-border/50 bg-background/40 p-3">
                   <summary className="cursor-pointer text-xs font-semibold text-foreground">
-                    {language === 'CN' ? '备注（可选）' : 'Notes (optional)'}
+                    {t('routine.notes.summary', language)}
                   </summary>
                   <div className="mt-2">
                     <textarea
                       className="min-h-[68px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
                       value={routineDraft.notes}
                       onChange={(e) => setRoutineDraft((prev) => ({ ...prev, notes: e.target.value }))}
-                      placeholder={
-                        language === 'CN'
-                          ? '例如：用了 retinol 会刺痛；最近泛红…'
-                          : 'e.g., stings after retinol; recent redness…'
-                      }
+                      placeholder={t('routine.notes.placeholder', language)}
                       disabled={isLoading}
                     />
                   </div>
@@ -6755,47 +6764,35 @@ export default function BffChat() {
               </div>
 
               <div className="sticky bottom-0 -mx-[var(--aurora-page-x)] border-t border-border/40 bg-card/95 px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
-                <div className="flex gap-2">
-                  <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={isLoading}>
-                    {language === 'CN' ? '取消' : 'Cancel'}
-                  </button>
-                  <button
-                    type="button"
-                    className="chip-button"
-                    onClick={() => {
-                      setRoutineSheetOpen(false);
-                      setRoutineDraft(makeEmptyRoutineDraft());
-                      setItems((prev) => [
-                        ...prev,
-                        {
-                          id: nextId(),
-                          role: 'user',
-                          kind: 'text',
-                          content: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
-                        },
-                      ]);
-                      void runLowConfidenceSkinAnalysis();
-                    }}
-                    disabled={isLoading}
-                  >
-                    {language === 'CN' ? '先给基线' : 'Baseline only'}
-                  </button>
-                  <button
-                    type="button"
-                    className="chip-button chip-button-primary flex-1"
-                    disabled={isLoading || !hasAnyRoutineDraftInput(routineDraft)}
-                    onClick={() => {
-                      const payload = buildCurrentRoutinePayloadFromDraft(routineDraft);
-                      const text = routineDraftToDisplayText(routineDraft, language);
-                      setRoutineSheetOpen(false);
-                      setRoutineDraft(makeEmptyRoutineDraft());
-                      setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: text }]);
-                      void runRoutineSkinAnalysis(payload);
-                    }}
-                  >
-                    {language === 'CN' ? '保存并分析' : 'Save & analyze'}
-                  </button>
-                </div>
+                <PromptFooter
+                  language={language}
+                  className="mt-0"
+                  primaryLabel={t('routine.cta.saveAnalyze', language)}
+                  onPrimary={() => {
+                    const payload = buildCurrentRoutinePayloadFromDraft(routineDraft);
+                    const text = routineDraftToDisplayText(routineDraft, language);
+                    setRoutineSheetOpen(false);
+                    setRoutineDraft(makeEmptyRoutineDraft());
+                    setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: text }]);
+                    void runRoutineSkinAnalysis(payload);
+                  }}
+                  primaryDisabled={isLoading || !hasAnyRoutineDraftInput(routineDraft)}
+                  tertiaryLabel={t('routine.cta.baselineOnly', language)}
+                  onTertiary={() => {
+                    setRoutineSheetOpen(false);
+                    setRoutineDraft(makeEmptyRoutineDraft());
+                    setItems((prev) => [
+                      ...prev,
+                      {
+                        id: nextId(),
+                        role: 'user',
+                        kind: 'text',
+                        content: t('routine.cta.baselineOnly.userText', language),
+                      },
+                    ]);
+                    void runLowConfidenceSkinAnalysis();
+                  }}
+                />
               </div>
             </div>
           </Sheet>
@@ -6895,296 +6892,332 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={profileSheetOpen}
-            title={language === 'CN' ? '编辑肤况资料' : 'Edit profile'}
+            title={t('profile.sheet.title', language)}
             onClose={() => setProfileSheetOpen(false)}
             onOpenMenu={() => {
               setProfileSheetOpen(false);
               setSidebarOpen(true);
             }}
           >
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '肤质' : 'Skin type'}
-                  <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.skinType}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, skinType: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="oily">{language === 'CN' ? '油性' : 'oily'}</option>
-                    <option value="dry">{language === 'CN' ? '干性' : 'dry'}</option>
-                    <option value="combination">{language === 'CN' ? '混合' : 'combination'}</option>
-                    <option value="normal">{language === 'CN' ? '中性' : 'normal'}</option>
-                    <option value="sensitive">{language === 'CN' ? '敏感' : 'sensitive'}</option>
-                  </select>
-                </label>
+            <div className="space-y-3 pb-2">
+              <PromptHeader
+                title={t('profile.sheet.title', language)}
+                helper={t('profile.sheet.helper', language)}
+                language={language}
+              />
 
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '敏感程度' : 'Sensitivity'}
-                  <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.sensitivity}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, sensitivity: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="low">{language === 'CN' ? '低' : 'low'}</option>
-                    <option value="medium">{language === 'CN' ? '中' : 'medium'}</option>
-                    <option value="high">{language === 'CN' ? '高' : 'high'}</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '屏障状态' : 'Barrier status'}
-                  <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.barrierStatus}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, barrierStatus: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="healthy">{language === 'CN' ? '稳定' : 'healthy'}</option>
-                    <option value="impaired">{language === 'CN' ? '不稳定/刺痛' : 'impaired'}</option>
-                    <option value="unknown">{language === 'CN' ? '不确定' : 'unknown'}</option>
-                  </select>
-                </label>
-
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '预算' : 'Budget'}
-                  <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.budgetTier}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, budgetTier: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="¥200">¥200</option>
-                    <option value="¥500">¥500</option>
-                    <option value="¥1000+">¥1000+</option>
-                    <option value="不确定">{language === 'CN' ? '不确定' : 'Not sure'}</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '年龄段' : 'Age band'}
-                  <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.age_band}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, age_band: e.target.value }))}
-                  >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
-                    <option value="under_13">&lt;13</option>
-                    <option value="13_17">13-17</option>
-                    <option value="18_24">18-24</option>
-                    <option value="25_34">25-34</option>
-                    <option value="35_44">35-44</option>
-                    <option value="45_54">45-54</option>
-                    <option value="55_plus">55+</option>
-                  </select>
-                </label>
-
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '孕期状态' : 'Pregnancy status'}
-                  <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.pregnancy_status}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}
-                  >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
-                    <option value="not_pregnant">{language === 'CN' ? '未怀孕' : 'Not pregnant'}</option>
-                    <option value="pregnant">{language === 'CN' ? '怀孕中' : 'Pregnant'}</option>
-                    <option value="trying">{language === 'CN' ? '备孕中' : 'Trying'}</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '哺乳状态' : 'Lactation status'}
-                  <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.lactation_status}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, lactation_status: e.target.value }))}
-                  >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
-                    <option value="not_lactating">{language === 'CN' ? '不哺乳' : 'Not lactating'}</option>
-                    <option value="lactating">{language === 'CN' ? '哺乳中' : 'Lactating'}</option>
-                  </select>
-                </label>
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '高风险用药（可选）' : 'High-risk meds (optional)'}
-                  <input
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
-                    value={profileDraft.high_risk_medications_text}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
-                    placeholder={language === 'CN' ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
-                  />
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '旅行目的地' : 'Travel destination'}
-                  <input
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
-                    value={profileDraft.travel_destination}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_destination: e.target.value }))}
-                    placeholder={language === 'CN' ? '例如 Tokyo' : 'e.g., Tokyo'}
-                  />
-                </label>
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '户外比例(0-1)' : 'Outdoor ratio (0-1)'}
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="1"
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
-                    value={profileDraft.travel_indoor_outdoor_ratio}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_indoor_outdoor_ratio: e.target.value }))}
-                    placeholder="0.5"
-                  />
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '出行开始' : 'Travel start'}
-                  <input
-                    type="date"
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
-                    value={profileDraft.travel_start_date}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_start_date: e.target.value }))}
-                  />
-                </label>
-                <label className="space-y-1 text-xs text-muted-foreground">
-                  {language === 'CN' ? '出行结束' : 'Travel end'}
-                  <input
-                    type="date"
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
-                    value={profileDraft.travel_end_date}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_end_date: e.target.value }))}
-                  />
-                </label>
-              </div>
-
-              <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '目标（可多选）' : 'Goals (multi-select)'}
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    ['acne', language === 'CN' ? '控痘' : 'Acne'],
-                    ['redness', language === 'CN' ? '泛红/敏感' : 'Redness'],
-                    ['dark_spots', language === 'CN' ? '淡斑/痘印' : 'Dark spots'],
-                    ['dehydration', language === 'CN' ? '补水' : 'Hydration'],
-                    ['pores', language === 'CN' ? '毛孔' : 'Pores'],
-                    ['wrinkles', language === 'CN' ? '抗老' : 'Anti-aging'],
-                  ].map(([key, label]) => {
-                    const selected = profileDraft.goals.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`chip-button ${selected ? 'chip-button-primary' : ''}`}
-                        onClick={() =>
-                          setProfileDraft((p) => ({
-                            ...p,
-                            goals: selected ? p.goals.filter((g) => g !== key) : [...p.goals, key],
-                          }))
-                        }
+              <div className="space-y-3 pb-28">
+                <section className="rounded-2xl border border-border/50 bg-background/40 p-3.5">
+                  <div className="mb-2 text-xs font-semibold text-foreground">{t('profile.sheet.section.skinBasics', language)}</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '肤质' : 'Skin type'}
+                      <select
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={profileDraft.skinType}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, skinType: e.target.value }))}
                       >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </label>
+                        <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                        <option value="oily">{language === 'CN' ? '油性' : 'oily'}</option>
+                        <option value="dry">{language === 'CN' ? '干性' : 'dry'}</option>
+                        <option value="combination">{language === 'CN' ? '混合' : 'combination'}</option>
+                        <option value="normal">{language === 'CN' ? '中性' : 'normal'}</option>
+                        <option value="sensitive">{language === 'CN' ? '敏感' : 'sensitive'}</option>
+                      </select>
+                    </label>
 
-              <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '行程/环境（可选）' : 'Upcoming plan (optional)'}
-                <textarea
-                  className="min-h-[88px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
-                  value={profileDraft.itinerary}
-                  onChange={(e) => setProfileDraft((p) => ({ ...p, itinerary: e.target.value }))}
-                  placeholder={
-                    language === 'CN'
-                      ? '例如：下周出差/旅行（偏干冷/偏潮热），白天户外多；或“最近熬夜/晒太阳多”…'
-                      : 'e.g., travel next week (cold/dry or hot/humid), lots of outdoor time; or “late nights / more sun”…'
-                  }
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '敏感程度' : 'Sensitivity'}
+                      <select
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={profileDraft.sensitivity}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, sensitivity: e.target.value }))}
+                      >
+                        <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                        <option value="low">{language === 'CN' ? '低' : 'low'}</option>
+                        <option value="medium">{language === 'CN' ? '中' : 'medium'}</option>
+                        <option value="high">{language === 'CN' ? '高' : 'high'}</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '屏障状态' : 'Barrier status'}
+                      <select
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={profileDraft.barrierStatus}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, barrierStatus: e.target.value }))}
+                      >
+                        <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                        <option value="healthy">{language === 'CN' ? '稳定' : 'healthy'}</option>
+                        <option value="impaired">{language === 'CN' ? '不稳定/刺痛' : 'impaired'}</option>
+                        <option value="unknown">{language === 'CN' ? '不确定' : 'unknown'}</option>
+                      </select>
+                    </label>
+
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '预算' : 'Budget'}
+                      <select
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={profileDraft.budgetTier}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, budgetTier: e.target.value }))}
+                      >
+                        <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                        <option value="¥200">¥200</option>
+                        <option value="¥500">¥500</option>
+                        <option value="¥1000+">¥1000+</option>
+                        <option value="不确定">{language === 'CN' ? '不确定' : 'Not sure'}</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-border/50 bg-background/40 p-3.5">
+                  <div className="mb-2 text-xs font-semibold text-foreground">{t('profile.sheet.section.healthContext', language)}</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '年龄段' : 'Age band'}
+                      <select
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={profileDraft.age_band}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, age_band: e.target.value }))}
+                      >
+                        <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
+                        <option value="under_13">&lt;13</option>
+                        <option value="13_17">13-17</option>
+                        <option value="18_24">18-24</option>
+                        <option value="25_34">25-34</option>
+                        <option value="35_44">35-44</option>
+                        <option value="45_54">45-54</option>
+                        <option value="55_plus">55+</option>
+                      </select>
+                    </label>
+
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '孕期状态' : 'Pregnancy status'}
+                      <select
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={profileDraft.pregnancy_status}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}
+                      >
+                        <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
+                        <option value="not_pregnant">{language === 'CN' ? '未怀孕' : 'Not pregnant'}</option>
+                        <option value="pregnant">{language === 'CN' ? '怀孕中' : 'Pregnant'}</option>
+                        <option value="trying">{language === 'CN' ? '备孕中' : 'Trying'}</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '哺乳状态' : 'Lactation status'}
+                      <select
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={profileDraft.lactation_status}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, lactation_status: e.target.value }))}
+                      >
+                        <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
+                        <option value="not_lactating">{language === 'CN' ? '不哺乳' : 'Not lactating'}</option>
+                        <option value="lactating">{language === 'CN' ? '哺乳中' : 'Lactating'}</option>
+                      </select>
+                    </label>
+
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '高风险用药（可选）' : 'High-risk meds (optional)'}
+                      <input
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                        value={profileDraft.high_risk_medications_text}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
+                        placeholder={language === 'CN' ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-border/50 bg-background/40 p-3.5">
+                  <div className="mb-2 text-xs font-semibold text-foreground">{t('profile.sheet.section.travel', language)}</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '旅行目的地' : 'Travel destination'}
+                      <input
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                        value={profileDraft.travel_destination}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, travel_destination: e.target.value }))}
+                        placeholder={language === 'CN' ? '例如 Tokyo' : 'e.g., Tokyo'}
+                      />
+                    </label>
+
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '户外比例(0-1)' : 'Outdoor ratio (0-1)'}
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="1"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                        value={profileDraft.travel_indoor_outdoor_ratio}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, travel_indoor_outdoor_ratio: e.target.value }))}
+                        placeholder="0.5"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '出行开始' : 'Travel start'}
+                      <input
+                        type="date"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                        value={profileDraft.travel_start_date}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, travel_start_date: e.target.value }))}
+                      />
+                    </label>
+
+                    <label className="space-y-1 text-xs text-muted-foreground">
+                      {language === 'CN' ? '出行结束' : 'Travel end'}
+                      <input
+                        type="date"
+                        className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                        value={profileDraft.travel_end_date}
+                        onChange={(e) => setProfileDraft((p) => ({ ...p, travel_end_date: e.target.value }))}
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-border/50 bg-background/40 p-3.5">
+                  <div className="mb-2 text-xs font-semibold text-foreground">{t('profile.sheet.section.concerns', language)}</div>
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    {language === 'CN' ? '目标（可多选）' : 'Goals (multi-select)'}
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        ['acne', language === 'CN' ? '控痘' : 'Acne'],
+                        ['redness', language === 'CN' ? '泛红/敏感' : 'Redness'],
+                        ['dark_spots', language === 'CN' ? '淡斑/痘印' : 'Dark spots'],
+                        ['dehydration', language === 'CN' ? '补水' : 'Hydration'],
+                        ['pores', language === 'CN' ? '毛孔' : 'Pores'],
+                        ['wrinkles', language === 'CN' ? '抗老' : 'Anti-aging'],
+                      ].map(([key, label]) => {
+                        const selected = profileDraft.goals.includes(key);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className={`chip-button ${selected ? 'chip-button-primary' : ''}`}
+                            onClick={() =>
+                              setProfileDraft((p) => ({
+                                ...p,
+                                goals: selected ? p.goals.filter((g) => g !== key) : [...p.goals, key],
+                              }))
+                            }
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </label>
+                </section>
+
+                <section className="rounded-2xl border border-border/50 bg-background/40 p-3.5">
+                  <div className="mb-2 text-xs font-semibold text-foreground">{t('profile.sheet.section.preferences', language)}</div>
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    {language === 'CN' ? '行程/环境（可选）' : 'Upcoming plan (optional)'}
+                    <textarea
+                      className="min-h-[88px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                      value={profileDraft.itinerary}
+                      onChange={(e) => setProfileDraft((p) => ({ ...p, itinerary: e.target.value }))}
+                      placeholder={
+                        language === 'CN'
+                          ? '例如：下周出差/旅行（偏干冷/偏潮热），白天户外多；或“最近熬夜/晒太阳多”…'
+                          : 'e.g., travel next week (cold/dry or hot/humid), lots of outdoor time; or “late nights / more sun”…'
+                      }
+                    />
+                  </label>
+                </section>
+              </div>
+
+              <div className="sticky bottom-0 -mx-[var(--aurora-page-x)] border-t border-border/40 bg-card/95 px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
+                <PromptFooter
+                  language={language}
+                  className="mt-0"
+                  primaryLabel={t('profile.sheet.cta.save', language)}
+                  onPrimary={saveProfile}
+                  primaryDisabled={isLoading}
+                  tertiaryHidden
                 />
-              </label>
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="chip-button"
-                  onClick={() => setProfileSheetOpen(false)}
-                  disabled={isLoading}
-                >
-                  {language === 'CN' ? '取消' : 'Cancel'}
-                </button>
-                <button type="button" className="chip-button chip-button-primary" onClick={saveProfile} disabled={isLoading}>
-                  {language === 'CN' ? '保存' : 'Save'}
-                </button>
               </div>
             </div>
           </Sheet>
 
           <Sheet
             open={checkinSheetOpen}
-            title={language === 'CN' ? '今日打卡' : 'Daily check-in'}
+            title={t('checkin.sheet.title', language)}
             onClose={() => setCheckinSheetOpen(false)}
             onOpenMenu={() => {
               setCheckinSheetOpen(false);
               setSidebarOpen(true);
             }}
           >
-            <div className="space-y-4">
-              {(
-                [
-                  ['redness', language === 'CN' ? '泛红' : 'Redness'],
-                  ['acne', language === 'CN' ? '痘痘' : 'Acne'],
-                  ['hydration', language === 'CN' ? '干燥/紧绷' : 'Dryness'],
-                ] as const
-              ).map(([key, label]) => (
-                <div key={key} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{label}</span>
-                    <span className="font-medium text-foreground">{(checkinDraft as any)[key]}/5</span>
+            <div className="space-y-3 pb-2">
+              <PromptHeader
+                title={t('checkin.sheet.title', language)}
+                helper={t('checkin.sheet.helper', language)}
+                language={language}
+              />
+
+              <div className="space-y-3 pb-28">
+                {(
+                  [
+                    { key: 'redness', labelKey: 'checkin.metric.redness.label', helperKey: 'checkin.metric.redness.helper' },
+                    { key: 'acne', labelKey: 'checkin.metric.acne.label', helperKey: 'checkin.metric.acne.helper' },
+                    { key: 'hydration', labelKey: 'checkin.metric.hydration.label', helperKey: 'checkin.metric.hydration.helper' },
+                  ] as const
+                ).map(({ key, labelKey, helperKey }) => (
+                  <div key={key} className="space-y-2 rounded-2xl border border-border/50 bg-background/40 p-3">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{t(labelKey, language)}</span>
+                      <span className="font-medium text-foreground">{(checkinDraft as any)[key]}/5</span>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">{t(helperKey, language)}</p>
+                    <input
+                      type="range"
+                      min={0}
+                      max={5}
+                      step={1}
+                      value={(checkinDraft as any)[key]}
+                      onChange={(e) => {
+                        const n = asNumber(e.target.value) ?? 0;
+                        setCheckinDraft((p) => ({ ...p, [key]: Math.max(0, Math.min(5, Math.trunc(n))) } as any));
+                      }}
+                      className="w-full accent-[hsl(var(--primary))]"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={5}
-                    step={1}
-                    value={(checkinDraft as any)[key]}
-                    onChange={(e) => {
-                      const n = asNumber(e.target.value) ?? 0;
-                      setCheckinDraft((p) => ({ ...p, [key]: Math.max(0, Math.min(5, Math.trunc(n))) } as any));
-                    }}
-                    className="w-full accent-[hsl(var(--primary))]"
+                ))}
+
+                <label className="space-y-1 text-xs text-muted-foreground">
+                  {t('checkin.notes.label', language)}
+                  <textarea
+                    className="min-h-[84px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
+                    value={checkinDraft.notes}
+                    onChange={(e) => setCheckinDraft((p) => ({ ...p, notes: e.target.value }))}
+                    placeholder={t('checkin.notes.placeholder', language)}
                   />
-                </div>
-              ))}
+                </label>
+              </div>
 
-              <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '备注（可选）' : 'Notes (optional)'}
-                <textarea
-                  className="min-h-[84px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
-                  value={checkinDraft.notes}
-                  onChange={(e) => setCheckinDraft((p) => ({ ...p, notes: e.target.value }))}
-                  placeholder={language === 'CN' ? '例如：今天有点刺痛/爆痘…' : 'e.g., stinging / breakout today…'}
+              <div className="sticky bottom-0 -mx-[var(--aurora-page-x)] border-t border-border/40 bg-card/95 px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
+                <PromptFooter
+                  language={language}
+                  className="mt-0"
+                  primaryLabel={t('checkin.cta.save', language)}
+                  onPrimary={() => {
+                    void saveCheckin();
+                  }}
+                  primaryDisabled={isLoading}
+                  tertiaryHidden
                 />
-              </label>
-
-              <div className="flex gap-2">
-                <button type="button" className="chip-button" onClick={() => setCheckinSheetOpen(false)} disabled={isLoading}>
-                  {language === 'CN' ? '取消' : 'Cancel'}
-                </button>
-                <button type="button" className="chip-button chip-button-primary" onClick={saveCheckin} disabled={isLoading}>
-                  {language === 'CN' ? '保存' : 'Save'}
-                </button>
               </div>
             </div>
           </Sheet>
@@ -7241,24 +7274,64 @@ export default function BffChat() {
             }
 
             if (item.kind === 'chips') {
+              const prioritized = prioritizeChips(item.chips);
+              const primaryChip = prioritized.primaryChip;
+              const skipChip = prioritized.skipChip;
+              const neutralChips = prioritized.neutralChips;
+
               return (
                 <div key={item.id} className="chat-card">
-                  <div className="flex flex-wrap gap-2">
-                    {item.chips.map((chip) => {
-                      const Icon = iconForChip(chip.chip_id);
-                      return (
+                  {neutralChips.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {neutralChips.map((chip) => {
+                        const Icon = iconForChip(chip.chip_id);
+                        return (
+                          <button
+                            key={chip.chip_id}
+                            className="chip-button"
+                            data-priority="neutral"
+                            onClick={() => onChip(chip)}
+                            disabled={isLoading}
+                          >
+                            <Icon className="h-4 w-4" />
+                            <span>{chip.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {primaryChip || skipChip ? (
+                    <div className={cn('space-y-1.5', neutralChips.length > 0 ? 'mt-3' : undefined)}>
+                      {primaryChip ? (() => {
+                        const Icon = iconForChip(primaryChip.chip_id);
+                        return (
+                          <button
+                            type="button"
+                            className="prompt-primary-cta action-button-primary inline-flex items-center justify-center gap-2"
+                            data-priority="primary"
+                            onClick={() => onChip(primaryChip)}
+                            disabled={isLoading}
+                          >
+                            <Icon className="h-4 w-4" />
+                            <span>{primaryChip.label}</span>
+                          </button>
+                        );
+                      })() : null}
+
+                      {skipChip ? (
                         <button
-                          key={chip.chip_id}
-                          className="chip-button"
-                          onClick={() => onChip(chip)}
+                          type="button"
+                          className="prompt-tertiary-action"
+                          data-priority="skip"
+                          onClick={() => onChip(skipChip)}
                           disabled={isLoading}
                         >
-                          <Icon className="h-4 w-4" />
-                          <span>{chip.label}</span>
+                          {t('prompt.common.notNow', language)}
                         </button>
-                      );
-                    })}
-                  </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               );
             }
@@ -7340,6 +7413,10 @@ export default function BffChat() {
 	                language={language}
 	                step={quickProfileStep}
 	                disabled={isLoading || quickProfileBusy}
+	                onBack={() => {
+	                  if (isLoading || quickProfileBusy) return;
+	                  setQuickProfileStep((prev) => previousQuickProfileStep(prev));
+	                }}
 	                onChip={(chip) => onChip(chip)}
 	              />
 	            </div>

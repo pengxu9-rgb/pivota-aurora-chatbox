@@ -12,6 +12,7 @@ import Routine from "./pages/Routine";
 import Explore from "./pages/Explore";
 import Profile from "./pages/Profile";
 import Plans from "./pages/Plans";
+import PromptQAHarness from "./pages/PromptQAHarness";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,7 @@ const App = () => (
               <Route path="/profile" element={<Profile />} />
             </Route>
             <Route path="/chat" element={<BffChat />} />
+            {import.meta.env.DEV ? <Route path="/qa/prompt-harness" element={<PromptQAHarness />} /> : null}
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

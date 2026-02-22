@@ -1,5 +1,6 @@
 import type { Language as UiLanguage } from '@/lib/types';
 import type { IngredientReportPayloadV1 } from '@/lib/ingredientReportCard';
+import { t } from '@/lib/i18n';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -352,19 +353,17 @@ export function IngredientReportCard({
 
       {visibleQuestions.length && showNextQuestions ? (
         <div className="space-y-2">
-          <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Next questions' : 'Next questions'}</div>
+          <div className="text-xs font-semibold text-muted-foreground">{t('ingredientReport.nextQuestions.title', language)}</div>
           <div className="rounded-xl border border-border/60 bg-background/60 p-2 text-xs text-muted-foreground">
-            {zh(language)
-              ? '补充你的目标和皮肤耐受后，我会更准确评估这个成分与你肤况的适用性/匹配度。'
-              : 'Add your goal and sensitivity, and I can score ingredient suitability/match for your skin more accurately.'}
+            {t('ingredientReport.nextQuestions.helper', language)}
             {onOpenProfile ? (
               <button
                 type="button"
-                className="ml-2 inline-flex items-center rounded-full border border-border/60 bg-muted/70 px-2 py-1 text-[11px] text-foreground"
+                className="ml-2 inline-flex items-center rounded-xl bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={onOpenProfile}
                 disabled={nextQuestionBusy}
               >
-                {zh(language) ? '完善肤况' : 'Complete profile'}
+                {t('ingredientReport.nextQuestions.completeProfile', language)}
               </button>
             ) : null}
           </div>
@@ -393,9 +392,7 @@ export function IngredientReportCard({
 
       {payload.next_questions.length && (!showNextQuestions || !visibleQuestions.length) ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-2 text-xs text-emerald-800">
-          {zh(language)
-            ? '已记录你的目标与皮肤耐受，后续会优先按成分适配度给建议。'
-            : 'Saved your goal and sensitivity. Next ingredient guidance will prioritize skin-fit relevance.'}
+          {t('ingredientReport.nextQuestions.saved', language)}
         </div>
       ) : null}
     </div>

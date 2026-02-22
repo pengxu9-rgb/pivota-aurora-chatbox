@@ -8,6 +8,10 @@ interface RiskCheckCardProps {
   language: Language;
 }
 
+/**
+ * @deprecated Legacy prompt implementation. Not wired in current `/chat` runtime.
+ * Use the unified prompt system (`PromptHeader`/`PromptFooter`/`OptionCardGroup`) for new ask flows.
+ */
 export function RiskCheckCard({ onAction, language }: RiskCheckCardProps) {
   return (
     <div className="chat-card space-y-3">
