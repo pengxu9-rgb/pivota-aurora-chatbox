@@ -733,6 +733,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
+const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
 const PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES = new Set(['DB_ERROR', 'UPSTREAM_TIMEOUT']);
@@ -1029,6 +1030,26 @@ function mapIngredientSensitivityChipToProfileSensitivity(chip: string): string 
   if (key.includes('normal') || key.includes('一般')) return 'medium';
   if (key.includes('resilient') || key.includes('耐受')) return 'low';
   return null;
+}
+
+function normalizeProfileGoals(value: unknown): string[] {
+  const asList = Array.isArray(value) ? value : value == null ? [] : [value];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of asList) {
+    const text = asString(item);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  return String((err as any).name || '').toLowerCase() === 'aborterror';
 }
 
 const readBootstrapInfoFromSessionBootstrapCard = (env: V1Envelope): BootstrapInfoPatch | null => {
@@ -4506,6 +4527,31 @@ export default function BffChat() {
     }
   }, [applyEnvelope, headers, language, profileDraft, tryApplyEnvelopeFromBffError]);
 
+  const updateProfileWithTimeout = useCallback(
+    async (patch: Record<string, unknown>): Promise<void> => {
+      const requestHeaders = { ...headers, lang: language };
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), PROFILE_UPDATE_TIMEOUT_MS);
+      try {
+        await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(patch),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (isAbortError(err)) {
+          const timeoutErr = new Error('PROFILE_UPDATE_TIMEOUT');
+          (timeoutErr as any).code = 'PROFILE_UPDATE_TIMEOUT';
+          throw timeoutErr;
+        }
+        throw err;
+      } finally {
+        window.clearTimeout(timer);
+      }
+    },
+    [headers, language],
+  );
+
   const onIngredientQuestionSelect = useCallback(
     async (selection: IngredientReportQuestionSelection) => {
       const questionId = asString(selection.questionId);
@@ -4513,10 +4559,12 @@ export default function BffChat() {
       if (!questionId || !chip) return;
 
       const patch: Record<string, unknown> = {};
+      const fitProfile = profileSnapshot ?? bootstrapInfo?.profile ?? null;
       if (questionId === 'goal') {
         const mapped = mapIngredientGoalChipToProfileGoal(chip);
         if (!mapped) return;
-        patch.goals = [mapped];
+        const existingGoals = normalizeProfileGoals(asObject(fitProfile)?.goals ?? (fitProfile as any)?.goals);
+        patch.goals = normalizeProfileGoals([mapped, ...existingGoals]).slice(0, 3);
       } else if (questionId === 'sensitivity') {
         const mapped = mapIngredientSensitivityChipToProfileSensitivity(chip);
         if (!mapped) return;
@@ -4525,6 +4573,9 @@ export default function BffChat() {
         return;
       }
 
+      const profileSnapshotBeforeUpdate = profileSnapshot;
+      const hadBootstrapInfo = Boolean(bootstrapInfo);
+      const bootstrapProfileBeforeUpdate = hadBootstrapInfo ? asObject(bootstrapInfo?.profile) ?? null : null;
       setIngredientQuestionBusy(true);
 
       // Optimistic profile update so "Next questions" can auto-hide immediately after required fields are filled.
@@ -4542,11 +4593,7 @@ export default function BffChat() {
       });
 
       try {
-        const requestHeaders = { ...headers, lang: language };
-        await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(patch),
-        });
+        await updateProfileWithTimeout(patch);
 
         toast({
           title: language === 'CN' ? '已记录偏好' : 'Preference saved',
@@ -4555,13 +4602,31 @@ export default function BffChat() {
               ? '已用于后续成分适配度分析。'
               : 'This will be used for ingredient skin-fit analysis.',
         });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+      } catch {
+        setProfileSnapshot(profileSnapshotBeforeUpdate);
+        setBootstrapInfo((prev) => {
+          if (!hadBootstrapInfo) return null;
+          const merged: BootstrapInfo = prev
+            ? { ...prev }
+            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+          merged.profile = bootstrapProfileBeforeUpdate;
+          return merged;
+        });
+
+        const failureMessage =
+          language === 'CN'
+            ? '保存超时/失败，请重试；暂未应用到你的画像。'
+            : 'Save timed out/failed. Please retry; profile was not updated.';
+        setError(failureMessage);
+        toast({
+          title: language === 'CN' ? '保存失败' : 'Save failed',
+          description: failureMessage,
+        });
       } finally {
         setIngredientQuestionBusy(false);
       }
     },
-    [headers, language],
+    [bootstrapInfo, language, profileSnapshot, updateProfileWithTimeout],
   );
 
   const saveCheckin = useCallback(async () => {
