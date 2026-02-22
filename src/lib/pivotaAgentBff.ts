@@ -1,4 +1,5 @@
 import { getOrCreateAuroraUid } from './persistence';
+import { requestWithTimeout } from '@/utils/requestWithTimeout';
 
 export type Language = 'EN' | 'CN';
 
@@ -109,16 +110,17 @@ export const makeDefaultHeaders = (lang: Language): BffHeaders => {
 export const bffJson = async <TResponse>(
   path: string,
   headers: BffHeaders,
-  init: RequestInit & { baseUrl?: string } = {}
+  init: RequestInit & { baseUrl?: string; timeoutMs?: number } = {}
 ): Promise<TResponse> => {
   const baseUrl = init.baseUrl ?? getPivotaAgentBaseUrl();
+  const timeoutMs = Number.isFinite(Number(init.timeoutMs)) ? Number(init.timeoutMs) : undefined;
   const isFormData =
     typeof FormData !== 'undefined' &&
     init.body != null &&
     typeof init.body === 'object' &&
     init.body instanceof FormData;
 
-  const res = await fetch(joinUrl(baseUrl, path), {
+  const requestInit: RequestInit = {
     ...init,
     headers: {
       Accept: 'application/json',
@@ -131,7 +133,16 @@ export const bffJson = async <TResponse>(
       ...(headers.auth_token ? { Authorization: `Bearer ${headers.auth_token}` } : {}),
       ...(init.headers || {}),
     },
-  });
+  };
+
+  delete (requestInit as any).baseUrl;
+  delete (requestInit as any).timeoutMs;
+
+  const requestUrl = joinUrl(baseUrl, path);
+  const res =
+    typeof timeoutMs === 'number'
+      ? await requestWithTimeout(requestUrl, { ...requestInit, timeoutMs })
+      : await fetch(requestUrl, requestInit);
 
   const body = await safeReadJson(res);
   if (!res.ok) {

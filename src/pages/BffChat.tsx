@@ -734,6 +734,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
+const CHAT_TIMEOUT_MS = 15000;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
 const PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES = new Set(['DB_ERROR', 'UPSTREAM_TIMEOUT']);
@@ -1045,11 +1046,6 @@ function normalizeProfileGoals(value: unknown): string[] {
     out.push(text);
   }
   return out;
-}
-
-function isAbortError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  return String((err as any).name || '').toLowerCase() === 'aborterror';
 }
 
 const readBootstrapInfoFromSessionBootstrapCard = (env: V1Envelope): BootstrapInfoPatch | null => {
@@ -4512,6 +4508,7 @@ export default function BffChat() {
       const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
         method: 'POST',
         body: JSON.stringify(patch),
+        timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
       });
 
       setItems((prev) => [
@@ -4530,24 +4527,11 @@ export default function BffChat() {
   const updateProfileWithTimeout = useCallback(
     async (patch: Record<string, unknown>): Promise<void> => {
       const requestHeaders = { ...headers, lang: language };
-      const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), PROFILE_UPDATE_TIMEOUT_MS);
-      try {
-        await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(patch),
-          signal: controller.signal,
-        });
-      } catch (err) {
-        if (isAbortError(err)) {
-          const timeoutErr = new Error('PROFILE_UPDATE_TIMEOUT');
-          (timeoutErr as any).code = 'PROFILE_UPDATE_TIMEOUT';
-          throw timeoutErr;
-        }
-        throw err;
-      } finally {
-        window.clearTimeout(timer);
-      }
+      await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+        method: 'POST',
+        body: JSON.stringify(patch),
+        timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
+      });
     },
     [headers, language],
   );
@@ -5052,6 +5036,7 @@ export default function BffChat() {
         const env = await bffJson<V1Envelope>('/v1/chat', requestHeaders, {
           method: 'POST',
           body: JSON.stringify(body),
+          timeoutMs: CHAT_TIMEOUT_MS,
         });
         applyEnvelope(env);
       } catch (err) {
@@ -5365,6 +5350,7 @@ export default function BffChat() {
           const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
             method: 'POST',
             body: JSON.stringify({ goals: concerns }),
+            timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
           });
           applyEnvelope(env);
         } catch (err) {
@@ -5877,6 +5863,7 @@ export default function BffChat() {
               await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
                 method: 'POST',
                 body: JSON.stringify(auroraProfilePatch),
+                timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
               });
             } catch {
               // ignore (local snapshot already updated)
