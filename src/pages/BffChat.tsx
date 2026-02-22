@@ -553,6 +553,23 @@ const isInternalKbCitationId = (raw: string): boolean => {
   return false;
 };
 
+const ACK_PREFIX_WITH_PUNCT_RE =
+  /^(?:got it|okay|ok|sure|great|understood|received|收到|好的|明白了|已收到)\s*(?:✅|☑️|✔️)?\s*(?:[—–-]|[,，:：]|[.!?。！？])\s*/i;
+const ACK_PREFIX_WITH_ICON_RE = /^(?:got it|okay|ok|sure|great|understood|received|收到|好的|明白了|已收到)\s*(?:✅|☑️|✔️)\s*/i;
+const ACK_FILLER_ONLY_RE = /^i[’']ll keep (?:it|this) clear and practical\.?$/i;
+
+const stripAcknowledgementLead = (rawLine: string): string => {
+  const trimmed = rawLine.replace(/^[ \t]+|[ \t]+$/g, '');
+  if (!trimmed) return '';
+
+  let next = trimmed.replace(ACK_PREFIX_WITH_PUNCT_RE, '');
+  next = next.replace(ACK_PREFIX_WITH_ICON_RE, '');
+  next = next.replace(/^[ \t]+|[ \t]+$/g, '');
+
+  if (ACK_FILLER_ONLY_RE.test(next)) return '';
+  return next;
+};
+
 const stripInternalKbRefsFromText = (raw: string): string => {
   const input = String(raw || '');
   if (!input.trim()) return input;
@@ -562,7 +579,7 @@ const stripInternalKbRefsFromText = (raw: string): string => {
     .replace(/\(\s*\)/g, '')
     .replace(/[ \t]{2,}/g, ' ')
     .split('\n')
-    .map((line) => line.replace(/[ \t]+$/g, '').replace(/^[ \t]+/g, ''))
+    .map((line) => stripAcknowledgementLead(line))
     .filter((line) => {
       const t = line.trim();
       if (!t) return true;
@@ -5397,11 +5414,11 @@ export default function BffChat() {
         const immediate =
           value === 'yes'
             ? language === 'CN'
-              ? '收到 ✅ 我会按“屏障优先”来给建议，先避免叠加强活性。'
-              : 'Got it ✅ I’ll keep this barrier-first and avoid stacking strong actives for now.'
+              ? '我会按“屏障优先”来给建议，先避免叠加强活性。'
+              : 'I’ll keep this barrier-first and avoid stacking strong actives for now.'
             : language === 'CN'
-              ? '好的 ✅ 我会更放心一些推进，但仍会从低频、单一活性开始。'
-              : 'Great ✅ We can be a bit more proactive, but still start low-frequency with one active at a time.';
+              ? '我会更放心一些推进，但仍会从低频、单一活性开始。'
+              : 'We can be a bit more proactive, but still start low-frequency with one active at a time.';
         setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'text', content: immediate }]);
 
         // IMPORTANT: keep quick-check UI-only to avoid accidentally triggering unrelated

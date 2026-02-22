@@ -453,13 +453,16 @@
   }
 
   .message-bubble-user {
-    @apply ml-auto bg-primary text-primary-foreground;
+    @apply ml-auto text-[hsl(var(--aurora-home-primary-foreground))];
+    background: hsl(var(--aurora-home-primary));
     @apply rounded-br-md px-4 py-2.5;
-    box-shadow: 0 10px 20px -14px hsl(var(--primary) / 0.62);
+    box-shadow: 0 10px 20px -14px hsl(var(--aurora-home-primary) / 0.48);
   }
 
   .message-bubble-assistant {
-    @apply mr-auto border border-border/55 bg-card/90 text-card-foreground;
+    @apply mr-auto text-[hsl(var(--aurora-home-foreground))];
+    border: 1px solid hsl(var(--aurora-home-border) / 0.84);
+    background: hsl(var(--aurora-home-muted) / 0.92);
     @apply rounded-bl-md px-4 py-2.5;
   }
 
