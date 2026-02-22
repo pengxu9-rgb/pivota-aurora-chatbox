@@ -21,11 +21,16 @@ const NAV: NavItem[] = [
 
 export function BottomNav({ onChat }: { onChat: () => void }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50">
+    <nav className="font-aurora-body fixed inset-x-0 bottom-0 z-50">
       <div className="mx-auto w-full max-w-[var(--aurora-shell-max)] px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+var(--aurora-nav-bottom-gap))] pt-[var(--aurora-nav-top-gap)]">
         <div
-          className="relative overflow-visible border border-border/60 bg-card/80 shadow-card backdrop-blur-2xl"
-          style={{ borderRadius: 'var(--aurora-nav-radius)' }}
+          className="relative overflow-visible border shadow-card"
+          style={{
+            borderRadius: 'var(--aurora-nav-radius)',
+            borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
+            backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-nav-glass-alpha))',
+            backdropFilter: 'blur(var(--aurora-home-search-blur))',
+          }}
         >
           <div className="grid grid-cols-5 items-end px-1 py-1.5">
             <NavSlot item={NAV[0]} />
@@ -37,13 +42,15 @@ export function BottomNav({ onChat }: { onChat: () => void }) {
                 onClick={onChat}
                 className={cn(
                   'inline-flex items-center justify-center rounded-full',
-                  'border border-primary/40 bg-primary text-primary-foreground shadow-card',
+                  'border text-[hsl(var(--aurora-home-primary-foreground))] shadow-card',
                   'active:scale-[0.97] touch-manipulation',
                 )}
                 style={{
                   width: 'var(--aurora-nav-chat-size)',
                   height: 'var(--aurora-nav-chat-size)',
                   marginTop: 'calc(var(--aurora-nav-chat-offset) * -1)',
+                  borderColor: 'hsl(var(--aurora-home-primary) / 0.36)',
+                  backgroundColor: 'hsl(var(--aurora-home-primary))',
                 }}
                 aria-label="Open chat"
               >
@@ -66,8 +73,8 @@ function NavSlot({ item }: { item: NavItem }) {
     <NavLink
       to={to}
       end={end}
-      className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-      activeClassName="text-primary"
+      className="flex flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-xs text-[hsl(var(--aurora-home-muted-foreground))] transition-colors hover:text-[hsl(var(--aurora-home-foreground))]"
+      activeClassName="text-[hsl(var(--aurora-home-primary))]"
       aria-label={label}
     >
       <Icon className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />

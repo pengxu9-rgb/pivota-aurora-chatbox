@@ -10,8 +10,14 @@ export default function Home() {
   const navigate = useNavigate();
 
   return (
-    <div className="pb-6">
-      <div className="-mx-[var(--aurora-page-x)] overflow-hidden rounded-b-[34px] bg-gradient-to-b from-sky-500 via-blue-500 to-indigo-500 text-white shadow-elevated">
+    <div className="font-aurora-body bg-[hsl(var(--aurora-home-background))] pb-6 text-[hsl(var(--aurora-home-foreground))]">
+      <div
+        className="-mx-[var(--aurora-page-x)] overflow-hidden rounded-b-[34px] text-white shadow-elevated"
+        style={{
+          backgroundImage:
+            'linear-gradient(var(--aurora-home-hero-angle), hsl(var(--aurora-home-hero-from)), hsl(var(--aurora-home-hero-via)), hsl(var(--aurora-home-hero-to)))',
+        }}
+      >
         <div className="relative px-[var(--aurora-page-x)] pb-14 pt-[var(--aurora-page-top)]">
           <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
 
@@ -28,7 +34,7 @@ export default function Home() {
           </div>
 
           <div className="relative mt-7 text-center">
-            <div className="font-semibold tracking-[-0.03em]" style={{ fontSize: 'var(--aurora-home-title-size)' }}>
+            <div className="font-aurora-heading font-semibold tracking-[-0.03em]" style={{ fontSize: 'var(--aurora-home-title-size)' }}>
               Your AI Skin Consultant
             </div>
             <div className="mt-1 text-white/80" style={{ fontSize: 'var(--aurora-home-subtitle-size)' }}>
@@ -61,23 +67,34 @@ export default function Home() {
           type="button"
           onClick={() => openComposer()}
           className={cn(
-            'flex w-full items-center gap-3 rounded-[22px] border border-border/60 bg-background/95 px-4 py-3 shadow-card',
-            'text-left backdrop-blur transition hover:shadow-card-hover active:scale-[0.99]',
+            'flex w-full items-center gap-3 rounded-[22px] border px-4 py-3 shadow-card',
+            'text-left transition hover:shadow-card-hover active:scale-[0.99]',
           )}
+          style={{
+            borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
+            backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-glass-alpha))',
+            backdropFilter: 'blur(var(--aurora-home-search-blur))',
+          }}
           aria-label="Open chat composer"
         >
-          <Sparkles className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)] text-muted-foreground" />
+          <Sparkles className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)] text-[hsl(var(--aurora-home-primary))]" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[15px] text-muted-foreground">Ask Aurora anything...</div>
+            <div className="truncate text-[15px] text-[hsl(var(--aurora-home-muted-foreground))]">Ask Aurora anything...</div>
           </div>
-          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+          <div
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border text-[hsl(var(--aurora-home-primary-foreground))]"
+            style={{
+              borderColor: 'hsl(var(--aurora-home-primary) / 0.32)',
+              backgroundColor: 'hsl(var(--aurora-home-primary))',
+            }}
+          >
             <MessageCircle className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />
           </div>
         </button>
       </div>
 
       <div className="mt-4 px-[var(--aurora-page-x)]">
-        <div className="section-label">Quick actions</div>
+        <div className="section-label text-[hsl(var(--aurora-home-muted-foreground))]">Quick actions</div>
       </div>
       <div className="scrollbar-hide -mx-[var(--aurora-page-x)] mt-1.5 overflow-x-auto px-[var(--aurora-page-x)]">
         <div className="flex w-max gap-2.5 pb-1">
@@ -121,7 +138,7 @@ export default function Home() {
 
       <div className="mt-6 px-[var(--aurora-page-x)]">
         <div className="flex items-center justify-between">
-          <div className="ios-section-title">More for your skin</div>
+          <div className="ios-section-title font-aurora-heading text-[hsl(var(--aurora-home-foreground))]">More for your skin</div>
         </div>
         <div className="mt-2.5 grid grid-cols-2 gap-2.5">
           <FeatureCard
@@ -141,21 +158,37 @@ export default function Home() {
 
       <div className="mt-6 px-[var(--aurora-page-x)]">
         <div className="flex items-center justify-between">
-          <div className="ios-section-title">Recent activity</div>
-          <button type="button" className="text-[12px] font-semibold text-primary hover:text-primary/90" onClick={() => openComposer()}>
+          <div className="ios-section-title font-aurora-heading text-[hsl(var(--aurora-home-foreground))]">Recent activity</div>
+          <button
+            type="button"
+            className="text-[12px] font-semibold text-[hsl(var(--aurora-home-primary))] hover:opacity-90"
+            onClick={() => openComposer()}
+          >
             See all
           </button>
         </div>
 
-        <div className="mt-2.5 rounded-[24px] border border-border/60 bg-card/65 p-5 text-center shadow-card">
-          <div className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <div
+          className="mt-2.5 rounded-[24px] border p-5 text-center shadow-card"
+          style={{
+            borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
+            backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-glass-alpha))',
+            backdropFilter: 'blur(var(--aurora-home-search-blur))',
+          }}
+        >
+          <div
+            className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl text-[hsl(var(--aurora-home-primary))]"
+            style={{ backgroundColor: 'hsl(var(--aurora-home-primary) / 0.12)' }}
+          >
             <Sparkles className="h-6 w-6" />
           </div>
-          <div className="mt-3 text-[15px] font-semibold tracking-[-0.01em] text-foreground">Start your first skin diagnosis</div>
-          <div className="mt-1 text-[12px] text-muted-foreground">Takes ~1 minute and helps personalize everything.</div>
+          <div className="font-aurora-heading mt-3 text-[15px] font-semibold tracking-[-0.01em] text-[hsl(var(--aurora-home-foreground))]">
+            Start your first skin diagnosis
+          </div>
+          <div className="mt-1 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">Takes ~1 minute and helps personalize everything.</div>
           <button
             type="button"
-            className="mt-4 inline-flex items-center justify-center rounded-2xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-foreground shadow-card active:scale-[0.99]"
+            className="mt-4 inline-flex items-center justify-center rounded-2xl bg-[hsl(var(--aurora-home-primary))] px-4 py-2.5 text-[14px] font-semibold text-[hsl(var(--aurora-home-primary-foreground))] shadow-card active:scale-[0.99]"
             onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
           >
             Start
@@ -200,17 +233,22 @@ function QuickActionIcon({
       <div
         className={cn(
           'relative inline-flex h-[var(--aurora-quick-icon-size)] w-[var(--aurora-quick-icon-size)] items-center justify-center rounded-2xl',
-          'border border-border/60 bg-card/70 text-primary shadow-card',
+          'aurora-home-quick-icon border shadow-card',
         )}
+        style={{
+          borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
+          backgroundColor: 'hsl(var(--aurora-home-accent))',
+          color: 'hsl(var(--aurora-home-accent-foreground))',
+        }}
       >
         <Icon className="h-[var(--aurora-quick-glyph-size)] w-[var(--aurora-quick-glyph-size)]" />
         {badge ? (
-          <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+          <span className="absolute -right-1 -top-1 rounded-full bg-[hsl(var(--aurora-home-primary))] px-1.5 py-0.5 text-[10px] font-semibold text-[hsl(var(--aurora-home-primary-foreground))]">
             {badge}
           </span>
         ) : null}
       </div>
-      <div className="min-h-[22px] text-center font-medium leading-tight text-muted-foreground" style={{ fontSize: 'var(--aurora-quick-label-size)' }}>
+      <div className="min-h-[22px] text-center font-medium leading-tight text-[hsl(var(--aurora-home-muted-foreground))]" style={{ fontSize: 'var(--aurora-quick-label-size)' }}>
         {label}
       </div>
     </button>
@@ -230,17 +268,18 @@ function FeatureCard({
 }) {
   const bg =
     tone === 'indigo'
-      ? 'bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-500'
-      : 'bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500';
+      ? 'linear-gradient(135deg, hsl(var(--aurora-home-feature-warm-from)), hsl(var(--aurora-home-feature-warm-to)))'
+      : 'linear-gradient(135deg, hsl(var(--aurora-home-feature-cool-from)), hsl(var(--aurora-home-feature-cool-to)))';
 
   return (
     <button
       type="button"
-      className={cn('rounded-[22px] p-5 text-left text-white shadow-card transition hover:shadow-card-hover active:scale-[0.99]', bg)}
+      className="rounded-[22px] p-5 text-left text-[hsl(var(--aurora-home-foreground))] shadow-card transition hover:shadow-card-hover active:scale-[0.99]"
+      style={{ backgroundImage: bg }}
       onClick={onClick}
     >
-      <div className="text-[17px] font-semibold tracking-[-0.02em]">{title}</div>
-      <div className="mt-1 text-[12px] text-white/82">{subtitle}</div>
+      <div className="font-aurora-heading text-[17px] font-semibold tracking-[-0.02em]">{title}</div>
+      <div className="mt-1 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">{subtitle}</div>
     </button>
   );
 }

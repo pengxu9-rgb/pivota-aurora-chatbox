@@ -117,6 +117,31 @@
     --aurora-card-pad: 14px;
     --aurora-card-pad-elevated: 16px;
     --aurora-chip-min-h: 36px;
+
+    /* Aurora Home pilot theme tokens */
+    --aurora-home-background: 0 0% 98%;
+    --aurora-home-foreground: 20 20% 20%;
+    --aurora-home-card: 30 30% 99%;
+    --aurora-home-primary: 12 45% 65%;
+    --aurora-home-primary-foreground: 0 0% 100%;
+    --aurora-home-secondary: 168 30% 55%;
+    --aurora-home-muted: 30 20% 93%;
+    --aurora-home-muted-foreground: 20 10% 50%;
+    --aurora-home-accent: 25 60% 92%;
+    --aurora-home-accent-foreground: 12 45% 45%;
+    --aurora-home-border: 30 20% 90%;
+    --aurora-home-hero-angle: 160deg;
+    --aurora-home-hero-from: 12 50% 72%;
+    --aurora-home-hero-via: 20 40% 80%;
+    --aurora-home-hero-to: 168 25% 70%;
+    --aurora-home-feature-warm-from: 25 50% 92%;
+    --aurora-home-feature-warm-to: 12 45% 88%;
+    --aurora-home-feature-cool-from: 168 30% 88%;
+    --aurora-home-feature-cool-to: 168 35% 82%;
+    --aurora-home-glass-alpha: 0.7;
+    --aurora-home-nav-glass-alpha: 0.9;
+    --aurora-home-search-blur: 12px;
+    --aurora-home-quick-hover-shadow: 0 12px 22px -16px hsl(var(--aurora-home-primary) / 0.15);
   }
 
   .dark {
@@ -149,6 +174,31 @@
     --chat-bubble-user: 211 100% 55%;
     --chat-bubble-assistant: 215 25% 14%;
     --chat-input-bg: 215 25% 12%;
+
+    /* Keep current dark visuals for home pilot surfaces */
+    --aurora-home-background: var(--background);
+    --aurora-home-foreground: var(--foreground);
+    --aurora-home-card: var(--card);
+    --aurora-home-primary: var(--primary);
+    --aurora-home-primary-foreground: var(--primary-foreground);
+    --aurora-home-secondary: var(--secondary);
+    --aurora-home-muted: var(--muted);
+    --aurora-home-muted-foreground: var(--muted-foreground);
+    --aurora-home-accent: var(--accent);
+    --aurora-home-accent-foreground: var(--accent-foreground);
+    --aurora-home-border: var(--border);
+    --aurora-home-hero-angle: 160deg;
+    --aurora-home-hero-from: 199 89% 48%;
+    --aurora-home-hero-via: 217 91% 60%;
+    --aurora-home-hero-to: 239 84% 67%;
+    --aurora-home-feature-warm-from: 199 89% 48%;
+    --aurora-home-feature-warm-to: 239 84% 67%;
+    --aurora-home-feature-cool-from: 160 84% 39%;
+    --aurora-home-feature-cool-to: 190 95% 39%;
+    --aurora-home-glass-alpha: 0.85;
+    --aurora-home-nav-glass-alpha: 0.86;
+    --aurora-home-search-blur: 12px;
+    --aurora-home-quick-hover-shadow: 0 12px 22px -16px hsl(var(--aurora-home-primary) / 0.35);
   }
 
   /* iPhone 15 (393x852 logical points) */
@@ -800,6 +850,15 @@
     @apply text-muted-foreground;
   }
 
+  /* Aurora Home quick-action icon hover */
+  .aurora-home-quick-icon {
+    transition: box-shadow 180ms ease;
+  }
+
+  .aurora-home-quick-icon:hover {
+    box-shadow: var(--aurora-home-quick-hover-shadow);
+  }
+
   /* Utility Classes */
   .safe-area-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -842,6 +901,15 @@
   .font-mono-nums {
     font-variant-numeric: tabular-nums;
     font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+  }
+
+  .font-aurora-body {
+    font-family: 'DM Sans', 'SF Pro Text', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  .font-aurora-heading {
+    font-family: 'Playfair Display', 'Times New Roman', ui-serif, Georgia, Cambria, 'Liberation Serif', serif;
+    letter-spacing: -0.01em;
   }
 }
 
