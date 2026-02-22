@@ -5848,19 +5848,13 @@ export default function BffChat() {
 
         setQuickProfileBusy(true);
         try {
+          await patchGlowSessionProfile(
+            { brief_id: headers.brief_id, trace_id: headers.trace_id },
+            profilePatch,
+          );
+
           const nextDraft: QuickProfileProfilePatch = { ...quickProfileDraft, ...profilePatch };
           setQuickProfileDraft(nextDraft);
-
-          // Best-effort sync to Glow session store.
-          // Do not block quick-profile progression on CORS/network/backend failures.
-          try {
-            await patchGlowSessionProfile(
-              { brief_id: headers.brief_id, trace_id: headers.trace_id },
-              profilePatch,
-            );
-          } catch (err) {
-            console.warn('[QuickProfile] session/profile/patch failed; continue locally', err);
-          }
 
           const auroraProfilePatch = mapQuickProfileToAuroraProfilePatch(profilePatch);
           if (auroraProfilePatch) {
