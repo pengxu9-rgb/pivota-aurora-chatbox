@@ -610,11 +610,11 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
     );
   };
 
-  return (
-    <div className="chat-card space-y-3">
-      {cameraSlot && (
+  if (cameraSlot) {
+    return (
+      <div className="chat-card">
         <div
-          className="rounded-xl border p-3 space-y-3 max-h-[72dvh] overflow-y-auto lg:max-h-[720px]"
+          className="rounded-xl border p-3 space-y-2.5"
           style={{
             borderColor: 'hsl(var(--aurora-home-primary) / 0.35)',
             backgroundColor: 'hsl(var(--aurora-home-primary) / 0.06)',
@@ -625,7 +625,7 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
             <div className="text-[11px] text-muted-foreground">{copy.cameraGuideTip}</div>
           </div>
 
-          <div className="relative mx-auto w-full max-w-[340px] aspect-square rounded-xl overflow-hidden border border-border bg-black">
+          <div className="relative mx-auto w-full max-w-[300px] aspect-square rounded-xl overflow-hidden border border-border bg-black">
             <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover scale-x-[-1]" />
             <div className="pointer-events-none absolute inset-0 bg-black/15" />
             <div className="pointer-events-none absolute inset-[12%] rounded-[42%] border-2 border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.20)]" />
@@ -676,7 +676,12 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
             </button>
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="chat-card space-y-3">
 
       <div className="grid grid-cols-2 gap-3">
         {renderSlot('daylight', Sun, daylightInputRef)}
