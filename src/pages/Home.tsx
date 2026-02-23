@@ -148,10 +148,10 @@ export default function Home() {
             onClick={() => startChat({ kind: 'open', title: 'Routine Analysis', open: 'routine' })}
           />
           <FeatureCard
-            title="Skin Plan"
-            subtitle="AI-powered analysis"
+            title="Plan A Trip"
+            subtitle="Travel-ready skin plan"
             tone="emerald"
-            onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
+            onClick={() => navigate('/plans')}
           />
         </div>
       </div>
