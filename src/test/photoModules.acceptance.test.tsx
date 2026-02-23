@@ -240,6 +240,26 @@ describe('photo_modules_v1 acceptance', () => {
     expect(highlightCanvas).toHaveAttribute('data-visible-count', '1');
   });
 
+  it('keeps module summary/actions visible in no-image mode without big placeholder canvas', () => {
+    const payload = buildValidPayload();
+    delete (payload.face_crop as any).crop_image_url;
+    delete (payload.face_crop as any).original_image_url;
+
+    const normalized = normalizePhotoModulesUiModelV1(payload);
+    expect(normalized.errors).toHaveLength(0);
+    expect(normalized.model).not.toBeNull();
+
+    render(<PhotoModulesCard model={normalized.model!} language="EN" />);
+
+    expect(
+      screen.getByText('No renderable photo is available right now. Module findings and actions are shown below.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('photo-modules-base-canvas')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('photo-modules-highlight-canvas')).not.toBeInTheDocument();
+    expect(screen.getByTestId('photo-modules-module-left_cheek')).toBeInTheDocument();
+    expect(screen.getByText('Ingredient actions')).toBeInTheDocument();
+  });
+
   it('returns model=null on schema-fail payload and allows safe downgrade path', () => {
     const normalized = normalizePhotoModulesUiModelV1({
       used_photos: true,

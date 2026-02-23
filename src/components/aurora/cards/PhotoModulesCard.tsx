@@ -225,6 +225,10 @@ export function PhotoModulesCard({
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [selectedIssueType, setSelectedIssueType] = useState<string | null>(null);
   const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null);
+  const imageAspect = `${model.face_crop.render_size_px_hint.w}/${model.face_crop.render_size_px_hint.h}`;
+  const cropImageUrl = model.face_crop.crop_image_url;
+  const originalImageUrl = model.face_crop.original_image_url;
+  const hasRenderableImage = Boolean(cropImageUrl || originalImageUrl);
 
   useEffect(() => {
     if (!selectedModuleId || model.modules.some((module) => module.module_id === selectedModuleId)) return;
@@ -233,6 +237,13 @@ export function PhotoModulesCard({
   }, [model.modules, selectedModuleId]);
 
   useEffect(() => {
+    if (!hasRenderableImage) {
+      setStageSize((previous) => {
+        if (previous.width === 0 && previous.height === 0) return previous;
+        return { width: 0, height: 0 };
+      });
+      return;
+    }
     const node = stageRef.current;
     if (!node) return;
 
@@ -255,7 +266,7 @@ export function PhotoModulesCard({
     const observer = new ResizeObserver(update);
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [hasRenderableImage]);
 
   const regions = model.regions;
   const allRegionIds = useMemo(() => new Set(regions.map((region) => region.region_id)), [regions]);
@@ -339,10 +350,6 @@ export function PhotoModulesCard({
   const hasProducts =
     PRODUCT_REC_ENABLED && selectedModule ? selectedModule.products.filter((product) => Boolean(product.title)).length > 0 : false;
 
-  const imageAspect = `${model.face_crop.render_size_px_hint.w}/${model.face_crop.render_size_px_hint.h}`;
-  const cropImageUrl = model.face_crop.crop_image_url;
-  const originalImageUrl = model.face_crop.original_image_url;
-
   const originalCropStyle = useMemo(() => {
     const bbox = model.face_crop.bbox_px;
     const orig = model.face_crop.orig_size_px;
@@ -425,49 +432,60 @@ export function PhotoModulesCard({
 
       <CardContent className="space-y-4 p-4 pt-2">
         <div className="space-y-2">
-          <div
-            ref={stageRef}
-            className="relative w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/20"
-            style={{ aspectRatio: imageAspect }}
-          >
-            {cropImageUrl ? (
-              <img
-                src={cropImageUrl}
-                alt={language === 'CN' ? '脸部裁剪图' : 'Face crop'}
-                className="absolute inset-0 h-full w-full object-cover"
-                draggable={false}
-              />
-            ) : originalImageUrl && originalCropStyle ? (
-              <img
-                src={originalImageUrl}
-                alt={language === 'CN' ? '原图裁剪预览' : 'Original crop preview'}
-                className="absolute"
-                style={originalCropStyle}
-                draggable={false}
-              />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
-                {language === 'CN'
-                  ? '未提供可渲染图片，仅显示模块结论。'
-                  : 'No renderable image was provided, showing module summary only.'}
-              </div>
-            )}
+          {!hasRenderableImage ? (
+            <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {language === 'CN'
+                ? '当前未拿到可渲染照片，以下先展示模块结论与行动建议。'
+                : 'No renderable photo is available right now. Module findings and actions are shown below.'}
+            </div>
+          ) : null}
 
-            <canvas
-              ref={baseCanvasRef}
-              data-testid="photo-modules-base-canvas"
-              data-focused={hasFocusedSelection ? '1' : '0'}
-              className="pointer-events-none absolute inset-0 h-full w-full"
-              style={{ opacity: hasFocusedSelection ? 0.2 : 1 }}
-            />
-            <canvas
-              ref={highlightCanvasRef}
-              data-testid="photo-modules-highlight-canvas"
-              data-visible-count={visibleRegionIds.size}
-              data-highlight-count={highlightedRegionIds.size}
-              className="pointer-events-none absolute inset-0 h-full w-full"
-            />
-          </div>
+          {hasRenderableImage ? (
+            <div
+              ref={stageRef}
+              className="relative w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/20"
+              style={{ aspectRatio: imageAspect }}
+            >
+              {cropImageUrl ? (
+                <img
+                  src={cropImageUrl}
+                  alt={language === 'CN' ? '脸部裁剪图' : 'Face crop'}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  draggable={false}
+                />
+              ) : originalImageUrl && originalCropStyle ? (
+                <img
+                  src={originalImageUrl}
+                  alt={language === 'CN' ? '原图裁剪预览' : 'Original crop preview'}
+                  className="absolute"
+                  style={originalCropStyle}
+                  draggable={false}
+                />
+              ) : (
+                <img
+                  src={originalImageUrl}
+                  alt={language === 'CN' ? '原图预览' : 'Original image preview'}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  draggable={false}
+                />
+              )}
+
+              <canvas
+                ref={baseCanvasRef}
+                data-testid="photo-modules-base-canvas"
+                data-focused={hasFocusedSelection ? '1' : '0'}
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                style={{ opacity: hasFocusedSelection ? 0.2 : 1 }}
+              />
+              <canvas
+                ref={highlightCanvasRef}
+                data-testid="photo-modules-highlight-canvas"
+                data-visible-count={visibleRegionIds.size}
+                data-highlight-count={highlightedRegionIds.size}
+                className="pointer-events-none absolute inset-0 h-full w-full"
+              />
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap gap-2 text-[11px]">
             {(Object.keys(ISSUE_COLOR_MAP) as IssueType[]).map((issueType) => (

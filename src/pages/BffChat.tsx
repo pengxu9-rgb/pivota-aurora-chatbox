@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
+import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
@@ -27,6 +28,7 @@ import { augmentEnvelopeWithIngredientReport } from '@/lib/ingredientReportCard'
 import { humanizeKbNote } from '@/lib/auroraKbHumanize';
 import { resolveAnalysisSummaryLowConfidence } from '@/lib/analysisSummary';
 import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
+import { enrichPhotoModulesPayloadWithSessionPreview } from '@/lib/photoModulesFallback';
 import { looksLikeProductPicksRawText } from '@/lib/productPicks';
 import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
 import type { CompatibilityProductInput } from '@/lib/routineCompatibility/types';
@@ -2595,6 +2597,8 @@ function BffCardView({
   ingredientQuestionBusy,
   onOpenPdp,
   analyticsCtx,
+  analysisPhotoRefs,
+  sessionPhotos,
 }: {
   card: Card;
   language: UiLanguage;
@@ -2626,6 +2630,8 @@ function BffCardView({
   ingredientQuestionBusy?: boolean;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
+  analysisPhotoRefs?: AnalysisPhotoRef[];
+  sessionPhotos?: Session['photos'];
 }) {
   const cardType = String(card.type || '').toLowerCase();
 
@@ -2767,54 +2773,13 @@ function BffCardView({
   if (cardType === 'photo_modules_v1') {
     if (!FF_PHOTO_MODULES_CARD) return null;
 
-    const payloadWithSessionPhotoFallback = (() => {
-      const payloadObj =
-        payload && typeof payload === 'object' && !Array.isArray(payload)
-          ? (payload as Record<string, unknown>)
-          : null;
-      if (!payloadObj) return payload;
-
-      const faceCropObj =
-        payloadObj.face_crop && typeof payloadObj.face_crop === 'object' && !Array.isArray(payloadObj.face_crop)
-          ? (payloadObj.face_crop as Record<string, unknown>)
-          : null;
-      if (!faceCropObj) return payload;
-
-      const hasRenderableImage = Boolean(
-        asString(faceCropObj.crop_image_url) ||
-          asString(faceCropObj.original_image_url) ||
-          asString(faceCropObj.face_crop_url) ||
-          asString(faceCropObj.source_image_url) ||
-          asString(faceCropObj.image_url) ||
-          asString(faceCropObj.src),
-      );
-      if (hasRenderableImage) return payload;
-
-      const photoIdHint = String(asString(faceCropObj.photo_id) || '').trim();
-      const slotHint = String(asString(faceCropObj.slot_id) || '').trim();
-      const matchedSlotByPhotoId =
-        photoIdHint && Array.isArray(analysisPhotoRefs)
-          ? String(analysisPhotoRefs.find((ref) => String(ref?.photo_id || '').trim() === photoIdHint)?.slot_id || '').trim()
-          : '';
-      const slotCandidates = [slotHint, matchedSlotByPhotoId, 'daylight', 'indoor_white'];
-      const fallbackPreview = slotCandidates
-        .map((slot) => {
-          if (slot !== 'daylight' && slot !== 'indoor_white') return '';
-          const entry = sessionPhotos[slot];
-          return entry && typeof entry.preview === 'string' ? entry.preview.trim() : '';
-        })
-        .find(Boolean);
-
-      if (!fallbackPreview) return payload;
-
-      return {
-        ...payloadObj,
-        face_crop: {
-          ...faceCropObj,
-          original_image_url: asString(faceCropObj.original_image_url) || fallbackPreview,
-        },
-      };
-    })();
+    const safeAnalysisPhotoRefs = Array.isArray(analysisPhotoRefs) ? analysisPhotoRefs : [];
+    const safeSessionPhotos = sessionPhotos && typeof sessionPhotos === 'object' ? sessionPhotos : {};
+    const payloadWithSessionPhotoFallback = enrichPhotoModulesPayloadWithSessionPreview(
+      payload,
+      safeAnalysisPhotoRefs,
+      safeSessionPhotos,
+    );
 
     const { model, errors, sanitizer_drops } = normalizePhotoModulesUiModelV1(payloadWithSessionPhotoFallback);
     if (!model) {
@@ -7574,33 +7539,41 @@ export default function BffChat() {
                       }
 
                       return [
-                        <BffCardView
+                        <CardRenderBoundary
                           key={card.card_id}
-                          card={card}
                           language={language}
-                          debug={debug}
-                          requestHeaders={headers}
-                          session={sessionForCards}
-                          onAction={onCardAction}
-                          resolveOffers={resolveOffers}
-                          resolveProductRef={resolveProductRef}
-                          resolveProductsSearch={resolveProductsSearch}
-                          onDeepScanProduct={runProductDeepScan}
-                          bootstrapInfo={bootstrapInfo}
-                          profileSnapshot={profileSnapshot}
-                          onOpenCheckin={() => setCheckinSheetOpen(true)}
-                          onOpenProfile={() => setProfileSheetOpen(true)}
-                          onIngredientQuestionSelect={onIngredientQuestionSelect}
-                          ingredientQuestionBusy={ingredientQuestionBusy}
-                          onOpenPdp={openPdpDrawer}
-                          analyticsCtx={{
-                            brief_id: headers.brief_id,
-                            trace_id: headers.trace_id,
-                            aurora_uid: headers.aurora_uid,
-                            lang: toLangPref(language),
-                            state: agentState,
-                          }}
-                        />,
+                          cardType={String(card.type || '')}
+                          cardId={card.card_id}
+                        >
+                          <BffCardView
+                            card={card}
+                            language={language}
+                            debug={debug}
+                            requestHeaders={headers}
+                            session={sessionForCards}
+                            onAction={onCardAction}
+                            resolveOffers={resolveOffers}
+                            resolveProductRef={resolveProductRef}
+                            resolveProductsSearch={resolveProductsSearch}
+                            onDeepScanProduct={runProductDeepScan}
+                            bootstrapInfo={bootstrapInfo}
+                            profileSnapshot={profileSnapshot}
+                            onOpenCheckin={() => setCheckinSheetOpen(true)}
+                            onOpenProfile={() => setProfileSheetOpen(true)}
+                            onIngredientQuestionSelect={onIngredientQuestionSelect}
+                            ingredientQuestionBusy={ingredientQuestionBusy}
+                            onOpenPdp={openPdpDrawer}
+                            analysisPhotoRefs={analysisPhotoRefs}
+                            sessionPhotos={sessionPhotos}
+                            analyticsCtx={{
+                              brief_id: headers.brief_id,
+                              trace_id: headers.trace_id,
+                              aurora_uid: headers.aurora_uid,
+                              lang: toLangPref(language),
+                              state: agentState,
+                            }}
+                          />
+                        </CardRenderBoundary>,
                       ];
                     })}
                   </div>
