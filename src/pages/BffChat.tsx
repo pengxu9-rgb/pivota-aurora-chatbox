@@ -480,6 +480,23 @@ const collapsePhotoConfirmWhenAnalysisPresent = (cards: Card[]): Card[] => {
   return cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'photo_confirm');
 };
 
+const collapseAnalysisSummaryCards = (cards: Card[]): Card[] => {
+  if (!Array.isArray(cards) || cards.length < 2) return cards;
+  let keptAnalysisSummary = false;
+  const out: Card[] = [];
+  for (let i = cards.length - 1; i >= 0; i -= 1) {
+    const card = cards[i];
+    const type = String(card?.type || '').trim().toLowerCase();
+    if (type === 'analysis_summary') {
+      if (keptAnalysisSummary) continue;
+      keptAnalysisSummary = true;
+    }
+    out.push(card);
+  }
+  out.reverse();
+  return out;
+};
+
 const removePhotoConfirmCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
   if (!Array.isArray(items) || items.length === 0) return items;
   const out: ChatItem[] = [];
@@ -489,6 +506,25 @@ const removePhotoConfirmCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
       continue;
     }
     const filteredCards = item.cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'photo_confirm');
+    if (!filteredCards.length) continue;
+    if (filteredCards.length === item.cards.length) {
+      out.push(item);
+      continue;
+    }
+    out.push({ ...item, cards: filteredCards });
+  }
+  return out;
+};
+
+const removeAnalysisSummaryCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  const out: ChatItem[] = [];
+  for (const item of items) {
+    if (item.kind !== 'cards') {
+      out.push(item);
+      continue;
+    }
+    const filteredCards = item.cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'analysis_summary');
     if (!filteredCards.length) continue;
     if (filteredCards.length === item.cards.length) {
       out.push(item);
@@ -4307,7 +4343,7 @@ export default function BffChat() {
 
     const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
-    const cards = collapsePhotoConfirmWhenAnalysisPresent(gatedCards);
+    const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards));
     const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
 
     if (cards.length) {
@@ -4333,7 +4369,9 @@ export default function BffChat() {
 
     if (nextItems.length) {
       setItems((prev) => {
-        const base = hasAnalysisSummaryCard ? removePhotoConfirmCardsFromHistory(prev) : prev;
+        const base = hasAnalysisSummaryCard
+          ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
+          : prev;
         return [...base, ...nextItems];
       });
     }

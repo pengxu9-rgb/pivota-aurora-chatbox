@@ -9,6 +9,7 @@ type Props = {
     photos_provided?: boolean;
     photo_qc?: string[];
     analysis_source?: string;
+    used_photos?: boolean;
   };
   onAction: (actionId: string, data?: Record<string, any>) => void;
   language: Language;
@@ -111,11 +112,13 @@ function describePhotoBasis({
   photosProvided,
   photoQc,
   analysisSource,
+  usedPhotos,
   language,
 }: {
   photosProvided: boolean;
   photoQc: string[];
   analysisSource?: string;
+  usedPhotos?: boolean;
   language: Language;
 }) {
   if (!photosProvided) {
@@ -131,8 +134,15 @@ function describePhotoBasis({
     .filter(Boolean);
   const uniqueSlots = Array.from(new Set(passedSlots.map((s) => s.toLowerCase()))).slice(0, 2);
   const slotLabel = uniqueSlots.length ? ` (${uniqueSlots.join(', ')})` : '';
+  const source = String(analysisSource || '').trim().toLowerCase();
 
-  if (String(analysisSource || '').trim().toLowerCase() === 'retake') {
+  if (usedPhotos === false || source === 'rule_based_with_photo_qc') {
+    return language === 'CN'
+      ? `已上传照片，但本次未读到可用图像，当前仅基于问答/历史${slotLabel}`
+      : `Photos uploaded, but usable image bytes were unavailable; currently based on answers/history${slotLabel}`;
+  }
+
+  if (source === 'retake') {
     return language === 'CN'
       ? `上传质检已通过，但诊断级质量不足，需重拍${slotLabel}`
       : `Upload QC passed, but diagnostic quality is insufficient; retake needed${slotLabel}`;
@@ -220,9 +230,10 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
         photosProvided,
         photoQc,
         analysisSource: payload.analysis_source,
+        usedPhotos: payload.used_photos,
         language,
       }),
-    [language, payload.analysis_source, photoQc, photosProvided],
+    [language, payload.analysis_source, payload.used_photos, photoQc, photosProvided],
   );
 
   return (
