@@ -480,6 +480,25 @@ const collapsePhotoConfirmWhenAnalysisPresent = (cards: Card[]): Card[] => {
   return cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'photo_confirm');
 };
 
+const removePhotoConfirmCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  const out: ChatItem[] = [];
+  for (const item of items) {
+    if (item.kind !== 'cards') {
+      out.push(item);
+      continue;
+    }
+    const filteredCards = item.cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'photo_confirm');
+    if (!filteredCards.length) continue;
+    if (filteredCards.length === item.cards.length) {
+      out.push(item);
+      continue;
+    }
+    out.push({ ...item, cards: filteredCards });
+  }
+  return out;
+};
+
 type RecoItem = Record<string, unknown> & { slot?: string };
 
 const isEnvStressCard = (card: Card): boolean => {
@@ -4289,6 +4308,7 @@ export default function BffChat() {
     const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
     const cards = collapsePhotoConfirmWhenAnalysisPresent(gatedCards);
+    const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
 
     if (cards.length) {
       nextItems.push({
@@ -4311,7 +4331,12 @@ export default function BffChat() {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: enhancedEnv.suggested_chips });
     }
 
-    if (nextItems.length) setItems((prev) => [...prev, ...nextItems]);
+    if (nextItems.length) {
+      setItems((prev) => {
+        const base = hasAnalysisSummaryCard ? removePhotoConfirmCardsFromHistory(prev) : prev;
+        return [...base, ...nextItems];
+      });
+    }
   }, [debug]);
 
   const tryApplyEnvelopeFromBffError = useCallback(
