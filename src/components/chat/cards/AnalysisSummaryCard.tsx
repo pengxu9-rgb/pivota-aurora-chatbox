@@ -107,8 +107,21 @@ function extractPlan(strategy: string): string[] {
   return sentences.slice(0, 3);
 }
 
-function describePhotoBasis({ photosProvided, photoQc }: { photosProvided: boolean; photoQc: string[] }) {
-  if (!photosProvided) return 'Based on your answers';
+function describePhotoBasis({
+  photosProvided,
+  photoQc,
+  analysisSource,
+  language,
+}: {
+  photosProvided: boolean;
+  photoQc: string[];
+  analysisSource?: string;
+  language: Language;
+}) {
+  if (!photosProvided) {
+    return language === 'CN' ? '基于你的问答信息' : 'Based on your answers';
+  }
+
   const passedSlots = photoQc
     .map((raw) => String(raw || '').trim())
     .filter(Boolean)
@@ -116,9 +129,18 @@ function describePhotoBasis({ photosProvided, photoQc }: { photosProvided: boole
     .filter((parts) => parts.length >= 2 && parts[1].toLowerCase() === 'passed')
     .map((parts) => parts[0])
     .filter(Boolean);
-  const unique = Array.from(new Set(passedSlots.map((s) => s.toLowerCase()))).slice(0, 2);
-  const slotLabel = unique.length ? ` (${unique.join(', ')})` : '';
-  return `Based on your answers + 1 photo${slotLabel}`;
+  const uniqueSlots = Array.from(new Set(passedSlots.map((s) => s.toLowerCase()))).slice(0, 2);
+  const slotLabel = uniqueSlots.length ? ` (${uniqueSlots.join(', ')})` : '';
+
+  if (String(analysisSource || '').trim().toLowerCase() === 'retake') {
+    return language === 'CN'
+      ? `上传质检已通过，但诊断级质量不足，需重拍${slotLabel}`
+      : `Upload QC passed, but diagnostic quality is insufficient; retake needed${slotLabel}`;
+  }
+
+  const photoCount = uniqueSlots.length > 0 ? uniqueSlots.length : 1;
+  if (language === 'CN') return `基于你的问答 + ${photoCount} 张照片${slotLabel}`;
+  return `Based on your answers + ${photoCount} photo${photoCount > 1 ? 's' : ''}${slotLabel}`;
 }
 
 export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
@@ -192,7 +214,16 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
     if (next) onAction('analysis_quick_check', { value: next });
   };
 
-  const subtitle = useMemo(() => describePhotoBasis({ photosProvided, photoQc }), [photosProvided, photoQc]);
+  const subtitle = useMemo(
+    () =>
+      describePhotoBasis({
+        photosProvided,
+        photoQc,
+        analysisSource: payload.analysis_source,
+        language,
+      }),
+    [language, payload.analysis_source, photoQc, photosProvided],
+  );
 
   return (
     <article className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

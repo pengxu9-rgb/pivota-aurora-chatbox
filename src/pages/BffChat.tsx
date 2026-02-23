@@ -473,6 +473,13 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   return t || (language === 'CN' ? '卡片' : 'Card');
 };
 
+const collapsePhotoConfirmWhenAnalysisPresent = (cards: Card[]): Card[] => {
+  if (!Array.isArray(cards) || cards.length < 2) return cards;
+  const hasAnalysisSummary = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+  if (!hasAnalysisSummary) return cards;
+  return cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'photo_confirm');
+};
+
 type RecoItem = Record<string, unknown> & { slot?: string };
 
 const isEnvStressCard = (card: Card): boolean => {
@@ -4280,7 +4287,8 @@ export default function BffChat() {
     }
 
     const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
-    const cards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
+    const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
+    const cards = collapsePhotoConfirmWhenAnalysisPresent(gatedCards);
 
     if (cards.length) {
       nextItems.push({
