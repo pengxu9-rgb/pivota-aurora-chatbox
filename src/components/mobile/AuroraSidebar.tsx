@@ -4,9 +4,37 @@ import { CalendarDays, Clock, Compass, Home, Package, ShoppingCart, Sparkles, Us
 import { NavLink } from '@/components/NavLink';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { AuroraCartPreviewDrawer } from '@/components/shop/AuroraCartPreviewDrawer';
+import { loadAuroraAuthSession } from '@/lib/auth';
 import type { ChatHistoryItem } from '@/lib/chatHistory';
+import { AURORA_USER_PROFILE_UPDATED_EVENT, loadAuroraUserProfile } from '@/lib/userProfile';
 import { cn } from '@/lib/utils';
 import { useShop } from '@/contexts/shop';
+
+type SidebarIdentity = {
+  displayName: string;
+  subtitle: string;
+  avatarUrl: string;
+};
+
+function resolveSidebarIdentity(): SidebarIdentity {
+  if (typeof window === 'undefined') {
+    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '' };
+  }
+
+  const authSession = loadAuroraAuthSession();
+  const email = String(authSession?.email || '').trim();
+  if (!email) {
+    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '' };
+  }
+
+  const profile = loadAuroraUserProfile(email);
+  const displayName = profile?.displayName?.trim() || email.split('@')[0] || 'User';
+  return {
+    displayName,
+    subtitle: email,
+    avatarUrl: profile?.avatarUrl || '',
+  };
+}
 
 export function AuroraSidebar({
   open,
@@ -22,6 +50,33 @@ export function AuroraSidebar({
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
   const [cartPreviewOpen, setCartPreviewOpen] = React.useState(false);
+  const [identity, setIdentity] = React.useState<SidebarIdentity>(() => resolveSidebarIdentity());
+  const [avatarLoadError, setAvatarLoadError] = React.useState(false);
+
+  const syncIdentity = React.useCallback(() => {
+    setIdentity(resolveSidebarIdentity());
+  }, []);
+
+  React.useEffect(() => {
+    syncIdentity();
+  }, [open, syncIdentity]);
+
+  React.useEffect(() => {
+    setAvatarLoadError(false);
+  }, [identity.avatarUrl]);
+
+  React.useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('pivota_aurora_')) syncIdentity();
+    };
+    const onProfileUpdated = () => syncIdentity();
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(AURORA_USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(AURORA_USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+    };
+  }, [syncIdentity]);
 
   return (
     <>
@@ -31,12 +86,21 @@ export function AuroraSidebar({
             <div className="border-b border-border/60 px-[var(--aurora-page-x)] py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
-                    <User className="h-[18px] w-[18px]" />
+                  <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border">
+                    {identity.avatarUrl && !avatarLoadError ? (
+                      <img
+                        src={identity.avatarUrl}
+                        alt="User avatar"
+                        className="h-full w-full object-cover"
+                        onError={() => setAvatarLoadError(true)}
+                      />
+                    ) : (
+                      <User className="h-[18px] w-[18px]" />
+                    )}
                   </div>
                   <div className="leading-tight">
-                    <div className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">User</div>
-                    <div className="text-[12px] text-muted-foreground">Personal</div>
+                    <div className="max-w-[180px] truncate text-[15px] font-semibold tracking-[-0.01em] text-foreground">{identity.displayName}</div>
+                    <div className="max-w-[180px] truncate text-[12px] text-muted-foreground">{identity.subtitle}</div>
                   </div>
                 </div>
               </div>

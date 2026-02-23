@@ -7,11 +7,13 @@ import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession, t
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError, type V1Envelope } from '@/lib/pivotaAgentBff';
 import { deriveQuickProfileStatus, formatQuickProfileSummary, type QuickProfileStatus } from '@/lib/profileCompletion';
 import { getLangPref } from '@/lib/persistence';
+import { loadAuroraUserProfile, saveAuroraUserProfile } from '@/lib/userProfile';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
 const PASSWORD_SET_FLAG_KEY_PREFIX = 'pivota_aurora_password_set_v1:';
+const MAX_DISPLAY_NAME_LEN = 40;
 
 const passwordSetFlagKey = (email: string) => `${PASSWORD_SET_FLAG_KEY_PREFIX}${email.trim().toLowerCase()}`;
 
@@ -29,6 +31,17 @@ const markPasswordSetFlag = (email: string): void => {
     window.localStorage.setItem(passwordSetFlagKey(email), '1');
   } catch {
     // ignore
+  }
+};
+
+const isValidAvatarUrl = (value: string): boolean => {
+  const v = String(value || '').trim();
+  if (!v) return true;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
   }
 };
 
@@ -72,6 +85,9 @@ export default function Profile() {
   const [bootstrapProfile, setBootstrapProfile] = useState<Record<string, unknown> | null>(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [profileDraft, setProfileDraft] = useState<{ displayName: string; avatarUrl: string }>({ displayName: '', avatarUrl: '' });
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   useEffect(() => {
     const email = authSession?.email?.trim() || '';
@@ -80,6 +96,23 @@ export default function Profile() {
       return;
     }
     setPasswordEditorOpen(!hasPasswordSetFlag(email));
+  }, [authSession?.email]);
+
+  useEffect(() => {
+    const email = authSession?.email?.trim() || '';
+    if (!email) {
+      setProfileDraft({ displayName: '', avatarUrl: '' });
+      setProfileNotice(null);
+      setProfileError(null);
+      return;
+    }
+    const stored = loadAuroraUserProfile(email);
+    setProfileDraft({
+      displayName: stored?.displayName || '',
+      avatarUrl: stored?.avatarUrl || '',
+    });
+    setProfileNotice(null);
+    setProfileError(null);
   }, [authSession?.email]);
 
   const toBffErrorMessage = useCallback((err: unknown): string => {
@@ -290,6 +323,36 @@ export default function Profile() {
     }
   }, [authDraft.newPassword, authDraft.newPasswordConfirm, authSession?.email, authSession?.token, lang, makeHeaders, toBffErrorMessage]);
 
+  const saveProfileDetails = useCallback(() => {
+    const email = authSession?.email?.trim() || '';
+    if (!email) {
+      setProfileError(isCN ? '请先登录后再保存。' : 'Please sign in before saving.');
+      setProfileNotice(null);
+      return;
+    }
+    const displayName = String(profileDraft.displayName || '')
+      .trim()
+      .slice(0, MAX_DISPLAY_NAME_LEN);
+    const avatarUrl = String(profileDraft.avatarUrl || '').trim();
+    if (!isValidAvatarUrl(avatarUrl)) {
+      setProfileError(isCN ? '头像链接需为 http(s) 地址。' : 'Avatar URL must be a valid http(s) URL.');
+      setProfileNotice(null);
+      return;
+    }
+    const saved = saveAuroraUserProfile(email, { displayName, avatarUrl });
+    setProfileDraft({
+      displayName: saved?.displayName || '',
+      avatarUrl: saved?.avatarUrl || '',
+    });
+    const notice = isCN ? '资料已保存，侧边栏会显示最新用户名和头像。' : 'Profile saved. Sidebar will show your latest name and avatar.';
+    setProfileError(null);
+    setProfileNotice(notice);
+    toast({
+      title: isCN ? '资料已更新' : 'Profile updated',
+      description: notice,
+    });
+  }, [authSession?.email, isCN, profileDraft.avatarUrl, profileDraft.displayName]);
+
   const signOut = useCallback(async () => {
     setAuthLoading(true);
     setAuthError(null);
@@ -305,6 +368,9 @@ export default function Profile() {
       clearAuroraAuthSession();
       setAuthSession(null);
       setPasswordEditorOpen(true);
+      setProfileDraft({ displayName: '', avatarUrl: '' });
+      setProfileNotice(null);
+      setProfileError(null);
       setAuthMode('code');
       setAuthStage('email');
       setAuthDraft({ email: '', code: '', password: '', newPassword: '', newPasswordConfirm: '' });
@@ -440,6 +506,82 @@ export default function Profile() {
               {authSession.expires_at ? (
                 <div className="mt-1 text-[12px] text-muted-foreground">Expires: {authSession.expires_at}</div>
               ) : null}
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
+              <div className="text-[15px] font-semibold text-foreground">{isCN ? '个人资料' : 'Profile details'}</div>
+              <div className="mt-1 text-[12px] text-muted-foreground">
+                {isCN ? '更新用户名与头像，左侧栏会同步显示。' : 'Update your name and avatar for the left sidebar.'}
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="aurora-home-role-icon inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border">
+                  {profileDraft.avatarUrl ? (
+                    <img
+                      src={profileDraft.avatarUrl}
+                      alt={isCN ? '头像预览' : 'Avatar preview'}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <User className="h-[18px] w-[18px]" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-[14px] font-semibold text-foreground">
+                    {profileDraft.displayName.trim() || authSession.email.split('@')[0] || (isCN ? '用户' : 'User')}
+                  </div>
+                  <div className="truncate text-[12px] text-muted-foreground">{authSession.email}</div>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3">
+                <label className="space-y-1 text-[12px] text-muted-foreground">
+                  {isCN ? '用户名' : 'Display name'}
+                  <input
+                    className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.displayName}
+                    onChange={(e) => {
+                      setProfileDraft((prev) => ({ ...prev, displayName: e.target.value }));
+                      setProfileNotice(null);
+                      setProfileError(null);
+                    }}
+                    placeholder={isCN ? '例如：Peng' : 'e.g. Peng'}
+                    maxLength={MAX_DISPLAY_NAME_LEN}
+                    disabled={authLoading}
+                  />
+                </label>
+                <label className="space-y-1 text-[12px] text-muted-foreground">
+                  {isCN ? '头像 URL' : 'Avatar URL'}
+                  <input
+                    className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={profileDraft.avatarUrl}
+                    onChange={(e) => {
+                      setProfileDraft((prev) => ({ ...prev, avatarUrl: e.target.value }));
+                      setProfileNotice(null);
+                      setProfileError(null);
+                    }}
+                    placeholder="https://example.com/avatar.jpg"
+                    inputMode="url"
+                    autoComplete="url"
+                    disabled={authLoading}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className={cn(
+                    'inline-flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
+                    'active:scale-[0.99]',
+                  )}
+                  onClick={saveProfileDetails}
+                  disabled={authLoading}
+                >
+                  {isCN ? '保存资料' : 'Save profile'}
+                </button>
+              </div>
+              {profileNotice ? (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800">
+                  {profileNotice}
+                </div>
+              ) : null}
+              {profileError ? <div className="mt-3 text-[12px] text-red-600">{profileError}</div> : null}
             </div>
 
             <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
