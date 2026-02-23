@@ -274,6 +274,8 @@ export type PhotoModulesUiModelV1 = {
     render_size_px_hint: { w: number; h: number };
     crop_image_url: string | null;
     original_image_url: string | null;
+    slot_id: string | null;
+    photo_id: string | null;
   };
   regions: PhotoModulesRegion[];
   modules: PhotoModulesModule[];
@@ -616,6 +618,16 @@ const normalizeFaceCrop = (payload: RawPayload) => {
     String((payload as any).image_url || '').trim() || undefined,
   );
 
+  const slotId = firstNonEmpty(
+    faceCrop.slot_id,
+    String((payload as any).slot_id || '').trim() || undefined,
+  );
+
+  const photoId = firstNonEmpty(
+    faceCrop.photo_id,
+    String((payload as any).photo_id || '').trim() || undefined,
+  );
+
   return {
     crop_id: faceCrop.crop_id,
     coord_space: ORIG_PX_COORD_SPACE,
@@ -635,6 +647,8 @@ const normalizeFaceCrop = (payload: RawPayload) => {
     },
     crop_image_url: cropImageUrl,
     original_image_url: originalImageUrl,
+    slot_id: slotId,
+    photo_id: photoId,
   };
 };
 
@@ -685,4 +699,3 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
     sanitizer_drops: sanitizerDrops,
   };
 }
-

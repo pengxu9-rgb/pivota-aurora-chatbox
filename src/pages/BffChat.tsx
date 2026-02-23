@@ -2767,7 +2767,56 @@ function BffCardView({
   if (cardType === 'photo_modules_v1') {
     if (!FF_PHOTO_MODULES_CARD) return null;
 
-    const { model, errors, sanitizer_drops } = normalizePhotoModulesUiModelV1(payload);
+    const payloadWithSessionPhotoFallback = (() => {
+      const payloadObj =
+        payload && typeof payload === 'object' && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : null;
+      if (!payloadObj) return payload;
+
+      const faceCropObj =
+        payloadObj.face_crop && typeof payloadObj.face_crop === 'object' && !Array.isArray(payloadObj.face_crop)
+          ? (payloadObj.face_crop as Record<string, unknown>)
+          : null;
+      if (!faceCropObj) return payload;
+
+      const hasRenderableImage = Boolean(
+        asString(faceCropObj.crop_image_url) ||
+          asString(faceCropObj.original_image_url) ||
+          asString(faceCropObj.face_crop_url) ||
+          asString(faceCropObj.source_image_url) ||
+          asString(faceCropObj.image_url) ||
+          asString(faceCropObj.src),
+      );
+      if (hasRenderableImage) return payload;
+
+      const photoIdHint = String(asString(faceCropObj.photo_id) || '').trim();
+      const slotHint = String(asString(faceCropObj.slot_id) || '').trim();
+      const matchedSlotByPhotoId =
+        photoIdHint && Array.isArray(analysisPhotoRefs)
+          ? String(analysisPhotoRefs.find((ref) => String(ref?.photo_id || '').trim() === photoIdHint)?.slot_id || '').trim()
+          : '';
+      const slotCandidates = [slotHint, matchedSlotByPhotoId, 'daylight', 'indoor_white'];
+      const fallbackPreview = slotCandidates
+        .map((slot) => {
+          if (slot !== 'daylight' && slot !== 'indoor_white') return '';
+          const entry = sessionPhotos[slot];
+          return entry && typeof entry.preview === 'string' ? entry.preview.trim() : '';
+        })
+        .find(Boolean);
+
+      if (!fallbackPreview) return payload;
+
+      return {
+        ...payloadObj,
+        face_crop: {
+          ...faceCropObj,
+          original_image_url: asString(faceCropObj.original_image_url) || fallbackPreview,
+        },
+      };
+    })();
+
+    const { model, errors, sanitizer_drops } = normalizePhotoModulesUiModelV1(payloadWithSessionPhotoFallback);
     if (!model) {
       if (analyticsCtx) {
         emitAuroraPhotoModulesSchemaFail(analyticsCtx, {
