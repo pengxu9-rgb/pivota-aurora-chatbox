@@ -39,6 +39,9 @@ export interface AuroraRecommendationMeta {
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
+  env_source?: string | null;
+  epi?: number | null;
+  active_trip_id?: string | null;
 }
 
 export interface AuroraRecoRefreshHint {

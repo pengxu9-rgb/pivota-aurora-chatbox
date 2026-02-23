@@ -2450,14 +2450,37 @@ export function RecommendationsCard({
     if ((recommendationMeta as any).used_safety_flags === true) {
       flags.push(language === 'CN' ? '安全约束' : 'safety constraints');
     }
+    const envSource = asString((recommendationMeta as any).env_source).toLowerCase();
+    const envLabel =
+      envSource === 'weather_api'
+        ? language === 'CN'
+          ? '实时天气'
+          : 'weather API'
+        : envSource === 'climate_fallback'
+          ? language === 'CN'
+            ? '气候常模回退'
+            : 'climate fallback'
+          : envSource
+            ? language === 'CN'
+              ? `环境输入(${envSource})`
+              : `environment (${envSource})`
+            : '';
+    const epiRaw = Number((recommendationMeta as any).epi);
+    const epi = Number.isFinite(epiRaw) ? Math.round(epiRaw) : null;
+    const activeTripId = asString((recommendationMeta as any).active_trip_id);
     const contextText = flags.length
       ? flags.join(language === 'CN' ? '、' : ', ')
       : language === 'CN'
         ? '基础画像'
         : 'base profile';
+    const extras: string[] = [];
+    if (envLabel) extras.push(language === 'CN' ? `环境来源：${envLabel}` : `Env: ${envLabel}`);
+    if (epi != null) extras.push(`EPI: ${epi}`);
+    if (activeTripId) extras.push(language === 'CN' ? `行程ID：${activeTripId}` : `Trip: ${activeTripId}`);
+    const extrasText = extras.length ? ` · ${extras.join(language === 'CN' ? '；' : ', ')}` : '';
     return language === 'CN'
-      ? `本次依据：${contextText} · 路径：${sourceLabel}`
-      : `Based on: ${contextText} · Path: ${sourceLabel}`;
+      ? `本次依据：${contextText} · 路径：${sourceLabel}${extrasText}`
+      : `Based on: ${contextText} · Path: ${sourceLabel}${extrasText}`;
   })();
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
