@@ -1,17 +1,37 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { HelpCircle, KeyRound, LogIn, LogOut, Mail, Menu, Shield, User } from 'lucide-react';
-import { useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession, type AuroraAuthSession } from '@/lib/auth';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError, type V1Envelope } from '@/lib/pivotaAgentBff';
+import { deriveQuickProfileStatus, formatQuickProfileSummary, type QuickProfileStatus } from '@/lib/profileCompletion';
 import { getLangPref } from '@/lib/persistence';
 import { cn } from '@/lib/utils';
 
+const asObject = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
+
+const extractBootstrapProfile = (env: V1Envelope): Record<string, unknown> | null => {
+  const sessionPatch = asObject(env.session_patch);
+  const profileFromPatch = asObject(sessionPatch?.profile);
+  if (profileFromPatch) return profileFromPatch;
+
+  const sessionCard = Array.isArray(env.cards)
+    ? env.cards.find((c) => c && typeof c === 'object' && (c as any).type === 'session_bootstrap')
+    : null;
+  const payload = asObject((sessionCard as any)?.payload);
+  return asObject(payload?.profile);
+};
+
 export default function Profile() {
   const { openSidebar, startChat, openComposer } = useOutletContext<MobileShellContext>();
+  const navigate = useNavigate();
 
   const lang = useMemo(() => (getLangPref() === 'cn' ? 'CN' : 'EN') as const, []);
+  const isCN = lang === 'CN';
   const [authSession, setAuthSession] = useState<AuroraAuthSession | null>(() => loadAuroraAuthSession());
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
   const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
@@ -25,6 +45,9 @@ export default function Profile() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [bootstrapProfile, setBootstrapProfile] = useState<Record<string, unknown> | null>(null);
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   const toBffErrorMessage = useCallback((err: unknown): string => {
     if (err instanceof PivotaAgentBffError) {
@@ -54,6 +77,49 @@ export default function Profile() {
     },
     [lang],
   );
+
+  const refreshBootstrapProfile = useCallback(async () => {
+    setBootstrapLoading(true);
+    setBootstrapError(null);
+    try {
+      const env = await bffJson<V1Envelope>('/v1/session/bootstrap', makeHeaders({ authToken: authSession?.token || null }), {
+        method: 'GET',
+      });
+      setBootstrapProfile(extractBootstrapProfile(env));
+    } catch (err) {
+      setBootstrapError(toBffErrorMessage(err));
+      setBootstrapProfile(null);
+    } finally {
+      setBootstrapLoading(false);
+    }
+  }, [authSession?.token, makeHeaders, toBffErrorMessage]);
+
+  useEffect(() => {
+    void refreshBootstrapProfile();
+  }, [refreshBootstrapProfile]);
+
+  const quickProfileStatus = useMemo<QuickProfileStatus>(
+    () => deriveQuickProfileStatus(bootstrapProfile, Boolean(authSession?.token)),
+    [authSession?.token, bootstrapProfile],
+  );
+
+  const quickProfileSummary = useMemo(
+    () => formatQuickProfileSummary(bootstrapProfile, lang),
+    [bootstrapProfile, lang],
+  );
+
+  const openQuickProfile = useCallback(() => {
+    startChat({ kind: 'chip', title: 'Quick Profile', chip_id: 'chip_quick_profile' });
+  }, [startChat]);
+
+  const openProfileEditor = useCallback(() => {
+    const headers = makeDefaultHeaders(lang);
+    const sp = new URLSearchParams();
+    sp.set('brief_id', headers.brief_id);
+    sp.set('trace_id', headers.trace_id);
+    sp.set('open', 'profile');
+    navigate({ pathname: '/chat', search: `?${sp.toString()}` });
+  }, [lang, navigate]);
 
   const startAuth = useCallback(async () => {
     const email = authDraft.email.trim();
@@ -211,18 +277,90 @@ export default function Profile() {
           <div>
             <div className="ios-section-title">Quick profile</div>
             <div className="ios-caption mt-1">
-              Best practice: complete the 30‑sec quick profile once so Aurora can personalize recommendations.
+              {quickProfileStatus === 'incomplete'
+                ? (isCN
+                    ? '建议先完成 30 秒快速画像，Aurora 才能更准确地个性化推荐。'
+                    : 'Best practice: complete the 30‑sec quick profile once so Aurora can personalize recommendations.')
+                : quickProfileStatus === 'complete_guest'
+                  ? (isCN
+                      ? '快速画像已完成，当前仅保存在本设备。登录后可绑定并跨设备同步。'
+                      : 'Quick profile is complete on this device. Sign in to bind and sync across devices.')
+                  : (isCN
+                      ? '快速画像已完成并已同步到账号。'
+                      : 'Quick profile is complete and synced to your account.')}
             </div>
+            {quickProfileStatus !== 'incomplete' ? (
+              <div className="mt-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-[12px] text-muted-foreground">
+                {quickProfileSummary}
+              </div>
+            ) : null}
+            {bootstrapLoading ? (
+              <div className="mt-2 text-[12px] text-muted-foreground">{isCN ? '正在刷新画像状态…' : 'Refreshing profile status…'}</div>
+            ) : null}
+            {bootstrapError ? (
+              <div className="mt-2 text-[12px] text-red-600">{bootstrapError}</div>
+            ) : null}
           </div>
         </div>
 
-        <button
-          type="button"
-          className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
-          onClick={() => startChat({ kind: 'chip', title: 'Quick Profile', chip_id: 'chip_quick_profile' })}
-        >
-          Start quick profile
-        </button>
+        {quickProfileStatus === 'incomplete' ? (
+          <button
+            type="button"
+            className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
+            onClick={openQuickProfile}
+          >
+            {isCN ? '开始快速画像' : 'Start quick profile'}
+          </button>
+        ) : null}
+
+        {quickProfileStatus === 'complete_guest' ? (
+          <div className="mt-4 grid gap-2">
+            <button
+              type="button"
+              className="aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
+              onClick={() => {
+                setAuthMode('code');
+                setAuthStage('email');
+                setAuthError(null);
+                setAuthNotice(isCN ? '登录后将把当前设备画像绑定到账号。' : 'Sign in to bind this device profile to your account.');
+              }}
+            >
+              {isCN ? '登录并绑定资料' : 'Sign in to bind profile'}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
+                'active:scale-[0.99]',
+              )}
+              onClick={openQuickProfile}
+            >
+              {isCN ? '重新填写快速画像' : 'Retake quick profile'}
+            </button>
+          </div>
+        ) : null}
+
+        {quickProfileStatus === 'complete_signed' ? (
+          <div className="mt-4 grid gap-2">
+            <button
+              type="button"
+              className="aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
+              onClick={openProfileEditor}
+            >
+              {isCN ? '编辑完整资料' : 'Edit full profile'}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
+                'active:scale-[0.99]',
+              )}
+              onClick={openQuickProfile}
+            >
+              {isCN ? '重新填写快速画像' : 'Retake quick profile'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="ios-panel mt-3">

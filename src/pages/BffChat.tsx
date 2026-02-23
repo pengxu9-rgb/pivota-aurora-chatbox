@@ -304,6 +304,16 @@ const buildQuickProfileExitChips = (language: UiLanguage): SuggestedChip[] => {
   ];
 };
 
+const buildQuickProfileBindChip = (language: UiLanguage): SuggestedChip => {
+  const isCN = language === 'CN';
+  return {
+    chip_id: 'chip_login_sync_profile',
+    label: isCN ? '登录并绑定资料' : 'Sign in to sync profile',
+    kind: 'quick_reply',
+    data: { trigger_source: 'chip' },
+  };
+};
+
 const buildQuickProfileAdvice = (language: UiLanguage, profile: QuickProfileProfilePatch): string => {
   const isCN = language === 'CN';
   const goal = profile.goal_primary;
@@ -4731,6 +4741,44 @@ export default function BffChat() {
     }
   }, [headers, language]);
 
+  const persistQuickProfilePatch = useCallback(
+    async (profilePatch: QuickProfileProfilePatch, auroraProfilePatch: Record<string, unknown> | null) => {
+      if (auroraProfilePatch) {
+        try {
+          const requestHeaders = { ...headers, lang: language };
+          await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(auroraProfilePatch),
+            timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
+          });
+        } catch (err) {
+          if (debug) {
+            console.warn('[QuickProfile] /v1/profile/update failed', err);
+          }
+          toast({
+            title: language === 'CN' ? '已继续流程' : 'Progress saved locally',
+            description:
+              language === 'CN'
+                ? '画像已临时保存在当前会话。云端同步失败，可稍后登录后刷新。'
+                : 'Quick profile continued in this session. Cloud sync failed; sign in and refresh later.',
+          });
+        }
+      }
+
+      try {
+        await patchGlowSessionProfile(
+          { brief_id: headers.brief_id, trace_id: headers.trace_id },
+          profilePatch,
+        );
+      } catch (err) {
+        if (debug) {
+          console.warn('[QuickProfile] legacy /session/profile/patch failed', err);
+        }
+      }
+    },
+    [debug, headers, language],
+  );
+
   const startAuth = useCallback(async () => {
     const email = authDraft.email.trim();
     if (!email) {
@@ -5869,6 +5917,11 @@ export default function BffChat() {
         emitAgentProfileQuestionAnswered(ctx, { question_id: qpQuestionId, answer_type: qpAnswer });
 
         const finishQuickProfile = (args: { didSkip: boolean; draft: QuickProfileProfilePatch }) => {
+          const shouldShowBindPrompt = !args.didSkip && !authSession;
+          const bindNotice = language === 'CN'
+            ? '已临时保存到当前设备；登录后可绑定并跨设备同步。'
+            : 'Saved on this device; sign in to bind and sync across devices.';
+
           setAgentStateSafe('IDLE_CHAT');
           setQuickProfileStep('skin_feel');
           setQuickProfileDraft(args.draft);
@@ -5877,11 +5930,18 @@ export default function BffChat() {
                 ? '好的，先不做快速画像。你想先做什么？'
                 : "No problem — we can do the quick profile later. What would you like to do?")
             : buildQuickProfileAdvice(language, args.draft);
-          setItems((prev) => [
-            ...stripReturnWelcome(prev),
-            { id: nextId(), role: 'assistant', kind: 'text', content },
-            { id: nextId(), role: 'assistant', kind: 'chips', chips: buildQuickProfileExitChips(language) },
-          ]);
+          setItems((prev) => {
+            const nextItems: ChatItem[] = [
+              ...stripReturnWelcome(prev),
+              { id: nextId(), role: 'assistant', kind: 'text', content },
+            ];
+            if (shouldShowBindPrompt) {
+              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: bindNotice });
+              nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: [buildQuickProfileBindChip(language)] });
+            }
+            nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: buildQuickProfileExitChips(language) });
+            return nextItems;
+          });
         };
 
         if (qpQuestionId === 'skip') {
@@ -5914,11 +5974,6 @@ export default function BffChat() {
 
         setQuickProfileBusy(true);
         try {
-          await patchGlowSessionProfile(
-            { brief_id: headers.brief_id, trace_id: headers.trace_id },
-            profilePatch,
-          );
-
           const nextDraft: QuickProfileProfilePatch = { ...quickProfileDraft, ...profilePatch };
           setQuickProfileDraft(nextDraft);
 
@@ -5933,19 +5988,8 @@ export default function BffChat() {
               merged.profile = { ...baseProfile, ...auroraProfilePatch };
               return merged;
             });
-
-            // Best-effort persist to BFF storage (do not block quick-profile progression).
-            try {
-              const requestHeaders = { ...headers, lang: language };
-              await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-                method: 'POST',
-                body: JSON.stringify(auroraProfilePatch),
-                timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
-              });
-            } catch {
-              // ignore (local snapshot already updated)
-            }
           }
+          await persistQuickProfilePatch(profilePatch, auroraProfilePatch);
 
           if (qpQuestionId === 'skin_feel') setQuickProfileStep('goal_primary');
           else if (qpQuestionId === 'goal_primary') setQuickProfileStep('sensitivity_flag');
@@ -5988,6 +6032,16 @@ export default function BffChat() {
 
       if (id === 'chip_keep_chatting') {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+        return;
+      }
+
+      if (id === 'chip_login_sync_profile') {
+        setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+        setAuthError(null);
+        setAuthNotice(null);
+        setAuthStage('email');
+        setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
+        setAuthSheetOpen(true);
         return;
       }
 
@@ -6099,6 +6153,8 @@ export default function BffChat() {
       quickProfileDraft,
       runLowConfidenceSkinAnalysis,
       sendChat,
+      authSession,
+      persistQuickProfilePatch,
       setAgentStateSafe,
     ]
   );
