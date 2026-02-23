@@ -213,7 +213,7 @@ describe('Profile quick profile status', () => {
     expect(latestHeaders.auth_token).toBe('verified_token');
   });
 
-  it('shows password-set success message and toast after save password', async () => {
+  it('collapses password card after save and allows reopening via change password', async () => {
     saveAuroraAuthSession({ token: 'token_signed_pw', email: 'signed_pw@example.com', expires_at: null });
     mockProfileBff({
       bootstrapProfile: {
@@ -231,6 +231,11 @@ describe('Profile quick profile status', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
 
     await screen.findByText('Password set. Next time you can sign in with email + password (OTP still works too).');
+    await screen.findByRole('button', { name: 'Change password' });
+    expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+    await screen.findByRole('button', { name: 'Save password' });
     expect(vi.mocked(toast)).toHaveBeenCalled();
   });
 });

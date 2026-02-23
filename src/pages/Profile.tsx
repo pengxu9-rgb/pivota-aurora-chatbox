@@ -48,6 +48,7 @@ export default function Profile() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [passwordEditorOpen, setPasswordEditorOpen] = useState(true);
   const [bootstrapProfile, setBootstrapProfile] = useState<Record<string, unknown> | null>(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
@@ -165,6 +166,7 @@ export default function Profile() {
       const nextSession = extractAuthSessionFromEnvelope(env, email);
       saveAuroraAuthSession(nextSession);
       setAuthSession(nextSession);
+      setPasswordEditorOpen(true);
       setAuthDraft((prev) => ({ ...prev, code: '', password: '' }));
       setAuthStage('email');
     } catch (err) {
@@ -192,6 +194,7 @@ export default function Profile() {
       const nextSession = extractAuthSessionFromEnvelope(env, email);
       saveAuroraAuthSession(nextSession);
       setAuthSession(nextSession);
+      setPasswordEditorOpen(true);
       setAuthDraft((prev) => ({ ...prev, password: '' }));
       setAuthStage('email');
     } catch (err) {
@@ -244,6 +247,7 @@ export default function Profile() {
           ? '密码已设置成功。下次可用邮箱 + 密码直接登录（验证码仍可用）。'
           : 'Password updated successfully. Next time you can sign in with email + password (OTP still works).');
       setAuthDraft((prev) => ({ ...prev, newPassword: '', newPasswordConfirm: '' }));
+      setPasswordEditorOpen(false);
       setAuthNotice(notice);
       toast({
         title: lang === 'CN' ? '密码已设置' : 'Password updated',
@@ -270,6 +274,7 @@ export default function Profile() {
     } finally {
       clearAuroraAuthSession();
       setAuthSession(null);
+      setPasswordEditorOpen(true);
       setAuthMode('code');
       setAuthStage('email');
       setAuthDraft({ email: '', code: '', password: '', newPassword: '', newPasswordConfirm: '' });
@@ -408,49 +413,74 @@ export default function Profile() {
             </div>
 
             <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
-              <div className="text-[15px] font-semibold text-foreground">Password (optional)</div>
-              <div className="mt-1 text-[12px] text-muted-foreground">Set a password for faster sign‑in next time.</div>
-              <div className="mt-3 grid gap-3">
-                <label className="space-y-1 text-[12px] text-muted-foreground">
-                  New password (min 8 chars)
-                  <input
-                    className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={authDraft.newPassword}
-                    onChange={(e) => setAuthDraft((p) => ({ ...p, newPassword: e.target.value }))}
-                    disabled={authLoading}
-                    type="password"
-                    autoComplete="new-password"
-                  />
-                </label>
-                <label className="space-y-1 text-[12px] text-muted-foreground">
-                  Confirm password
-                  <input
-                    className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={authDraft.newPasswordConfirm}
-                    onChange={(e) => setAuthDraft((p) => ({ ...p, newPasswordConfirm: e.target.value }))}
-                    disabled={authLoading}
-                    type="password"
-                    autoComplete="new-password"
-                  />
-                </label>
-                <button
-                  type="button"
-                  className={cn(
-                    'aurora-home-role-primary inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
-                    'active:scale-[0.99]',
-                  )}
-                  onClick={() => void savePassword()}
-                  disabled={authLoading || !authDraft.newPassword || !authDraft.newPasswordConfirm}
-                >
-                  <KeyRound className="h-4 w-4" />
-                  {authLoading ? 'Saving…' : 'Save password'}
-                </button>
-                {authNotice ? (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800">
-                    {authNotice}
+              {passwordEditorOpen ? (
+                <>
+                  <div className="text-[15px] font-semibold text-foreground">Password (optional)</div>
+                  <div className="mt-1 text-[12px] text-muted-foreground">Set a password for faster sign‑in next time.</div>
+                  <div className="mt-3 grid gap-3">
+                    <label className="space-y-1 text-[12px] text-muted-foreground">
+                      New password (min 8 chars)
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={authDraft.newPassword}
+                        onChange={(e) => setAuthDraft((p) => ({ ...p, newPassword: e.target.value }))}
+                        disabled={authLoading}
+                        type="password"
+                        autoComplete="new-password"
+                      />
+                    </label>
+                    <label className="space-y-1 text-[12px] text-muted-foreground">
+                      Confirm password
+                      <input
+                        className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                        value={authDraft.newPasswordConfirm}
+                        onChange={(e) => setAuthDraft((p) => ({ ...p, newPasswordConfirm: e.target.value }))}
+                        disabled={authLoading}
+                        type="password"
+                        autoComplete="new-password"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className={cn(
+                        'aurora-home-role-primary inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
+                        'active:scale-[0.99]',
+                      )}
+                      onClick={() => void savePassword()}
+                      disabled={authLoading || !authDraft.newPassword || !authDraft.newPasswordConfirm}
+                    >
+                      <KeyRound className="h-4 w-4" />
+                      {authLoading ? 'Saving…' : 'Save password'}
+                    </button>
                   </div>
-                ) : null}
-              </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[15px] font-semibold text-foreground">{isCN ? '密码已设置' : 'Password is set'}</div>
+                  <div className="mt-1 text-[12px] text-muted-foreground">
+                    {isCN ? '你可以随时重新设置密码。' : 'You can change your password anytime.'}
+                  </div>
+                  <button
+                    type="button"
+                    className={cn(
+                      'mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
+                      'active:scale-[0.99]',
+                    )}
+                    onClick={() => {
+                      setPasswordEditorOpen(true);
+                      setAuthNotice(null);
+                    }}
+                    disabled={authLoading}
+                  >
+                    {isCN ? '更改密码' : 'Change password'}
+                  </button>
+                </>
+              )}
+              {authNotice ? (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800">
+                  {authNotice}
+                </div>
+              ) : null}
             </div>
 
             <button
