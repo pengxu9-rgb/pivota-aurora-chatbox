@@ -244,7 +244,7 @@ describe('Profile quick profile status', () => {
     expect(vi.mocked(toast)).toHaveBeenCalled();
   });
 
-  it('saves display name and avatar url for signed-in account and restores after remount', async () => {
+  it('saves display name with avatar upload entry for signed-in account and restores after remount', async () => {
     saveAuroraAuthSession({ token: 'token_signed_profile', email: 'signed_profile@example.com', expires_at: null });
     mockProfileBff({
       bootstrapProfile: {
@@ -258,19 +258,15 @@ describe('Profile quick profile status', () => {
 
     await screen.findByRole('button', { name: 'Save profile' });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Peng' } });
-    fireEvent.change(screen.getByLabelText('Avatar URL'), {
-      target: { value: 'https://example.com/avatar.png' },
-    });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await screen.findByText('Profile saved. Sidebar will show your latest name and avatar.');
     expect(screen.getByDisplayValue('Peng')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('https://example.com/avatar.png')).toBeInTheDocument();
 
     mounted.unmount();
     render(<Profile />);
 
     await screen.findByDisplayValue('Peng');
-    await screen.findByDisplayValue('https://example.com/avatar.png');
+    await screen.findByRole('button', { name: 'Upload avatar' });
   });
 });

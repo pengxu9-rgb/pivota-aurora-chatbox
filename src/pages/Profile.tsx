@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HelpCircle, KeyRound, LogIn, LogOut, Mail, Menu, Shield, User } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
@@ -14,6 +14,9 @@ import { cn } from '@/lib/utils';
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
 const PASSWORD_SET_FLAG_KEY_PREFIX = 'pivota_aurora_password_set_v1:';
 const MAX_DISPLAY_NAME_LEN = 40;
+const MAX_AVATAR_FILE_BYTES = 8 * 1024 * 1024;
+const AVATAR_OUTPUT_MAX_SIDE = 320;
+const AVATAR_OUTPUT_QUALITY = 0.86;
 
 const passwordSetFlagKey = (email: string) => `${PASSWORD_SET_FLAG_KEY_PREFIX}${email.trim().toLowerCase()}`;
 
@@ -34,15 +37,53 @@ const markPasswordSetFlag = (email: string): void => {
   }
 };
 
-const isValidAvatarUrl = (value: string): boolean => {
+const isAllowedAvatarSource = (value: string): boolean => {
   const v = String(value || '').trim();
   if (!v) return true;
-  try {
-    const u = new URL(v);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
+  if (v.startsWith('data:image/')) return true;
+  return /^https?:\/\//i.test(v);
+};
+
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (!result) {
+        reject(new Error('empty_file_result'));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(reader.error || new Error('file_read_error'));
+    reader.readAsDataURL(file);
+  });
+
+const loadImage = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image_load_error'));
+    img.src = src;
+  });
+
+const fileToAvatarDataUrl = async (file: File): Promise<string> => {
+  if (!String(file.type || '').startsWith('image/')) {
+    throw new Error('invalid_file_type');
   }
+  const rawDataUrl = await fileToDataUrl(file);
+  const image = await loadImage(rawDataUrl);
+  const maxSide = Math.max(image.width || 0, image.height || 0, 1);
+  const scale = Math.min(1, AVATAR_OUTPUT_MAX_SIDE / maxSide);
+  const width = Math.max(1, Math.round((image.width || 1) * scale));
+  const height = Math.max(1, Math.round((image.height || 1) * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas_context_unavailable');
+  ctx.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', AVATAR_OUTPUT_QUALITY);
 };
 
 const asObject = (value: unknown): Record<string, unknown> | null => {
@@ -88,6 +129,7 @@ export default function Profile() {
   const [profileDraft, setProfileDraft] = useState<{ displayName: string; avatarUrl: string }>({ displayName: '', avatarUrl: '' });
   const [profileNotice, setProfileNotice] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const email = authSession?.email?.trim() || '';
@@ -334,8 +376,8 @@ export default function Profile() {
       .trim()
       .slice(0, MAX_DISPLAY_NAME_LEN);
     const avatarUrl = String(profileDraft.avatarUrl || '').trim();
-    if (!isValidAvatarUrl(avatarUrl)) {
-      setProfileError(isCN ? '头像链接需为 http(s) 地址。' : 'Avatar URL must be a valid http(s) URL.');
+    if (!isAllowedAvatarSource(avatarUrl)) {
+      setProfileError(isCN ? '头像格式无效，请重新上传。' : 'Invalid avatar format. Please re-upload.');
       setProfileNotice(null);
       return;
     }
@@ -352,6 +394,39 @@ export default function Profile() {
       description: notice,
     });
   }, [authSession?.email, isCN, profileDraft.avatarUrl, profileDraft.displayName]);
+
+  const chooseAvatarFile = useCallback(() => {
+    avatarInputRef.current?.click();
+  }, []);
+
+  const removeAvatar = useCallback(() => {
+    setProfileDraft((prev) => ({ ...prev, avatarUrl: '' }));
+    setProfileError(null);
+    setProfileNotice(isCN ? '头像已移除，点击“保存资料”生效。' : 'Avatar removed. Click "Save profile" to persist.');
+  }, [isCN]);
+
+  const onAvatarFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+      if (file.size > MAX_AVATAR_FILE_BYTES) {
+        setProfileError(isCN ? '图片过大，请选择 8MB 以内文件。' : 'Image is too large. Please choose a file under 8MB.');
+        setProfileNotice(null);
+        return;
+      }
+      try {
+        const avatarDataUrl = await fileToAvatarDataUrl(file);
+        setProfileDraft((prev) => ({ ...prev, avatarUrl: avatarDataUrl }));
+        setProfileError(null);
+        setProfileNotice(isCN ? '头像已更新，点击“保存资料”生效。' : 'Avatar updated. Click "Save profile" to persist.');
+      } catch {
+        setProfileError(isCN ? '头像处理失败，请换一张图片重试。' : 'Could not process avatar image. Please try another image.');
+        setProfileNotice(null);
+      }
+    },
+    [isCN],
+  );
 
   const signOut = useCallback(async () => {
     setAuthLoading(true);
@@ -548,22 +623,46 @@ export default function Profile() {
                     disabled={authLoading}
                   />
                 </label>
-                <label className="space-y-1 text-[12px] text-muted-foreground">
-                  {isCN ? '头像 URL' : 'Avatar URL'}
+                <div className="space-y-1 text-[12px] text-muted-foreground">
+                  <div>{isCN ? '头像' : 'Avatar'}</div>
                   <input
-                    className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                    value={profileDraft.avatarUrl}
-                    onChange={(e) => {
-                      setProfileDraft((prev) => ({ ...prev, avatarUrl: e.target.value }));
-                      setProfileNotice(null);
-                      setProfileError(null);
-                    }}
-                    placeholder="https://example.com/avatar.jpg"
-                    inputMode="url"
-                    autoComplete="url"
+                    ref={avatarInputRef}
+                    className="hidden"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => void onAvatarFileChange(e)}
                     disabled={authLoading}
                   />
-                </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        'inline-flex flex-1 items-center justify-center rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[13px] font-semibold text-foreground shadow-card',
+                        'active:scale-[0.99]',
+                      )}
+                      onClick={chooseAvatarFile}
+                      disabled={authLoading}
+                    >
+                      {isCN ? '上传头像' : 'Upload avatar'}
+                    </button>
+                    {profileDraft.avatarUrl ? (
+                      <button
+                        type="button"
+                        className={cn(
+                          'inline-flex flex-1 items-center justify-center rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[13px] font-semibold text-foreground shadow-card',
+                          'active:scale-[0.99]',
+                        )}
+                        onClick={removeAvatar}
+                        disabled={authLoading}
+                      >
+                        {isCN ? '移除头像' : 'Remove avatar'}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground/90">
+                    {isCN ? '支持 JPG/PNG/WEBP，最大 8MB，系统会自动压缩。' : 'Supports JPG/PNG/WEBP, up to 8MB. Image will be auto-compressed.'}
+                  </div>
+                </div>
                 <button
                   type="button"
                   className={cn(
