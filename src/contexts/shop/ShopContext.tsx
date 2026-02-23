@@ -2,7 +2,15 @@ import React, { createContext, useCallback, useEffect, useMemo, useRef, useState
 
 import { getOrCreateAuroraUid, getLangPref } from '@/lib/persistence';
 import { getPivotaShopBaseUrl, buildPdpUrl, type PdpTarget } from '@/lib/pivotaShop';
-import { buildAuroraOpenCartMessage, isShopBridgeMessage, type ShopBridgeMessage, type ShopCartSnapshot, type ShopOrderSuccessPayload } from '@/lib/shopBridge';
+import { loadAuroraAuthSession } from '@/lib/auth';
+import {
+  buildAuroraAuthBootstrapResponseMessage,
+  buildAuroraOpenCartMessage,
+  isShopBridgeMessage,
+  type ShopBridgeMessage,
+  type ShopCartSnapshot,
+  type ShopOrderSuccessPayload,
+} from '@/lib/shopBridge';
 import { loadShopState, saveShopState, type PersistedShopState } from '@/lib/shopPersistence';
 import { ShopDrawer } from '@/components/shop/ShopDrawer';
 
@@ -241,11 +249,38 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       if (msg.event === 'order_success') {
         applyOrderSuccess(msg.payload);
       }
+      if (msg.event === 'auth_bootstrap_request') {
+        const requestId = String(msg.payload?.request_id || '').trim();
+        if (!requestId) return;
+        const authSession = loadAuroraAuthSession();
+        const response = authSession?.token && authSession?.email
+          ? buildAuroraAuthBootstrapResponseMessage({
+              request_id: requestId,
+              ok: true,
+              aurora_uid: auroraUid,
+              auth_token: authSession.token,
+              email: authSession.email,
+              expires_at: authSession.expires_at ?? null,
+            })
+          : buildAuroraAuthBootstrapResponseMessage({
+              request_id: requestId,
+              ok: false,
+              aurora_uid: auroraUid,
+              error_code: 'NO_AURORA_SESSION',
+            });
+        const source = evt.source as WindowProxy | null;
+        if (!source || typeof source.postMessage !== 'function') return;
+        try {
+          source.postMessage(response, evt.origin);
+        } catch {
+          // ignore bridge failures
+        }
+      }
     };
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [applyCartSnapshot, applyOrderSuccess, closeShop, shopOrigin]);
+  }, [applyCartSnapshot, applyOrderSuccess, auroraUid, closeShop, shopOrigin]);
 
   const value = useMemo<ShopContextValue>(
     () => ({

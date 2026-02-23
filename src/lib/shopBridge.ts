@@ -49,13 +49,35 @@ export type ShopOrderSuccessPayload = {
   has_save_token?: boolean;
 };
 
+export type ShopAuthBootstrapRequestPayload = {
+  request_id: string;
+  occurred_at: string;
+  scope?: string;
+};
+
+export type AuroraAuthBootstrapResponsePayload = {
+  request_id: string;
+  ok: boolean;
+  aurora_uid: string;
+  auth_token?: string;
+  email?: string;
+  expires_at?: string | null;
+  error_code?: string;
+};
+
 export type ShopBridgeMessage =
   | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'ready', ShopReadyPayload>
   | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'request_close', ShopRequestClosePayload>
   | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'cart_snapshot', ShopCartSnapshot>
-  | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'order_success', ShopOrderSuccessPayload>;
+  | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'order_success', ShopOrderSuccessPayload>
+  | BridgeEnvelope<typeof SHOP_BRIDGE_KIND, 'auth_bootstrap_request', ShopAuthBootstrapRequestPayload>;
 
 export type AuroraOpenCartMessage = BridgeEnvelope<typeof AURORA_BRIDGE_KIND, 'open_cart', { occurred_at: string }>;
+export type AuroraAuthBootstrapResponseMessage = BridgeEnvelope<
+  typeof AURORA_BRIDGE_KIND,
+  'auth_bootstrap_response',
+  AuroraAuthBootstrapResponsePayload
+>;
 
 const isObject = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
@@ -105,6 +127,11 @@ export const isShopBridgeMessage = (input: unknown): input is ShopBridgeMessage 
     return isNonEmptyString(payload.order_id) && isNonEmptyString(payload.occurred_at);
   }
 
+  if (event === 'auth_bootstrap_request') {
+    if (!isObject(payload)) return false;
+    return isNonEmptyString(payload.request_id) && isNonEmptyString(payload.occurred_at);
+  }
+
   return false;
 };
 
@@ -113,4 +140,13 @@ export const buildAuroraOpenCartMessage = (): AuroraOpenCartMessage => ({
   kind: AURORA_BRIDGE_KIND,
   event: 'open_cart',
   payload: { occurred_at: new Date().toISOString() },
+});
+
+export const buildAuroraAuthBootstrapResponseMessage = (
+  payload: AuroraAuthBootstrapResponsePayload,
+): AuroraAuthBootstrapResponseMessage => ({
+  schema_version: SHOP_BRIDGE_SCHEMA_VERSION,
+  kind: AURORA_BRIDGE_KIND,
+  event: 'auth_bootstrap_response',
+  payload,
 });
