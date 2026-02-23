@@ -6,7 +6,7 @@ import type { MobileShellContext } from '@/layouts/MobileShell';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession, type AuroraAuthSession } from '@/lib/auth';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError, type V1Envelope } from '@/lib/pivotaAgentBff';
 import { deriveQuickProfileStatus, formatQuickProfileSummary, type QuickProfileStatus } from '@/lib/profileCompletion';
-import { getLangPref } from '@/lib/persistence';
+import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
 import { loadAuroraUserProfile, saveAuroraUserProfile } from '@/lib/userProfile';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
@@ -107,7 +107,8 @@ export default function Profile() {
   const { openSidebar, startChat, openComposer } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
 
-  const lang = useMemo(() => (getLangPref() === 'cn' ? 'CN' : 'EN') as const, []);
+  const [langPref, setLangPrefState] = useState<LangPref>(() => getLangPref());
+  const lang = langPref === 'cn' ? 'CN' : 'EN';
   const isCN = lang === 'CN';
   const [authSession, setAuthSession] = useState<AuroraAuthSession | null>(() => loadAuroraAuthSession());
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
@@ -130,6 +131,21 @@ export default function Profile() {
   const [profileNotice, setProfileNotice] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const onLang = (evt: Event) => {
+      const next = (evt as CustomEvent).detail;
+      if (next === 'en' || next === 'cn') setLangPrefState(next);
+    };
+    window.addEventListener('aurora_lang_pref_changed', onLang as EventListener);
+    return () => window.removeEventListener('aurora_lang_pref_changed', onLang as EventListener);
+  }, []);
+
+  const toggleLang = useCallback(() => {
+    const next: LangPref = langPref === 'cn' ? 'en' : 'cn';
+    setLangPref(next);
+    setLangPrefState(next);
+  }, [langPref]);
 
   useEffect(() => {
     const email = authSession?.email?.trim() || '';
@@ -465,7 +481,15 @@ export default function Profile() {
           <Menu className="h-[18px] w-[18px]" />
         </button>
         <div className="ios-page-title">Profile</div>
-        <div className="ios-header-spacer" />
+        <button
+          type="button"
+          onClick={toggleLang}
+          className="ios-nav-button min-w-[66px] text-[12px] font-semibold"
+          aria-label={isCN ? 'Switch to English' : '切换到中文'}
+          title={isCN ? 'Switch to English' : '切换到中文'}
+        >
+          {isCN ? '中文' : 'EN'}
+        </button>
       </div>
 
       <div className="ios-panel mt-4">

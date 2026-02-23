@@ -34,6 +34,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 import { bffJson } from '@/lib/pivotaAgentBff';
 import Profile from '@/pages/Profile';
 import { saveAuroraAuthSession } from '@/lib/auth';
+import { setLangPref } from '@/lib/persistence';
 import { toast } from '@/components/ui/use-toast';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
@@ -116,6 +117,7 @@ describe('Profile quick profile status', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    setLangPref('en');
   });
 
   it('shows incomplete state and starts quick profile flow', async () => {
@@ -126,7 +128,10 @@ describe('Profile quick profile status', () => {
     await screen.findByRole('button', { name: 'Start quick profile' });
     expect(screen.queryByRole('button', { name: 'Sign in to bind profile' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start quick profile' }));
+    fireEvent.click(screen.getByRole('button', { name: '切换到中文' }));
+    await screen.findByRole('button', { name: '开始快速画像' });
+
+    fireEvent.click(screen.getByRole('button', { name: '开始快速画像' }));
 
     expect(outletContext.startChat).toHaveBeenCalledWith({
       kind: 'chip',
