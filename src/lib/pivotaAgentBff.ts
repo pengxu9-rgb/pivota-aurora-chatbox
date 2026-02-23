@@ -24,6 +24,27 @@ export type Card = {
   field_missing?: Array<Record<string, unknown>>;
 };
 
+export type AnalysisMeta = {
+  detector_source: string;
+  llm_vision_called: boolean;
+  llm_report_called: boolean;
+  artifact_usable: boolean;
+  degrade_reason?: string | null;
+};
+
+export type RecommendationMeta = {
+  source_mode: 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
+  used_recent_logs: boolean;
+  used_itinerary: boolean;
+  used_safety_flags: boolean;
+};
+
+export type RecoRefreshHint = {
+  should_refresh: boolean;
+  reason: string;
+  effective_window_days: number;
+};
+
 export type V1Envelope = {
   request_id: string;
   trace_id: string;
@@ -32,6 +53,9 @@ export type V1Envelope = {
   cards: Card[];
   session_patch: Record<string, unknown>;
   events: Array<Record<string, unknown>>;
+  analysis_meta?: AnalysisMeta;
+  recommendation_meta?: RecommendationMeta;
+  reco_refresh_hint?: RecoRefreshHint;
   meta?: Record<string, unknown>;
 };
 

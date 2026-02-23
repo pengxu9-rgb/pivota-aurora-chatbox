@@ -2348,6 +2348,41 @@ export function RecommendationsCard({
     })
     .filter(Boolean)
     .join(' · ');
+  const recommendationMeta = asObject((payload as any).recommendation_meta);
+  const recommendationBasis = (() => {
+    if (!recommendationMeta) return null;
+    const source = asString((recommendationMeta as any).source_mode).toLowerCase();
+    const sourceLabel =
+      source === 'artifact_matcher'
+        ? language === 'CN'
+          ? '结构化诊断匹配'
+          : 'artifact matcher'
+        : source === 'upstream_fallback'
+          ? language === 'CN'
+            ? '上游补全回退'
+            : 'upstream fallback'
+          : language === 'CN'
+            ? '规则保守路径'
+            : 'rules-only';
+    const flags: string[] = [];
+    if ((recommendationMeta as any).used_recent_logs === true) {
+      flags.push(language === 'CN' ? '近期打卡' : 'recent check-ins');
+    }
+    if ((recommendationMeta as any).used_itinerary === true) {
+      flags.push(language === 'CN' ? '行程/环境' : 'itinerary/environment');
+    }
+    if ((recommendationMeta as any).used_safety_flags === true) {
+      flags.push(language === 'CN' ? '安全约束' : 'safety constraints');
+    }
+    const contextText = flags.length
+      ? flags.join(language === 'CN' ? '、' : ', ')
+      : language === 'CN'
+        ? '基础画像'
+        : 'base profile';
+    return language === 'CN'
+      ? `本次依据：${contextText} · 路径：${sourceLabel}`
+      : `Based on: ${contextText} · Path: ${sourceLabel}`;
+  })();
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
     if (!list.length) return null;
@@ -2397,6 +2432,12 @@ export function RecommendationsCard({
 
   return (
     <div className="space-y-3">
+      {recommendationBasis ? (
+        <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+          {recommendationBasis}
+        </div>
+      ) : null}
+
       {(amSteps.length || pmSteps.length) ? (
         <AuroraRoutineCard
           amSteps={amSteps}
@@ -4645,12 +4686,31 @@ export default function BffChat() {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      const refreshHint = asObject(env.reco_refresh_hint);
+      const shouldRefreshReco = (refreshHint as any)?.should_refresh === true;
+      const refreshReason = asString((refreshHint as any)?.reason) || 'checkin_logged';
 
       setItems((prev) => [
         ...prev,
         { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '今日打卡' : 'Daily check-in' },
       ]);
       applyEnvelope(env);
+      if (shouldRefreshReco) {
+        const refreshChip: SuggestedChip = {
+          chip_id: 'chip.start.reco_products',
+          label: language === 'CN' ? '按最新打卡刷新推荐' : 'Refresh recommendations',
+          kind: 'quick_reply',
+          data: {
+            reply_text:
+              language === 'CN'
+                ? '根据我最新打卡刷新推荐，并说明你参考了哪些变化。'
+                : 'Refresh recommendations based on my latest check-in and show what changed.',
+            reco_refresh_reason: refreshReason,
+            include_alternatives: true,
+          },
+        };
+        setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'chips', chips: [refreshChip] }]);
+      }
       setCheckinSheetOpen(false);
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));

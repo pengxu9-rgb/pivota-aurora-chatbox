@@ -24,6 +24,29 @@ export type Market = 'US' | 'EU' | 'UK' | 'Canada' | 'Singapore' | 'Global';
 export type BudgetTier = '$' | '$$' | '$$$';
 export type CheckoutOutcome = 'success' | 'failure_payment' | 'failure_expired';
 
+export type RecommendationSourceMode = 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
+
+export interface AuroraAnalysisMeta {
+  detector_source: string;
+  llm_vision_called: boolean;
+  llm_report_called: boolean;
+  artifact_usable: boolean;
+  degrade_reason?: string | null;
+}
+
+export interface AuroraRecommendationMeta {
+  source_mode: RecommendationSourceMode;
+  used_recent_logs: boolean;
+  used_itinerary: boolean;
+  used_safety_flags: boolean;
+}
+
+export interface AuroraRecoRefreshHint {
+  should_refresh: boolean;
+  reason: string;
+  effective_window_days: number;
+}
+
 export type SkinType = 'oily' | 'dry' | 'combination' | 'normal' | 'sensitive';
 export type SkinConcern = 'acne' | 'dark_spots' | 'wrinkles' | 'dullness' | 'redness' | 'pores' | 'dehydration';
 
