@@ -25,6 +25,7 @@ import { IngredientReportCard, type IngredientReportQuestionSelection } from '@/
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
 import { augmentEnvelopeWithIngredientReport } from '@/lib/ingredientReportCard';
 import { humanizeKbNote } from '@/lib/auroraKbHumanize';
+import { resolveAnalysisSummaryLowConfidence } from '@/lib/analysisSummary';
 import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 import { looksLikeProductPicksRawText } from '@/lib/productPicks';
 import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
@@ -824,6 +825,7 @@ const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 15000;
+const MIN_ACTIONABLE_NOTICE_LEN = 18;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
 const PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES = new Set(['DB_ERROR', 'UPSTREAM_TIMEOUT']);
@@ -2827,10 +2829,7 @@ function BffCardView({
 
     const analysisSource = asString((payload as any).analysis_source) || '';
     const photoQc = asArray((payload as any).photo_qc).map((v) => asString(v)).filter(Boolean) as string[];
-    const missing = Array.isArray(card.field_missing) ? card.field_missing : [];
-    const lowConfidence =
-      analysisSource === 'baseline_low_confidence' ||
-      missing.some((m) => String((m as any)?.field || '').toLowerCase().includes('currentroutine'));
+    const lowConfidence = resolveAnalysisSummaryLowConfidence(payload as Record<string, unknown>, Array.isArray(card.field_missing) ? card.field_missing : []);
     const photosProvided = (payload as any).photos_provided === true;
 
     return (
@@ -4961,13 +4960,33 @@ export default function BffChat() {
     setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
-      await bffJson<V1Envelope>('/v1/auth/password/set', requestHeaders, {
+      const env = await bffJson<V1Envelope>('/v1/auth/password/set', requestHeaders, {
         method: 'POST',
         body: JSON.stringify({ password }),
       });
 
+      const passwordCard = Array.isArray(env?.cards)
+        ? env.cards.find((c) => c && typeof c === 'object' && (c as any).type === 'auth_password_set')
+        : null;
+      const passwordSetOk = Boolean((passwordCard as any)?.payload?.ok);
+      if (!passwordSetOk) {
+        throw new Error(language === 'CN' ? '服务器未确认密码已更新，请重试。' : 'Server did not confirm password update. Please retry.');
+      }
+
+      const serverMessageRaw = asString(env?.assistant_message?.content);
+      const serverMessageTrimmed = serverMessageRaw ? serverMessageRaw.trim() : '';
+      const serverMessage = serverMessageTrimmed.length >= MIN_ACTIONABLE_NOTICE_LEN ? serverMessageTrimmed : '';
+      const notice =
+        serverMessage ||
+        (language === 'CN'
+          ? '密码已设置成功。下次可用邮箱 + 密码直接登录（验证码仍可用）。'
+          : 'Password updated successfully. Next time you can sign in with email + password (OTP still works).');
       setAuthDraft((prev) => ({ ...prev, newPassword: '', newPasswordConfirm: '' }));
-      setAuthNotice(language === 'CN' ? '密码已设置。' : 'Password set.');
+      setAuthNotice(notice);
+      toast({
+        title: language === 'CN' ? '密码已设置' : 'Password updated',
+        description: notice,
+      });
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -6657,7 +6676,11 @@ export default function BffChat() {
                       >
                         {authLoading ? (language === 'CN' ? '保存中…' : 'Saving…') : language === 'CN' ? '保存密码' : 'Save password'}
                       </button>
-                      {authNotice ? <div className="text-xs text-emerald-700">{authNotice}</div> : null}
+                      {authNotice ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+                          {authNotice}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <button type="button" className="chip-button chip-button-primary" onClick={() => void refreshBootstrapInfo()} disabled={authLoading}>

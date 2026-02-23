@@ -2,6 +2,11 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/components/ui/use-toast', () => ({
+  toast: vi.fn(),
+  useToast: () => ({ toast: vi.fn() }),
+}));
+
 const mockNavigate = vi.fn();
 const outletContext = {
   openSidebar: vi.fn(),
@@ -29,6 +34,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 import { bffJson } from '@/lib/pivotaAgentBff';
 import Profile from '@/pages/Profile';
 import { saveAuroraAuthSession } from '@/lib/auth';
+import { toast } from '@/components/ui/use-toast';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
@@ -85,6 +91,19 @@ function mockProfileBff(options?: {
           request_id: 'req_auth_verify',
           trace_id: 'trace_auth_verify',
           cards: [buildAuthSessionCard(verifyToken, verifyEmail)],
+        }),
+      );
+    }
+    if (path === '/v1/auth/password/set') {
+      return Promise.resolve(
+        makeEnvelope({
+          request_id: 'req_auth_password_set',
+          trace_id: 'trace_auth_password_set',
+          assistant_message: {
+            role: 'assistant',
+            content: 'Password set. Next time you can sign in with email + password (OTP still works too).',
+          },
+          cards: [{ card_id: 'auth_password_set_card', type: 'auth_password_set', payload: { ok: true } }],
         }),
       );
     }
@@ -192,5 +211,26 @@ describe('Profile quick profile status', () => {
     const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
     const latestHeaders = bootstrapCalls[bootstrapCalls.length - 1]?.[1] as { auth_token?: string };
     expect(latestHeaders.auth_token).toBe('verified_token');
+  });
+
+  it('shows password-set success message and toast after save password', async () => {
+    saveAuroraAuthSession({ token: 'token_signed_pw', email: 'signed_pw@example.com', expires_at: null });
+    mockProfileBff({
+      bootstrapProfile: {
+        skinType: 'dry',
+        sensitivity: 'low',
+        goals: ['barrier'],
+      },
+    });
+
+    render(<Profile />);
+
+    await screen.findByRole('button', { name: 'Save password' });
+    fireEvent.change(screen.getByLabelText('New password (min 8 chars)'), { target: { value: 'newpass123' } });
+    fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'newpass123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
+
+    await screen.findByText('Password set. Next time you can sign in with email + password (OTP still works too).');
+    expect(vi.mocked(toast)).toHaveBeenCalled();
   });
 });

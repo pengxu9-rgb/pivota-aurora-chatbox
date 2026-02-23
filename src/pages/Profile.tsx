@@ -7,7 +7,10 @@ import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession, t
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError, type V1Envelope } from '@/lib/pivotaAgentBff';
 import { deriveQuickProfileStatus, formatQuickProfileSummary, type QuickProfileStatus } from '@/lib/profileCompletion';
 import { getLangPref } from '@/lib/persistence';
+import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+
+const MIN_ACTIONABLE_NOTICE_LEN = 18;
 
 const asObject = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -223,9 +226,29 @@ export default function Profile() {
         method: 'POST',
         body: JSON.stringify({ password }),
       });
-      void env;
+
+      const passwordCard = Array.isArray(env?.cards)
+        ? env.cards.find((c) => c && typeof c === 'object' && (c as any).type === 'auth_password_set')
+        : null;
+      const passwordSetOk = Boolean((passwordCard as any)?.payload?.ok);
+      if (!passwordSetOk) {
+        throw new Error(lang === 'CN' ? '服务器未确认密码已更新，请重试。' : 'Server did not confirm password update. Please retry.');
+      }
+
+      const serverMessageRaw =
+        typeof env?.assistant_message?.content === 'string' ? env.assistant_message.content.trim() : '';
+      const serverMessage = serverMessageRaw.length >= MIN_ACTIONABLE_NOTICE_LEN ? serverMessageRaw : '';
+      const notice =
+        serverMessage ||
+        (lang === 'CN'
+          ? '密码已设置成功。下次可用邮箱 + 密码直接登录（验证码仍可用）。'
+          : 'Password updated successfully. Next time you can sign in with email + password (OTP still works).');
       setAuthDraft((prev) => ({ ...prev, newPassword: '', newPasswordConfirm: '' }));
-      setAuthNotice(lang === 'CN' ? '密码已设置。' : 'Password set.');
+      setAuthNotice(notice);
+      toast({
+        title: lang === 'CN' ? '密码已设置' : 'Password updated',
+        description: notice,
+      });
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -422,6 +445,11 @@ export default function Profile() {
                   <KeyRound className="h-4 w-4" />
                   {authLoading ? 'Saving…' : 'Save password'}
                 </button>
+                {authNotice ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800">
+                    {authNotice}
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -582,7 +610,7 @@ export default function Profile() {
           </div>
         )}
 
-        {authNotice ? <div className="mt-3 text-[12px] text-emerald-700">{authNotice}</div> : null}
+        {!authSession && authNotice ? <div className="mt-3 text-[12px] text-emerald-700">{authNotice}</div> : null}
         {authError ? <div className="mt-3 text-[12px] text-red-600">{authError}</div> : null}
       </div>
 
