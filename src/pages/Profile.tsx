@@ -11,6 +11,26 @@ import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
+const PASSWORD_SET_FLAG_KEY_PREFIX = 'pivota_aurora_password_set_v1:';
+
+const passwordSetFlagKey = (email: string) => `${PASSWORD_SET_FLAG_KEY_PREFIX}${email.trim().toLowerCase()}`;
+
+const hasPasswordSetFlag = (email: string): boolean => {
+  try {
+    return Boolean(email) && window.localStorage.getItem(passwordSetFlagKey(email)) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const markPasswordSetFlag = (email: string): void => {
+  try {
+    if (!email) return;
+    window.localStorage.setItem(passwordSetFlagKey(email), '1');
+  } catch {
+    // ignore
+  }
+};
 
 const asObject = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -52,6 +72,15 @@ export default function Profile() {
   const [bootstrapProfile, setBootstrapProfile] = useState<Record<string, unknown> | null>(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const email = authSession?.email?.trim() || '';
+    if (!email) {
+      setPasswordEditorOpen(true);
+      return;
+    }
+    setPasswordEditorOpen(!hasPasswordSetFlag(email));
+  }, [authSession?.email]);
 
   const toBffErrorMessage = useCallback((err: unknown): string => {
     if (err instanceof PivotaAgentBffError) {
@@ -166,7 +195,6 @@ export default function Profile() {
       const nextSession = extractAuthSessionFromEnvelope(env, email);
       saveAuroraAuthSession(nextSession);
       setAuthSession(nextSession);
-      setPasswordEditorOpen(true);
       setAuthDraft((prev) => ({ ...prev, code: '', password: '' }));
       setAuthStage('email');
     } catch (err) {
@@ -194,7 +222,8 @@ export default function Profile() {
       const nextSession = extractAuthSessionFromEnvelope(env, email);
       saveAuroraAuthSession(nextSession);
       setAuthSession(nextSession);
-      setPasswordEditorOpen(true);
+      markPasswordSetFlag(nextSession.email);
+      setPasswordEditorOpen(false);
       setAuthDraft((prev) => ({ ...prev, password: '' }));
       setAuthStage('email');
     } catch (err) {
@@ -246,6 +275,7 @@ export default function Profile() {
         (lang === 'CN'
           ? '密码已设置成功。下次可用邮箱 + 密码直接登录（验证码仍可用）。'
           : 'Password updated successfully. Next time you can sign in with email + password (OTP still works).');
+      markPasswordSetFlag(authSession?.email || '');
       setAuthDraft((prev) => ({ ...prev, newPassword: '', newPasswordConfirm: '' }));
       setPasswordEditorOpen(false);
       setAuthNotice(notice);
@@ -258,7 +288,7 @@ export default function Profile() {
     } finally {
       setAuthLoading(false);
     }
-  }, [authDraft.newPassword, authDraft.newPasswordConfirm, authSession?.token, lang, makeHeaders, toBffErrorMessage]);
+  }, [authDraft.newPassword, authDraft.newPasswordConfirm, authSession?.email, authSession?.token, lang, makeHeaders, toBffErrorMessage]);
 
   const signOut = useCallback(async () => {
     setAuthLoading(true);

@@ -185,7 +185,7 @@ describe('Profile quick profile status', () => {
       verifyEmail: 'verify@example.com',
     });
 
-    render(<Profile />);
+    const mounted = render(<Profile />);
 
     await screen.findByRole('button', { name: 'Sign in to bind profile' });
 
@@ -223,7 +223,7 @@ describe('Profile quick profile status', () => {
       },
     });
 
-    render(<Profile />);
+    const mounted = render(<Profile />);
 
     await screen.findByRole('button', { name: 'Save password' });
     fireEvent.change(screen.getByLabelText('New password (min 8 chars)'), { target: { value: 'newpass123' } });
@@ -231,6 +231,11 @@ describe('Profile quick profile status', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save password' }));
 
     await screen.findByText('Password set. Next time you can sign in with email + password (OTP still works too).');
+    await screen.findByRole('button', { name: 'Change password' });
+    expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
+
+    mounted.unmount();
+    render(<Profile />);
     await screen.findByRole('button', { name: 'Change password' });
     expect(screen.queryByRole('button', { name: 'Save password' })).not.toBeInTheDocument();
 
