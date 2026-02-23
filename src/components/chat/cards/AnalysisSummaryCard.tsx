@@ -352,16 +352,19 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
           <button
             type="button"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            onClick={() => onAction(lowConfidence ? 'analysis_review_products' : 'analysis_continue')}
+            onClick={() => onAction('analysis_continue')}
           >
-            {lowConfidence
-              ? language === 'CN'
-                ? '填写 AM/PM 产品（更准）'
-                : 'Add AM/PM products (more accurate)'
-              : language === 'CN'
-                ? '查看产品推荐'
-                : 'See product recommendations'}
+            {language === 'CN' ? '查看产品推荐' : 'See product recommendations'}
           </button>
+          {lowConfidence ? (
+            <button
+              type="button"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300/50"
+              onClick={() => onAction('analysis_review_products')}
+            >
+              {language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)'}
+            </button>
+          ) : null}
 
           <div className="flex items-center justify-center gap-3">
             <button
