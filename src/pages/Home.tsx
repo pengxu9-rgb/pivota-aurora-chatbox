@@ -35,10 +35,10 @@ export default function Home() {
 
           <div className="relative mt-7 text-center">
             <div className="font-aurora-heading font-semibold tracking-[-0.03em]" style={{ fontSize: 'var(--aurora-home-title-size)' }}>
-              Your AI Skin Consultant
+              24/7 Skin Agent
             </div>
             <div className="mt-1 text-white/80" style={{ fontSize: 'var(--aurora-home-subtitle-size)' }}>
-              Powered by Aurora v4.0
+              Diagnose. Match. Optimize.
             </div>
           </div>
 
