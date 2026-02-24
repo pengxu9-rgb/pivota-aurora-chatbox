@@ -436,6 +436,89 @@ const iconForChip = (chipId: string): IconType => {
   return ArrowRight;
 };
 
+type ChipVisualRole = 'primary' | 'skip' | 'default';
+
+const normalizeChipToken = (input: unknown): string => String(input || '').trim().toLowerCase();
+
+const includesAnyToken = (value: string, tokens: readonly string[]): boolean =>
+  tokens.some((token) => value.includes(token));
+
+const isSkipLikeChip = (chip: SuggestedChip): boolean => {
+  const id = normalizeChipToken(chip.chip_id);
+  const label = normalizeChipToken(chip.label);
+
+  const idSkipTokens = [
+    'skip',
+    'not_now',
+    'not-now',
+    'later',
+    'without_photo',
+    'without_photos',
+    'continue_without',
+    'baseline_only',
+  ] as const;
+  const labelSkipTokens = [
+    'skip',
+    'not now',
+    'later',
+    'continue without',
+    'baseline only',
+    '跳过',
+    '稍后',
+    '先不了',
+    '不上传',
+    '仅基线',
+  ] as const;
+
+  return includesAnyToken(id, idSkipTokens) || includesAnyToken(label, labelSkipTokens);
+};
+
+const primaryChipScore = (chip: SuggestedChip): number => {
+  if (isSkipLikeChip(chip)) return -1;
+
+  const id = normalizeChipToken(chip.chip_id);
+  const label = normalizeChipToken(chip.label);
+  let score = 0;
+
+  const strongIdTokens = [
+    'reco',
+    'recommend',
+    'analysis_continue',
+    'start_diagnosis',
+    'start.diagnosis',
+    'upload_photos',
+    'complete_profile',
+    'login_sync_profile',
+    'quick_profile',
+  ] as const;
+  const strongLabelTokens = ['continue', 'start', 'analyze', 'recommend', 'save', 'complete', '继续', '开始', '分析', '推荐', '保存', '完成'] as const;
+
+  if (id.startsWith('chip.start.')) score += 1;
+  if (includesAnyToken(id, strongIdTokens)) score += 3;
+  if (includesAnyToken(label, strongLabelTokens)) score += 2;
+
+  return score;
+};
+
+const getChipVisualRoles = (chips: SuggestedChip[]): ChipVisualRole[] => {
+  let primaryIndex = -1;
+  let bestScore = 0;
+
+  for (let i = 0; i < chips.length; i += 1) {
+    const score = primaryChipScore(chips[i]);
+    if (score > bestScore) {
+      bestScore = score;
+      primaryIndex = i;
+    }
+  }
+
+  return chips.map((chip, index) => {
+    if (isSkipLikeChip(chip)) return 'skip';
+    if (index === primaryIndex) return 'primary';
+    return 'default';
+  });
+};
+
 const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
   if (t === 'diagnosis_gate') return Activity;
@@ -7504,15 +7587,21 @@ export default function BffChat() {
             }
 
             if (item.kind === 'chips') {
+              const chipRoles = getChipVisualRoles(item.chips);
               return (
                 <div key={item.id} className="chat-card">
                   <div className="flex flex-wrap gap-2">
-                    {item.chips.map((chip) => {
+                    {item.chips.map((chip, chipIndex) => {
                       const Icon = iconForChip(chip.chip_id);
+                      const visualRole = chipRoles[chipIndex] ?? 'default';
                       return (
                         <button
-                          key={chip.chip_id}
-                          className="chip-button"
+                          key={`${item.id}_${chip.chip_id}_${chipIndex}`}
+                          className={cn(
+                            'chip-button',
+                            visualRole === 'primary' ? 'chip-button-primary' : '',
+                            visualRole === 'skip' ? 'chip-button-outline chip-button-skip' : '',
+                          )}
                           onClick={() => onChip(chip)}
                           disabled={isLoading}
                         >
