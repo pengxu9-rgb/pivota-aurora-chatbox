@@ -34,6 +34,7 @@ vi.mock('@/lib/travelPlansApi', () => ({
 import Plans from '@/pages/Plans';
 import { toast } from '@/components/ui/use-toast';
 import {
+  archiveTravelPlan,
   createTravelPlan,
   listTravelPlans,
   type TravelPlanCardModel,
@@ -68,6 +69,13 @@ describe('Plans page behavior', () => {
       summary: {
         active_trip_id: 'trip_new',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+      },
+    });
+    vi.mocked(archiveTravelPlan).mockResolvedValue({
+      plan: makePlan({ trip_id: 'trip_1', status: 'archived', is_archived: true }),
+      summary: {
+        active_trip_id: null,
+        counts: { in_trip: 0, upcoming: 0, completed: 0, archived: 1 },
       },
     });
   });
@@ -128,6 +136,46 @@ describe('Plans page behavior', () => {
       state: {
         plan: expect.objectContaining({ trip_id: 'trip_chat', destination: 'Paris' }),
       },
+    });
+  });
+
+  it('starts chat only when Open in chat is clicked', async () => {
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({
+      plans: [makePlan({ trip_id: 'trip_chat', destination: 'Seoul' })],
+      summary: {
+        active_trip_id: 'trip_chat',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+      },
+    });
+
+    render(<Plans />);
+    const openInChatButton = await screen.findByRole('button', { name: 'Open in chat' });
+    fireEvent.click(openInChatButton);
+
+    expect(outletContext.startChat).toHaveBeenCalledTimes(1);
+    expect(outletContext.startChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'query',
+        title: 'Travel skincare plan',
+      }),
+    );
+  });
+
+  it('archives a plan directly from list card', async () => {
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({
+      plans: [makePlan({ trip_id: 'trip_archive', destination: 'Berlin' })],
+      summary: {
+        active_trip_id: 'trip_archive',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+      },
+    });
+
+    render(<Plans />);
+    const archiveButton = await screen.findByRole('button', { name: 'Archive' });
+    fireEvent.click(archiveButton);
+
+    await waitFor(() => {
+      expect(archiveTravelPlan).toHaveBeenCalledWith('EN', 'trip_archive');
     });
   });
 });

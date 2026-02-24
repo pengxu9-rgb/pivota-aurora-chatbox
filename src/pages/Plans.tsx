@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronRight, Loader2, MapPin, Menu, Plus } from 'lucide-react';
+import { Archive, CalendarDays, ChevronRight, Loader2, MapPin, Menu, MessageCircle, Plus } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import type { Language } from '@/lib/pivotaAgentBff';
 import { getLangPref } from '@/lib/persistence';
 import {
+  archiveTravelPlan,
   createTravelPlan,
   listTravelPlans,
   type TravelPlanCardModel,
@@ -82,13 +83,14 @@ const buildCreateValidationError = (draft: PlanDraft, language: Language): strin
 };
 
 export default function Plans() {
-  const { openSidebar } = useOutletContext<MobileShellContext>();
+  const { openSidebar, startChat } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<PlanDraft>(makeEmptyDraft());
   const [plans, setPlans] = useState<TravelPlanCardModel[]>([]);
   const [summary, setSummary] = useState<TravelPlansSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingCreate, setSavingCreate] = useState(false);
+  const [archivingTripId, setArchivingTripId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const language: Language = useMemo(() => (getLangPref() === 'cn' ? 'CN' : 'EN'), []);
 
@@ -147,6 +149,33 @@ export default function Plans() {
     const tripId = String(plan.trip_id || '').trim();
     if (!tripId) return;
     navigate(`/plans/${encodeURIComponent(tripId)}`, { state: { plan } });
+  };
+
+  const openPlanInChat = (plan: TravelPlanCardModel) => {
+    const itineraryText = String(plan.itinerary || '').trim();
+    const query =
+      language === 'CN'
+        ? `请基于我的旅行计划给护肤建议。目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`
+        : `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
+
+    startChat({
+      kind: 'query',
+      title: language === 'CN' ? '旅行护肤计划' : 'Travel skincare plan',
+      query,
+    });
+  };
+
+  const archivePlan = async (tripId: string) => {
+    try {
+      setArchivingTripId(tripId);
+      await archiveTravelPlan(language, tripId);
+      toast({ title: language === 'CN' ? '计划已归档' : 'Plan archived' });
+      await refreshPlans({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setArchivingTripId(null);
+    }
   };
 
   return (
@@ -315,10 +344,37 @@ export default function Plans() {
                   </span>
                 </div>
 
-                <div className="mt-3 flex justify-end">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground"
+                    onClick={() => openPlanInChat(plan)}
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" />
+                    {language === 'CN' ? 'Open in chat' : 'Open in chat'}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground disabled:opacity-60"
+                    onClick={() => archivePlan(plan.trip_id)}
+                    disabled={archivingTripId === plan.trip_id || plan.status === 'archived'}
+                  >
+                    {archivingTripId === plan.trip_id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Archive className="h-3.5 w-3.5" />
+                    )}
+                    {plan.status === 'archived'
+                      ? language === 'CN'
+                        ? '已归档'
+                        : 'Archived'
+                      : language === 'CN'
+                        ? '归档'
+                        : 'Archive'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ml-auto inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground"
                     onClick={() => openDetails(plan)}
                   >
                     {language === 'CN' ? '查看详情' : 'View details'}
