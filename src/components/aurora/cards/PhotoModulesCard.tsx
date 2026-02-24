@@ -28,6 +28,11 @@ const PRODUCT_REC_ENABLED = (() => {
 
 type IssueType = 'redness' | 'acne' | 'tone' | 'shine' | 'texture';
 type Rgb = { r: number; g: number; b: number };
+type RenderSourceKind = 'crop' | 'original_crop' | 'original_full';
+type RenderSourceCandidate = {
+  kind: RenderSourceKind;
+  src: string;
+};
 
 const ISSUE_COLOR_MAP: Record<IssueType, Rgb> = {
   redness: { r: 255, g: 77, b: 79 },
@@ -251,7 +256,45 @@ export function PhotoModulesCard({
   const imageAspect = `${model.face_crop.render_size_px_hint.w}/${model.face_crop.render_size_px_hint.h}`;
   const cropImageUrl = model.face_crop.crop_image_url;
   const originalImageUrl = model.face_crop.original_image_url;
-  const hasRenderableImage = Boolean(cropImageUrl || originalImageUrl);
+  const [failedRenderKinds, setFailedRenderKinds] = useState<RenderSourceKind[]>([]);
+
+  const originalCropStyle = useMemo(() => {
+    const bbox = model.face_crop.bbox_px;
+    const orig = model.face_crop.orig_size_px;
+    if (!bbox.w || !bbox.h || !orig.w || !orig.h) return null;
+
+    return {
+      width: `${(orig.w / bbox.w) * 100}%`,
+      height: `${(orig.h / bbox.h) * 100}%`,
+      left: `${-(bbox.x / bbox.w) * 100}%`,
+      top: `${-(bbox.y / bbox.h) * 100}%`,
+    };
+  }, [model.face_crop.bbox_px, model.face_crop.orig_size_px]);
+
+  const renderCandidates = useMemo<RenderSourceCandidate[]>(() => {
+    const candidates: RenderSourceCandidate[] = [];
+    if (cropImageUrl) candidates.push({ kind: 'crop', src: cropImageUrl });
+    if (originalImageUrl && originalCropStyle) candidates.push({ kind: 'original_crop', src: originalImageUrl });
+    if (originalImageUrl) candidates.push({ kind: 'original_full', src: originalImageUrl });
+    return candidates;
+  }, [cropImageUrl, originalCropStyle, originalImageUrl]);
+
+  const renderCandidatesKey = useMemo(
+    () => renderCandidates.map((candidate) => `${candidate.kind}:${candidate.src}`).join('|'),
+    [renderCandidates],
+  );
+
+  useEffect(() => {
+    setFailedRenderKinds([]);
+  }, [renderCandidatesKey]);
+
+  const activeRenderCandidate = useMemo(
+    () => renderCandidates.find((candidate) => !failedRenderKinds.includes(candidate.kind)) ?? null,
+    [failedRenderKinds, renderCandidates],
+  );
+
+  const hasRenderableImage = Boolean(activeRenderCandidate);
+  const noRenderableReason = renderCandidates.length > 0 ? 'load_failed' : 'missing_source';
 
   useEffect(() => {
     if (!selectedModuleId || model.modules.some((module) => module.module_id === selectedModuleId)) return;
@@ -373,19 +416,6 @@ export function PhotoModulesCard({
   const hasProducts =
     PRODUCT_REC_ENABLED && selectedModule ? selectedModule.products.filter((product) => Boolean(product.title)).length > 0 : false;
 
-  const originalCropStyle = useMemo(() => {
-    const bbox = model.face_crop.bbox_px;
-    const orig = model.face_crop.orig_size_px;
-    if (!bbox.w || !bbox.h || !orig.w || !orig.h) return null;
-
-    return {
-      width: `${(orig.w / bbox.w) * 100}%`,
-      height: `${(orig.h / bbox.h) * 100}%`,
-      left: `${-(bbox.x / bbox.w) * 100}%`,
-      top: `${-(bbox.y / bbox.h) * 100}%`,
-    };
-  }, [model.face_crop.bbox_px, model.face_crop.orig_size_px]);
-
   const handleModuleSelect = (moduleId: string) => {
     setSelectedIssueType(null);
     setHoveredRegionId(null);
@@ -457,9 +487,13 @@ export function PhotoModulesCard({
         <div className="space-y-2">
           {!hasRenderableImage ? (
             <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {language === 'CN'
-                ? '当前未拿到可渲染照片，以下先展示模块结论与行动建议。'
-                : 'No renderable photo is available right now. Module findings and actions are shown below.'}
+              {noRenderableReason === 'load_failed'
+                ? language === 'CN'
+                  ? '照片预览加载失败。以下先展示模块结论与行动建议；重新上传或重拍后可恢复叠加图。'
+                  : 'Photo preview failed to load. Module findings are still shown below; re-uploading or retaking can restore overlays.'
+                : language === 'CN'
+                  ? '当前未拿到可渲染照片，以下先展示模块结论与行动建议。'
+                  : 'Photo overlay preview is unavailable for this response. Module findings and actions are shown below.'}
             </div>
           ) : null}
 
@@ -469,29 +503,35 @@ export function PhotoModulesCard({
               className="relative w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/20"
               style={{ aspectRatio: imageAspect }}
             >
-              {cropImageUrl ? (
-                <img
-                  src={cropImageUrl}
-                  alt={language === 'CN' ? '脸部裁剪图' : 'Face crop'}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  draggable={false}
-                />
-              ) : originalImageUrl && originalCropStyle ? (
-                <img
-                  src={originalImageUrl}
-                  alt={language === 'CN' ? '原图裁剪预览' : 'Original crop preview'}
-                  className="absolute"
-                  style={originalCropStyle}
-                  draggable={false}
-                />
-              ) : (
-                <img
-                  src={originalImageUrl}
-                  alt={language === 'CN' ? '原图预览' : 'Original image preview'}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  draggable={false}
-                />
-              )}
+              <img
+                src={activeRenderCandidate!.src}
+                alt={
+                  activeRenderCandidate!.kind === 'crop'
+                    ? language === 'CN'
+                      ? '脸部裁剪图'
+                      : 'Face crop'
+                    : activeRenderCandidate!.kind === 'original_crop'
+                      ? language === 'CN'
+                        ? '原图裁剪预览'
+                        : 'Original crop preview'
+                      : language === 'CN'
+                        ? '原图预览'
+                        : 'Original image preview'
+                }
+                className={
+                  activeRenderCandidate!.kind === 'original_crop'
+                    ? 'absolute'
+                    : 'absolute inset-0 h-full w-full object-cover'
+                }
+                style={activeRenderCandidate!.kind === 'original_crop' ? originalCropStyle ?? undefined : undefined}
+                draggable={false}
+                onError={() => {
+                  setFailedRenderKinds((previous) => {
+                    if (previous.includes(activeRenderCandidate!.kind)) return previous;
+                    return [...previous, activeRenderCandidate!.kind];
+                  });
+                }}
+              />
 
               <canvas
                 ref={baseCanvasRef}
@@ -507,6 +547,17 @@ export function PhotoModulesCard({
                 data-highlight-count={highlightedRegionIds.size}
                 className="pointer-events-none absolute inset-0 h-full w-full"
               />
+            </div>
+          ) : null}
+          {hasRenderableImage && activeRenderCandidate && activeRenderCandidate.kind !== 'crop' ? (
+            <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              {activeRenderCandidate.kind === 'original_crop'
+                ? language === 'CN'
+                  ? '当前使用原图裁剪回退进行叠加渲染。'
+                  : 'Using original-photo crop fallback for overlay rendering.'
+                : language === 'CN'
+                  ? '当前使用原图全幅回退进行叠加渲染，分区位置可能略有偏差。'
+                  : 'Using original full-frame fallback; region alignment may be less precise.'}
             </div>
           ) : null}
 

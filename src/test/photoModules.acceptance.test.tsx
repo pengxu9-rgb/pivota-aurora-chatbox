@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
@@ -254,12 +254,27 @@ describe('photo_modules_v1 acceptance', () => {
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);
 
     expect(
-      screen.getByText('No renderable photo is available right now. Module findings and actions are shown below.'),
+      screen.getByText('Photo overlay preview is unavailable for this response. Module findings and actions are shown below.'),
     ).toBeInTheDocument();
     expect(screen.queryByTestId('photo-modules-base-canvas')).not.toBeInTheDocument();
     expect(screen.queryByTestId('photo-modules-highlight-canvas')).not.toBeInTheDocument();
     expect(screen.getByTestId('photo-modules-module-left_cheek')).toBeInTheDocument();
     expect(screen.getByText('Ingredient actions')).toBeInTheDocument();
+  });
+
+  it('falls back to original crop preview when crop image fails to load', async () => {
+    const normalized = normalizePhotoModulesUiModelV1(buildValidPayload());
+    expect(normalized.errors).toHaveLength(0);
+    expect(normalized.model).not.toBeNull();
+
+    render(<PhotoModulesCard model={normalized.model!} language="EN" />);
+
+    fireEvent.error(screen.getByAltText('Face crop'));
+
+    await waitFor(() => {
+      expect(screen.getByAltText('Original crop preview')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Using original-photo crop fallback for overlay rendering.')).toBeInTheDocument();
   });
 
   it('returns model=null on schema-fail payload and allows safe downgrade path', () => {

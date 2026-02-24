@@ -22,6 +22,12 @@ export type PhotoModulesFallbackSessionPhotos =
   | {
       daylight?: { preview?: unknown } | null;
       indoor_white?: { preview?: unknown } | null;
+      photos?:
+        | {
+            daylight?: { preview?: unknown } | null;
+            indoor_white?: { preview?: unknown } | null;
+          }
+        | null;
     }
   | null
   | undefined;
@@ -42,13 +48,49 @@ const hasRenderableFaceCropImage = (faceCrop: Record<string, unknown>): boolean 
   return FACE_CROP_RENDERABLE_KEYS.some((key) => asString(faceCrop[key]));
 };
 
+const getSlotEntry = (
+  bucket: Record<string, unknown>,
+  slot: SlotId,
+): Record<string, unknown> | null => {
+  const direct = asObject(bucket[slot]);
+  if (direct) return direct;
+  const nestedPhotos = asObject(bucket.photos);
+  if (!nestedPhotos) return null;
+  return asObject(nestedPhotos[slot]);
+};
+
 const getPreviewBySlot = (sessionPhotos: PhotoModulesFallbackSessionPhotos, slot: string): string => {
   if (!isSlotId(slot)) return '';
   const bucket = asObject(sessionPhotos || null);
   if (!bucket) return '';
-  const entry = asObject(bucket[slot]);
+  const entry = getSlotEntry(bucket, slot);
   if (!entry) return '';
   return asString(entry.preview);
+};
+
+const pickAnyPreview = (sessionPhotos: PhotoModulesFallbackSessionPhotos): string => {
+  const bucket = asObject(sessionPhotos || null);
+  if (!bucket) return '';
+
+  for (const slot of SLOT_PRIORITY) {
+    const preview = getPreviewBySlot(sessionPhotos, slot);
+    if (preview) return preview;
+  }
+
+  const nestedPhotos = asObject(bucket.photos);
+  const containers: Record<string, unknown>[] = [bucket];
+  if (nestedPhotos) containers.push(nestedPhotos);
+
+  for (const container of containers) {
+    for (const value of Object.values(container)) {
+      const entry = asObject(value);
+      if (!entry) continue;
+      const preview = asString(entry.preview);
+      if (preview) return preview;
+    }
+  }
+
+  return '';
 };
 
 const matchSlotByPhotoId = (
@@ -78,11 +120,13 @@ export function enrichPhotoModulesPayloadWithSessionPreview(
   if (!faceCropObj) return payload;
   if (hasRenderableFaceCropImage(faceCropObj)) return payload;
 
-  const photoIdHint = asString(faceCropObj.photo_id);
-  const slotHint = asString(faceCropObj.slot_id);
+  const payloadPhotoIdHint = asString(payloadObj.photo_id);
+  const payloadSlotHint = asString(payloadObj.slot_id);
+  const photoIdHint = asString(faceCropObj.photo_id) || payloadPhotoIdHint;
+  const slotHint = asString(faceCropObj.slot_id) || payloadSlotHint;
   const matchedSlotByPhotoId = matchSlotByPhotoId(photoIdHint, analysisPhotoRefs);
 
-  const slotCandidates = [slotHint, matchedSlotByPhotoId, ...SLOT_PRIORITY];
+  const slotCandidates = [slotHint, payloadSlotHint, matchedSlotByPhotoId, ...SLOT_PRIORITY];
   const seen = new Set<string>();
   let fallbackPreview = '';
 
@@ -95,6 +139,8 @@ export function enrichPhotoModulesPayloadWithSessionPreview(
       break;
     }
   }
+
+  if (!fallbackPreview) fallbackPreview = pickAnyPreview(sessionPhotos);
 
   if (!fallbackPreview) return payload;
 
