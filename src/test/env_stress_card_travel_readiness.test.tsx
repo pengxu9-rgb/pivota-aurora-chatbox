@@ -94,19 +94,13 @@ describe('EnvStressCard travel readiness', () => {
       />,
     );
 
-    expect(screen.getByText('Destination delta')).toBeInTheDocument();
-    expect(screen.getByText('Personal focus')).toBeInTheDocument();
-    expect(screen.getByText('Jet lag and sleep')).toBeInTheDocument();
-    expect(screen.getByText('Shopping preview')).toBeInTheDocument();
+    expect(screen.getByText('Travel snapshot')).toBeInTheDocument();
+    expect(screen.getByText('Key deltas (top 3)')).toBeInTheDocument();
+    expect(screen.getByText(/The key change is higher humidity/i)).toBeInTheDocument();
     expect(screen.getByText('Daily forecast (destination)')).toBeInTheDocument();
     expect(screen.getByText('Official alerts')).toBeInTheDocument();
-    expect(screen.getByText('Action and product strategy')).toBeInTheDocument();
-    expect(screen.getByText('Store examples')).toBeInTheDocument();
+    expect(screen.getByText('More travel details (expand)')).toBeInTheDocument();
     expect(screen.getByText('Why this score (expand)')).toBeInTheDocument();
-    expect(screen.getByText('Local brand candidates')).toBeInTheDocument();
-    expect(screen.getByText(/Bioderma/i)).toBeInTheDocument();
-    expect(screen.getByText(/KB verified/i)).toBeInTheDocument();
-    expect(screen.getByText('Where to buy')).toBeInTheDocument();
     expect(screen.getByText('Want a more accurate signal? Add a quick check-in.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'See full recommendations' }));
@@ -133,7 +127,7 @@ describe('EnvStressCard travel readiness', () => {
     );
 
     expect(screen.getByText(/legacy_note_1/)).toBeInTheDocument();
-    expect(screen.queryByText('Destination delta')).not.toBeInTheDocument();
+    expect(screen.queryByText('Travel snapshot')).not.toBeInTheDocument();
   });
 
   it('shows explicit no-alert text when alerts are absent', () => {
