@@ -116,6 +116,22 @@ export default function Plans() {
     void refreshPlans();
   }, [refreshPlans]);
 
+  const startPlanAnalysis = useCallback(
+    (plan: { destination: string; start_date: string; end_date: string; itinerary?: string }) => {
+      const itineraryText = String(plan.itinerary || '').trim();
+      const query =
+        language === 'CN'
+          ? `请基于我的旅行计划给护肤建议。目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`
+          : `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
+      startChat({
+        kind: 'query',
+        title: language === 'CN' ? '旅行护肤计划' : 'Travel skincare plan',
+        query,
+      });
+    },
+    [language, startChat],
+  );
+
   const submitCreate = async () => {
     setError('');
     const validationError = buildCreateValidationError(draft, language);
@@ -126,7 +142,7 @@ export default function Plans() {
 
     try {
       setSavingCreate(true);
-      await createTravelPlan(language, {
+      const createPayload = {
         destination: draft.destination.trim(),
         start_date: draft.start_date,
         end_date: draft.end_date,
@@ -134,9 +150,16 @@ export default function Plans() {
           ? { indoor_outdoor_ratio: normalizeRatio(draft.indoor_outdoor_ratio) as number }
           : {}),
         ...(draft.itinerary.trim() ? { itinerary: draft.itinerary.trim().slice(0, 1200) } : {}),
-      });
+      };
+      const created = await createTravelPlan(language, createPayload);
       setDraft(makeEmptyDraft());
       toast({ title: language === 'CN' ? '计划已保存' : 'Plan saved' });
+      startPlanAnalysis({
+        destination: String((created?.plan as any)?.destination || createPayload.destination),
+        start_date: String((created?.plan as any)?.start_date || createPayload.start_date),
+        end_date: String((created?.plan as any)?.end_date || createPayload.end_date),
+        itinerary: String((created?.plan as any)?.itinerary || (createPayload as any).itinerary || ''),
+      });
       await refreshPlans({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -202,8 +225,8 @@ export default function Plans() {
             <div className="ios-section-title">{language === 'CN' ? 'Create new plan' : 'Create new plan'}</div>
             <div className="ios-caption mt-1">
               {language === 'CN'
-                ? '先创建行程，再到下方查看卡片与详情。'
-                : 'Create your trip first, then review cards and details below.'}
+                ? '保存后会自动进入对话分析，同时下方保留行程卡片。'
+                : 'Saving starts chat analysis automatically, while keeping trip cards below.'}
             </div>
           </div>
         </div>
