@@ -47,6 +47,39 @@ describe('EnvStressCard travel readiness', () => {
               buying_channels: ['beauty_retail', 'ecommerce'],
               city_hint: 'Paris',
             },
+            forecast_window: [
+              {
+                date: '2026-03-01',
+                temp_low_c: 7,
+                temp_high_c: 14,
+                humidity_mean: 78,
+                uv_max: 3.2,
+                condition_text: 'Mostly cloudy',
+              },
+            ],
+            alerts: [
+              {
+                provider: 'Meteo-France Vigilance',
+                severity: 'yellow',
+                title: 'Official alert: Flood (yellow)',
+                summary: 'Moderate flooding warning',
+              },
+            ],
+            reco_bundle: [
+              {
+                trigger: 'Elevated UV',
+                action: 'Use SPF50+ and reapply every 2 hours outdoors.',
+                product_types: ['SPF50+ sunscreen fluid'],
+                reapply_rule: 'Reapply every 2 hours outdoors.',
+              },
+            ],
+            store_examples: [
+              {
+                name: 'Citypharma',
+                type: 'Pharmacy',
+                address: '26 Rue du Four, 75006 Paris',
+              },
+            ],
             confidence: {
               level: 'medium',
               missing_inputs: ['recent_logs'],
@@ -65,6 +98,10 @@ describe('EnvStressCard travel readiness', () => {
     expect(screen.getByText('Personal focus')).toBeInTheDocument();
     expect(screen.getByText('Jet lag and sleep')).toBeInTheDocument();
     expect(screen.getByText('Shopping preview')).toBeInTheDocument();
+    expect(screen.getByText('Daily forecast (destination)')).toBeInTheDocument();
+    expect(screen.getByText('Official alerts')).toBeInTheDocument();
+    expect(screen.getByText('Action and product strategy')).toBeInTheDocument();
+    expect(screen.getByText('Store examples')).toBeInTheDocument();
     expect(screen.getByText('Why this score (expand)')).toBeInTheDocument();
     expect(screen.getByText('Local brand candidates')).toBeInTheDocument();
     expect(screen.getByText(/Bioderma/i)).toBeInTheDocument();
@@ -97,5 +134,31 @@ describe('EnvStressCard travel readiness', () => {
 
     expect(screen.getByText(/legacy_note_1/)).toBeInTheDocument();
     expect(screen.queryByText('Destination delta')).not.toBeInTheDocument();
+  });
+
+  it('shows explicit no-alert text when alerts are absent', () => {
+    render(
+      <EnvStressCard
+        payload={{
+          schema_version: 'aurora.ui.env_stress.v1',
+          ess: 55,
+          tier: 'Moderate',
+          radar: [{ axis: 'Hydration', value: 52 }],
+          notes: [],
+          travel_readiness: {
+            destination_context: { destination: 'Paris' },
+            delta_vs_home: {
+              temperature: { home: 18, destination: 10, delta: -8, unit: 'C' },
+            },
+            forecast_window: [{ date: '2026-03-01', temp_low_c: 7, temp_high_c: 14 }],
+            alerts: [],
+          },
+        }}
+        language="EN"
+      />,
+    );
+
+    expect(screen.getByText('Official alerts')).toBeInTheDocument();
+    expect(screen.getByText('No official weather alert currently.')).toBeInTheDocument();
   });
 });
