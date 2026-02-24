@@ -18,6 +18,7 @@ import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCa
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
+import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
@@ -439,7 +440,7 @@ const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
   if (t === 'diagnosis_gate') return Activity;
   if (t === 'budget_gate') return Wallet;
-  if (t === 'ingredient_plan') return FlaskConical;
+  if (t === 'ingredient_plan' || t === 'ingredient_plan_v2') return FlaskConical;
   if (t === 'confidence_notice') return AlertTriangle;
   if (t === 'recommendations') return Sparkles;
   if (t === 'profile') return User;
@@ -459,6 +460,7 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'budget_gate') return language === 'CN' ? '预算确认' : 'Budget';
   if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
+  if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（含商品）' : 'Ingredient plan (with products)';
   if (key === 'confidence_notice') return language === 'CN' ? '置信度提示' : 'Confidence notice';
   if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
   if (key === 'product_parse') return language === 'CN' ? '产品解析' : 'Product parse';
@@ -2840,6 +2842,7 @@ function BffCardView({
         analyticsCtx={analyticsCtx}
         cardId={card.card_id}
         sanitizerDrops={sanitizer_drops}
+        debug={debug}
       />
     );
   }
@@ -2886,62 +2889,26 @@ function BffCardView({
   }
 
   if (cardType === 'ingredient_plan') {
-    const planObj = asObject((payload as any).plan) ?? asObject(payload) ?? {};
-    const intensity = asString((planObj as any).intensity) || asString((payload as any).intensity) || 'balanced';
-    const targets = asArray((planObj as any).targets ?? (payload as any).targets)
-      .map((item) => asObject(item))
-      .filter(Boolean) as Array<Record<string, unknown>>;
-    const avoid = asArray((planObj as any).avoid ?? (payload as any).avoid)
-      .map((item) => asObject(item))
-      .filter(Boolean) as Array<Record<string, unknown>>;
-    const conflicts = asArray((planObj as any).conflicts ?? (payload as any).conflicts)
-      .map((item) => asObject(item))
-      .filter(Boolean) as Array<Record<string, unknown>>;
-
     return (
-      <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
-        <div className="text-xs font-semibold text-foreground">
-          {language === 'CN' ? `强度：${intensity}` : `Intensity: ${intensity}`}
-        </div>
-        {targets.length ? (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '推荐成分' : 'Target ingredients'}</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-              {targets.slice(0, 6).map((item, idx) => (
-                <li key={`target_${idx}`}>
-                  {asString((item as any).ingredient_id) || asString((item as any).ingredientId) || 'ingredient'}
-                  {Number.isFinite(Number((item as any).priority)) ? ` · P${Math.round(Number((item as any).priority))}` : ''}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {avoid.length ? (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '需规避/谨慎' : 'Avoid / caution'}</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-              {avoid.slice(0, 6).map((item, idx) => (
-                <li key={`avoid_${idx}`}>
-                  {asString((item as any).ingredient_id) || 'ingredient'}
-                  {asString((item as any).severity) ? ` · ${asString((item as any).severity)}` : ''}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {conflicts.length ? (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '冲突说明' : 'Conflicts'}</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-              {conflicts.slice(0, 4).map((item, idx) => (
-                <li key={`conflict_${idx}`}>
-                  {asString((item as any).description) || asString((item as any).message) || ''}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
+      <IngredientPlanCard
+        payload={payload}
+        language={language}
+        variant="v1"
+        analyticsCtx={analyticsCtx}
+        cardId={card.card_id}
+      />
+    );
+  }
+
+  if (cardType === 'ingredient_plan_v2') {
+    return (
+      <IngredientPlanCard
+        payload={payload}
+        language={language}
+        variant="v2"
+        analyticsCtx={analyticsCtx}
+        cardId={card.card_id}
+      />
     );
   }
 

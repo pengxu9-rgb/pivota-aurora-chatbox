@@ -230,6 +230,8 @@ describe('photo_modules_v1 acceptance', () => {
 
     expect(baseCanvas).toHaveAttribute('data-focused', '0');
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '3');
+    expect(screen.getByText('Left cheek · Noticeable')).toBeInTheDocument();
+    expect(screen.queryByText(/S3/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
     expect(baseCanvas).toHaveAttribute('data-focused', '1');

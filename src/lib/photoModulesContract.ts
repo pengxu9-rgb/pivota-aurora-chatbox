@@ -115,6 +115,10 @@ const productSchema = z
     image_url: z.string().trim().optional(),
     why_match: z.string().trim().optional(),
     how_to_use: z.string().trim().optional(),
+    price: z.number().optional(),
+    currency: z.string().trim().optional(),
+    price_tier: z.string().trim().optional(),
+    source_block: z.string().trim().optional(),
     cautions: z.array(z.string().trim().min(1).max(180)).optional(),
   })
   .passthrough();
@@ -252,6 +256,10 @@ export type PhotoModulesProduct = {
   image_url: string;
   why_match: string;
   how_to_use: string;
+  price?: number;
+  currency?: string;
+  price_tier?: string;
+  source_block?: string;
   cautions: string[];
 };
 
@@ -587,6 +595,10 @@ const normalizeProduct = (product: RawProduct): PhotoModulesProduct => ({
   image_url: String(product.image_url || '').trim(),
   why_match: String(product.why_match || '').trim(),
   how_to_use: String(product.how_to_use || '').trim(),
+  ...(Number.isFinite(Number(product.price)) ? { price: Number(product.price) } : {}),
+  ...(String(product.currency || '').trim() ? { currency: String(product.currency || '').trim() } : {}),
+  ...(String(product.price_tier || '').trim() ? { price_tier: String(product.price_tier || '').trim() } : {}),
+  ...(String(product.source_block || '').trim() ? { source_block: String(product.source_block || '').trim() } : {}),
   cautions: toUniqueList(product.cautions ?? [], 6),
 });
 

@@ -79,7 +79,19 @@ const makeBasePayload = () => ({
           evidence_issue_types: ['redness'],
         },
       ],
-      products: [],
+      products: [
+        {
+          product_id: 'prod_1',
+          merchant_id: 'merchant_1',
+          name: 'Niacinamide Serum 10%',
+          brand: 'Brand A',
+          price: 18.5,
+          currency: 'USD',
+          price_tier: 'low',
+          source_block: 'dupe',
+          why_match: 'Budget-friendly niacinamide option.',
+        },
+      ],
     },
   ],
   disclaimers: {
@@ -112,6 +124,11 @@ describe('photo modules contract', () => {
 
     const issue = model.modules[0]?.issues[0];
     expect(issue?.evidence_region_ids).toEqual(['bbox_1']);
+    const product = model.modules[0]?.products?.[0];
+    expect(product?.price).toBe(18.5);
+    expect(product?.currency).toBe('USD');
+    expect(product?.price_tier).toBe('low');
+    expect(product?.source_block).toBe('dupe');
   });
 
   it('drops invalid heatmap shape and records sanitizer reason', () => {
@@ -143,4 +160,3 @@ describe('photo modules contract', () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 });
-

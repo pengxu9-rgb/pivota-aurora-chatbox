@@ -55,6 +55,27 @@ const ISSUE_LABELS: Record<IssueType, { en: string; zh: string }> = {
   texture: { en: 'Texture/Pores', zh: '纹理/毛孔' },
 };
 
+const normalizeSeverityLevel = (value: number): 1 | 2 | 3 | 4 => {
+  const rounded = Math.round(Number.isFinite(value) ? value : 1);
+  if (rounded <= 1) return 1;
+  if (rounded === 2) return 2;
+  if (rounded === 3) return 3;
+  return 4;
+};
+
+const getSeverityLabel = (level: 1 | 2 | 3 | 4, language: Language): string => {
+  if (language === 'CN') {
+    if (level === 1) return '轻度';
+    if (level === 2) return '中度';
+    if (level === 3) return '明显';
+    return '重度';
+  }
+  if (level === 1) return 'Mild';
+  if (level === 2) return 'Moderate';
+  if (level === 3) return 'Noticeable';
+  return 'High';
+};
+
 const clamp01 = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
   if (value <= 0) return 0;
@@ -90,10 +111,10 @@ const drawBbox = (
   const boxWidth = region.bbox.w * width;
   const boxHeight = region.bbox.h * height;
   const intensity = clamp01(region.style.intensity);
-  const fillAlpha = (0.12 + intensity * 0.2) * alphaScale;
-  const strokeAlpha = (0.35 + intensity * 0.45) * alphaScale;
+  const strokeAlpha = (0.42 + intensity * 0.42) * alphaScale;
+  const tunedFillAlpha = (0.04 + intensity * 0.1) * alphaScale;
 
-  context.fillStyle = rgba(color, fillAlpha);
+  context.fillStyle = rgba(color, tunedFillAlpha);
   context.fillRect(x, y, boxWidth, boxHeight);
   context.strokeStyle = rgba(color, strokeAlpha);
   context.lineWidth = 1.2 + intensity * 2.2 * lineBoost;
@@ -112,7 +133,7 @@ const drawPolygon = (
   if (!polygon?.points?.length) return;
   const color = pickColor(region);
   const intensity = clamp01(region.style.intensity);
-  const fillAlpha = (0.1 + intensity * 0.18) * alphaScale;
+  const fillAlpha = (0.03 + intensity * 0.11) * alphaScale;
   const strokeAlpha = (0.34 + intensity * 0.48) * alphaScale;
 
   context.beginPath();
@@ -210,12 +231,14 @@ export function PhotoModulesCard({
   analyticsCtx,
   cardId,
   sanitizerDrops,
+  debug = false,
 }: {
   model: PhotoModulesUiModelV1;
   language: Language;
   analyticsCtx?: AnalyticsContext;
   cardId?: string;
   sanitizerDrops?: PhotoModulesSanitizerDrop[];
+  debug?: boolean;
 }) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -475,7 +498,7 @@ export function PhotoModulesCard({
                 data-testid="photo-modules-base-canvas"
                 data-focused={hasFocusedSelection ? '1' : '0'}
                 className="pointer-events-none absolute inset-0 h-full w-full"
-                style={{ opacity: hasFocusedSelection ? 0.2 : 1 }}
+                style={{ opacity: hasFocusedSelection ? 0.08 : 0.9 }}
               />
               <canvas
                 ref={highlightCanvasRef}
@@ -504,6 +527,8 @@ export function PhotoModulesCard({
           <div className="flex flex-wrap gap-2">
             {model.modules.map((module) => {
               const maxSeverity = module.issues.reduce((max, issue) => Math.max(max, issue.severity_0_4), 0);
+              const severityLevel = normalizeSeverityLevel(maxSeverity);
+              const severityLabel = getSeverityLabel(severityLevel, language);
               const isActive = selectedModuleId === module.module_id;
               return (
                 <button
@@ -516,7 +541,8 @@ export function PhotoModulesCard({
                     isActive ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {getModuleLabel(module.module_id, language)} · S{maxSeverity}
+                  {getModuleLabel(module.module_id, language)} · {severityLabel}
+                  {debug ? ` (S${severityLevel})` : ''}
                 </button>
               );
             })}
@@ -549,7 +575,10 @@ export function PhotoModulesCard({
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-sm font-medium text-foreground">{getIssueLabel(issue.issue_type, language)}</div>
                           <div className="text-[11px] text-muted-foreground">
-                            S{issue.severity_0_4} · {toPercent(issue.confidence_0_1)}
+                            {getSeverityLabel(normalizeSeverityLevel(issue.severity_0_4), language)}
+                            {debug ? ` (S${normalizeSeverityLevel(issue.severity_0_4)})` : ''}
+                            {' · '}
+                            {toPercent(issue.confidence_0_1)}
                           </div>
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">{issue.explanation_short}</div>
@@ -644,6 +673,10 @@ export function PhotoModulesCard({
                           module_id: selectedModule.module_id,
                           product_id: product.product_id || null,
                           merchant_id: product.merchant_id || null,
+                          source_block: product.source_block || null,
+                          price_tier: product.price_tier || null,
+                          price: typeof product.price === 'number' ? product.price : null,
+                          currency: product.currency || null,
                           title: product.title,
                         });
                       }}

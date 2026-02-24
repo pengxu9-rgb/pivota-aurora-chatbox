@@ -233,9 +233,27 @@ export const emitAuroraPhotoModulesProductTap = (
     module_id: string;
     product_id?: string | null;
     merchant_id?: string | null;
+    source_block?: string | null;
+    price_tier?: string | null;
+    price?: number | null;
+    currency?: string | null;
     title?: string;
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_photo_modules_product_tap', ctx, props);
+
+export const emitAuroraIngredientPlanProductTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    ingredient_id: string;
+    product_id?: string | null;
+    source_block?: 'competitor' | 'dupe' | string;
+    price_tier?: string | null;
+    price?: number | null;
+    currency?: string | null;
+    title?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_ingredient_plan_product_tap', ctx, props);
 
 export const emitOpenedCompatibility = (
   ctx: AnalyticsContext,
