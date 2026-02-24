@@ -152,6 +152,27 @@ describe('Plans page behavior', () => {
     });
   });
 
+  it('keeps Open in chat, Archive and View details in one row container', async () => {
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({
+      plans: [makePlan({ trip_id: 'trip_row', destination: 'Rome' })],
+      summary: {
+        active_trip_id: 'trip_row',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+      },
+    });
+
+    render(<Plans />);
+    const openInChatButton = await screen.findByRole('button', { name: 'Open in chat' });
+    const archiveButton = screen.getByRole('button', { name: 'Archive' });
+    const viewDetailsButton = screen.getByRole('button', { name: 'View details' });
+
+    const actionRow = openInChatButton.parentElement;
+    expect(actionRow).not.toBeNull();
+    expect(actionRow).toContainElement(archiveButton);
+    expect(actionRow).toContainElement(viewDetailsButton);
+    expect(actionRow?.className).toContain('grid-cols-3');
+  });
+
   it('starts chat only when Open in chat is clicked', async () => {
     vi.mocked(listTravelPlans).mockResolvedValueOnce({
       plans: [makePlan({ trip_id: 'trip_chat', destination: 'Seoul' })],
