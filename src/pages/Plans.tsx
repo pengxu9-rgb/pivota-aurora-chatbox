@@ -367,18 +367,18 @@ export default function Plans() {
                   </span>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-3 grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-foreground"
                     onClick={() => openPlanInChat(plan)}
                   >
                     <MessageCircle className="h-3.5 w-3.5" />
-                    {language === 'CN' ? 'Open in chat' : 'Open in chat'}
+                    <span className="truncate">{language === 'CN' ? 'Open in chat' : 'Open in chat'}</span>
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground disabled:opacity-60"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-foreground disabled:opacity-60"
                     onClick={() => archivePlan(plan.trip_id)}
                     disabled={archivingTripId === plan.trip_id || plan.status === 'archived'}
                   >
@@ -387,20 +387,22 @@ export default function Plans() {
                     ) : (
                       <Archive className="h-3.5 w-3.5" />
                     )}
-                    {plan.status === 'archived'
-                      ? language === 'CN'
-                        ? '已归档'
-                        : 'Archived'
-                      : language === 'CN'
-                        ? '归档'
-                        : 'Archive'}
+                    <span className="truncate">
+                      {plan.status === 'archived'
+                        ? language === 'CN'
+                          ? '已归档'
+                          : 'Archived'
+                        : language === 'CN'
+                          ? '归档'
+                          : 'Archive'}
+                    </span>
                   </button>
                   <button
                     type="button"
-                    className="ml-auto inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground"
+                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-foreground"
                     onClick={() => openDetails(plan)}
                   >
-                    {language === 'CN' ? '查看详情' : 'View details'}
+                    <span className="truncate">{language === 'CN' ? '查看详情' : 'View details'}</span>
                     <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
