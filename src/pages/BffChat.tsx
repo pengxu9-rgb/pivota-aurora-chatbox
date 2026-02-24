@@ -2788,7 +2788,29 @@ function BffCardView({
   }
 
   if (isEnvStressCard(card)) {
-    return <EnvStressCard payload={payload} language={language} onOpenCheckin={onOpenCheckin} />;
+    return (
+      <EnvStressCard
+        payload={payload}
+        language={language}
+        onOpenCheckin={onOpenCheckin}
+        onOpenRecommendations={() =>
+          onAction('chip.start.reco_products', {
+            reply_text:
+              language === 'CN'
+                ? '请给我完整产品推荐（按旅行/天气场景）'
+                : 'Show full product recommendations for my travel/weather scenario',
+          })
+        }
+        onRefineRoutine={() =>
+          onAction('chip.start.routine', {
+            reply_text:
+              language === 'CN'
+                ? '用我的 AM/PM routine 进一步细化建议'
+                : 'Refine recommendations with my AM/PM routine',
+          })
+        }
+      />
+    );
   }
 
   if (isConflictHeatmapCard(card)) {
@@ -7133,12 +7155,12 @@ export default function BffChat() {
               setSidebarOpen(true);
             }}
           >
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
+            <div className="profile-sheet-compact space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '肤质' : 'Skin type'}
                   <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.skinType}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, skinType: e.target.value }))}
                   >
@@ -7151,10 +7173,10 @@ export default function BffChat() {
                   </select>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '敏感程度' : 'Sensitivity'}
                   <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.sensitivity}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, sensitivity: e.target.value }))}
                   >
@@ -7166,11 +7188,11 @@ export default function BffChat() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '屏障状态' : 'Barrier status'}
                   <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.barrierStatus}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, barrierStatus: e.target.value }))}
                   >
@@ -7181,10 +7203,10 @@ export default function BffChat() {
                   </select>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '预算' : 'Budget'}
                   <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.budgetTier}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, budgetTier: e.target.value }))}
                   >
@@ -7197,11 +7219,11 @@ export default function BffChat() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '年龄段' : 'Age band'}
                   <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.age_band}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, age_band: e.target.value }))}
                   >
@@ -7216,10 +7238,10 @@ export default function BffChat() {
                   </select>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '孕期状态' : 'Pregnancy status'}
                   <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.pregnancy_status}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}
                   >
@@ -7231,11 +7253,11 @@ export default function BffChat() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '哺乳状态' : 'Lactation status'}
                   <select
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.lactation_status}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, lactation_status: e.target.value }))}
                   >
@@ -7244,10 +7266,10 @@ export default function BffChat() {
                     <option value="lactating">{language === 'CN' ? '哺乳中' : 'Lactating'}</option>
                   </select>
                 </label>
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '高风险用药（可选）' : 'High-risk meds (optional)'}
                   <input
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
                     value={profileDraft.high_risk_medications_text}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
                     placeholder={language === 'CN' ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
@@ -7255,24 +7277,34 @@ export default function BffChat() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
+              <label className="space-y-1 text-[11px] text-muted-foreground">
+                {language === 'CN' ? '常驻地/地区' : 'Home region'}
+                <input
+                  className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                  value={profileDraft.region}
+                  onChange={(e) => setProfileDraft((p) => ({ ...p, region: e.target.value }))}
+                  placeholder={language === 'CN' ? '例如 San Francisco, CA' : 'e.g., San Francisco, CA'}
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '旅行目的地' : 'Travel destination'}
                   <input
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
                     value={profileDraft.travel_destination}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, travel_destination: e.target.value }))}
                     placeholder={language === 'CN' ? '例如 Tokyo' : 'e.g., Tokyo'}
                   />
                 </label>
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '户外比例(0-1)' : 'Outdoor ratio (0-1)'}
                   <input
                     type="number"
                     step="0.1"
                     min="0"
                     max="1"
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
                     value={profileDraft.travel_indoor_outdoor_ratio}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, travel_indoor_outdoor_ratio: e.target.value }))}
                     placeholder="0.5"
@@ -7280,28 +7312,28 @@ export default function BffChat() {
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '出行开始' : 'Travel start'}
                   <input
                     type="date"
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none"
                     value={profileDraft.travel_start_date}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, travel_start_date: e.target.value }))}
                   />
                 </label>
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '出行结束' : 'Travel end'}
                   <input
                     type="date"
-                    className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none"
                     value={profileDraft.travel_end_date}
                     onChange={(e) => setProfileDraft((p) => ({ ...p, travel_end_date: e.target.value }))}
                   />
                 </label>
               </div>
 
-              <label className="space-y-1 text-xs text-muted-foreground">
+              <label className="space-y-1 text-[11px] text-muted-foreground">
                 {language === 'CN' ? '目标（可多选）' : 'Goals (multi-select)'}
                 <div className="flex flex-wrap gap-2">
                   {[
@@ -7317,7 +7349,7 @@ export default function BffChat() {
                       <button
                         key={key}
                         type="button"
-                        className={`chip-button ${selected ? 'chip-button-primary' : ''}`}
+                        className={`chip-button profile-chip ${selected ? 'chip-button-primary' : ''}`}
                         onClick={() =>
                           setProfileDraft((p) => ({
                             ...p,
@@ -7332,10 +7364,10 @@ export default function BffChat() {
                 </div>
               </label>
 
-              <label className="space-y-1 text-xs text-muted-foreground">
+              <label className="space-y-1 text-[11px] text-muted-foreground">
                 {language === 'CN' ? '行程/环境（可选）' : 'Upcoming plan (optional)'}
                 <textarea
-                  className="min-h-[88px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+                  className="min-h-[72px] w-full resize-none rounded-xl border border-border/60 bg-background/60 px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
                   value={profileDraft.itinerary}
                   onChange={(e) => setProfileDraft((p) => ({ ...p, itinerary: e.target.value }))}
                   placeholder={

@@ -44,6 +44,14 @@ export interface AuroraRecommendationMeta {
   active_trip_id?: string | null;
 }
 
+export interface AuroraDecisionMeta {
+  decision_engine?: string | null;
+  llm_calibration_used?: boolean;
+  llm_stage?: string | null;
+  travel_kb_hit?: boolean;
+  travel_kb_write_queued?: boolean;
+}
+
 export interface AuroraRecoRefreshHint {
   should_refresh: boolean;
   reason: string;

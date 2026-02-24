@@ -638,6 +638,12 @@
     color: hsl(var(--aurora-home-primary-foreground));
   }
 
+  .profile-sheet-compact .profile-chip {
+    min-height: 32px;
+    padding: 0.28rem 0.7rem;
+    font-size: 12px;
+  }
+
   .chip-button-outline {
     @apply bg-transparent border-2;
     border-color: hsl(var(--aurora-home-primary) / 0.5);
@@ -827,6 +833,10 @@
 
   .dialog-choice-row > * {
     min-width: 0;
+  }
+
+  .profile-sheet-compact .dialog-choice-row {
+    gap: 0.4rem;
   }
 
   /* Aurora Signal Pills */
