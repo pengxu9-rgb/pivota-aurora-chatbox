@@ -14,6 +14,7 @@ import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard, type AuroraLoadingIntent } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
+import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
@@ -2990,6 +2991,49 @@ function BffCardView({
         onAction={(id, data) => onAction(id, data)}
         language={language}
       />
+    );
+  }
+
+  if (cardType === 'analysis_story_v2') {
+    return <AnalysisStoryCard payload={payload} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'routine_prompt') {
+    const prompt = asObject(payload) ?? {};
+    const title = asString(prompt.title) || (language === 'CN' ? '先补全 routine 再推荐' : 'Complete routine before recommendations');
+    const subtitle =
+      asString(prompt.subtitle) ||
+      (language === 'CN'
+        ? '先补全 AM/PM 习惯，可显著提升推荐准确度与兼容性。'
+        : 'Complete AM/PM routine first to improve recommendation relevance and compatibility.');
+    const ctaText = asString(prompt.cta_text) || (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
+    const actionId = asString(prompt.action_id) || 'chip.start.routine';
+    const replyText =
+      asString(prompt.reply_text) ||
+      (language === 'CN'
+        ? '我来补全 AM/PM routine，再给我个性化产品建议。'
+        : 'Let me complete AM/PM routine, then give me personalized product recommendations.');
+    const missingFields = asArray(prompt.missing_fields).map((item) => asString(item)).filter(Boolean) as string[];
+    const whyNow = asString(prompt.why_now);
+
+    return (
+      <div className="space-y-2 rounded-2xl border border-primary/30 bg-primary/5 p-3">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        <div className="text-xs text-muted-foreground">{subtitle}</div>
+        {whyNow ? <div className="text-xs text-muted-foreground">{whyNow}</div> : null}
+        {missingFields.length ? (
+          <div className="text-xs text-muted-foreground">
+            {(language === 'CN' ? '待补充：' : 'Missing: ') + missingFields.slice(0, 8).join(', ')}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15"
+          onClick={() => onAction(actionId, { reply_text: replyText, trigger_source: 'routine_prompt' })}
+        >
+          {ctaText}
+        </button>
+      </div>
     );
   }
 
