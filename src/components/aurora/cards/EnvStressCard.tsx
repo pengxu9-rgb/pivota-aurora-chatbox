@@ -16,6 +16,13 @@ type MetricDelta = {
   unit?: string | null;
 };
 
+function formatNumber(value: unknown, digits = 1) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const base = 10 ** digits;
+  const rounded = Math.round(value * base) / base;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
 function formatDeltaLine(language: Language, metric: MetricDelta | undefined) {
   if (!metric) return null;
   const home = typeof metric.home === 'number' ? metric.home : null;
@@ -136,6 +143,19 @@ export function EnvStressCard({
       ].filter(Boolean) as string[],
     [language, travelReadiness],
   );
+
+  const forecastRows = Array.isArray(travelReadiness?.forecast_window)
+    ? travelReadiness.forecast_window.filter(Boolean).slice(0, 7)
+    : [];
+  const travelAlerts = Array.isArray(travelReadiness?.alerts)
+    ? travelReadiness.alerts.filter(Boolean).slice(0, 4)
+    : [];
+  const recoBundle = Array.isArray(travelReadiness?.reco_bundle)
+    ? travelReadiness.reco_bundle.filter(Boolean).slice(0, 4)
+    : [];
+  const storeExamples = Array.isArray(travelReadiness?.store_examples)
+    ? travelReadiness.store_examples.filter(Boolean).slice(0, 4)
+    : [];
 
   return (
     <motion.div
@@ -266,6 +286,83 @@ export function EnvStressCard({
                 ) : null}
               </div>
 
+              {forecastRows.length ? (
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+                  <div className="font-semibold text-foreground/90">
+                    {language === 'CN' ? '逐日天气（目的地）' : 'Daily forecast (destination)'}
+                  </div>
+                  <ul className="mt-1.5 space-y-1">
+                    {forecastRows.slice(0, 2).map((row, idx) => {
+                      const low = formatNumber(row.temp_low_c, 1);
+                      const high = formatNumber(row.temp_high_c, 1);
+                      const uv = formatNumber(row.uv_max, 1);
+                      const humidity = formatNumber(row.humidity_mean, 0);
+                      return (
+                        <li key={`${idx}_${row.date || 'forecast'}`}>
+                          <div className="text-foreground/90">
+                            {row.date || (language === 'CN' ? '未知日期' : 'Unknown date')}
+                            {high || low ? ` · ${low ?? '-'}~${high ?? '-'}C` : ''}
+                            {typeof row.condition_text === 'string' && row.condition_text.trim() ? ` · ${row.condition_text}` : ''}
+                          </div>
+                          {(uv || humidity) ? (
+                            <div>
+                              {uv ? `UV ${uv}` : ''}
+                              {uv && humidity ? ' · ' : ''}
+                              {humidity ? `${language === 'CN' ? '湿度' : 'Humidity'} ${humidity}%` : ''}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {forecastRows.length > 2 ? (
+                    <details className="mt-1 text-[11px]">
+                      <summary className="cursor-pointer select-none text-muted-foreground">
+                        {language === 'CN' ? '展开完整预报' : 'Show full forecast'}
+                      </summary>
+                      <ul className="mt-1 space-y-1">
+                        {forecastRows.slice(2).map((row, idx) => (
+                          <li key={`full_${idx}_${row.date || 'forecast'}`}>
+                            <span className="text-foreground/90">
+                              {row.date || (language === 'CN' ? '未知日期' : 'Unknown date')}
+                            </span>
+                            {typeof row.temp_low_c === 'number' || typeof row.temp_high_c === 'number'
+                              ? ` · ${formatNumber(row.temp_low_c, 1) ?? '-'}~${formatNumber(row.temp_high_c, 1) ?? '-'}C`
+                              : ''}
+                            {typeof row.condition_text === 'string' && row.condition_text.trim() ? ` · ${row.condition_text}` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+                <div className="font-semibold text-foreground/90">
+                  {language === 'CN' ? '官方预警' : 'Official alerts'}
+                </div>
+                {travelAlerts.length ? (
+                  <ul className="mt-1.5 space-y-1">
+                    {travelAlerts.slice(0, 2).map((item, idx) => (
+                      <li key={`alert_${idx}_${item.title || item.provider || 'alert'}`}>
+                        <div className="text-foreground/90">
+                          {item.title || (language === 'CN' ? '预警' : 'Alert')}
+                          {item.severity ? ` · ${item.severity}` : ''}
+                        </div>
+                        {item.summary ? <div>{item.summary}</div> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-1.5">
+                    {language === 'CN'
+                      ? '当前未检索到官方天气预警。'
+                      : 'No official weather alert currently.'}
+                  </div>
+                )}
+              </div>
+
               {travelReadiness.personal_focus?.length ? (
                 <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                   <div className="font-semibold text-foreground/90">
@@ -304,6 +401,29 @@ export function EnvStressCard({
                   {travelReadiness.jetlag_sleep?.mask_tips?.length ? (
                     <div className="mt-1">• {travelReadiness.jetlag_sleep.mask_tips[0]}</div>
                   ) : null}
+                </div>
+              ) : null}
+
+              {recoBundle.length ? (
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+                  <div className="font-semibold text-foreground/90">
+                    {language === 'CN' ? '动作与产品策略' : 'Action and product strategy'}
+                  </div>
+                  <ul className="mt-1.5 space-y-1">
+                    {recoBundle.slice(0, 2).map((item, idx) => (
+                      <li key={`bundle_${idx}_${item.trigger || item.action || 'bundle'}`}>
+                        {item.trigger ? <div className="text-foreground/90">{item.trigger}</div> : null}
+                        {item.action ? <div>{item.action}</div> : null}
+                        {item.product_types?.length ? (
+                          <div>
+                            {language === 'CN' ? '建议品类：' : 'Product types: '}
+                            {item.product_types.join(' · ')}
+                          </div>
+                        ) : null}
+                        {item.reapply_rule ? <div>{item.reapply_rule}</div> : null}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
 
@@ -360,6 +480,25 @@ export function EnvStressCard({
                   <div className="mt-1">{travelReadiness.shopping_preview.note}</div>
                 ) : null}
               </div>
+
+              {storeExamples.length ? (
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+                  <div className="font-semibold text-foreground/90">
+                    {language === 'CN' ? '示例门店' : 'Store examples'}
+                  </div>
+                  <ul className="mt-1.5 space-y-1">
+                    {storeExamples.slice(0, 3).map((item, idx) => (
+                      <li key={`store_${idx}_${item.name || item.address || 'store'}`}>
+                        <div className="text-foreground/90">
+                          {item.name || (language === 'CN' ? '门店' : 'Store')}
+                          {item.type ? ` · ${item.type}` : ''}
+                        </div>
+                        {item.address ? <div>{item.address}</div> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               {travelReadiness.adaptive_actions?.length ? (
                 <details className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">

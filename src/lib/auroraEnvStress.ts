@@ -70,6 +70,44 @@ export type TravelReadinessBrandCandidateItem = {
   reason?: string | null;
 };
 
+export type TravelReadinessForecastItem = {
+  date?: string | null;
+  temp_low_c?: number | null;
+  temp_high_c?: number | null;
+  humidity_mean?: number | null;
+  uv_max?: number | null;
+  precip_mm?: number | null;
+  wind_kph?: number | null;
+  condition_text?: string | null;
+};
+
+export type TravelReadinessAlertItem = {
+  provider?: string | null;
+  severity?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  region?: string | null;
+  action_hint?: string | null;
+};
+
+export type TravelReadinessRecoBundleItem = {
+  trigger?: string | null;
+  action?: string | null;
+  ingredient_logic?: string | null;
+  product_types?: string[];
+  reapply_rule?: string | null;
+};
+
+export type TravelReadinessStoreExampleItem = {
+  name?: string | null;
+  type?: string | null;
+  address?: string | null;
+  district?: string | null;
+  source?: string | null;
+};
+
 export type TravelReadinessV1 = {
   destination_context?: {
     destination?: string | null;
@@ -87,6 +125,8 @@ export type TravelReadinessV1 = {
     summary_tags?: string[];
     baseline_status?: string | null;
   };
+  forecast_window?: TravelReadinessForecastItem[];
+  alerts?: TravelReadinessAlertItem[];
   adaptive_actions?: TravelReadinessItem[];
   personal_focus?: TravelReadinessPersonalFocusItem[];
   jetlag_sleep?: {
@@ -104,6 +144,8 @@ export type TravelReadinessV1 = {
     city_hint?: string | null;
     note?: string | null;
   };
+  reco_bundle?: TravelReadinessRecoBundleItem[];
+  store_examples?: TravelReadinessStoreExampleItem[];
   confidence?: {
     level?: string | null;
     missing_inputs?: string[];

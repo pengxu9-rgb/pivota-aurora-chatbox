@@ -211,6 +211,112 @@ function normalizeTravelMetricDelta(value: unknown) {
   };
 }
 
+function normalizeTravelForecastWindow(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const row = isPlainObject(item) ? item : {};
+      const date = normalizeOptionalText(row.date, 24);
+      const temp_low_c = coerceNumber(row.temp_low_c);
+      const temp_high_c = coerceNumber(row.temp_high_c);
+      const humidity_mean = coerceNumber(row.humidity_mean);
+      const uv_max = coerceNumber(row.uv_max);
+      const precip_mm = coerceNumber(row.precip_mm);
+      const wind_kph = coerceNumber(row.wind_kph);
+      const condition_text = normalizeOptionalText(row.condition_text, 120);
+      if (!date && temp_low_c == null && temp_high_c == null && humidity_mean == null && uv_max == null && precip_mm == null && wind_kph == null && !condition_text) {
+        return null;
+      }
+      return {
+        date,
+        temp_low_c,
+        temp_high_c,
+        humidity_mean,
+        uv_max,
+        precip_mm,
+        wind_kph,
+        condition_text,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 7) as NonNullable<EnvStressUiModelV1['travel_readiness']>['forecast_window'];
+}
+
+function normalizeTravelAlerts(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const row = isPlainObject(item) ? item : {};
+      const provider = normalizeOptionalText(row.provider, 80);
+      const severity = normalizeOptionalText(row.severity, 24);
+      const title = normalizeOptionalText(row.title, 180);
+      const summary = normalizeOptionalText(row.summary, 280);
+      const start_at = normalizeOptionalText(row.start_at, 64);
+      const end_at = normalizeOptionalText(row.end_at, 64);
+      const region = normalizeOptionalText(row.region, 120);
+      const action_hint = normalizeOptionalText(row.action_hint, 220);
+      if (!provider && !severity && !title && !summary && !start_at && !end_at && !region && !action_hint) return null;
+      return {
+        provider,
+        severity,
+        title,
+        summary,
+        start_at,
+        end_at,
+        region,
+        action_hint,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 4) as NonNullable<EnvStressUiModelV1['travel_readiness']>['alerts'];
+}
+
+function normalizeTravelRecoBundle(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const row = isPlainObject(item) ? item : {};
+      const trigger = normalizeOptionalText(row.trigger, 120);
+      const action = normalizeOptionalText(row.action, 260);
+      const ingredient_logic = normalizeOptionalText(row.ingredient_logic, 220);
+      const product_types = normalizeStringArray(row.product_types, 4, 120);
+      const reapply_rule = normalizeOptionalText(row.reapply_rule, 220);
+      if (!trigger && !action && !ingredient_logic && product_types.length === 0 && !reapply_rule) return null;
+      return {
+        trigger,
+        action,
+        ingredient_logic,
+        product_types,
+        reapply_rule,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6) as NonNullable<EnvStressUiModelV1['travel_readiness']>['reco_bundle'];
+}
+
+function normalizeTravelStoreExamples(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const row = isPlainObject(item) ? item : {};
+      const name = normalizeOptionalText(row.name, 140);
+      const type = normalizeOptionalText(row.type, 80);
+      const address = normalizeOptionalText(row.address, 180);
+      const district = normalizeOptionalText(row.district, 80);
+      const source = normalizeOptionalText(row.source, 60);
+      if (!name && !type && !address && !district && !source) return null;
+      return {
+        name,
+        type,
+        address,
+        district,
+        source,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6) as NonNullable<EnvStressUiModelV1['travel_readiness']>['store_examples'];
+}
+
 function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_readiness'] | undefined {
   if (!isPlainObject(value)) return undefined;
 
@@ -238,6 +344,16 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       summary_tags: normalizeStringArray(deltaObj.summary_tags, 8, 40),
       baseline_status: normalizeOptionalText(deltaObj.baseline_status, 48),
     };
+  }
+
+  const forecastWindow = normalizeTravelForecastWindow(value.forecast_window);
+  if (forecastWindow.length) {
+    out.forecast_window = forecastWindow;
+  }
+
+  const alerts = normalizeTravelAlerts(value.alerts);
+  if (alerts.length) {
+    out.alerts = alerts;
   }
 
   const adaptiveActions = Array.isArray(value.adaptive_actions) ? value.adaptive_actions : [];
@@ -327,6 +443,16 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       city_hint: normalizeOptionalText(shoppingPreview.city_hint, 120),
       note: normalizeOptionalText(shoppingPreview.note, 220),
     };
+  }
+
+  const recoBundle = normalizeTravelRecoBundle(value.reco_bundle);
+  if (recoBundle.length) {
+    out.reco_bundle = recoBundle;
+  }
+
+  const storeExamples = normalizeTravelStoreExamples(value.store_examples);
+  if (storeExamples.length) {
+    out.store_examples = storeExamples;
   }
 
   const confidence = isPlainObject(value.confidence) ? value.confidence : null;
