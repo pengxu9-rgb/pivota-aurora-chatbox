@@ -1,4 +1,4 @@
-import { bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
+import { PivotaAgentBffError, bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
 
 export type TravelPlanStatus = 'upcoming' | 'in_trip' | 'completed' | 'archived';
 
@@ -51,6 +51,8 @@ export type TravelPlanMutationResponse = {
   summary: TravelPlansSummary;
 };
 
+const isArchiveFallbackStatus = (status: number): boolean => status === 400 || status === 404;
+
 const withQuery = (path: string, query: Record<string, string>) => {
   const sp = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) sp.set(key, value);
@@ -97,7 +99,29 @@ export const archiveTravelPlan = async (
   tripId: string,
 ): Promise<TravelPlanMutationResponse> => {
   const headers = makeDefaultHeaders(language);
-  return bffJson<TravelPlanMutationResponse>(`/v1/travel-plans/${encodeURIComponent(tripId)}/archive`, headers, {
-    method: 'POST',
-  });
+  try {
+    return await bffJson<TravelPlanMutationResponse>(`/v1/travel-plans/${encodeURIComponent(tripId)}/archive`, headers, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  } catch (err) {
+    if (!(err instanceof PivotaAgentBffError) || !isArchiveFallbackStatus(err.status)) throw err;
+    return bffJson<TravelPlanMutationResponse>(`/v1/travel-plans/${encodeURIComponent(tripId)}`, headers, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_archived: true }),
+    });
+  }
+};
+
+export const getTravelPlanById = async (
+  language: Language,
+  tripId: string,
+): Promise<{ plan: TravelPlanCardModel | null; summary: TravelPlansSummary }> => {
+  const response = await listTravelPlans(language, { includeArchived: true });
+  const target = String(tripId || '').trim();
+  const plan =
+    Array.isArray(response.plans) && target
+      ? response.plans.find((item) => String(item?.trip_id || '').trim() === target) || null
+      : null;
+  return { plan, summary: response.summary };
 };

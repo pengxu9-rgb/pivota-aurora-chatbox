@@ -12,6 +12,7 @@ import Routine from "./pages/Routine";
 import Explore from "./pages/Explore";
 import Profile from "./pages/Profile";
 import Plans from "./pages/Plans";
+import PlanDetails from "./pages/PlanDetails";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ const App = () => (
               <Route path="/" element={<Home />} />
               <Route path="/routine" element={<Routine />} />
               <Route path="/plans" element={<Plans />} />
+              <Route path="/plans/:tripId" element={<PlanDetails />} />
               <Route path="/explore" element={<Explore />} />
               <Route path="/profile" element={<Profile />} />
             </Route>
