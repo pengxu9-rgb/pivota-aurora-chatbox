@@ -435,6 +435,89 @@ const iconForChip = (chipId: string): IconType => {
   return ArrowRight;
 };
 
+type ChipVisualRole = 'primary' | 'skip' | 'default';
+
+const normalizeChipToken = (input: unknown): string => String(input || '').trim().toLowerCase();
+
+const includesAnyToken = (value: string, tokens: readonly string[]): boolean =>
+  tokens.some((token) => value.includes(token));
+
+const isSkipLikeChip = (chip: SuggestedChip): boolean => {
+  const id = normalizeChipToken(chip.chip_id);
+  const label = normalizeChipToken(chip.label);
+
+  const idSkipTokens = [
+    'skip',
+    'not_now',
+    'not-now',
+    'later',
+    'without_photo',
+    'without_photos',
+    'continue_without',
+    'baseline_only',
+  ] as const;
+  const labelSkipTokens = [
+    'skip',
+    'not now',
+    'later',
+    'continue without',
+    'baseline only',
+    '跳过',
+    '稍后',
+    '先不了',
+    '不上传',
+    '仅基线',
+  ] as const;
+
+  return includesAnyToken(id, idSkipTokens) || includesAnyToken(label, labelSkipTokens);
+};
+
+const primaryChipScore = (chip: SuggestedChip): number => {
+  if (isSkipLikeChip(chip)) return -1;
+
+  const id = normalizeChipToken(chip.chip_id);
+  const label = normalizeChipToken(chip.label);
+  let score = 0;
+
+  const strongIdTokens = [
+    'reco',
+    'recommend',
+    'analysis_continue',
+    'start_diagnosis',
+    'start.diagnosis',
+    'upload_photos',
+    'complete_profile',
+    'login_sync_profile',
+    'quick_profile',
+  ] as const;
+  const strongLabelTokens = ['continue', 'start', 'analyze', 'recommend', 'save', 'complete', '继续', '开始', '分析', '推荐', '保存', '完成'] as const;
+
+  if (id.startsWith('chip.start.')) score += 1;
+  if (includesAnyToken(id, strongIdTokens)) score += 3;
+  if (includesAnyToken(label, strongLabelTokens)) score += 2;
+
+  return score;
+};
+
+const getChipVisualRoles = (chips: SuggestedChip[]): ChipVisualRole[] => {
+  let primaryIndex = -1;
+  let bestScore = 0;
+
+  for (let i = 0; i < chips.length; i += 1) {
+    const score = primaryChipScore(chips[i]);
+    if (score > bestScore) {
+      bestScore = score;
+      primaryIndex = i;
+    }
+  }
+
+  return chips.map((chip, index) => {
+    if (isSkipLikeChip(chip)) return 'skip';
+    if (index === primaryIndex) return 'primary';
+    return 'default';
+  });
+};
+
 const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
   if (t === 'diagnosis_gate') return Activity;
@@ -4307,11 +4390,6 @@ export default function BffChat() {
     pregnancy_status: 'unknown',
     lactation_status: 'unknown',
     high_risk_medications_text: '',
-    travel_destination: '',
-    travel_start_date: '',
-    travel_end_date: '',
-    travel_indoor_outdoor_ratio: '',
-    itinerary: '',
   });
 
   const [checkinDraft, setCheckinDraft] = useState({
@@ -4633,14 +4711,6 @@ export default function BffChat() {
   useEffect(() => {
     if (!profileSheetOpen) return;
     const p = profileSnapshot ?? bootstrapInfo?.profile;
-    const itineraryRaw = (p as any)?.itinerary;
-    const itineraryText =
-      typeof itineraryRaw === 'string'
-        ? itineraryRaw
-        : itineraryRaw && typeof itineraryRaw === 'object'
-          ? JSON.stringify(itineraryRaw)
-          : '';
-    const travelPlan = asObject((p as any)?.travel_plan) ?? asObject((p as any)?.travelPlan);
     const meds = asArray((p as any)?.high_risk_medications)
       .map((item) => asString(item))
       .filter(Boolean) as string[];
@@ -4655,15 +4725,6 @@ export default function BffChat() {
       pregnancy_status: asString((p as any)?.pregnancy_status) ?? 'unknown',
       lactation_status: asString((p as any)?.lactation_status) ?? 'unknown',
       high_risk_medications_text: meds.join(', '),
-      travel_destination: asString((travelPlan as any)?.destination) ?? '',
-      travel_start_date: asString((travelPlan as any)?.start_date) ?? '',
-      travel_end_date: asString((travelPlan as any)?.end_date) ?? '',
-      travel_indoor_outdoor_ratio: (() => {
-        const ratio = asNumber((travelPlan as any)?.indoor_outdoor_ratio);
-        if (ratio == null) return '';
-        return String(Math.max(0, Math.min(1, ratio)));
-      })(),
-      itinerary: itineraryText ?? '',
     });
   }, [profileSheetOpen, bootstrapInfo, profileSnapshot]);
 
@@ -4687,18 +4748,6 @@ export default function BffChat() {
           .slice(0, 20);
         if (meds.length) patch.high_risk_medications = meds;
       }
-      const travelPlanPatch: Record<string, unknown> = {};
-      if (profileDraft.travel_destination.trim()) travelPlanPatch.destination = profileDraft.travel_destination.trim();
-      if (profileDraft.travel_start_date.trim()) travelPlanPatch.start_date = profileDraft.travel_start_date.trim();
-      if (profileDraft.travel_end_date.trim()) travelPlanPatch.end_date = profileDraft.travel_end_date.trim();
-      if (profileDraft.travel_indoor_outdoor_ratio.trim()) {
-        const ratio = asNumber(profileDraft.travel_indoor_outdoor_ratio);
-        if (ratio != null) {
-          travelPlanPatch.indoor_outdoor_ratio = Math.max(0, Math.min(1, ratio));
-        }
-      }
-      if (Object.keys(travelPlanPatch).length) patch.travel_plan = travelPlanPatch;
-      if (profileDraft.itinerary.trim()) patch.itinerary = profileDraft.itinerary.trim().slice(0, 2000);
       if (profileDraft.goals.length) patch.goals = profileDraft.goals;
 
       const requestHeaders = { ...headers, lang: language };
@@ -4708,18 +4757,28 @@ export default function BffChat() {
         timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
       });
 
-      setItems((prev) => [
-        ...prev,
-        { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '更新肤况资料' : 'Update profile' },
-      ]);
-      applyEnvelope(env);
+      const info = readBootstrapInfo(env);
+      const nextProfile = info?.profile ?? asObject((env.session_patch as Record<string, unknown> | undefined)?.profile) ?? null;
+      if (nextProfile) {
+        setProfileSnapshot(nextProfile);
+        setBootstrapInfo((prev) => {
+          const merged: BootstrapInfo = prev
+            ? { ...prev }
+            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+          merged.profile = nextProfile;
+          return merged;
+        });
+      }
       setProfileSheetOpen(false);
+      toast({
+        title: language === 'CN' ? '资料已更新' : 'Profile updated',
+      });
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [applyEnvelope, headers, language, profileDraft, tryApplyEnvelopeFromBffError]);
+  }, [headers, language, profileDraft, tryApplyEnvelopeFromBffError]);
 
   const updateProfileWithTimeout = useCallback(
     async (patch: Record<string, unknown>): Promise<void> => {
@@ -7320,52 +7379,6 @@ export default function BffChat() {
                 />
               </label>
 
-              <div className="grid grid-cols-2 gap-2">
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '旅行目的地' : 'Travel destination'}
-                  <input
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                    value={profileDraft.travel_destination}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_destination: e.target.value }))}
-                    placeholder={language === 'CN' ? '例如 Tokyo' : 'e.g., Tokyo'}
-                  />
-                </label>
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '户外比例(0-1)' : 'Outdoor ratio (0-1)'}
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="1"
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                    value={profileDraft.travel_indoor_outdoor_ratio}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_indoor_outdoor_ratio: e.target.value }))}
-                    placeholder="0.5"
-                  />
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '出行开始' : 'Travel start'}
-                  <input
-                    type="date"
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none"
-                    value={profileDraft.travel_start_date}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_start_date: e.target.value }))}
-                  />
-                </label>
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '出行结束' : 'Travel end'}
-                  <input
-                    type="date"
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none"
-                    value={profileDraft.travel_end_date}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, travel_end_date: e.target.value }))}
-                  />
-                </label>
-              </div>
-
               <label className="space-y-1 text-[11px] text-muted-foreground">
                 {language === 'CN' ? '目标（可多选）' : 'Goals (multi-select)'}
                 <div className="flex flex-wrap gap-2">
@@ -7395,20 +7408,6 @@ export default function BffChat() {
                     );
                   })}
                 </div>
-              </label>
-
-              <label className="space-y-1 text-[11px] text-muted-foreground">
-                {language === 'CN' ? '行程/环境（可选）' : 'Upcoming plan (optional)'}
-                <textarea
-                  className="min-h-[72px] w-full resize-none rounded-xl border border-border/60 bg-background/60 px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                  value={profileDraft.itinerary}
-                  onChange={(e) => setProfileDraft((p) => ({ ...p, itinerary: e.target.value }))}
-                  placeholder={
-                    language === 'CN'
-                      ? '例如：下周出差/旅行（偏干冷/偏潮热），白天户外多；或“最近熬夜/晒太阳多”…'
-                      : 'e.g., travel next week (cold/dry or hot/humid), lots of outdoor time; or “late nights / more sun”…'
-                  }
-                />
               </label>
 
               <div className="dialog-choice-row">
@@ -7537,15 +7536,21 @@ export default function BffChat() {
             }
 
             if (item.kind === 'chips') {
+              const chipRoles = getChipVisualRoles(item.chips);
               return (
                 <div key={item.id} className="chat-card">
                   <div className="flex flex-wrap gap-2">
-                    {item.chips.map((chip) => {
+                    {item.chips.map((chip, chipIndex) => {
                       const Icon = iconForChip(chip.chip_id);
+                      const visualRole = chipRoles[chipIndex] ?? 'default';
                       return (
                         <button
-                          key={chip.chip_id}
-                          className="chip-button"
+                          key={`${item.id}_${chip.chip_id}_${chipIndex}`}
+                          className={cn(
+                            'chip-button',
+                            visualRole === 'primary' ? 'chip-button-primary' : '',
+                            visualRole === 'skip' ? 'chip-button-outline chip-button-skip' : '',
+                          )}
                           onClick={() => onChip(chip)}
                           disabled={isLoading}
                         >
