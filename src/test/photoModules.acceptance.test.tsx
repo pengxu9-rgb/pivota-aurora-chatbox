@@ -6,6 +6,33 @@ import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 
 const HEATMAP_VALUES = Array.from({ length: 64 * 64 }, () => 0.35);
+const encodeRleBinaryMask = (mask: Uint8Array): string => {
+  const chunks: number[] = [];
+  let current = 0;
+  let run = 0;
+  for (let i = 0; i < mask.length; i += 1) {
+    const value = mask[i] ? 1 : 0;
+    if (value === current) {
+      run += 1;
+      continue;
+    }
+    chunks.push(run);
+    run = 1;
+    current = value;
+  }
+  chunks.push(run);
+  return chunks.join(',');
+};
+
+const buildMask = (grid: number, x0: number, y0: number, x1: number, y1: number) => {
+  const out = new Uint8Array(grid * grid);
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      out[y * grid + x] = 1;
+    }
+  }
+  return out;
+};
 
 const buildValidPayload = () => ({
   used_photos: true,
@@ -55,6 +82,9 @@ const buildValidPayload = () => ({
   modules: [
     {
       module_id: 'left_cheek',
+      mask_grid: 64,
+      mask_rle_norm: encodeRleBinaryMask(buildMask(64, 7, 22, 29, 43)),
+      box: { x: 0.08, y: 0.34, w: 0.34, h: 0.3 },
       issues: [
         {
           issue_type: 'redness',
@@ -88,6 +118,9 @@ const buildValidPayload = () => ({
     },
     {
       module_id: 'right_cheek',
+      mask_grid: 64,
+      mask_rle_norm: encodeRleBinaryMask(buildMask(64, 36, 22, 57, 43)),
+      box: { x: 0.58, y: 0.34, w: 0.34, h: 0.3 },
       issues: [
         {
           issue_type: 'tone',
@@ -227,6 +260,9 @@ describe('photo_modules_v1 acceptance', () => {
     const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');
     expect(baseCanvas).toBeInTheDocument();
     expect(highlightCanvas).toBeInTheDocument();
+    expect(baseCanvas).toHaveAttribute('data-overlay-mode', 'mask');
+    expect(baseCanvas).toHaveAttribute('data-mask-count', '2');
+    expect(highlightCanvas).toHaveAttribute('data-overlay-mode', 'mask');
 
     expect(baseCanvas).toHaveAttribute('data-focused', '0');
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '3');

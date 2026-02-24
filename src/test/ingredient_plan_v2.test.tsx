@@ -8,6 +8,7 @@ import { analytics } from '@/lib/analytics';
 describe('ingredient_plan_v2 card', () => {
   it('renders readable intensity, hides raw Pxx, and emits product tap with budget fields', () => {
     const emitSpy = vi.spyOn(analytics, 'emit').mockImplementation(() => {});
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as unknown as Window));
 
     render(
       <IngredientPlanCard
@@ -110,8 +111,55 @@ describe('ingredient_plan_v2 card', () => {
         currency: 'USD',
       }),
     );
+    expect(emitSpy).toHaveBeenCalledWith(
+      'ingredient_product_impression',
+      'brief_test',
+      'trace_test',
+      expect.objectContaining({
+        card_id: 'card_ing_v2_1',
+        ingredient_id: 'niacinamide',
+        product_id: 'comp_1',
+      }),
+    );
+    expect(emitSpy).toHaveBeenCalledWith(
+      'ingredient_product_click',
+      'brief_test',
+      'trace_test',
+      expect.objectContaining({
+        card_id: 'card_ing_v2_1',
+        ingredient_id: 'niacinamide',
+        product_id: 'comp_1',
+        source: 'kb',
+        source_block: 'competitor',
+      }),
+    );
+    expect(emitSpy).toHaveBeenCalledWith(
+      'ingredient_product_open_attempt',
+      'brief_test',
+      'trace_test',
+      expect.objectContaining({
+        card_id: 'card_ing_v2_1',
+        ingredient_id: 'niacinamide',
+        product_id: 'comp_1',
+        source: 'kb',
+        source_block: 'competitor',
+      }),
+    );
+    expect(emitSpy).toHaveBeenCalledWith(
+      'ingredient_product_open_result',
+      'brief_test',
+      'trace_test',
+      expect.objectContaining({
+        card_id: 'card_ing_v2_1',
+        ingredient_id: 'niacinamide',
+        product_id: 'comp_1',
+        source: 'kb',
+        source_block: 'competitor',
+      }),
+    );
+    expect(openSpy).toHaveBeenCalledTimes(1);
 
+    openSpy.mockRestore();
     emitSpy.mockRestore();
   });
 });
-

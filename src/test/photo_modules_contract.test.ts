@@ -1,8 +1,35 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
+import { decodeRleBinaryMask, normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 
 const makeHeatmapValues = (value = 0.5) => Array.from({ length: 64 * 64 }, () => value);
+const encodeRleBinaryMask = (mask: Uint8Array): string => {
+  const chunks: number[] = [];
+  let current = 0;
+  let run = 0;
+  for (let i = 0; i < mask.length; i += 1) {
+    const value = mask[i] ? 1 : 0;
+    if (value === current) {
+      run += 1;
+      continue;
+    }
+    chunks.push(run);
+    run = 1;
+    current = value;
+  }
+  chunks.push(run);
+  return chunks.join(',');
+};
+
+const buildMask = (grid: number, x0: number, y0: number, x1: number, y1: number) => {
+  const out = new Uint8Array(grid * grid);
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      out[y * grid + x] = 1;
+    }
+  }
+  return out;
+};
 
 const makeBasePayload = () => ({
   used_photos: true,
@@ -59,6 +86,10 @@ const makeBasePayload = () => ({
   modules: [
     {
       module_id: 'left_cheek',
+      mask_grid: 64,
+      mask_rle_norm: encodeRleBinaryMask(buildMask(64, 6, 20, 28, 42)),
+      box: { x: 0.08, y: 0.34, w: 0.34, h: 0.3 },
+      degraded_reason: 'MODULE_TOO_THIN',
       issues: [
         {
           issue_type: 'redness',
@@ -124,11 +155,22 @@ describe('photo modules contract', () => {
 
     const issue = model.modules[0]?.issues[0];
     expect(issue?.evidence_region_ids).toEqual(['bbox_1']);
+    expect(model.modules[0]?.mask_grid).toBe(64);
+    expect(typeof model.modules[0]?.mask_rle_norm).toBe('string');
+    expect(model.modules[0]?.degraded_reason).toBe('MODULE_TOO_THIN');
     const product = model.modules[0]?.products?.[0];
     expect(product?.price).toBe(18.5);
     expect(product?.currency).toBe('USD');
     expect(product?.price_tier).toBe('low');
     expect(product?.source_block).toBe('dupe');
+  });
+
+  it('decodes module rle masks for mask overlay compatibility', () => {
+    const mask = buildMask(8, 2, 2, 6, 6);
+    const encoded = encodeRleBinaryMask(mask);
+    const decoded = decodeRleBinaryMask(encoded, 64);
+    expect(decoded.length).toBe(64);
+    expect(decoded.reduce((acc, value) => acc + (value ? 1 : 0), 0)).toBe(16);
   });
 
   it('drops invalid heatmap shape and records sanitizer reason', () => {

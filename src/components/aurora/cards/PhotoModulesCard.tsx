@@ -3,10 +3,12 @@ import { AlertTriangle, Droplets, Sparkles } from 'lucide-react';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import type {
+  PhotoModulesModule,
   PhotoModulesRegion,
   PhotoModulesSanitizerDrop,
   PhotoModulesUiModelV1,
 } from '@/lib/photoModulesContract';
+import { decodeRleBinaryMask } from '@/lib/photoModulesContract';
 import {
   emitAuroraPhotoModulesActionTap,
   emitAuroraPhotoModulesIssueTap,
@@ -32,6 +34,15 @@ type RenderSourceKind = 'crop' | 'original_crop' | 'original_full';
 type RenderSourceCandidate = {
   kind: RenderSourceKind;
   src: string;
+};
+
+type ModuleMaskOverlay = {
+  module_id: string;
+  mask_grid: number;
+  mask: Uint8Array;
+  box: { x: number; y: number; w: number; h: number } | null;
+  color: Rgb;
+  degraded_reason: string | null;
 };
 
 const ISSUE_COLOR_MAP: Record<IssueType, Rgb> = {
@@ -101,6 +112,56 @@ const pickColor = (region: PhotoModulesRegion): Rgb => {
   return ISSUE_COLOR_MAP.texture;
 };
 
+const colorForModule = (module: PhotoModulesModule): Rgb => {
+  const issueType = module.issues[0]?.issue_type;
+  if (issueType && ISSUE_COLOR_MAP[issueType as IssueType]) return ISSUE_COLOR_MAP[issueType as IssueType];
+  return ISSUE_COLOR_MAP.texture;
+};
+
+const drawModuleMask = (
+  context: CanvasRenderingContext2D,
+  overlay: ModuleMaskOverlay,
+  width: number,
+  height: number,
+  fillAlpha: number,
+  strokeAlpha: number,
+) => {
+  const grid = Math.max(1, Math.trunc(Number(overlay.mask_grid) || 0));
+  if (!overlay.mask || overlay.mask.length !== grid * grid) return;
+
+  const bufferCanvas = document.createElement('canvas');
+  bufferCanvas.width = grid;
+  bufferCanvas.height = grid;
+  const bufferContext = bufferCanvas.getContext('2d');
+  if (!bufferContext) return;
+  const imageData = bufferContext.createImageData(grid, grid);
+  const alpha = Math.max(0, Math.min(1, fillAlpha));
+  for (let index = 0; index < overlay.mask.length; index += 1) {
+    if (!overlay.mask[index]) continue;
+    const pixelIndex = index * 4;
+    imageData.data[pixelIndex] = overlay.color.r;
+    imageData.data[pixelIndex + 1] = overlay.color.g;
+    imageData.data[pixelIndex + 2] = overlay.color.b;
+    imageData.data[pixelIndex + 3] = Math.round(alpha * 255);
+  }
+  bufferContext.putImageData(imageData, 0, 0);
+
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.drawImage(bufferCanvas, 0, 0, width, height);
+  context.restore();
+
+  if (!overlay.box) return;
+  const box = overlay.box;
+  const x = box.x * width;
+  const y = box.y * height;
+  const boxWidth = box.w * width;
+  const boxHeight = box.h * height;
+  context.strokeStyle = rgba(overlay.color, Math.max(0, Math.min(1, strokeAlpha)));
+  context.lineWidth = 1.4;
+  context.strokeRect(x, y, boxWidth, boxHeight);
+};
+
 const drawBbox = (
   context: CanvasRenderingContext2D,
   region: PhotoModulesRegion,
@@ -116,8 +177,8 @@ const drawBbox = (
   const boxWidth = region.bbox.w * width;
   const boxHeight = region.bbox.h * height;
   const intensity = clamp01(region.style.intensity);
-  const strokeAlpha = (0.42 + intensity * 0.42) * alphaScale;
-  const tunedFillAlpha = (0.04 + intensity * 0.1) * alphaScale;
+  const strokeAlpha = (0.28 + intensity * 0.35) * alphaScale;
+  const tunedFillAlpha = (0.015 + intensity * 0.06) * alphaScale;
 
   context.fillStyle = rgba(color, tunedFillAlpha);
   context.fillRect(x, y, boxWidth, boxHeight);
@@ -138,8 +199,8 @@ const drawPolygon = (
   if (!polygon?.points?.length) return;
   const color = pickColor(region);
   const intensity = clamp01(region.style.intensity);
-  const fillAlpha = (0.03 + intensity * 0.11) * alphaScale;
-  const strokeAlpha = (0.34 + intensity * 0.48) * alphaScale;
+  const fillAlpha = (0.015 + intensity * 0.07) * alphaScale;
+  const strokeAlpha = (0.30 + intensity * 0.42) * alphaScale;
 
   context.beginPath();
   polygon.points.forEach((point, index) => {
@@ -341,6 +402,36 @@ export function PhotoModulesCard({
     () => model.modules.find((module) => module.module_id === selectedModuleId) ?? model.modules[0] ?? null,
     [model.modules, selectedModuleId],
   );
+  const moduleMaskOverlays = useMemo<ModuleMaskOverlay[]>(() => {
+    const overlays: ModuleMaskOverlay[] = [];
+    for (const module of model.modules) {
+      const grid = Number(module.mask_grid);
+      const rle = String(module.mask_rle_norm || '').trim();
+      if (!Number.isFinite(grid) || grid <= 0 || !rle) continue;
+      const normalizedGrid = Math.max(1, Math.trunc(grid));
+      const mask = decodeRleBinaryMask(rle, normalizedGrid * normalizedGrid);
+      let activePixels = 0;
+      for (let i = 0; i < mask.length; i += 1) {
+        if (mask[i]) activePixels += 1;
+      }
+      if (!activePixels) continue;
+      overlays.push({
+        module_id: module.module_id,
+        mask_grid: normalizedGrid,
+        mask,
+        box: module.box ?? null,
+        color: colorForModule(module),
+        degraded_reason: typeof module.degraded_reason === 'string' && module.degraded_reason.trim() ? module.degraded_reason.trim() : null,
+      });
+    }
+    return overlays;
+  }, [model.modules]);
+  const moduleMaskById = useMemo(() => {
+    const map = new Map<string, ModuleMaskOverlay>();
+    moduleMaskOverlays.forEach((overlay) => map.set(overlay.module_id, overlay));
+    return map;
+  }, [moduleMaskOverlays]);
+  const overlayMode = moduleMaskOverlays.length > 0 ? 'mask' : 'region';
 
   const moduleEvidenceRegionIds = useMemo(() => {
     if (!hasModuleSelection || !selectedModule) return allRegionIds;
@@ -367,7 +458,9 @@ export function PhotoModulesCard({
     return ids;
   }, [hoveredRegionId, visibleRegionIds]);
 
-  const hasFocusedSelection = highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
+  const hasFocusedSelection = overlayMode === 'mask'
+    ? hasModuleSelection
+    : highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
 
   useEffect(() => {
     const canvas = baseCanvasRef.current;
@@ -383,11 +476,18 @@ export function PhotoModulesCard({
 
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, stageSize.width, stageSize.height);
+    if (overlayMode === 'mask' && moduleMaskOverlays.length) {
+      moduleMaskOverlays.forEach((overlay) => {
+        drawModuleMask(context, overlay, stageSize.width, stageSize.height, 0.08, 0.12);
+      });
+      return;
+    }
+
     drawRegions(context, regions, stageSize.width, stageSize.height, {
-      alphaScale: 0.95,
+      alphaScale: 0.45,
       lineBoost: 1,
     });
-  }, [regions, stageSize.height, stageSize.width]);
+  }, [moduleMaskOverlays, overlayMode, regions, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     const canvas = highlightCanvasRef.current;
@@ -404,6 +504,34 @@ export function PhotoModulesCard({
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, stageSize.width, stageSize.height);
 
+    if (overlayMode === 'mask') {
+      if (hasModuleSelection && selectedModule && selectedIssueType && issueEvidenceRegionIds?.size) {
+        drawRegions(context, regions, stageSize.width, stageSize.height, {
+          includeIds: issueEvidenceRegionIds,
+          alphaScale: 1,
+          lineBoost: 1.35,
+        });
+        return;
+      }
+
+      if (hasModuleSelection && selectedModule) {
+        const overlay = moduleMaskById.get(selectedModule.module_id);
+        if (overlay) {
+          drawModuleMask(context, overlay, stageSize.width, stageSize.height, 0.26, 0.78);
+          return;
+        }
+      }
+
+      if (hoveredRegionId) {
+        drawRegions(context, regions, stageSize.width, stageSize.height, {
+          includeIds: new Set([hoveredRegionId]),
+          alphaScale: 1,
+          lineBoost: 1.35,
+        });
+      }
+      return;
+    }
+
     if (!highlightedRegionIds.size || highlightedRegionIds.size === allRegionIds.size) return;
 
     drawRegions(context, regions, stageSize.width, stageSize.height, {
@@ -411,7 +539,20 @@ export function PhotoModulesCard({
       alphaScale: 1,
       lineBoost: 1.3,
     });
-  }, [allRegionIds.size, highlightedRegionIds, regions, stageSize.height, stageSize.width]);
+  }, [
+    allRegionIds.size,
+    highlightedRegionIds,
+    hoveredRegionId,
+    issueEvidenceRegionIds,
+    moduleMaskById,
+    overlayMode,
+    regions,
+    hasModuleSelection,
+    selectedIssueType,
+    selectedModule,
+    stageSize.height,
+    stageSize.width,
+  ]);
 
   const hasProducts =
     PRODUCT_REC_ENABLED && selectedModule ? selectedModule.products.filter((product) => Boolean(product.title)).length > 0 : false;
@@ -537,14 +678,26 @@ export function PhotoModulesCard({
                 ref={baseCanvasRef}
                 data-testid="photo-modules-base-canvas"
                 data-focused={hasFocusedSelection ? '1' : '0'}
+                data-overlay-mode={overlayMode}
+                data-mask-count={moduleMaskOverlays.length}
                 className="pointer-events-none absolute inset-0 h-full w-full"
-                style={{ opacity: hasFocusedSelection ? 0.08 : 0.9 }}
+                style={{
+                  opacity:
+                    overlayMode === 'mask'
+                      ? hasFocusedSelection
+                        ? 0.38
+                        : 0.48
+                      : hasFocusedSelection
+                        ? 0.04
+                        : 0.3,
+                }}
               />
               <canvas
                 ref={highlightCanvasRef}
                 data-testid="photo-modules-highlight-canvas"
                 data-visible-count={visibleRegionIds.size}
                 data-highlight-count={highlightedRegionIds.size}
+                data-overlay-mode={overlayMode}
                 className="pointer-events-none absolute inset-0 h-full w-full"
               />
             </div>
