@@ -83,6 +83,14 @@ export const UI_RENDERING_CONSTRAINTS_V1: UiRenderingConstraintsV1 = {
   max_notes: 4,
 };
 
+const ALLOWED_BUYING_CHANNELS = new Set([
+  'beauty_retail',
+  'pharmacy',
+  'department_store',
+  'duty_free',
+  'ecommerce',
+]);
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -163,6 +171,176 @@ export function normalizeNotesV1(value: unknown): string[] {
   return out;
 }
 
+function normalizeOptionalText(value: unknown, maxLen = 220): string | null {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  if (!t) return null;
+  return t.slice(0, maxLen);
+}
+
+function normalizeStringArray(value: unknown, maxItems = 8, maxLen = 140): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const t = normalizeOptionalText(item, maxLen);
+    if (!t) continue;
+    out.push(t);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function normalizeBrandMatchStatus(value: unknown): 'kb_verified' | 'catalog_verified' | 'llm_only' {
+  const token = normalizeOptionalText(value, 32)?.toLowerCase();
+  if (token === 'kb_verified' || token === 'catalog_verified' || token === 'llm_only') return token;
+  return 'llm_only';
+}
+
+function normalizeTravelMetricDelta(value: unknown) {
+  if (!isPlainObject(value)) return null;
+  const home = coerceNumber(value.home);
+  const destination = coerceNumber(value.destination);
+  const delta = coerceNumber(value.delta);
+  const unit = normalizeOptionalText(value.unit, 16);
+  if (home == null && destination == null && delta == null && !unit) return null;
+  return {
+    home,
+    destination,
+    delta,
+    unit,
+  };
+}
+
+function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_readiness'] | undefined {
+  if (!isPlainObject(value)) return undefined;
+
+  const out: NonNullable<EnvStressUiModelV1['travel_readiness']> = {};
+
+  const destinationContext = isPlainObject(value.destination_context) ? value.destination_context : null;
+  if (destinationContext) {
+    out.destination_context = {
+      destination: normalizeOptionalText(destinationContext.destination, 120),
+      start_date: normalizeOptionalText(destinationContext.start_date, 24),
+      end_date: normalizeOptionalText(destinationContext.end_date, 24),
+      env_source: normalizeOptionalText(destinationContext.env_source, 40),
+      epi: coerceNumber(destinationContext.epi),
+    };
+  }
+
+  const deltaObj = isPlainObject(value.delta_vs_home) ? value.delta_vs_home : null;
+  if (deltaObj) {
+    out.delta_vs_home = {
+      temperature: normalizeTravelMetricDelta(deltaObj.temperature) || undefined,
+      humidity: normalizeTravelMetricDelta(deltaObj.humidity) || undefined,
+      uv: normalizeTravelMetricDelta(deltaObj.uv) || undefined,
+      wind: normalizeTravelMetricDelta(deltaObj.wind) || undefined,
+      precip: normalizeTravelMetricDelta(deltaObj.precip) || undefined,
+      summary_tags: normalizeStringArray(deltaObj.summary_tags, 8, 40),
+      baseline_status: normalizeOptionalText(deltaObj.baseline_status, 48),
+    };
+  }
+
+  const adaptiveActions = Array.isArray(value.adaptive_actions) ? value.adaptive_actions : [];
+  if (adaptiveActions.length) {
+    out.adaptive_actions = adaptiveActions
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const why = normalizeOptionalText(row.why, 260);
+        const what_to_do = normalizeOptionalText(row.what_to_do, 320);
+        if (!why && !what_to_do) return null;
+        return { why: why || undefined, what_to_do: what_to_do || undefined };
+      })
+      .filter(Boolean)
+      .slice(0, 5) as any;
+  }
+
+  const personalFocus = Array.isArray(value.personal_focus) ? value.personal_focus : [];
+  if (personalFocus.length) {
+    out.personal_focus = personalFocus
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const focus = normalizeOptionalText(row.focus, 120);
+        const why = normalizeOptionalText(row.why, 260);
+        const what_to_do = normalizeOptionalText(row.what_to_do, 320);
+        if (!focus && !why && !what_to_do) return null;
+        return {
+          focus: focus || undefined,
+          why: why || undefined,
+          what_to_do: what_to_do || undefined,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 4) as any;
+  }
+
+  const jetlagSleep = isPlainObject(value.jetlag_sleep) ? value.jetlag_sleep : null;
+  if (jetlagSleep) {
+    out.jetlag_sleep = {
+      tz_home: normalizeOptionalText(jetlagSleep.tz_home, 64),
+      tz_destination: normalizeOptionalText(jetlagSleep.tz_destination, 64),
+      hours_diff: coerceNumber(jetlagSleep.hours_diff),
+      risk_level: normalizeOptionalText(jetlagSleep.risk_level, 24),
+      sleep_tips: normalizeStringArray(jetlagSleep.sleep_tips, 4, 220),
+      mask_tips: normalizeStringArray(jetlagSleep.mask_tips, 4, 220),
+    };
+  }
+
+  const shoppingPreview = isPlainObject(value.shopping_preview) ? value.shopping_preview : null;
+  if (shoppingPreview) {
+    const products = Array.isArray(shoppingPreview.products) ? shoppingPreview.products : [];
+    const brandCandidates = Array.isArray(shoppingPreview.brand_candidates) ? shoppingPreview.brand_candidates : [];
+    out.shopping_preview = {
+      products: products
+        .map((item) => {
+          const row = isPlainObject(item) ? item : {};
+          const name = normalizeOptionalText(row.name, 140);
+          if (!name) return null;
+          return {
+            rank: coerceInt(row.rank) ?? undefined,
+            product_id: normalizeOptionalText(row.product_id, 120),
+            name,
+            brand: normalizeOptionalText(row.brand, 80),
+            category: normalizeOptionalText(row.category, 80),
+            reasons: normalizeStringArray(row.reasons, 4, 100),
+            price: coerceNumber(row.price),
+            currency: normalizeOptionalText(row.currency, 12),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 3) as any,
+      brand_candidates: brandCandidates
+        .map((item) => {
+          const row = isPlainObject(item) ? item : {};
+          const brand = normalizeOptionalText(row.brand, 80);
+          if (!brand) return null;
+          return {
+            brand,
+            match_status: normalizeBrandMatchStatus(row.match_status),
+            reason: normalizeOptionalText(row.reason, 180),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 6) as any,
+      buying_channels: normalizeStringArray(shoppingPreview.buying_channels, 6, 40)
+        .map((channel) => channel.toLowerCase())
+        .filter((channel) => ALLOWED_BUYING_CHANNELS.has(channel)),
+      city_hint: normalizeOptionalText(shoppingPreview.city_hint, 120),
+      note: normalizeOptionalText(shoppingPreview.note, 220),
+    };
+  }
+
+  const confidence = isPlainObject(value.confidence) ? value.confidence : null;
+  if (confidence) {
+    out.confidence = {
+      level: normalizeOptionalText(confidence.level, 24),
+      missing_inputs: normalizeStringArray(confidence.missing_inputs, 8, 64),
+      improve_by: normalizeStringArray(confidence.improve_by, 6, 220),
+    };
+  }
+
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function normalizeEnvStressUiModelV1(value: unknown): { model: EnvStressUiModelV1 | null; didWarn: boolean } {
   if (!isPlainObject(value)) return { model: null, didWarn: false };
   if (value.schema_version !== 'aurora.ui.env_stress.v1') return { model: null, didWarn: false };
@@ -174,9 +352,17 @@ export function normalizeEnvStressUiModelV1(value: unknown): { model: EnvStressU
   const notes = normalizeNotesV1(value.notes);
 
   const { radar, didWarn } = normalizeRadarSeriesV1(value.radar);
+  const travelReadiness = normalizeTravelReadinessV1(value.travel_readiness);
 
   return {
-    model: { schema_version: 'aurora.ui.env_stress.v1', ess, tier, radar, notes },
+    model: {
+      schema_version: 'aurora.ui.env_stress.v1',
+      ess,
+      tier,
+      radar,
+      notes,
+      ...(travelReadiness ? { travel_readiness: travelReadiness } : {}),
+    },
     didWarn,
   };
 }

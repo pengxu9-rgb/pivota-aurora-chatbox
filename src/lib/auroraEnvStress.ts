@@ -33,12 +33,91 @@ export type EnvStressOutputV1 = {
 
 export type RadarDatumV1 = { axis: string; value: number }; // value: 0..100
 
+export type TravelMetricDelta = {
+  home: number | null;
+  destination: number | null;
+  delta: number | null;
+  unit?: string | null;
+};
+
+export type TravelReadinessItem = {
+  why?: string;
+  what_to_do?: string;
+};
+
+export type TravelReadinessPersonalFocusItem = {
+  focus?: string;
+  why?: string;
+  what_to_do?: string;
+};
+
+export type TravelReadinessProductPreviewItem = {
+  rank?: number;
+  product_id?: string | null;
+  name?: string;
+  brand?: string | null;
+  category?: string | null;
+  reasons?: string[];
+  price?: number | null;
+  currency?: string | null;
+};
+
+export type TravelReadinessBrandMatchStatus = 'kb_verified' | 'catalog_verified' | 'llm_only';
+
+export type TravelReadinessBrandCandidateItem = {
+  brand?: string;
+  match_status?: TravelReadinessBrandMatchStatus;
+  reason?: string | null;
+};
+
+export type TravelReadinessV1 = {
+  destination_context?: {
+    destination?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    env_source?: string | null;
+    epi?: number | null;
+  };
+  delta_vs_home?: {
+    temperature?: TravelMetricDelta;
+    humidity?: TravelMetricDelta;
+    uv?: TravelMetricDelta;
+    wind?: TravelMetricDelta;
+    precip?: TravelMetricDelta;
+    summary_tags?: string[];
+    baseline_status?: string | null;
+  };
+  adaptive_actions?: TravelReadinessItem[];
+  personal_focus?: TravelReadinessPersonalFocusItem[];
+  jetlag_sleep?: {
+    tz_home?: string | null;
+    tz_destination?: string | null;
+    hours_diff?: number | null;
+    risk_level?: string | null;
+    sleep_tips?: string[];
+    mask_tips?: string[];
+  };
+  shopping_preview?: {
+    products?: TravelReadinessProductPreviewItem[];
+    brand_candidates?: TravelReadinessBrandCandidateItem[];
+    buying_channels?: string[];
+    city_hint?: string | null;
+    note?: string | null;
+  };
+  confidence?: {
+    level?: string | null;
+    missing_inputs?: string[];
+    improve_by?: string[];
+  };
+};
+
 export type EnvStressUiModelV1 = {
   schema_version: 'aurora.ui.env_stress.v1';
   ess: number | null;
   tier: string | null;
   radar: RadarDatumV1[];
   notes: string[];
+  travel_readiness?: TravelReadinessV1;
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -335,4 +414,3 @@ export function toEnvStressInputV1(params: {
       .filter(Boolean) as EnvStressInputV1['recent_logs'],
   };
 }
-

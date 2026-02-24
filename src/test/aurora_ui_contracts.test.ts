@@ -38,6 +38,55 @@ describe("aurora ui contracts", () => {
     expect(model?.radar[0]?.value).toBe(0);
   });
 
+  it("UI-002B preserves travel_readiness sections when present", () => {
+    const input = {
+      schema_version: "aurora.ui.env_stress.v1",
+      ess: 62,
+      tier: "Moderate",
+      radar: [{ axis: "Hydration", value: 52 }],
+      notes: [],
+      travel_readiness: {
+        destination_context: {
+          destination: "Paris",
+          start_date: "2026-03-01",
+          end_date: "2026-03-05",
+          env_source: "weather_api",
+          epi: 67,
+        },
+        delta_vs_home: {
+          temperature: { home: 18, destination: 10, delta: -8, unit: "C" },
+          summary_tags: ["colder", "higher_uv"],
+        },
+        adaptive_actions: [{ why: "UV is higher", what_to_do: "Reapply sunscreen" }],
+        personal_focus: [{ focus: "Barrier", why: "Sensitive", what_to_do: "Use richer moisturizer" }],
+        jetlag_sleep: { hours_diff: 9, risk_level: "high", sleep_tips: ["Shift sleep 2 days earlier"] },
+        shopping_preview: {
+          products: [{ product_id: "p1", name: "Barrier Cream", brand: "Aurora Lab", reasons: ["repair"] }],
+          brand_candidates: [
+            { brand: "Bioderma", match_status: "kb_verified", reason: "Barrier support" },
+            { brand: "UnknownX", match_status: "random_status", reason: "Fallback to llm_only" },
+          ],
+          buying_channels: ["beauty_retail", "ecommerce", "unknown_channel"],
+        },
+        confidence: {
+          level: "medium",
+          missing_inputs: ["currentRoutine"],
+          improve_by: ["Share AM/PM routine"],
+        },
+      },
+    };
+
+    const { model, didWarn } = normalizeEnvStressUiModelV1(input);
+    expect(didWarn).toBe(false);
+    expect(model?.travel_readiness?.destination_context?.destination).toBe("Paris");
+    expect(model?.travel_readiness?.delta_vs_home?.summary_tags).toEqual(["colder", "higher_uv"]);
+    expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.name).toBe("Barrier Cream");
+    expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[0]?.match_status).toBe("kb_verified");
+    expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[1]?.match_status).toBe("llm_only");
+    expect(model?.travel_readiness?.shopping_preview?.buying_channels).toEqual(["beauty_retail", "ecommerce"]);
+    expect(model?.travel_readiness?.confidence?.missing_inputs).toContain("currentRoutine");
+  });
+
   it("UI-003 normalizes heatmap contract defensively", () => {
     const input = {
       schema_version: "aurora.ui.conflict_heatmap.v1",
