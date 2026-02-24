@@ -141,9 +141,10 @@ export const bffJson = async <TResponse>(
 ): Promise<TResponse> => {
   const baseUrl = init.baseUrl ?? getPivotaAgentBaseUrl();
   const timeoutMs = Number.isFinite(Number(init.timeoutMs)) ? Number(init.timeoutMs) : undefined;
+  const hasBody = init.body != null;
   const isFormData =
     typeof FormData !== 'undefined' &&
-    init.body != null &&
+    hasBody &&
     typeof init.body === 'object' &&
     init.body instanceof FormData;
 
@@ -151,7 +152,7 @@ export const bffJson = async <TResponse>(
     ...init,
     headers: {
       Accept: 'application/json',
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       'X-Aurora-Uid': headers.aurora_uid ?? '',
       'X-Trace-ID': headers.trace_id,
       'X-Brief-ID': headers.brief_id,
