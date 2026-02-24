@@ -65,6 +65,7 @@ describe('EnvStressCard travel readiness', () => {
     expect(screen.getByText('Personal focus')).toBeInTheDocument();
     expect(screen.getByText('Jet lag and sleep')).toBeInTheDocument();
     expect(screen.getByText('Shopping preview')).toBeInTheDocument();
+    expect(screen.getByText('Why this score (expand)')).toBeInTheDocument();
     expect(screen.getByText('Local brand candidates')).toBeInTheDocument();
     expect(screen.getByText(/Bioderma/i)).toBeInTheDocument();
     expect(screen.getByText(/KB verified/i)).toBeInTheDocument();

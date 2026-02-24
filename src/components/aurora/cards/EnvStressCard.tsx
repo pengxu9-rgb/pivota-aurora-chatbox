@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Globe } from 'lucide-react';
 
@@ -25,6 +25,23 @@ function formatDeltaLine(language: Language, metric: MetricDelta | undefined) {
   if (home == null && destination == null && delta == null) return null;
   if (language === 'CN') return `常驻地 ${home ?? '-'}${unit} -> 目的地 ${destination ?? '-'}${unit} (Δ ${delta ?? '-'}${unit})`;
   return `Home ${home ?? '-'}${unit} -> Destination ${destination ?? '-'}${unit} (delta ${delta ?? '-'}${unit})`;
+}
+
+function formatCompactSignal({
+  language,
+  metric,
+  labelCn,
+  labelEn,
+}: {
+  language: Language;
+  metric?: MetricDelta;
+  labelCn: string;
+  labelEn: string;
+}) {
+  if (!metric || typeof metric.delta !== 'number') return null;
+  const unit = typeof metric.unit === 'string' ? metric.unit : '';
+  const signed = metric.delta > 0 ? `+${Math.round(metric.delta * 10) / 10}` : `${Math.round(metric.delta * 10) / 10}`;
+  return `${language === 'CN' ? labelCn : labelEn} ${signed}${unit}`;
 }
 
 function formatBrandMatchStatus(language: Language, status?: string | null) {
@@ -63,33 +80,62 @@ export function EnvStressCard({
     missingInputs.includes('recent_logs') || model?.notes?.some((n) => typeof n === 'string' && n.includes('recent_logs')),
   );
 
-  const metricRows = [
-    {
-      key: 'temperature',
-      label: language === 'CN' ? '温度' : 'Temperature',
-      value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.temperature),
-    },
-    {
-      key: 'humidity',
-      label: language === 'CN' ? '湿度' : 'Humidity',
-      value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.humidity),
-    },
-    {
-      key: 'uv',
-      label: language === 'CN' ? '紫外线' : 'UV',
-      value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.uv),
-    },
-    {
-      key: 'wind',
-      label: language === 'CN' ? '风' : 'Wind',
-      value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.wind),
-    },
-    {
-      key: 'precip',
-      label: language === 'CN' ? '降水' : 'Precipitation',
-      value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.precip),
-    },
-  ].filter((row) => Boolean(row.value));
+  const metricRows = useMemo(
+    () =>
+      [
+        {
+          key: 'temperature',
+          label: language === 'CN' ? '温度' : 'Temperature',
+          value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.temperature),
+        },
+        {
+          key: 'humidity',
+          label: language === 'CN' ? '湿度' : 'Humidity',
+          value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.humidity),
+        },
+        {
+          key: 'uv',
+          label: language === 'CN' ? '紫外线' : 'UV',
+          value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.uv),
+        },
+        {
+          key: 'wind',
+          label: language === 'CN' ? '风' : 'Wind',
+          value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.wind),
+        },
+        {
+          key: 'precip',
+          label: language === 'CN' ? '降水' : 'Precipitation',
+          value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.precip),
+        },
+      ].filter((row) => Boolean(row.value)),
+    [language, travelReadiness],
+  );
+
+  const compactSignals = useMemo(
+    () =>
+      [
+        formatCompactSignal({
+          language,
+          metric: travelReadiness?.delta_vs_home?.temperature,
+          labelCn: '温差',
+          labelEn: 'Temp',
+        }),
+        formatCompactSignal({
+          language,
+          metric: travelReadiness?.delta_vs_home?.humidity,
+          labelCn: '湿度',
+          labelEn: 'Humidity',
+        }),
+        formatCompactSignal({
+          language,
+          metric: travelReadiness?.delta_vs_home?.uv,
+          labelCn: 'UV',
+          labelEn: 'UV',
+        }),
+      ].filter(Boolean) as string[],
+    [language, travelReadiness],
+  );
 
   return (
     <motion.div
@@ -99,7 +145,7 @@ export function EnvStressCard({
       className="w-full"
     >
       <Card className={cn('w-full max-w-sm bg-white/90 backdrop-blur-sm shadow-elevated', 'border border-border/70')}>
-        <CardHeader className="p-4 pb-3">
+        <CardHeader className="p-4 pb-2">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border/60 bg-muted/40">
@@ -126,7 +172,7 @@ export function EnvStressCard({
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-3 p-4 pt-0">
+        <CardContent className="space-y-2.5 p-4 pt-0">
           {typeof ess === 'number' ? (
             <>
               <Progress
@@ -135,12 +181,34 @@ export function EnvStressCard({
                 indicatorClassName="bg-orange-500"
                 aria-label="Environment stress score"
               />
-              {tier ? (
-                <div className="text-[11px] text-muted-foreground">
-                  {language === 'EN' ? 'Tier:' : '等级：'} {tier}
-                </div>
+              <div className="flex items-center justify-between">
+                {tier ? (
+                  <div className="text-[11px] text-muted-foreground">
+                    {language === 'EN' ? 'Tier:' : '等级：'} {tier}
+                  </div>
+                ) : (
+                  <span />
+                )}
+                {compactSignals.length ? (
+                  <div className="flex flex-wrap justify-end gap-1">
+                    {compactSignals.slice(0, 3).map((line) => (
+                      <span key={line} className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-[10px] text-foreground/85">
+                        {line}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              {model?.radar?.length ? (
+                <details className="rounded-xl border border-border/70 bg-muted/20 p-2 text-[11px] text-muted-foreground">
+                  <summary className="cursor-pointer select-none font-medium text-foreground/90">
+                    {language === 'CN' ? '为什么是这个分数（展开）' : 'Why this score (expand)'}
+                  </summary>
+                  <div className="mt-2">
+                    <EnvStressRadar model={model} />
+                  </div>
+                </details>
               ) : null}
-              {model?.radar?.length ? <EnvStressRadar model={model} /> : null}
             </>
           ) : (
             <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
@@ -153,7 +221,7 @@ export function EnvStressCard({
 
           {travelReadiness ? (
             <>
-              <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                 <div className="font-semibold text-foreground/90">
                   {language === 'CN' ? '目的地差异' : 'Destination delta'}
                 </div>
@@ -165,17 +233,31 @@ export function EnvStressCard({
                     : ''}
                 </div>
                 {metricRows.length ? (
-                  <ul className="mt-2 space-y-1">
-                    {metricRows.map((row) => (
+                  <ul className="mt-1.5 space-y-1">
+                    {metricRows.slice(0, 2).map((row) => (
                       <li key={row.key}>
                         <span className="font-medium text-foreground/90">{row.label}:</span> {row.value}
                       </li>
                     ))}
                   </ul>
                 ) : null}
+                {metricRows.length > 2 ? (
+                  <details className="mt-1 text-[11px]">
+                    <summary className="cursor-pointer select-none text-muted-foreground">
+                      {language === 'CN' ? '展开更多指标' : 'Show more metrics'}
+                    </summary>
+                    <ul className="mt-1 space-y-1">
+                      {metricRows.slice(2).map((row) => (
+                        <li key={row.key}>
+                          <span className="font-medium text-foreground/90">{row.label}:</span> {row.value}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
                 {travelReadiness.delta_vs_home?.summary_tags?.length ? (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {travelReadiness.delta_vs_home.summary_tags.slice(0, 8).map((tag) => (
+                    {travelReadiness.delta_vs_home.summary_tags.slice(0, 6).map((tag) => (
                       <span key={tag} className="rounded-full border border-border/70 px-2 py-0.5 text-[10px]">
                         {tag}
                       </span>
@@ -185,16 +267,15 @@ export function EnvStressCard({
               </div>
 
               {travelReadiness.personal_focus?.length ? (
-                <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                   <div className="font-semibold text-foreground/90">
                     {language === 'CN' ? '你要重点注意' : 'Personal focus'}
                   </div>
-                  <ul className="mt-2 space-y-1">
-                    {travelReadiness.personal_focus.slice(0, 3).map((item, idx) => (
+                  <ul className="mt-1.5 space-y-1">
+                    {travelReadiness.personal_focus.slice(0, 1).map((item, idx) => (
                       <li key={`${idx}_${item.focus || item.what_to_do || 'focus'}`}>
                         {item.focus ? <div className="text-foreground/90">{item.focus}</div> : null}
-                        {item.why ? <div>{item.why}</div> : null}
-                        {item.what_to_do ? <div className="text-foreground/90">{item.what_to_do}</div> : null}
+                        {item.what_to_do ? <div>{item.what_to_do}</div> : null}
                       </li>
                     ))}
                   </ul>
@@ -202,7 +283,7 @@ export function EnvStressCard({
               ) : null}
 
               {(travelReadiness.jetlag_sleep?.sleep_tips?.length || travelReadiness.jetlag_sleep?.mask_tips?.length) ? (
-                <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                   <div className="font-semibold text-foreground/90">
                     {language === 'CN' ? '时差与睡眠' : 'Jet lag and sleep'}
                   </div>
@@ -218,51 +299,42 @@ export function EnvStressCard({
                       : ''}
                   </div>
                   {travelReadiness.jetlag_sleep?.sleep_tips?.length ? (
-                    <ul className="mt-2 space-y-1">
-                      {travelReadiness.jetlag_sleep.sleep_tips.slice(0, 3).map((tip, idx) => (
-                        <li key={`sleep_${idx}`}>• {tip}</li>
-                      ))}
-                    </ul>
+                    <div className="mt-1">• {travelReadiness.jetlag_sleep.sleep_tips[0]}</div>
                   ) : null}
                   {travelReadiness.jetlag_sleep?.mask_tips?.length ? (
-                    <ul className="mt-2 space-y-1">
-                      {travelReadiness.jetlag_sleep.mask_tips.slice(0, 3).map((tip, idx) => (
-                        <li key={`mask_${idx}`}>• {tip}</li>
-                      ))}
-                    </ul>
+                    <div className="mt-1">• {travelReadiness.jetlag_sleep.mask_tips[0]}</div>
                   ) : null}
                 </div>
               ) : null}
 
-              <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                 <div className="font-semibold text-foreground/90">
                   {language === 'CN' ? '建议买什么' : 'Shopping preview'}
                 </div>
                 {travelReadiness.shopping_preview?.products?.length ? (
-                  <ul className="mt-2 space-y-1">
-                    {travelReadiness.shopping_preview.products.slice(0, 3).map((item, idx) => (
+                  <ul className="mt-1.5 space-y-1">
+                    {travelReadiness.shopping_preview.products.slice(0, 1).map((item, idx) => (
                       <li key={`${idx}_${item.product_id || item.name || 'product'}`}>
                         <div className="text-foreground/90">
                           {item.name}
                           {item.brand ? ` · ${item.brand}` : ''}
                         </div>
                         {item.reasons?.length ? <div>{item.reasons.join(' · ')}</div> : null}
-                        {typeof item.price === 'number'
-                          ? <div>{`${item.currency || ''} ${item.price}`.trim()}</div>
-                          : null}
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <div className="mt-2">
-                    {language === 'CN' ? '暂无单品预览，可先看完整推荐。' : 'No product preview yet. See full recommendations.'}
+                  <div className="mt-1.5">
+                    {language === 'CN'
+                      ? '暂无单品预览。建议先准备：SPF 防晒 + 屏障面霜 + 补水修护面膜，然后一键生成完整推荐。'
+                      : 'No product preview yet. Prepare SPF, a barrier cream, and a hydrating recovery mask, then generate full recommendations.'}
                   </div>
                 )}
                 {travelReadiness.shopping_preview?.brand_candidates?.length ? (
-                  <div className="mt-3">
-                    <div className="font-semibold text-foreground/90">
+                  <details className="mt-2">
+                    <summary className="cursor-pointer select-none font-semibold text-foreground/90">
                       {language === 'CN' ? '本地品牌候选' : 'Local brand candidates'}
-                    </div>
+                    </summary>
                     <ul className="mt-1 space-y-1">
                       {travelReadiness.shopping_preview.brand_candidates.slice(0, 6).map((item, idx) => (
                         <li key={`${idx}_${item.brand || 'brand'}`}>
@@ -272,10 +344,10 @@ export function EnvStressCard({
                         </li>
                       ))}
                     </ul>
-                  </div>
+                  </details>
                 ) : null}
 
-                <div className="mt-3 font-semibold text-foreground/90">
+                <div className="mt-2 font-semibold text-foreground/90">
                   {language === 'CN' ? '在哪里买' : 'Where to buy'}
                 </div>
                 {travelReadiness.shopping_preview?.buying_channels?.length ? (
@@ -290,11 +362,11 @@ export function EnvStressCard({
               </div>
 
               {travelReadiness.adaptive_actions?.length ? (
-                <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
-                  <div className="font-semibold text-foreground/90">
-                    {language === 'CN' ? '适配动作' : 'Adaptive actions'}
-                  </div>
-                  <ul className="mt-2 space-y-1">
+                <details className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+                  <summary className="cursor-pointer select-none font-semibold text-foreground/90">
+                    {language === 'CN' ? '适配动作（展开）' : 'Adaptive actions (expand)'}
+                  </summary>
+                  <ul className="mt-1.5 space-y-1">
                     {travelReadiness.adaptive_actions.slice(0, 4).map((item, idx) => (
                       <li key={`action_${idx}`}>
                         {item.why ? <div>{item.why}</div> : null}
@@ -302,7 +374,7 @@ export function EnvStressCard({
                       </li>
                     ))}
                   </ul>
-                </div>
+                </details>
               ) : null}
 
               {(onOpenRecommendations || onRefineRoutine) ? (
@@ -345,7 +417,7 @@ export function EnvStressCard({
           )}
 
           {missingRecentLogs && onOpenCheckin ? (
-            <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <div className="font-medium text-foreground/90">
