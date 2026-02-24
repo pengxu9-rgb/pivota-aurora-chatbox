@@ -4,6 +4,28 @@ const toHttpUrl = (raw: unknown): string => {
   return /^https?:\/\//i.test(value) ? value : '';
 };
 
+const canonicalUrlKey = (value: string): string => value.replace(/^https?:\/\//i, '');
+
+const isHttpsUrl = (value: string): boolean => /^https:\/\//i.test(value);
+
+const dedupeUrlsPreferHttps = (urls: string[]): string[] => {
+  const byKey = new Map<string, string>();
+  for (const rawUrl of urls) {
+    const url = toHttpUrl(rawUrl);
+    if (!url) continue;
+    const key = canonicalUrlKey(url);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, url);
+      continue;
+    }
+    if (!isHttpsUrl(existing) && isHttpsUrl(url)) {
+      byKey.set(key, url);
+    }
+  }
+  return Array.from(byKey.values());
+};
+
 const extractUrlFromObject = (raw: unknown): string => {
   if (!raw || typeof raw !== 'object') return '';
   const record = raw as Record<string, unknown>;
@@ -42,11 +64,6 @@ export const pickProductImageUrl = (raw: Record<string, unknown> | null | undefi
   for (const url of extractUrlsFromCollection(raw.images)) pushCandidate(url);
   for (const url of extractUrlsFromCollection(raw.image_urls)) pushCandidate(url);
 
-  const seen = new Set<string>();
-  for (const url of candidates) {
-    if (seen.has(url)) continue;
-    seen.add(url);
-    return url;
-  }
-  return '';
+  const dedupedCandidates = dedupeUrlsPreferHttps(candidates);
+  return dedupedCandidates[0] || '';
 };
