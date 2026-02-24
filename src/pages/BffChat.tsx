@@ -73,6 +73,7 @@ import {
   extractStablePdpTargetFromProductsResolveResponse,
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
+import { pickProductImageUrl } from '@/lib/productImage';
 import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
@@ -944,7 +945,7 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
   const categoryRaw = asString(raw.category) || asString((raw as any).category_name ?? (raw as any).categoryName) || '';
   const category = (!categoryRaw || isUnknownToken(categoryRaw)) ? inferCategoryFromName(name) : categoryRaw;
   const description = asString(raw.description) || '';
-  const image_url = asString(raw.image_url ?? raw.imageUrl) || '';
+  const image_url = pickProductImageUrl(raw);
   const size = asString(raw.size) || '';
 
   const product: Product = {
@@ -1066,7 +1067,7 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
   const r = raw ?? {};
   const brand = asString(r.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
   const name = asString(r.name) || asString(r.display_name ?? r.displayName) || (language === 'CN' ? '未知产品' : 'Unknown product');
-  const imageUrl = asString((r as any).image_url ?? (r as any).imageUrl) || undefined;
+  const imageUrl = pickProductImageUrl(r) || undefined;
 
   let price: number | undefined;
   let currency: string | undefined;
