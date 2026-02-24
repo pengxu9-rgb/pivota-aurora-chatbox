@@ -65,5 +65,8 @@ export const pickProductImageUrl = (raw: Record<string, unknown> | null | undefi
   for (const url of extractUrlsFromCollection(raw.image_urls)) pushCandidate(url);
 
   const dedupedCandidates = dedupeUrlsPreferHttps(candidates);
+  for (const url of dedupedCandidates) {
+    if (isHttpsUrl(url)) return url;
+  }
   return dedupedCandidates[0] || '';
 };
