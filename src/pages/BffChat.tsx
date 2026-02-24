@@ -2878,8 +2878,9 @@ function BffCardView({
           onAction('chip.start.reco_products', {
             reply_text:
               language === 'CN'
-                ? '请给我完整产品推荐（按旅行/天气场景）'
-                : 'Show full product recommendations for my travel/weather scenario',
+                ? '请给我完整护肤产品推荐。'
+                : 'Show full skincare product recommendations.',
+            force_route: 'reco_products',
           })
         }
         onRefineRoutine={() =>
