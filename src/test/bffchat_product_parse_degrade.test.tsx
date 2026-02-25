@@ -23,6 +23,8 @@ vi.mock('@/lib/auroraAnalytics', async () => {
     ...actual,
     emitAuroraProductParseMissing: vi.fn(),
     emitAuroraProductAnalysisDegraded: vi.fn(),
+    emitAuroraProductAlternativesFiltered: vi.fn(),
+    emitAuroraHowToLayerInlineOpened: vi.fn(),
   };
 });
 
@@ -416,5 +418,131 @@ describe('BffChat product-parse degraded UX', () => {
       expect(screen.getByText(/an unreliable anchor was blocked/i)).toBeInTheDocument();
     });
     expect(screen.getByText(/a stale kb hit was quarantined and recalculated in real time/i)).toBeInTheDocument();
+  });
+
+  it('renders alternatives in competitors/dupes/related sections and hides non-skincare candidates', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_5', trace_id: 'trace_bootstrap_5' }));
+      }
+      if (path === '/v1/product/parse') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_parse_5',
+            trace_id: 'trace_parse_5',
+            cards: [
+              {
+                card_id: 'parse_5',
+                type: 'product_parse',
+                payload: {
+                  product: { brand: 'Lab Series', name: 'All-In-One Defense Lotion SPF 35' },
+                  confidence: 0.7,
+                  missing_info: [],
+                  parse_source: 'answer_json',
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/product/analyze') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analyze_5',
+            trace_id: 'trace_analyze_5',
+            cards: [
+              {
+                card_id: 'analyze_5',
+                type: 'product_analysis',
+                payload: {
+                  assessment: {
+                    verdict: 'Caution',
+                    reasons: [
+                      'Contains UV filters that may feel drying for some users.',
+                      'How to use: Start 2-3x per week and increase slowly.',
+                    ],
+                  },
+                  evidence: {
+                    science: { key_ingredients: ['Niacinamide'], mechanisms: [], fit_notes: [], risk_notes: ['May feel drying'] },
+                    social_signals: { typical_positive: [], typical_negative: [], risk_for_groups: [] },
+                    expert_notes: [],
+                    confidence: 0.55,
+                    missing_info: [],
+                  },
+                  confidence: 0.55,
+                  missing_info: ['competitors_non_skincare_filtered'],
+                  competitors: {
+                    candidates: [
+                      {
+                        product_id: 'cmp_ok_1',
+                        brand: 'Brand A',
+                        name: 'Hydrating SPF Lotion',
+                        similarity_score: 0.72,
+                        why_candidate: ['Good hydration profile'],
+                      },
+                      {
+                        product_id: 'cmp_bad_1',
+                        brand: 'Unknown',
+                        name: 'S05 Moisturizer Brush',
+                        similarity_score: 0.81,
+                        why_candidate: ['Wrong category'],
+                      },
+                    ],
+                  },
+                  dupes: {
+                    candidates: [
+                      {
+                        product_id: 'dupe_ok_1',
+                        brand: 'Brand B',
+                        name: 'Daily Defense SPF Lotion',
+                        similarity_score: 0.67,
+                        why_candidate: ['Lower price tradeoff'],
+                      },
+                    ],
+                  },
+                  related_products: {
+                    candidates: [
+                      {
+                        product_id: 'rel_ok_1',
+                        brand: 'Brand C',
+                        name: 'Barrier Support Moisturizer',
+                        similarity_score: 0.61,
+                        why_candidate: ['Related use case'],
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    fireEvent.click(entry);
+
+    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    fireEvent.change(productInput, { target: { value: 'https://www.labseries.com/product/test' } });
+    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/comparable alternatives/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/^dupes$/i)).toBeInTheDocument();
+    expect(screen.getByText(/related products/i)).toBeInTheDocument();
+    expect(screen.queryByText(/s05 moisturizer brush/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/how to layer \(inline guidance\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/advanced compatibility check/i)).toBeInTheDocument();
   });
 });

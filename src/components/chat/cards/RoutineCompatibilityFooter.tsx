@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Plus, Search, X } from 'lucide-react';
+import { CheckCircle2, Plus, Search, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -293,7 +293,7 @@ export function RoutineCompatibilityFooter({
   }, [analyticsCtx, baseProduct.name, baseTagged, language, selectedProducts, sensitivity, timing]);
 
   const openPanel = useCallback(
-    (source: 'check_with_my_products' | 'how_to_layer') => {
+    (source: 'advanced_compatibility_check') => {
       setOpen(true);
       if (analyticsCtx) {
         emitOpenedCompatibility(analyticsCtx, {
@@ -302,9 +302,8 @@ export function RoutineCompatibilityFooter({
           selected_count: selectedProducts.length,
         });
       }
-      if (source === 'how_to_layer') runCompatibility();
     },
-    [analyticsCtx, baseProduct.name, runCompatibility, selectedProducts.length],
+    [analyticsCtx, baseProduct.name, selectedProducts.length],
   );
 
   const runSearch = useCallback(async () => {
@@ -355,6 +354,11 @@ export function RoutineCompatibilityFooter({
 
   const panelContent = (
     <div className="space-y-4 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+          {language === 'CN' ? 'Close' : 'Close'}
+        </Button>
+      </div>
       <div className="space-y-2">
         <div className="text-sm font-semibold text-foreground">
           {language === 'CN' ? '添加产品（最多 3 个）' : 'Add products (up to 3)'}
@@ -588,13 +592,9 @@ export function RoutineCompatibilityFooter({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button type="button" onClick={() => openPanel('check_with_my_products')}>
+        <Button type="button" onClick={() => openPanel('advanced_compatibility_check')}>
           <CheckCircle2 className="mr-1 h-4 w-4" />
-          {language === 'CN' ? 'Check with my products' : 'Check with my products'}
-        </Button>
-        <Button type="button" variant="outline" onClick={() => openPanel('how_to_layer')}>
-          <AlertTriangle className="mr-1 h-4 w-4" />
-          {language === 'CN' ? 'How to layer' : 'How to layer'}
+          {language === 'CN' ? 'Advanced compatibility check' : 'Advanced compatibility check'}
         </Button>
       </div>
 

@@ -52,6 +52,8 @@ import {
   emitPdpLatencyMs,
   emitPdpOpenPath,
   emitAuroraProductAnalysisDegraded,
+  emitAuroraProductAlternativesFiltered,
+  emitAuroraHowToLayerInlineOpened,
   emitAuroraProductParseMissing,
   emitUiChipClicked,
   emitUiLanguageSwitched,
@@ -1465,6 +1467,10 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     anchor_soft_blocked_url_mismatch: { CN: '锚点与输入 URL 不一致，已软拦截', EN: 'Anchor mismatched the input URL and was soft-blocked' },
     anchor_soft_blocked_non_skincare: { CN: '疑似非护肤品类，已软拦截', EN: 'Likely non-skincare category and soft-blocked' },
     anchor_id_not_used_due_to_low_trust: { CN: '锚点可信度不足，未使用 anchor id', EN: 'Anchor id was not used due to low trust' },
+    competitors_non_skincare_filtered: { CN: '已过滤非护肤竞品候选', EN: 'Non-skincare competitor candidates were filtered out' },
+    related_products_non_skincare_filtered: { CN: '已过滤非护肤 related 候选', EN: 'Non-skincare related-product candidates were filtered out' },
+    dupes_non_skincare_filtered: { CN: '已过滤非护肤平替候选', EN: 'Non-skincare dupe candidates were filtered out' },
+    competitor_category_unknown_blocked: { CN: '类目信号不足的候选已拦截', EN: 'Category-unknown alternatives were blocked' },
     kb_entry_quarantined: { CN: '命中历史缓存异常，已隔离并实时重算', EN: 'A stale KB hit was quarantined and recalculated in real time' },
     regulatory_source_used: { CN: '已启用监管源补充证据', EN: 'Regulatory source was used as evidence backup' },
     incidecoder_source_used: { CN: '已启用 INCIDecoder 补充证据', EN: 'INCIDecoder was used as a supplemental source' },
@@ -1482,6 +1488,25 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
   if (map[c]?.[language]) return map[c][language];
   if (isInternalMissingInfoCode(c)) return '';
   return c;
+}
+
+const NON_SKINCARE_ALTERNATIVE_RE = /\b(brush|applicator|blender|tool|comb|razor|shaver|makeup\s*brush)\b/i;
+
+function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unknown> | null) {
+  const row = candidate || {};
+  const signal = [
+    asString((row as any).name),
+    asString((row as any).display_name),
+    asString((row as any).displayName),
+    asString((row as any).category),
+    asString((row as any).category_name),
+    asString((row as any).categoryName),
+    asString((row as any).product_type),
+    asString((row as any).productType),
+    asString((row as any).type),
+  ].join(' ').toLowerCase();
+  if (!signal) return false;
+  return NON_SKINCARE_ALTERNATIVE_RE.test(signal);
 }
 
 export function RecommendationsCard({
@@ -2839,6 +2864,8 @@ function BffCardView({
   const [feedbackBusyByKey, setFeedbackBusyByKey] = useState<Record<string, boolean>>({});
   const [feedbackSavedByKey, setFeedbackSavedByKey] = useState<Record<string, RecoEmployeeFeedbackType>>({});
   const [feedbackErrorByKey, setFeedbackErrorByKey] = useState<Record<string, string>>({});
+  const alternativesFilterEventKeysRef = useRef<Set<string>>(new Set());
+  const howToLayerEventKeysRef = useRef<Set<string>>(new Set());
 
   const submitRecoFeedback = useCallback(
     async ({
@@ -3579,13 +3606,33 @@ function BffCardView({
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
         const profilePromptRaw = asObject((payload as any).profile_prompt || (payload as any).profilePrompt) || null;
         const competitorsObj = asObject((payload as any).competitors) || null;
-        const competitorCandidates = asArray((competitorsObj as any)?.candidates)
+        const relatedProductsObj = asObject((payload as any).related_products || (payload as any).relatedProducts) || null;
+        const dupesObj = asObject((payload as any).dupes) || null;
+        const rawCompetitorCandidates = asArray((competitorsObj as any)?.candidates)
           .map((v) => asObject(v))
           .filter(Boolean) as Array<Record<string, unknown>>;
+        const rawRelatedCandidates = asArray((relatedProductsObj as any)?.candidates)
+          .map((v) => asObject(v))
+          .filter(Boolean) as Array<Record<string, unknown>>;
+        const rawDupeCandidates = asArray((dupesObj as any)?.candidates)
+          .map((v) => asObject(v))
+          .filter(Boolean) as Array<Record<string, unknown>>;
+        const competitorCandidates = rawCompetitorCandidates
+          .filter((candidate) => !isLikelyNonSkincareAlternativeCandidate(candidate));
+        const relatedCandidates = rawRelatedCandidates
+          .filter((candidate) => !isLikelyNonSkincareAlternativeCandidate(candidate));
+        const dupeCandidates = rawDupeCandidates
+          .filter((candidate) => !isLikelyNonSkincareAlternativeCandidate(candidate));
+        const alternativeFilteredStats = {
+          competitors: Math.max(0, rawCompetitorCandidates.length - competitorCandidates.length),
+          related_products: Math.max(0, rawRelatedCandidates.length - relatedCandidates.length),
+          dupes: Math.max(0, rawDupeCandidates.length - dupeCandidates.length),
+        };
         const originalForCompare = anchorRaw || asObject((payload as any).product) || null;
         const provenance = asObject((payload as any).provenance) || null;
         const dogfoodFeatures = asObject((provenance as any)?.dogfood_features_effective || (provenance as any)?.dogfoodFeaturesEffective) || null;
         const showEmployeeFeedbackControls = dogfoodFeatures?.show_employee_feedback_controls === true;
+        const canShowEmployeeFeedbackControls = Boolean(showEmployeeFeedbackControls && debug);
         const pipelineVersion = asString((provenance as any)?.pipeline) || 'reco_blocks_dag.v1';
         const feedbackModels = asString((provenance as any)?.source) || 'aurora_bff';
         const anchorProductIdForFeedback = (() => {
@@ -3731,6 +3778,19 @@ function BffCardView({
             );
           }
 
+          const hasDryingSignal = uniqueStrings([...cautionSignals, ...rawReasons, ...out]).some((line) =>
+            /\b(drying|dryness|tight|peel|flake|dehydrat|干燥|起皮|紧绷)\b/i.test(String(line || '')),
+          );
+          out.push(
+            hasDryingSignal
+              ? (language === 'CN'
+                ? '观察周期：先连续观察 10–14 天，若持续干燥/刺痛，降低频率或更换更温和替代。'
+                : 'Observation window: monitor for 10-14 days; reduce frequency or switch if dryness/stinging persists.')
+              : (language === 'CN'
+                ? '观察周期：先连续观察 7–10 天，再决定是否提高频率。'
+                : 'Observation window: monitor for 7-10 days before increasing frequency.'),
+          );
+
           return uniqueStrings(out).slice(0, 5);
         })();
 
@@ -3765,6 +3825,46 @@ function BffCardView({
           ),
           source: 'base',
         };
+        const alternativeSections: Array<{
+          block: RecoBlockType;
+          title: string;
+          candidates: Array<Record<string, unknown>>;
+          filteredCount: number;
+        }> = [
+          {
+            block: 'competitors',
+            title: language === 'CN' ? 'Comparable alternatives' : 'Comparable alternatives',
+            candidates: competitorCandidates,
+            filteredCount: alternativeFilteredStats.competitors,
+          },
+          {
+            block: 'dupes',
+            title: language === 'CN' ? 'Dupes' : 'Dupes',
+            candidates: dupeCandidates,
+            filteredCount: alternativeFilteredStats.dupes,
+          },
+          {
+            block: 'related_products',
+            title: language === 'CN' ? 'Related products' : 'Related products',
+            candidates: relatedCandidates,
+            filteredCount: alternativeFilteredStats.related_products,
+          },
+        ];
+        const hasAlternatives = alternativeSections.some((section) => section.candidates.length > 0);
+        const totalFilteredAlternatives = alternativeSections.reduce((acc, section) => acc + Number(section.filteredCount || 0), 0);
+        if (analyticsCtx && totalFilteredAlternatives > 0) {
+          const eventKey = `${card.card_id || 'product_analysis'}::${totalFilteredAlternatives}`;
+          if (!alternativesFilterEventKeysRef.current.has(eventKey)) {
+            alternativesFilterEventKeysRef.current.add(eventKey);
+            emitAuroraProductAlternativesFiltered(analyticsCtx, {
+              request_id: asString((payload as any)?.request_id) || null,
+              bff_trace_id: requestHeaders.trace_id || null,
+              competitors_filtered: alternativeFilteredStats.competitors,
+              related_filtered: alternativeFilteredStats.related_products,
+              dupes_filtered: alternativeFilteredStats.dupes,
+            });
+          }
+        }
 
         return (
           <div className="space-y-3">
@@ -3788,10 +3888,15 @@ function BffCardView({
             ) : null}
 
             {visibleMissingLabels.length ? (
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
-                <div className="text-xs font-semibold text-amber-700">
-                  {language === 'CN' ? '当前分析限制' : 'Current analysis limits'}
-                </div>
+              <details className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-amber-700">
+                  <span>
+                    {language === 'CN'
+                      ? `当前分析限制（${visibleMissingLabels.length}）`
+                      : `Current analysis limits (${visibleMissingLabels.length})`}
+                  </span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {visibleMissingLabels.map((label) => (
                     <span
@@ -3802,7 +3907,7 @@ function BffCardView({
                     </span>
                   ))}
                 </div>
-              </div>
+              </details>
             ) : null}
 
             {profilePromptNeeded ? (
@@ -3910,15 +4015,68 @@ function BffCardView({
             ) : null}
 
             {howToUseBullets.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '安全使用建议' : 'How to use safely'}</div>
+              <details
+                open
+                className="rounded-2xl border border-border/60 bg-background/60 p-3"
+                onToggle={(event) => {
+                  const current = event.currentTarget;
+                  if (!current.open || !analyticsCtx) return;
+                  const eventKey = `${card.card_id || 'product_analysis'}::how_to_layer_inline_opened`;
+                  if (howToLayerEventKeysRef.current.has(eventKey)) return;
+                  howToLayerEventKeysRef.current.add(eventKey);
+                  emitAuroraHowToLayerInlineOpened(analyticsCtx, {
+                    request_id: asString((payload as any)?.request_id) || null,
+                    bff_trace_id: requestHeaders.trace_id || null,
+                  });
+                }}
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                  <span>{language === 'CN' ? 'How to layer（就地建议）' : 'How to layer (inline guidance)'}</span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
                   {howToUseBullets.map((tip) => (
                     <li key={tip}>{tip}</li>
                   ))}
                 </ul>
-              </div>
+              </details>
             ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="chip-button"
+                onClick={() => onAction('analysis_followup_prompt', {
+                  prompt: language === 'CN'
+                    ? '基于这款产品，帮我找更不容易拔干的替代品，并说明利弊取舍。'
+                    : 'Find less-drying alternatives to this product and explain the tradeoffs.',
+                })}
+              >
+                {language === 'CN' ? 'Find less-drying alternatives' : 'Find less-drying alternatives'}
+              </button>
+              <button
+                type="button"
+                className="chip-button"
+                onClick={() => onAction('analysis_followup_prompt', {
+                  prompt: language === 'CN'
+                    ? '如果目标是 acne 控制，帮我找更聚焦的替代品并给出选择建议。'
+                    : 'Find acne-focused alternatives and give me a clear pick recommendation.',
+                })}
+              >
+                {language === 'CN' ? 'Find acne-focused alternatives' : 'Find acne-focused alternatives'}
+              </button>
+              <button
+                type="button"
+                className="chip-button"
+                onClick={() => onAction('analysis_followup_prompt', {
+                  prompt: language === 'CN'
+                    ? '总结这个产品的用户反馈优缺点，按常见好评和常见踩雷分开。'
+                    : 'Show user-reported pros and cons for this product.',
+                })}
+              >
+                {language === 'CN' ? 'Show user-reported pros/cons' : 'Show user-reported pros/cons'}
+              </button>
+            </div>
 
             {socialOverall ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
@@ -4016,192 +4174,217 @@ function BffCardView({
               </div>
             ) : null}
 
-            {competitorCandidates.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '同类可替代产品' : 'Comparable alternatives'}</div>
-                <div className="mt-2 space-y-2">
-                  {competitorCandidates.slice(0, 4).map((candidate, idx) => {
-                    const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
-                    const cName =
-                      asString(candidate.name) ||
-                      asString((candidate as any).display_name) ||
-                      asString((candidate as any).displayName) ||
-                      (language === 'CN' ? '未知产品' : 'Unknown product');
-                    const cSimilarity = asNumber((candidate as any).similarity_score ?? (candidate as any).similarityScore);
-                    const cWhyObj = asObject((candidate as any).why_candidate || (candidate as any).whyCandidate) || null;
-                    const cWhy = cWhyObj
-                      ? uniqueStrings([
-                          asString((cWhyObj as any).summary),
-                          ...asArray((cWhyObj as any).reasons_user_visible || (cWhyObj as any).reasonsUserVisible).map((x) => asString(x)),
-                        ]).slice(0, 2)
-                      : uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate).slice(0, 2);
-                    const cHighlights = uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights).slice(0, 2);
-                    const cUrl = cHighlights.find((x) => isLikelyUrl(x)) || asString((candidate as any).url) || '';
-                    const llmSuggestion = asObject((candidate as any).llm_suggestion || (candidate as any).llmSuggestion) || null;
-                    const llmSuggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
-                    const llmWrongBlockTarget = isRecoBlockType(llmSuggestion?.wrong_block_target)
-                      ? llmSuggestion?.wrong_block_target
-                      : undefined;
-                    const llmRationale = asString(llmSuggestion?.rationale_user_visible);
-                    const llmFlags = uniqueStrings(llmSuggestion?.flags).slice(0, 4);
-                    const llmConfidence = asNumber(llmSuggestion?.confidence);
-                    const candidateId = asString((candidate as any).product_id) || asString((candidate as any).sku_id) || cName;
-                    const feedbackKey = `competitors::${candidateId}`.toLowerCase();
-                    const feedbackBusy = feedbackBusyByKey[feedbackKey] === true;
-                    const feedbackSaved = feedbackSavedByKey[feedbackKey] || null;
-                    const feedbackError = asString(feedbackErrorByKey[feedbackKey]);
-
-                    return (
-                      <div key={`${cBrand}_${cName}_${idx}`} className="rounded-xl border border-border/50 bg-muted/30 p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-[11px] text-muted-foreground">#{idx + 1}</div>
-                            <div className="truncate text-sm font-semibold text-foreground">{cBrand}</div>
-                            <div className="truncate text-xs text-muted-foreground">{cName}</div>
-                          </div>
-                          {typeof cSimilarity === 'number' && Number.isFinite(cSimilarity) ? (
-                            <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                              {language === 'CN'
-                                ? `相似度 ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`
-                                : `Similarity ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        {(cWhy.length || cHighlights.length) ? (
-                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                            {cWhy.map((x) => (
-                              <li key={x}>{x}</li>
-                            ))}
-                            {cHighlights
-                              .filter((x) => !isLikelyUrl(x))
-                              .map((x) => (
-                                <li key={x}>{x}</li>
-                              ))}
-                          </ul>
-                        ) : null}
-
-                        {(showEmployeeFeedbackControls && anchorProductIdForFeedback) ? (
-                          <div className="mt-2 space-y-2 rounded-xl border border-border/60 bg-background/70 p-2">
-                            {llmSuggestedLabel ? (
-                              <div className="space-y-1 text-[11px] text-muted-foreground">
-                                <div className="font-medium text-foreground">
-                                  {language === 'CN' ? 'LLM 预标注：' : 'LLM prelabel: '}
-                                  {formatRecoLabel(llmSuggestedLabel, language)}
-                                  {typeof llmConfidence === 'number' ? ` (${Math.round(llmConfidence * 100)}%)` : ''}
-                                </div>
-                                {llmRationale ? <div>{llmRationale}</div> : null}
-                                {llmFlags.length ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {llmFlags.map((flag) => (
-                                      <span key={flag} className="rounded-full border border-border/60 bg-muted/70 px-2 py-0.5 text-[10px]">
-                                        {flag}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                className="chip-button"
-                                disabled={feedbackBusy}
-                                onClick={() => {
-                                  void submitRecoFeedback({
-                                    candidate,
-                                    block: 'competitors',
-                                    rankPosition: idx + 1,
-                                    feedbackType: 'relevant',
-                                    anchorProductId: anchorProductIdForFeedback,
-                                    pipelineVersion,
-                                    models: feedbackModels,
-                                  });
-                                }}
-                              >
-                                {language === 'CN' ? '✅ 相关' : '✅ Relevant'}
-                              </button>
-                              <button
-                                type="button"
-                                className="chip-button"
-                                disabled={feedbackBusy}
-                                onClick={() => {
-                                  void submitRecoFeedback({
-                                    candidate,
-                                    block: 'competitors',
-                                    rankPosition: idx + 1,
-                                    feedbackType: 'not_relevant',
-                                    anchorProductId: anchorProductIdForFeedback,
-                                    pipelineVersion,
-                                    models: feedbackModels,
-                                  });
-                                }}
-                              >
-                                {language === 'CN' ? '❌ 不相关' : '❌ Not relevant'}
-                              </button>
-                              <button
-                                type="button"
-                                className="chip-button"
-                                disabled={feedbackBusy}
-                                onClick={() => {
-                                  void submitRecoFeedback({
-                                    candidate,
-                                    block: 'competitors',
-                                    rankPosition: idx + 1,
-                                    feedbackType: 'wrong_block',
-                                    wrongBlockTarget: llmWrongBlockTarget || 'dupes',
-                                    anchorProductId: anchorProductIdForFeedback,
-                                    pipelineVersion,
-                                    models: feedbackModels,
-                                  });
-                                }}
-                              >
-                                {language === 'CN' ? '⚠️ 分块错了' : '⚠️ Wrong block'}
-                              </button>
-                            </div>
-
-                            {feedbackSaved ? (
-                              <div className="text-[11px] text-emerald-700">
-                                {language === 'CN'
-                                  ? `已记录：${formatRecoLabel(feedbackSaved, language)}`
-                                  : `Saved: ${formatRecoLabel(feedbackSaved, language)}`}
-                              </div>
-                            ) : null}
-                            {feedbackError ? (
-                              <div className="text-[11px] text-rose-700">
-                                {language === 'CN' ? `提交失败：${feedbackError}` : `Submit failed: ${feedbackError}`}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-
-                        {(originalForCompare || (cUrl && onOpenPdp)) ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {originalForCompare ? (
-                              <button
-                                type="button"
-                                className="chip-button"
-                                onClick={() => onAction('dupe_compare', { original: originalForCompare, dupe: candidate })}
-                              >
-                                {language === 'CN' ? '对比差异' : 'Compare tradeoffs'}
-                              </button>
-                            ) : null}
-                            {(cUrl && onOpenPdp) ? (
-                              <button
-                                type="button"
-                                className="chip-button"
-                                onClick={() => onOpenPdp({ url: cUrl, title: `${cBrand} ${cName}`.trim() })}
-                              >
-                                {language === 'CN' ? '查看商品页' : 'Open product page'}
-                              </button>
-                            ) : null}
-                          </div>
+            {hasAlternatives ? (
+              <div className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
+                {alternativeSections.map((section) => {
+                  if (!section.candidates.length) return null;
+                  return (
+                    <div key={section.block} className="rounded-xl border border-border/50 bg-muted/30 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-muted-foreground">{section.title}</div>
+                        {section.filteredCount > 0 ? (
+                          <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
+                            {language === 'CN'
+                              ? `已过滤非护肤 ${section.filteredCount}`
+                              : `${section.filteredCount} non-skincare filtered`}
+                          </span>
                         ) : null}
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="mt-2 space-y-2">
+                        {section.candidates.slice(0, 3).map((candidate, idx) => {
+                          const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+                          const cName =
+                            asString(candidate.name) ||
+                            asString((candidate as any).display_name) ||
+                            asString((candidate as any).displayName) ||
+                            (language === 'CN' ? '未知产品' : 'Unknown product');
+                          const cSimilarity = asNumber((candidate as any).similarity_score ?? (candidate as any).similarityScore);
+                          const cWhyObj = asObject((candidate as any).why_candidate || (candidate as any).whyCandidate) || null;
+                          const cWhy = cWhyObj
+                            ? uniqueStrings([
+                              asString((cWhyObj as any).summary),
+                              ...asArray((cWhyObj as any).reasons_user_visible || (cWhyObj as any).reasonsUserVisible).map((x) => asString(x)),
+                            ]).slice(0, 2)
+                            : uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate).slice(0, 2);
+                          const cHighlights = uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights).slice(0, 3);
+                          const cTradeoff = cHighlights.find((line) => !isLikelyUrl(line)) || cWhy[1] || '';
+                          const cUrl = cHighlights.find((x) => isLikelyUrl(x)) || asString((candidate as any).url) || '';
+                          const llmSuggestion = asObject((candidate as any).llm_suggestion || (candidate as any).llmSuggestion) || null;
+                          const llmSuggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
+                          const llmWrongBlockTarget = isRecoBlockType(llmSuggestion?.wrong_block_target)
+                            ? llmSuggestion?.wrong_block_target
+                            : undefined;
+                          const llmRationale = asString(llmSuggestion?.rationale_user_visible);
+                          const llmFlags = uniqueStrings(llmSuggestion?.flags).slice(0, 4);
+                          const llmConfidence = asNumber(llmSuggestion?.confidence);
+                          const candidateId = asString((candidate as any).product_id) || asString((candidate as any).sku_id) || cName;
+                          const feedbackKey = `${section.block}::${candidateId}`.toLowerCase();
+                          const feedbackBusy = feedbackBusyByKey[feedbackKey] === true;
+                          const feedbackSaved = feedbackSavedByKey[feedbackKey] || null;
+                          const feedbackError = asString(feedbackErrorByKey[feedbackKey]);
+
+                          return (
+                            <div key={`${section.block}_${cBrand}_${cName}_${idx}`} className="rounded-xl border border-border/50 bg-background/60 p-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-[11px] text-muted-foreground">#{idx + 1}</div>
+                                  <div className="truncate text-sm font-semibold text-foreground">{cBrand}</div>
+                                  <div className="truncate text-xs text-muted-foreground">{cName}</div>
+                                </div>
+                                {typeof cSimilarity === 'number' && Number.isFinite(cSimilarity) ? (
+                                  <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                                    {language === 'CN'
+                                      ? `相似度 ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`
+                                      : `Similarity ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {cWhy.length ? (
+                                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                  {cWhy.map((x) => (
+                                    <li key={x}>{x}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+
+                              {cTradeoff ? (
+                                <div className="mt-2 text-[11px] text-muted-foreground">
+                                  {language === 'CN' ? `Tradeoff: ${cTradeoff}` : `Tradeoff: ${cTradeoff}`}
+                                </div>
+                              ) : null}
+
+                              {(canShowEmployeeFeedbackControls && anchorProductIdForFeedback && section.block === 'competitors') ? (
+                                <div className="mt-2 space-y-2 rounded-xl border border-border/60 bg-background/70 p-2">
+                                  {llmSuggestedLabel ? (
+                                    <div className="space-y-1 text-[11px] text-muted-foreground">
+                                      <div className="font-medium text-foreground">
+                                        {language === 'CN' ? 'LLM 预标注：' : 'LLM prelabel: '}
+                                        {formatRecoLabel(llmSuggestedLabel, language)}
+                                        {typeof llmConfidence === 'number' ? ` (${Math.round(llmConfidence * 100)}%)` : ''}
+                                      </div>
+                                      {llmRationale ? <div>{llmRationale}</div> : null}
+                                      {llmFlags.length ? (
+                                        <div className="flex flex-wrap gap-1">
+                                          {llmFlags.map((flag) => (
+                                            <span key={flag} className="rounded-full border border-border/60 bg-muted/70 px-2 py-0.5 text-[10px]">
+                                              {flag}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      className="chip-button"
+                                      disabled={feedbackBusy}
+                                      onClick={() => {
+                                        void submitRecoFeedback({
+                                          candidate,
+                                          block: 'competitors',
+                                          rankPosition: idx + 1,
+                                          feedbackType: 'relevant',
+                                          anchorProductId: anchorProductIdForFeedback,
+                                          pipelineVersion,
+                                          models: feedbackModels,
+                                        });
+                                      }}
+                                    >
+                                      {language === 'CN' ? '✅ 相关' : '✅ Relevant'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="chip-button"
+                                      disabled={feedbackBusy}
+                                      onClick={() => {
+                                        void submitRecoFeedback({
+                                          candidate,
+                                          block: 'competitors',
+                                          rankPosition: idx + 1,
+                                          feedbackType: 'not_relevant',
+                                          anchorProductId: anchorProductIdForFeedback,
+                                          pipelineVersion,
+                                          models: feedbackModels,
+                                        });
+                                      }}
+                                    >
+                                      {language === 'CN' ? '❌ 不相关' : '❌ Not relevant'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="chip-button"
+                                      disabled={feedbackBusy}
+                                      onClick={() => {
+                                        void submitRecoFeedback({
+                                          candidate,
+                                          block: 'competitors',
+                                          rankPosition: idx + 1,
+                                          feedbackType: 'wrong_block',
+                                          wrongBlockTarget: llmWrongBlockTarget || 'dupes',
+                                          anchorProductId: anchorProductIdForFeedback,
+                                          pipelineVersion,
+                                          models: feedbackModels,
+                                        });
+                                      }}
+                                    >
+                                      {language === 'CN' ? '⚠️ 分块错了' : '⚠️ Wrong block'}
+                                    </button>
+                                  </div>
+
+                                  {feedbackSaved ? (
+                                    <div className="text-[11px] text-emerald-700">
+                                      {language === 'CN'
+                                        ? `已记录：${formatRecoLabel(feedbackSaved, language)}`
+                                        : `Saved: ${formatRecoLabel(feedbackSaved, language)}`}
+                                    </div>
+                                  ) : null}
+                                  {feedbackError ? (
+                                    <div className="text-[11px] text-rose-700">
+                                      {language === 'CN' ? `提交失败：${feedbackError}` : `Submit failed: ${feedbackError}`}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+
+                              {(originalForCompare || (cUrl && onOpenPdp)) ? (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {originalForCompare ? (
+                                    <button
+                                      type="button"
+                                      className="chip-button"
+                                      onClick={() => onAction('dupe_compare', { original: originalForCompare, dupe: candidate })}
+                                    >
+                                      {language === 'CN' ? 'Compare tradeoffs' : 'Compare tradeoffs'}
+                                    </button>
+                                  ) : null}
+                                  {(cUrl && onOpenPdp) ? (
+                                    <button
+                                      type="button"
+                                      className="chip-button"
+                                      onClick={() => onOpenPdp({ url: cUrl, title: `${cBrand} ${cName}`.trim() })}
+                                    >
+                                      {language === 'CN' ? '查看商品页' : 'Open product page'}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {(!hasAlternatives && totalFilteredAlternatives > 0) ? (
+              <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+                {language === 'CN'
+                  ? `已自动过滤 ${totalFilteredAlternatives} 个非护肤候选，当前暂未返回可用替代。`
+                  : `${totalFilteredAlternatives} non-skincare alternatives were filtered; no valid alternatives returned yet.`}
               </div>
             ) : null}
 
@@ -6116,6 +6299,14 @@ export default function BffChat() {
           language === 'CN'
             ? `请分析成分“${ingredientName}”：说明常见功效、使用注意点，并给出含该成分的主流产品例子（按平价/中端/高端各举例）。`
             : `Analyze ingredient "${ingredientName}": explain common benefits, key watchouts, and example mainstream products containing it (budget/mid/premium).`;
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: prompt }]);
+        await sendChat(prompt);
+        return;
+      }
+
+      if (actionId === 'analysis_followup_prompt') {
+        const prompt = typeof data?.prompt === 'string' ? data.prompt.trim() : '';
+        if (!prompt) return;
         setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: prompt }]);
         await sendChat(prompt);
         return;
