@@ -248,6 +248,15 @@ export const emitAuroraProductAnalysisDegraded = (
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_product_analysis_degraded', ctx, props);
 
+export const emitAuroraGatewayUnavailable = (
+  ctx: AnalyticsContext,
+  props: {
+    path?: string | null;
+    status?: number | null;
+    is_network_error?: boolean;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_gateway_unavailable', ctx, props);
+
 export const emitAuroraPhotoModulesProductTap = (
   ctx: AnalyticsContext,
   props: {
