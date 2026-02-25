@@ -237,6 +237,70 @@ export const emitAuroraPhotoModulesProductTap = (
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_photo_modules_product_tap', ctx, props);
 
+export const emitAuroraProductParseMissing = (
+  ctx: AnalyticsContext,
+  props: {
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+    reason?: string | null;
+    reasons?: string[];
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_product_parse_missing', ctx, props);
+
+export const emitAuroraProductAnalysisDegraded = (
+  ctx: AnalyticsContext,
+  props: {
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+    reason?: string | null;
+    reasons?: string[];
+    source_chain?: string[];
+    blocked_reason?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_product_analysis_degraded', ctx, props);
+
+export const emitIngredientProductOpenAttempt = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    product_id?: string | null;
+    source_card_type?: string | null;
+    url?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('ingredient_product_open_attempt', ctx, props);
+
+export const emitIngredientProductOpenResult = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    product_id?: string | null;
+    source_card_type?: string | null;
+    url?: string | null;
+    result: 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
+    blocked_reason?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('ingredient_product_open_result', ctx, props);
+
+export const emitDiscoveryLinkOpenAttempt = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    source_card_type?: string | null;
+    url?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('discovery_link_open_attempt', ctx, props);
+
+export const emitDiscoveryLinkOpenResult = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    source_card_type?: string | null;
+    url?: string | null;
+    result: 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
+    blocked_reason?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('discovery_link_open_result', ctx, props);
+
 export const emitOpenedCompatibility = (
   ctx: AnalyticsContext,
   props: {
