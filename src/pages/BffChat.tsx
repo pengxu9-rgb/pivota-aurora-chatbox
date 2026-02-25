@@ -21,6 +21,8 @@ import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
+import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
+import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
@@ -48,6 +50,7 @@ import {
   emitPdpFailReason,
   emitPdpLatencyMs,
   emitPdpOpenPath,
+  emitAuroraProductParseMissing,
   emitUiChipClicked,
   emitUiLanguageSwitched,
   emitUiOutboundOpened,
@@ -526,6 +529,8 @@ const iconForCard = (type: string): IconType => {
   if (t === 'diagnosis_gate') return Activity;
   if (t === 'budget_gate') return Wallet;
   if (t === 'ingredient_plan' || t === 'ingredient_plan_v2') return FlaskConical;
+  if (t === 'analysis_story_v2') return ListChecks;
+  if (t === 'routine_prompt') return Sparkles;
   if (t === 'confidence_notice') return AlertTriangle;
   if (t === 'recommendations') return Sparkles;
   if (t === 'profile') return User;
@@ -546,6 +551,8 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
   if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（含商品）' : 'Ingredient plan (with products)';
+  if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
+  if (key === 'routine_prompt') return language === 'CN' ? '补全 Routine' : 'Complete routine';
   if (key === 'confidence_notice') return language === 'CN' ? '置信度提示' : 'Confidence notice';
   if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
   if (key === 'product_parse') return language === 'CN' ? '产品解析' : 'Product parse';
@@ -833,9 +840,18 @@ const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
   /^raw\./i,
 ];
 
+const USER_VISIBLE_MISSING_INFO_CODES = new Set([
+  'url_fetch_forbidden_403',
+  'url_fetch_recovered_with_fallback',
+  'on_page_fetch_blocked',
+  'regulatory_source_used',
+  'version_verification_needed',
+]);
+
 const isInternalMissingInfoCode = (code: string): boolean => {
   const token = String(code || '').trim();
   if (!token) return false;
+  if (USER_VISIBLE_MISSING_INFO_CODES.has(token.toLowerCase())) return false;
   return INTERNAL_MISSING_INFO_PATTERNS.some((pattern) => pattern.test(token));
 };
 
@@ -914,6 +930,7 @@ const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 15000;
+const ROUTINE_CHAT_TIMEOUT_MS = 28000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
@@ -924,6 +941,13 @@ const RECO_PDP_NO_CANDIDATES_RETRY_ENABLED = (() => {
     .toLowerCase();
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
 })();
+
+const isRoutineChatAction = (action?: V1Action): boolean => {
+  if (!action || typeof action !== 'object') return false;
+  const actionId = String((action as any).action_id || '').trim().toLowerCase();
+  if (!actionId) return false;
+  return actionId.includes('routine');
+};
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
   const isUnknownToken = (value: unknown) => /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(String(value ?? '').trim());
@@ -1378,6 +1402,15 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     evidence_missing: { CN: '证据不足', EN: 'Evidence missing' },
     upstream_missing_or_unstructured: { CN: '上游返回缺失/不规范', EN: 'Upstream missing/unstructured' },
     upstream_missing_or_empty: { CN: '上游返回为空', EN: 'Upstream empty' },
+    catalog_fallback_disabled: { CN: 'catalog 回退未启用', EN: 'Catalog fallback is disabled' },
+    catalog_no_match: { CN: 'catalog 未匹配到该产品', EN: 'No catalog match found' },
+    catalog_backend_not_configured: { CN: 'catalog 后端未配置', EN: 'Catalog backend is not configured' },
+    pivota_backend_not_configured: { CN: 'catalog 后端未配置', EN: 'Catalog backend is not configured' },
+    anchor_missing_deepscan_degraded: {
+      CN: '无锚点降级分析后仍证据不足',
+      EN: 'No-anchor degraded deep-scan still lacked evidence',
+    },
+    heuristic_url_parse: { CN: '已通过 URL 启发式补全产品信息', EN: 'Product info was recovered from URL heuristics' },
     alternatives_partial: { CN: '部分步骤缺少平替/相似选项', EN: 'Alternatives missing for some steps' },
     social_data_limited: { CN: '跨平台讨论较少', EN: 'Cross-platform discussion is limited' },
     competitors_low_coverage: { CN: '同类对比样本较少', EN: 'Limited comparable products' },
@@ -1386,6 +1419,11 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     upstream_analysis_missing: { CN: '分析进行中，结果会继续补全', EN: 'Analysis is in progress and will continue to improve' },
     url_ingredient_analysis_used: { CN: '已从商品页补抓成分信息', EN: 'Ingredient details were retrieved from the product page' },
     url_realtime_product_intel_used: { CN: '已启用实时分析补全结果', EN: 'Real-time analysis was used to fill missing data' },
+    url_fetch_forbidden_403: { CN: '官网页面被站点策略拦截（403）', EN: 'Official page fetch was blocked by site policy (403)' },
+    url_fetch_recovered_with_fallback: { CN: '页面抓取已通过回退策略恢复', EN: 'Page fetch recovered with fallback strategy' },
+    on_page_fetch_blocked: { CN: '页面抓取受限，已走无页面降级链路', EN: 'On-page fetch was blocked; degraded no-page path was used' },
+    regulatory_source_used: { CN: '已启用监管源补充证据', EN: 'Regulatory source was used as evidence backup' },
+    version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
     'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
     'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
     'skin_fit.profile.barrierStatus': { CN: '未提供屏障状态', EN: 'Barrier status was not provided' },
@@ -3130,6 +3168,16 @@ function BffCardView({
     .map((channel) => normalizeSocialChannelName(channel))
     .filter(Boolean) as string[];
   const expertNotes = uniqueStrings(evidence?.expert_notes || (evidence as any)?.expertNotes);
+  const evidenceSources = asArray((evidence as any)?.sources)
+    .map((item) => asObject(item))
+    .filter(Boolean)
+    .map((source) => ({
+      type: asString((source as any)?.type).toLowerCase(),
+      url: asString((source as any)?.url),
+      label: asString((source as any)?.label),
+    }))
+    .filter((source) => /^https?:\/\//i.test(source.url))
+    .slice(0, 2);
 
   const evidenceKeyIngredients = uniqueStrings(science?.key_ingredients || (science as any)?.keyIngredients).slice(0, 10);
   const evidenceMechanisms = uniqueStrings(science?.mechanisms).slice(0, 8);
@@ -3357,6 +3405,31 @@ function BffCardView({
         const product = productRaw ? toUiProduct(productRaw, language) : null;
         const productOffers = productRaw ? toAnchorOffers(productRaw, language) : [];
         const confidence = asNumber((payload as any).confidence);
+        const parseSource = asString((payload as any).parse_source || (payload as any).parseSource).toLowerCase();
+        const parseSourceLabel = (() => {
+          if (!parseSource || parseSource === 'none') return '';
+          const labels: Record<string, { CN: string; EN: string }> = {
+            upstream_structured: { CN: '上游结构化', EN: 'Upstream structured' },
+            answer_json: { CN: '回答 JSON', EN: 'Answer JSON' },
+            heuristic_url: { CN: 'URL 启发式', EN: 'URL heuristic' },
+            catalog_resolve: { CN: 'Catalog resolve', EN: 'Catalog resolve' },
+            catalog_search: { CN: 'Catalog search', EN: 'Catalog search' },
+          };
+          return labels[parseSource]?.[language] || parseSource;
+        })();
+        const missingCodes = uniqueStrings([
+          ...(Array.isArray((payload as any).missing_info) ? (payload as any).missing_info : []),
+          ...asArray(card.field_missing)
+            .map((item) => asObject(item))
+            .filter(Boolean)
+            .map((item) => asString((item as any).reason))
+            .filter(Boolean),
+        ]);
+        const reasonLabels = missingCodes
+          .slice(0, 3)
+          .map((code) => labelMissing(String(code), language))
+          .filter(Boolean)
+          .join(language === 'CN' ? '、' : ' · ');
 
         return (
           <div className="space-y-3">
@@ -3364,7 +3437,16 @@ function BffCardView({
               <AuroraAnchorCard product={product} offers={productOffers} language={language} hidePriceWhenUnknown />
             ) : (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
-                {language === 'CN' ? '未能解析出产品实体（上游缺失）。' : 'Failed to parse a product entity (upstream missing).'}
+                <div>
+                  {language === 'CN'
+                    ? '本次未拿到稳定产品锚点，已自动尝试降级恢复并继续后续分析。'
+                    : 'No stable product anchor was parsed; fallback recovery was attempted so analysis can continue.'}
+                </div>
+                {reasonLabels ? (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {language === 'CN' ? `原因：${reasonLabels}` : `Reason: ${reasonLabels}`}
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -3372,6 +3454,11 @@ function BffCardView({
               {typeof confidence === 'number' && Number.isFinite(confidence) ? (
                 <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
                   {language === 'CN' ? `置信度 ${(confidence * 100).toFixed(0)}%` : `Confidence ${(confidence * 100).toFixed(0)}%`}
+                </span>
+              ) : null}
+              {parseSourceLabel ? (
+                <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                  {language === 'CN' ? `来源 ${parseSourceLabel}` : `Source ${parseSourceLabel}`}
                 </span>
               ) : null}
             </div>
@@ -3384,6 +3471,10 @@ function BffCardView({
         const verdictRaw = asString(assessment?.verdict);
         const verdict = verdictRaw ? verdictRaw.trim() : null;
         const rawMissing = uniqueStrings(asArray((payload as any).missing_info).map((item) => asString(item)).filter(Boolean));
+        const visibleMissingLabels = rawMissing
+          .map((code) => labelMissing(String(code), language))
+          .filter(Boolean)
+          .slice(0, 5);
         const rawReasons = uniqueStrings(assessment?.reasons).slice(0, 10);
         const heroRaw = asObject((assessment as any)?.hero_ingredient || (assessment as any)?.heroIngredient) || null;
         const heroName = asString(heroRaw?.name);
@@ -3603,6 +3694,24 @@ function BffCardView({
               </div>
             ) : null}
 
+            {visibleMissingLabels.length ? (
+              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="text-xs font-semibold text-amber-700">
+                  {language === 'CN' ? '当前分析限制' : 'Current analysis limits'}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {visibleMissingLabels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full border border-amber-500/40 bg-background/70 px-2 py-1 text-[11px] text-amber-700"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {profilePromptNeeded ? (
               <div className="rounded-2xl border border-sky-500/30 bg-sky-500/10 p-3">
                 <div className="text-xs font-semibold text-sky-700">
@@ -3784,6 +3893,31 @@ function BffCardView({
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
+              </div>
+            ) : null}
+
+            {evidenceSources.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '证据来源' : 'Evidence sources'}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {evidenceSources.map((source) => {
+                    const sourceLabel = source.label ||
+                      (source.type === 'regulatory'
+                        ? (language === 'CN' ? '监管源' : 'Regulatory')
+                        : (language === 'CN' ? '官网页面' : 'Official page'));
+                    return (
+                      <a
+                        key={`${source.type}_${source.url}`}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-foreground transition hover:bg-muted/80"
+                      >
+                        {sourceLabel}
+                      </a>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
 
@@ -4346,7 +4480,10 @@ export default function BffChat() {
   });
   const [input, setInput] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [routineFormBusy, setRoutineFormBusy] = useState(false);
+  const isLoading = chatBusy || analysisBusy;
   const [loadingIntent, setLoadingIntent] = useState<AuroraLoadingIntent>('default');
   const [photoUploading, setPhotoUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -4541,7 +4678,7 @@ export default function BffChat() {
   );
 
   const bootstrap = useCallback(async () => {
-    setIsLoading(true);
+    setChatBusy(true);
     try {
       const requestHeaders = { ...headers, lang: language };
       const langPref = toLangPref(language);
@@ -4680,7 +4817,7 @@ export default function BffChat() {
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsLoading(false);
+      setChatBusy(false);
     }
   }, [agentState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
 
@@ -4691,6 +4828,9 @@ export default function BffChat() {
     setQuickProfileStep('skin_feel');
     setQuickProfileDraft({});
     setQuickProfileBusy(false);
+    setChatBusy(false);
+    setAnalysisBusy(false);
+    setRoutineFormBusy(false);
     setItems([]);
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
@@ -4743,7 +4883,7 @@ export default function BffChat() {
   }, [profileSheetOpen, bootstrapInfo, profileSnapshot]);
 
   const saveProfile = useCallback(async () => {
-    setIsLoading(true);
+    setChatBusy(true);
     try {
       const patch: Record<string, unknown> = {};
       if (profileDraft.skinType.trim()) patch.skinType = profileDraft.skinType.trim();
@@ -4790,7 +4930,7 @@ export default function BffChat() {
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsLoading(false);
+      setChatBusy(false);
     }
   }, [headers, language, profileDraft, tryApplyEnvelopeFromBffError]);
 
@@ -4884,7 +5024,7 @@ export default function BffChat() {
   );
 
   const saveCheckin = useCallback(async () => {
-    setIsLoading(true);
+    setChatBusy(true);
     try {
       const payload: Record<string, unknown> = {
         redness: Math.max(0, Math.min(5, Math.trunc(checkinDraft.redness))),
@@ -4927,7 +5067,7 @@ export default function BffChat() {
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsLoading(false);
+      setChatBusy(false);
     }
   }, [applyEnvelope, checkinDraft, headers, language, tryApplyEnvelopeFromBffError]);
 
@@ -5287,7 +5427,7 @@ export default function BffChat() {
           typeof profileCurrentRoutine === 'string'
             ? Boolean(profileCurrentRoutine.trim())
             : Boolean(profileCurrentRoutine && typeof profileCurrentRoutine === 'object');
-        setIsLoading(true);
+        setAnalysisBusy(true);
         setError(null);
         try {
           setSessionState('S4_ANALYSIS_LOADING');
@@ -5305,7 +5445,7 @@ export default function BffChat() {
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
-          setIsLoading(false);
+          setAnalysisBusy(false);
         }
         return;
       }
@@ -5360,7 +5500,8 @@ export default function BffChat() {
       },
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
-      setIsLoading(true);
+      setChatBusy(true);
+      const timeoutMs = isRoutineChatAction(action) ? ROUTINE_CHAT_TIMEOUT_MS : CHAT_TIMEOUT_MS;
       try {
         const requestHeaders = { ...headers, lang: language };
         const session = buildChatSession({
@@ -5383,13 +5524,13 @@ export default function BffChat() {
         const env = await bffJson<V1Envelope>('/v1/chat', requestHeaders, {
           method: 'POST',
           body: JSON.stringify(body),
-          timeoutMs: CHAT_TIMEOUT_MS,
+          timeoutMs,
         });
         applyEnvelope(env);
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setIsLoading(false);
+        setChatBusy(false);
         setLoadingIntent('default');
       }
     },
@@ -5426,7 +5567,7 @@ export default function BffChat() {
       if (!inputText) return;
 
       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: inputText }]);
-      setIsLoading(true);
+      setChatBusy(true);
       setError(null);
 
       try {
@@ -5439,10 +5580,41 @@ export default function BffChat() {
           method: 'POST',
           body: JSON.stringify(asUrl ? { url: asUrl } : { text: inputText }),
         });
-        applyEnvelope(parseEnv);
-
         const parseCard = Array.isArray(parseEnv.cards) ? parseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
-        const parsedProduct = parseCard && parseCard.payload && typeof parseCard.payload === 'object' ? (parseCard.payload as any).product : null;
+        const parsePayload = parseCard && parseCard.payload && typeof parseCard.payload === 'object'
+          ? parseCard.payload as Record<string, unknown>
+          : null;
+        const parsedProduct = parsePayload && typeof parsePayload.product === 'object' && !Array.isArray(parsePayload.product)
+          ? parsePayload.product
+          : null;
+        const parseMissingReasons = uniqueStrings([
+          ...asArray(parsePayload?.missing_info).map((item) => asString(item)).filter(Boolean),
+          ...asArray(parseCard?.field_missing)
+            .map((item) => asObject(item))
+            .filter(Boolean)
+            .map((item) => asString((item as any).reason))
+            .filter(Boolean),
+        ]);
+        if (!parsedProduct) {
+          const analyticsCtx: AnalyticsContext = {
+            brief_id: headers.brief_id,
+            trace_id: headers.trace_id,
+            aurora_uid: headers.aurora_uid,
+            lang: toLangPref(language),
+            state: agentState,
+          };
+          emitAuroraProductParseMissing(analyticsCtx, {
+            request_id: asString(parseEnv?.request_id) || null,
+            bff_trace_id: asString(parseEnv?.trace_id) || null,
+            reason: parseMissingReasons[0] || 'upstream_missing_or_unstructured',
+            reasons: parseMissingReasons.slice(0, 6),
+          });
+        }
+        let parseEnvelopeApplied = false;
+        if (parsedProduct) {
+          applyEnvelope(parseEnv);
+          parseEnvelopeApplied = true;
+        }
         const analyzeBody = parsedProduct
           ? asUrl
             ? { product: parsedProduct, url: asUrl }
@@ -5451,19 +5623,39 @@ export default function BffChat() {
             ? { url: asUrl }
             : { name: inputText };
 
-        const analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(analyzeBody),
-        });
+        let analyzeEnv: V1Envelope;
+        try {
+          analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(analyzeBody),
+          });
+        } catch (err) {
+          if (!parseEnvelopeApplied) {
+            applyEnvelope(parseEnv);
+            parseEnvelopeApplied = true;
+          }
+          throw err;
+        }
+        const analyzeCard = Array.isArray(analyzeEnv.cards) ? analyzeEnv.cards.find((c) => c && c.type === 'product_analysis') : null;
+        const analyzeAssessment =
+          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
+            ? asObject((analyzeCard.payload as any).assessment)
+            : null;
+        const verdict = asString((analyzeAssessment as any)?.verdict).trim().toLowerCase();
+        const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
+        if (!parseEnvelopeApplied && !hasEffectiveVerdict) {
+          applyEnvelope(parseEnv);
+          parseEnvelopeApplied = true;
+        }
         applyEnvelope(analyzeEnv);
         setSessionState('P2_PRODUCT_RESULT');
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setIsLoading(false);
+        setChatBusy(false);
       }
     },
-    [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
+    [agentState, applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
   );
 
   const runDupeSearch = useCallback(
@@ -5483,7 +5675,7 @@ export default function BffChat() {
           content: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
         },
       ]);
-      setIsLoading(true);
+      setChatBusy(true);
       setLoadingIntent('default');
       setError(null);
 
@@ -5498,7 +5690,7 @@ export default function BffChat() {
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setIsLoading(false);
+        setChatBusy(false);
         setLoadingIntent('default');
       }
     },
@@ -5587,7 +5779,7 @@ export default function BffChat() {
           },
         ]);
 
-        setIsLoading(true);
+        setChatBusy(true);
         setLoadingIntent('default');
         setError(null);
         try {
@@ -5600,7 +5792,7 @@ export default function BffChat() {
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
-          setIsLoading(false);
+          setChatBusy(false);
           setLoadingIntent('default');
         }
         return;
@@ -5692,7 +5884,7 @@ export default function BffChat() {
         const concerns = concernsRaw.map((c) => String(c || '').trim()).filter(Boolean);
         const requestHeaders = { ...headers, lang: language };
 
-        setIsLoading(true);
+        setChatBusy(true);
         try {
           const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
             method: 'POST',
@@ -5703,7 +5895,7 @@ export default function BffChat() {
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
-          setIsLoading(false);
+          setChatBusy(false);
         }
         return;
       }
@@ -5962,8 +6154,10 @@ export default function BffChat() {
       .slice(0, 4);
   }, [analysisPhotoRefs]);
 
-  const runLowConfidenceSkinAnalysis = useCallback(async () => {
-    setIsLoading(true);
+  const runLowConfidenceSkinAnalysis = useCallback(async (opts?: { fromRoutineForm?: boolean }) => {
+    const fromRoutineForm = opts?.fromRoutineForm === true;
+    if (fromRoutineForm) setRoutineFormBusy(true);
+    setAnalysisBusy(true);
     setError(null);
     try {
       setSessionState('S4_ANALYSIS_LOADING');
@@ -5976,12 +6170,17 @@ export default function BffChat() {
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsLoading(false);
+      setAnalysisBusy(false);
+      if (fromRoutineForm) setRoutineFormBusy(false);
     }
   }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
 
   const runRoutineSkinAnalysis = useCallback(
-    async (routineInput: string | Record<string, unknown>, photoRefsOverride?: AnalysisPhotoRef[]) => {
+    async (
+      routineInput: string | Record<string, unknown>,
+      photoRefsOverride?: AnalysisPhotoRef[],
+      opts?: { fromRoutineForm?: boolean },
+    ) => {
       const routine =
         typeof routineInput === 'string'
           ? String(routineInput || '').trim()
@@ -5989,7 +6188,9 @@ export default function BffChat() {
             ? routineInput
             : null;
       if (!routine || (typeof routine === 'string' && !routine.trim())) return;
-      setIsLoading(true);
+      const fromRoutineForm = opts?.fromRoutineForm === true;
+      if (fromRoutineForm) setRoutineFormBusy(true);
+      setAnalysisBusy(true);
       setError(null);
       const requestHeaders = { ...headers, lang: language };
 
@@ -6010,7 +6211,8 @@ export default function BffChat() {
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setIsLoading(false);
+        setAnalysisBusy(false);
+        if (fromRoutineForm) setRoutineFormBusy(false);
       }
     },
     [applyEnvelope, getSanitizedAnalysisPhotos, headers, language, tryApplyEnvelopeFromBffError],
@@ -6430,6 +6632,9 @@ export default function BffChat() {
     setQuickProfileStep('skin_feel');
     setQuickProfileDraft({});
     setQuickProfileBusy(false);
+    setChatBusy(false);
+    setAnalysisBusy(false);
+    setRoutineFormBusy(false);
     setIngredientQuestionBusy(false);
     setItems([]);
     setAnalysisPhotoRefs([]);
@@ -6490,12 +6695,17 @@ export default function BffChat() {
       setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
       setAuthSheetOpen(true);
     }
+    const suppressRoutineAutoChip = searchParams.open === 'routine' && searchParams.chip_id === 'chip.start.routine';
 
     try {
       const sp = new URLSearchParams(window.location.search);
       let changed = false;
       if (sp.has('open')) {
         sp.delete('open');
+        changed = true;
+      }
+      if (suppressRoutineAutoChip && sp.get('chip_id') === 'chip.start.routine') {
+        sp.delete('chip_id');
         changed = true;
       }
       if (!sp.get('brief_id') && headers.brief_id) {
@@ -6518,7 +6728,8 @@ export default function BffChat() {
   useEffect(() => {
     if (!hasBootstrapped) return;
     if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id) return;
-    const hasActionIntent = Boolean(searchParams.q || searchParams.chip_id);
+    const suppressRoutineAutoChip = searchParams.open === 'routine' && searchParams.chip_id === 'chip.start.routine';
+    const hasActionIntent = Boolean(searchParams.q || searchParams.chip_id) && !suppressRoutineAutoChip;
     if (!hasActionIntent) {
       actionIntentConsumedRef.current = null;
       return;
@@ -6992,7 +7203,7 @@ export default function BffChat() {
                     routineTab === 'am' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/60'
                   }`}
                   onClick={() => setRoutineTab('am')}
-                  disabled={isLoading}
+                  disabled={routineFormBusy}
                 >
                   {language === 'CN' ? '早上（AM）' : 'Morning (AM)'}
                 </button>
@@ -7004,7 +7215,7 @@ export default function BffChat() {
                     routineTab === 'pm' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/60'
                   }`}
                   onClick={() => setRoutineTab('pm')}
-                  disabled={isLoading}
+                  disabled={routineFormBusy}
                 >
                   {language === 'CN' ? '晚上（PM）' : 'Evening (PM)'}
                 </button>
@@ -7021,7 +7232,7 @@ export default function BffChat() {
                           value={routineDraft.am.cleanser}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
                           placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
-                          disabled={isLoading}
+                          disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
@@ -7031,7 +7242,7 @@ export default function BffChat() {
                           value={routineDraft.am.treatment}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
                           placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
-                          disabled={isLoading}
+                          disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
@@ -7041,7 +7252,7 @@ export default function BffChat() {
                           value={routineDraft.am.moisturizer}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
                           placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
-                          disabled={isLoading}
+                          disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
@@ -7051,7 +7262,7 @@ export default function BffChat() {
                           value={routineDraft.am.spf}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
                           placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
-                          disabled={isLoading}
+                          disabled={routineFormBusy}
                         />
                       </label>
                     </div>
@@ -7066,7 +7277,7 @@ export default function BffChat() {
                           value={routineDraft.pm.cleanser}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
                           placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
-                          disabled={isLoading}
+                          disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
@@ -7076,7 +7287,7 @@ export default function BffChat() {
                           value={routineDraft.pm.treatment}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
                           placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
-                          disabled={isLoading}
+                          disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
@@ -7086,7 +7297,7 @@ export default function BffChat() {
                           value={routineDraft.pm.moisturizer}
                           onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
                           placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
-                          disabled={isLoading}
+                          disabled={routineFormBusy}
                         />
                       </label>
                     </div>
@@ -7107,7 +7318,7 @@ export default function BffChat() {
                           ? '例如：用了 retinol 会刺痛；最近泛红…'
                           : 'e.g., stings after retinol; recent redness…'
                       }
-                      disabled={isLoading}
+                      disabled={routineFormBusy}
                     />
                   </div>
                 </details>
@@ -7115,7 +7326,7 @@ export default function BffChat() {
 
               <div className="sticky bottom-0 -mx-[var(--aurora-page-x)] border-t border-border/40 bg-card/95 px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
                 <div className="flex gap-2">
-                  <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={isLoading}>
+                  <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={routineFormBusy}>
                     {language === 'CN' ? '取消' : 'Cancel'}
                   </button>
                   <button
@@ -7133,23 +7344,23 @@ export default function BffChat() {
                           content: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
                         },
                       ]);
-                      void runLowConfidenceSkinAnalysis();
+                      void runLowConfidenceSkinAnalysis({ fromRoutineForm: true });
                     }}
-                    disabled={isLoading}
+                    disabled={routineFormBusy}
                   >
                     {language === 'CN' ? '先给基线' : 'Baseline only'}
                   </button>
                   <button
                     type="button"
                     className="chip-button chip-button-primary flex-1"
-                    disabled={isLoading || !hasAnyRoutineDraftInput(routineDraft)}
+                    disabled={routineFormBusy || !hasAnyRoutineDraftInput(routineDraft)}
                     onClick={() => {
                       const payload = buildCurrentRoutinePayloadFromDraft(routineDraft);
                       const text = routineDraftToDisplayText(routineDraft, language);
                       setRoutineSheetOpen(false);
                       setRoutineDraft(makeEmptyRoutineDraft());
                       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: text }]);
-                      void runRoutineSkinAnalysis(payload);
+                      void runRoutineSkinAnalysis(payload, undefined, { fromRoutineForm: true });
                     }}
                   >
                     {language === 'CN' ? '保存并分析' : 'Save & analyze'}
