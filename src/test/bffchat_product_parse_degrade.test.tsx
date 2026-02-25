@@ -22,6 +22,7 @@ vi.mock('@/lib/auroraAnalytics', async () => {
   return {
     ...actual,
     emitAuroraProductParseMissing: vi.fn(),
+    emitAuroraProductAnalysisDegraded: vi.fn(),
   };
 });
 
@@ -29,7 +30,7 @@ import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
 import { bffJson } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
-import { emitAuroraProductParseMissing } from '@/lib/auroraAnalytics';
+import { emitAuroraProductAnalysisDegraded, emitAuroraProductParseMissing } from '@/lib/auroraAnalytics';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -285,10 +286,25 @@ describe('BffChat product-parse degraded UX', () => {
                     sources: [
                       { type: 'official_page', url: 'https://brand.example/spf35.html', label: 'Official page' },
                       { type: 'regulatory', url: 'https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=abc123', label: 'DailyMed' },
+                      { type: 'inci_decoder', url: 'https://incidecoder.com/products/labseries-all-in-one-defense', label: 'INCIDecoder' },
                     ],
                   },
                   confidence: 0.41,
-                  missing_info: ['url_fetch_forbidden_403', 'regulatory_source_used', 'version_verification_needed'],
+                  missing_info: [
+                    'url_fetch_forbidden_403',
+                    'regulatory_source_used',
+                    'incidecoder_source_used',
+                    'incidecoder_unverified_not_persisted',
+                    'version_verification_needed',
+                  ],
+                  provenance: {
+                    source_chain: ['official_page', 'regulatory', 'inci_decoder', 'llm_extraction'],
+                    kb_write: {
+                      attempted: true,
+                      persisted: false,
+                      blocked_reason: 'incidecoder_unverified_not_persisted',
+                    },
+                  },
                 },
               },
             ],
@@ -319,5 +335,7 @@ describe('BffChat product-parse degraded UX', () => {
     expect(screen.getByText(/official page fetch was blocked by site policy \(403\)/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /official page/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /dailymed/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /incidecoder/i })).toBeInTheDocument();
+    expect(vi.mocked(emitAuroraProductAnalysisDegraded)).toHaveBeenCalled();
   });
 });

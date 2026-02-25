@@ -236,6 +236,18 @@ export const emitAuroraProductParseMissing = (
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_product_parse_missing', ctx, props);
 
+export const emitAuroraProductAnalysisDegraded = (
+  ctx: AnalyticsContext,
+  props: {
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+    reason?: string | null;
+    reasons?: string[];
+    source_chain?: string[];
+    blocked_reason?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_product_analysis_degraded', ctx, props);
+
 export const emitAuroraPhotoModulesProductTap = (
   ctx: AnalyticsContext,
   props: {

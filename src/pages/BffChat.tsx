@@ -50,6 +50,7 @@ import {
   emitPdpFailReason,
   emitPdpLatencyMs,
   emitPdpOpenPath,
+  emitAuroraProductAnalysisDegraded,
   emitAuroraProductParseMissing,
   emitUiChipClicked,
   emitUiLanguageSwitched,
@@ -845,6 +846,10 @@ const USER_VISIBLE_MISSING_INFO_CODES = new Set([
   'url_fetch_recovered_with_fallback',
   'on_page_fetch_blocked',
   'regulatory_source_used',
+  'incidecoder_source_used',
+  'incidecoder_no_match',
+  'incidecoder_fetch_failed',
+  'incidecoder_unverified_not_persisted',
   'version_verification_needed',
 ]);
 
@@ -1423,6 +1428,13 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     url_fetch_recovered_with_fallback: { CN: '页面抓取已通过回退策略恢复', EN: 'Page fetch recovered with fallback strategy' },
     on_page_fetch_blocked: { CN: '页面抓取受限，已走无页面降级链路', EN: 'On-page fetch was blocked; degraded no-page path was used' },
     regulatory_source_used: { CN: '已启用监管源补充证据', EN: 'Regulatory source was used as evidence backup' },
+    incidecoder_source_used: { CN: '已启用 INCIDecoder 补充证据', EN: 'INCIDecoder was used as a supplemental source' },
+    incidecoder_no_match: { CN: 'INCIDecoder 未匹配到对应产品', EN: 'INCIDecoder did not find a matching product' },
+    incidecoder_fetch_failed: { CN: 'INCIDecoder 抓取失败', EN: 'INCIDecoder fetch failed' },
+    incidecoder_unverified_not_persisted: {
+      CN: 'INCIDecoder 结果未通过交叉验证，已阻断 KB 回写',
+      EN: 'INCIDecoder result was not cross-validated and was blocked from KB persistence',
+    },
     version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
     'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
     'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
@@ -3168,6 +3180,13 @@ function BffCardView({
     .map((channel) => normalizeSocialChannelName(channel))
     .filter(Boolean) as string[];
   const expertNotes = uniqueStrings(evidence?.expert_notes || (evidence as any)?.expertNotes);
+  const sourcePriority = (type: string): number => {
+    const token = String(type || '').trim().toLowerCase();
+    if (token === 'official_page') return 0;
+    if (token === 'regulatory') return 1;
+    if (token === 'inci_decoder') return 2;
+    return 9;
+  };
   const evidenceSources = asArray((evidence as any)?.sources)
     .map((item) => asObject(item))
     .filter(Boolean)
@@ -3177,7 +3196,9 @@ function BffCardView({
       label: asString((source as any)?.label),
     }))
     .filter((source) => /^https?:\/\//i.test(source.url))
-    .slice(0, 2);
+    .filter((source, idx, arr) => arr.findIndex((x) => x.url === source.url) === idx)
+    .sort((a, b) => sourcePriority(a.type) - sourcePriority(b.type))
+    .slice(0, 3);
 
   const evidenceKeyIngredients = uniqueStrings(science?.key_ingredients || (science as any)?.keyIngredients).slice(0, 10);
   const evidenceMechanisms = uniqueStrings(science?.mechanisms).slice(0, 8);
@@ -3470,11 +3491,7 @@ function BffCardView({
         const assessment = asObject((payload as any).assessment);
         const verdictRaw = asString(assessment?.verdict);
         const verdict = verdictRaw ? verdictRaw.trim() : null;
-        const rawMissing = uniqueStrings(asArray((payload as any).missing_info).map((item) => asString(item)).filter(Boolean));
-        const visibleMissingLabels = rawMissing
-          .map((code) => labelMissing(String(code), language))
-          .filter(Boolean)
-          .slice(0, 5);
+        const rawMissingAll = uniqueStrings(asArray((payload as any).missing_info).map((item) => asString(item)).filter(Boolean));
         const rawReasons = uniqueStrings(assessment?.reasons).slice(0, 10);
         const heroRaw = asObject((assessment as any)?.hero_ingredient || (assessment as any)?.heroIngredient) || null;
         const heroName = asString(heroRaw?.name);
@@ -3483,6 +3500,22 @@ function BffCardView({
         const anchorRaw = asObject((assessment as any)?.anchor_product || (assessment as any)?.anchorProduct);
         const product = anchorRaw ? toUiProduct(anchorRaw, language) : null;
         const anchorOffers = anchorRaw ? toAnchorOffers(anchorRaw, language) : [];
+        const hasAnchorProduct = Boolean(
+          anchorRaw && (
+            asString((anchorRaw as any).product_id) ||
+            asString((anchorRaw as any).sku_id) ||
+            asString((anchorRaw as any).display_name) ||
+            asString((anchorRaw as any).name) ||
+            asString((anchorRaw as any).url)
+          ),
+        );
+        const rawMissing = uniqueStrings(
+          rawMissingAll.filter((code) => !(hasAnchorProduct && String(code || '').trim().toLowerCase() === 'anchor_product_missing')),
+        );
+        const visibleMissingLabels = rawMissing
+          .map((code) => labelMissing(String(code), language))
+          .filter(Boolean)
+          .slice(0, 5);
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
         const profilePromptRaw = asObject((payload as any).profile_prompt || (payload as any).profilePrompt) || null;
         const competitorsObj = asObject((payload as any).competitors) || null;
@@ -3904,6 +3937,8 @@ function BffCardView({
                     const sourceLabel = source.label ||
                       (source.type === 'regulatory'
                         ? (language === 'CN' ? '监管源' : 'Regulatory')
+                        : source.type === 'inci_decoder'
+                          ? (language === 'CN' ? 'INCIDecoder' : 'INCIDecoder')
                         : (language === 'CN' ? '官网页面' : 'Official page'));
                     return (
                       <a
@@ -5641,8 +5676,45 @@ export default function BffChat() {
           analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
             ? asObject((analyzeCard.payload as any).assessment)
             : null;
+        const analyzePayload =
+          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
+            ? (analyzeCard.payload as Record<string, unknown>)
+            : null;
         const verdict = asString((analyzeAssessment as any)?.verdict).trim().toLowerCase();
         const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
+        const analyzeMissingReasons = uniqueStrings([
+          ...asArray((analyzePayload as any)?.missing_info).map((item) => asString(item)).filter(Boolean),
+          ...asArray((analyzePayload as any)?.user_facing_gaps).map((item) => asString(item)).filter(Boolean),
+          ...asArray((analyzePayload as any)?.internal_debug_codes).map((item) => asString(item)).filter(Boolean),
+        ]);
+        const analyzeProvenance = asObject((analyzePayload as any)?.provenance) || null;
+        const sourceChain = uniqueStrings(asArray((analyzeProvenance as any)?.source_chain).map((item) => asString(item)).filter(Boolean));
+        const kbWrite = asObject((analyzeProvenance as any)?.kb_write || (analyzeProvenance as any)?.kbWrite) || null;
+        const blockedReason = asString((kbWrite as any)?.blocked_reason || (kbWrite as any)?.blockedReason) || null;
+        const looksDegraded =
+          !hasEffectiveVerdict ||
+          analyzeMissingReasons.some((code) =>
+            /(analysis_limited|evidence_missing|upstream_missing_or_unstructured|url_fetch_|on_page_fetch_blocked|incidecoder_|catalog_)/i.test(
+              String(code || ''),
+            ),
+          );
+        if (looksDegraded) {
+          const analyticsCtx: AnalyticsContext = {
+            brief_id: headers.brief_id,
+            trace_id: headers.trace_id,
+            aurora_uid: headers.aurora_uid,
+            lang: toLangPref(language),
+            state: agentState,
+          };
+          emitAuroraProductAnalysisDegraded(analyticsCtx, {
+            request_id: asString(analyzeEnv?.request_id) || null,
+            bff_trace_id: asString(analyzeEnv?.trace_id) || null,
+            reason: analyzeMissingReasons[0] || (!hasEffectiveVerdict ? 'unknown_verdict' : null),
+            reasons: analyzeMissingReasons.slice(0, 8),
+            source_chain: sourceChain.slice(0, 6),
+            blocked_reason: blockedReason,
+          });
+        }
         if (!parseEnvelopeApplied && !hasEffectiveVerdict) {
           applyEnvelope(parseEnv);
           parseEnvelopeApplied = true;
