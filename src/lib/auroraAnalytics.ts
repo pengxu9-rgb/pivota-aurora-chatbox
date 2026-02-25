@@ -362,7 +362,7 @@ export const emitAuroraIngredientExternalFallbackUsed = (
 export const emitOpenedCompatibility = (
   ctx: AnalyticsContext,
   props: {
-    source: 'check_with_my_products' | 'how_to_layer';
+    source: 'check_with_my_products' | 'how_to_layer' | 'advanced_compatibility_check';
     base_product_name?: string;
     selected_count?: number;
   } & Record<string, unknown>,
@@ -387,3 +387,22 @@ export const emitViewedCompatibilityResult = (
     base_product_name?: string;
   } & Record<string, unknown>,
 ) => emitWithContext('viewed_compatibility_result', ctx, props);
+
+export const emitAuroraProductAlternativesFiltered = (
+  ctx: AnalyticsContext,
+  props: {
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+    competitors_filtered?: number;
+    related_filtered?: number;
+    dupes_filtered?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_product_alternatives_filtered', ctx, props);
+
+export const emitAuroraHowToLayerInlineOpened = (
+  ctx: AnalyticsContext,
+  props: {
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_how_to_layer_inline_opened', ctx, props);
