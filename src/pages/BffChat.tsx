@@ -46,6 +46,7 @@ import {
 import {
   emitAgentProfileQuestionAnswered,
   emitAgentStateEntered,
+  emitAuroraGatewayUnavailable,
   emitPdpClick,
   emitPdpFailReason,
   emitPdpLatencyMs,
@@ -220,6 +221,39 @@ const toBffErrorMessage = (err: unknown): string => {
     return err.message;
   }
   return err instanceof Error ? err.message : String(err);
+};
+
+const isGatewayNetworkFailure = (err: unknown): boolean => {
+  if (err instanceof TypeError) return true;
+  const msg = String(err instanceof Error ? err.message : err || '').trim().toLowerCase();
+  return /failed to fetch|networkerror|load failed|cors|network request failed/.test(msg);
+};
+
+const classifyGatewayErrorForDisplay = (
+  err: unknown,
+  language: UiLanguage,
+): { message: string; status: number | null; isNetworkError: boolean } | null => {
+  if (err instanceof PivotaAgentBffError && err.status === 503) {
+    return {
+      message:
+        language === 'CN'
+          ? '服务暂时不可用，请稍后重试。'
+          : 'Service is temporarily unavailable. Please retry shortly.',
+      status: 503,
+      isNetworkError: false,
+    };
+  }
+  if (isGatewayNetworkFailure(err)) {
+    return {
+      message:
+        language === 'CN'
+          ? '网关暂时不可达或服务正在重启，请稍后重试。'
+          : 'Gateway is temporarily unreachable or restarting. Please retry shortly.',
+      status: null,
+      isNetworkError: true,
+    };
+  }
+  return null;
 };
 
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
@@ -4738,6 +4772,28 @@ export default function BffChat() {
     [applyEnvelope],
   );
 
+  const handleGatewayUnavailableError = useCallback(
+    (err: unknown, path: string) => {
+      const classified = classifyGatewayErrorForDisplay(err, language);
+      if (!classified) return false;
+      const analyticsCtx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: toLangPref(language),
+        state: agentState,
+      };
+      emitAuroraGatewayUnavailable(analyticsCtx, {
+        path,
+        status: classified.status,
+        is_network_error: classified.isNetworkError,
+      });
+      setError(classified.message);
+      return true;
+    },
+    [agentState, headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+  );
+
   const bootstrap = useCallback(async () => {
     setChatBusy(true);
     try {
@@ -5589,7 +5645,9 @@ export default function BffChat() {
         });
         applyEnvelope(env);
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (tryApplyEnvelopeFromBffError(err)) return;
+        if (handleGatewayUnavailableError(err, '/v1/chat')) return;
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
         setLoadingIntent('default');
@@ -5606,6 +5664,7 @@ export default function BffChat() {
       language,
       profileSnapshot,
       sessionState,
+      handleGatewayUnavailableError,
       tryApplyEnvelopeFromBffError,
     ]
   );
@@ -5630,6 +5689,7 @@ export default function BffChat() {
       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: inputText }]);
       setChatBusy(true);
       setError(null);
+      let failurePath = '/v1/product/parse';
 
       try {
         setSessionState('P1_PRODUCT_ANALYZING');
@@ -5686,6 +5746,7 @@ export default function BffChat() {
 
         let analyzeEnv: V1Envelope;
         try {
+          failurePath = '/v1/product/analyze';
           analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
             method: 'POST',
             body: JSON.stringify(analyzeBody),
@@ -5748,12 +5809,14 @@ export default function BffChat() {
         applyEnvelope(analyzeEnv);
         setSessionState('P2_PRODUCT_RESULT');
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (tryApplyEnvelopeFromBffError(err)) return;
+        if (handleGatewayUnavailableError(err, typeof failurePath === 'string' ? failurePath : '/v1/product/analyze')) return;
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
       }
     },
-    [agentState, applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
+    [agentState, applyEnvelope, headers, language, parseMaybeUrl, handleGatewayUnavailableError, tryApplyEnvelopeFromBffError],
   );
 
   const runDupeSearch = useCallback(
