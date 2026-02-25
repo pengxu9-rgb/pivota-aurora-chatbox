@@ -1426,6 +1426,11 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     url_fetch_forbidden_403: { CN: '官网页面被站点策略拦截（403）', EN: 'Official page fetch was blocked by site policy (403)' },
     url_fetch_recovered_with_fallback: { CN: '页面抓取已通过回退策略恢复', EN: 'Page fetch recovered with fallback strategy' },
     on_page_fetch_blocked: { CN: '页面抓取受限，已走无页面降级链路', EN: 'On-page fetch was blocked; degraded no-page path was used' },
+    anchor_soft_blocked_ambiguous: { CN: '锚点候选信息不足，已软拦截', EN: 'Anchor candidate was ambiguous and soft-blocked' },
+    anchor_soft_blocked_url_mismatch: { CN: '锚点与输入 URL 不一致，已软拦截', EN: 'Anchor mismatched the input URL and was soft-blocked' },
+    anchor_soft_blocked_non_skincare: { CN: '疑似非护肤品类，已软拦截', EN: 'Likely non-skincare category and soft-blocked' },
+    anchor_id_not_used_due_to_low_trust: { CN: '锚点可信度不足，未使用 anchor id', EN: 'Anchor id was not used due to low trust' },
+    kb_entry_quarantined: { CN: '命中历史缓存异常，已隔离并实时重算', EN: 'A stale KB hit was quarantined and recalculated in real time' },
     regulatory_source_used: { CN: '已启用监管源补充证据', EN: 'Regulatory source was used as evidence backup' },
     incidecoder_source_used: { CN: '已启用 INCIDecoder 补充证据', EN: 'INCIDecoder was used as a supplemental source' },
     incidecoder_no_match: { CN: 'INCIDecoder 未匹配到对应产品', EN: 'INCIDecoder did not find a matching product' },
@@ -3487,17 +3492,38 @@ function BffCardView({
           .map((code) => labelMissing(String(code), language))
           .filter(Boolean)
           .join(language === 'CN' ? '、' : ' · ');
+        const anchorSoftBlocked = missingCodes.some((code) => {
+          const token = String(code || '').trim().toLowerCase();
+          return token.startsWith('anchor_soft_blocked_') || token === 'anchor_id_not_used_due_to_low_trust';
+        });
 
         return (
           <div className="space-y-3">
             {product ? (
-              <AuroraAnchorCard product={product} offers={productOffers} language={language} hidePriceWhenUnknown />
+              <div className="space-y-2">
+                <AuroraAnchorCard product={product} offers={productOffers} language={language} hidePriceWhenUnknown />
+                {anchorSoftBlocked ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    {language === 'CN'
+                      ? '已阻止不可靠锚点用于 ID 绑定，系统将继续走 URL 实时分析。'
+                      : 'An unreliable anchor was blocked from ID binding; URL realtime analysis will continue.'}
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
                 <div>
-                  {language === 'CN'
-                    ? '本次未拿到稳定产品锚点，已自动尝试降级恢复并继续后续分析。'
-                    : 'No stable product anchor was parsed; fallback recovery was attempted so analysis can continue.'}
+                  {anchorSoftBlocked
+                    ? (
+                      language === 'CN'
+                        ? '已阻止不可靠锚点，系统会继续走 URL 实时分析链路。'
+                        : 'An unreliable anchor was blocked; URL realtime analysis will continue.'
+                    )
+                    : (
+                      language === 'CN'
+                        ? '本次未拿到稳定产品锚点，已自动尝试降级恢复并继续后续分析。'
+                        : 'No stable product anchor was parsed; fallback recovery was attempted so analysis can continue.'
+                    )}
                 </div>
                 {reasonLabels ? (
                   <div className="mt-1 text-xs text-muted-foreground">
