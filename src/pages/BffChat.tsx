@@ -3383,6 +3383,7 @@ function BffCardView({
         const assessment = asObject((payload as any).assessment);
         const verdictRaw = asString(assessment?.verdict);
         const verdict = verdictRaw ? verdictRaw.trim() : null;
+        const rawMissing = uniqueStrings(asArray((payload as any).missing_info).map((item) => asString(item)).filter(Boolean));
         const rawReasons = uniqueStrings(assessment?.reasons).slice(0, 10);
         const heroRaw = asObject((assessment as any)?.hero_ingredient || (assessment as any)?.heroIngredient) || null;
         const heroName = asString(heroRaw?.name);
