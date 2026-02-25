@@ -338,4 +338,83 @@ describe('BffChat product-parse degraded UX', () => {
     expect(screen.getByRole('link', { name: /incidecoder/i })).toBeInTheDocument();
     expect(vi.mocked(emitAuroraProductAnalysisDegraded)).toHaveBeenCalled();
   });
+
+  it('shows anchor soft-block and KB quarantine diagnostics', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_4', trace_id: 'trace_bootstrap_4' }));
+      }
+      if (path === '/v1/product/parse') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_parse_4',
+            trace_id: 'trace_parse_4',
+            cards: [
+              {
+                card_id: 'parse_4',
+                type: 'product_parse',
+                payload: {
+                  product: null,
+                  confidence: 0.43,
+                  missing_info: ['anchor_soft_blocked_url_mismatch', 'anchor_id_not_used_due_to_low_trust'],
+                  parse_source: 'answer_json',
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/product/analyze') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analyze_4',
+            trace_id: 'trace_analyze_4',
+            cards: [
+              {
+                card_id: 'analyze_4',
+                type: 'product_analysis',
+                payload: {
+                  assessment: {
+                    verdict: 'Unknown',
+                    reasons: ['The target page was blocked by site policy (403).'],
+                  },
+                  evidence: {
+                    science: { key_ingredients: [], mechanisms: [], fit_notes: [], risk_notes: [] },
+                    social_signals: { typical_positive: [], typical_negative: [], risk_for_groups: [] },
+                    expert_notes: [],
+                    confidence: 0.33,
+                    missing_info: ['evidence_missing'],
+                  },
+                  confidence: 0.33,
+                  missing_info: ['kb_entry_quarantined', 'url_fetch_forbidden_403'],
+                },
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    fireEvent.click(entry);
+
+    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    fireEvent.change(productInput, { target: { value: 'https://www.labseries.com/product/x' } });
+    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/an unreliable anchor was blocked/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/a stale kb hit was quarantined and recalculated in real time/i)).toBeInTheDocument();
+  });
 });
