@@ -68,48 +68,6 @@ describe("aurora ui contracts", () => {
           ],
           buying_channels: ["beauty_retail", "ecommerce", "unknown_channel"],
         },
-        forecast_window: [
-          {
-            date: "2026-03-01",
-            temp_low_c: 7,
-            temp_high_c: 14,
-            humidity_mean: 78,
-            uv_max: 3.2,
-            precip_mm: 1.4,
-            wind_kph: 18,
-            condition_text: "Mostly cloudy",
-          },
-        ],
-        alerts: [
-          {
-            provider: "Meteo-France Vigilance",
-            severity: "yellow",
-            title: "Official alert: Flood (yellow)",
-            summary: "Moderate flooding warning",
-            start_at: "2026-02-24T06:00:00Z",
-            end_at: "2026-02-25T00:00:00Z",
-            region: "Paris",
-            action_hint: "Re-check official alerts before outdoor plans.",
-          },
-        ],
-        reco_bundle: [
-          {
-            trigger: "Elevated UV",
-            action: "Use SPF50+ and reapply every 2 hours outdoors.",
-            ingredient_logic: "Prioritize high UVA protection.",
-            product_types: ["SPF50+ sunscreen fluid", "Portable reapplication format"],
-            reapply_rule: "If outdoors >90 minutes: reapply every 2 hours.",
-          },
-        ],
-        store_examples: [
-          {
-            name: "Citypharma",
-            type: "Pharmacy",
-            address: "26 Rue du Four, 75006 Paris",
-            district: "6th arrondissement",
-            source: "curated_reference",
-          },
-        ],
         confidence: {
           level: "medium",
           missing_inputs: ["currentRoutine"],
@@ -126,10 +84,6 @@ describe("aurora ui contracts", () => {
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[0]?.match_status).toBe("kb_verified");
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[1]?.match_status).toBe("llm_only");
     expect(model?.travel_readiness?.shopping_preview?.buying_channels).toEqual(["beauty_retail", "ecommerce"]);
-    expect(model?.travel_readiness?.forecast_window?.[0]?.condition_text).toBe("Mostly cloudy");
-    expect(model?.travel_readiness?.alerts?.[0]?.provider).toBe("Meteo-France Vigilance");
-    expect(model?.travel_readiness?.reco_bundle?.[0]?.product_types?.[0]).toBe("SPF50+ sunscreen fluid");
-    expect(model?.travel_readiness?.store_examples?.[0]?.name).toBe("Citypharma");
     expect(model?.travel_readiness?.confidence?.missing_inputs).toContain("currentRoutine");
   });
 

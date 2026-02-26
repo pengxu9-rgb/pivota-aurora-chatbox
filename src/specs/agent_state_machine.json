@@ -22,7 +22,7 @@
     "SAFETY_TRIAGE"
   ],
   "transition_rules": {
-    "hard_rule": "NO_STATE_ADVANCE_WITHOUT_EXPLICIT_TRIGGER"
+    "hard_rule": "SOFT_FALLBACK_ON_INVALID_TRANSITION"
   },
   "trigger_source": ["chip", "action", "text_explicit"],
   "chips": [

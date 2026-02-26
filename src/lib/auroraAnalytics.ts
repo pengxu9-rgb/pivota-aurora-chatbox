@@ -226,6 +226,17 @@ export const emitAuroraPhotoModulesActionTap = (
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_photo_modules_action_tap', ctx, props);
 
+export const emitAuroraPhotoModulesProductTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    module_id: string;
+    product_id?: string | null;
+    merchant_id?: string | null;
+    title?: string;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_photo_modules_product_tap', ctx, props);
+
 export const emitAuroraProductParseMissing = (
   ctx: AnalyticsContext,
   props: {
@@ -248,121 +259,52 @@ export const emitAuroraProductAnalysisDegraded = (
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_product_analysis_degraded', ctx, props);
 
-export const emitAuroraGatewayUnavailable = (
-  ctx: AnalyticsContext,
-  props: {
-    path?: string | null;
-    status?: number | null;
-    is_network_error?: boolean;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_gateway_unavailable', ctx, props);
-
-export const emitAuroraPhotoModulesProductTap = (
+export const emitIngredientProductOpenAttempt = (
   ctx: AnalyticsContext,
   props: {
     card_id?: string | null;
-    module_id: string;
     product_id?: string | null;
-    merchant_id?: string | null;
-    source_block?: string | null;
-    price_tier?: string | null;
-    price?: number | null;
-    currency?: string | null;
-    title?: string;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_photo_modules_product_tap', ctx, props);
-
-export const emitAuroraIngredientPlanProductTap = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id: string;
-    product_id?: string | null;
-    source_block?: 'competitor' | 'dupe' | string;
-    price_tier?: string | null;
-    price?: number | null;
-    currency?: string | null;
-    title?: string;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_ingredient_plan_product_tap', ctx, props);
-
-export const emitAuroraIngredientProductImpression = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id: string;
-    product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-    price?: number | null;
-    currency?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('ingredient_product_impression', ctx, props);
-
-export const emitAuroraIngredientProductClick = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id: string;
-    product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-    price?: number | null;
-    currency?: string | null;
-    pdp_url?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('ingredient_product_click', ctx, props);
-
-export const emitAuroraIngredientProductOpenAttempt = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id: string;
-    product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-    price?: number | null;
-    currency?: string | null;
-    pdp_url?: string | null;
-    open_target?: 'external' | 'internal' | string;
+    source_card_type?: string | null;
+    url?: string | null;
   } & Record<string, unknown>,
 ) => emitWithContext('ingredient_product_open_attempt', ctx, props);
 
-export const emitAuroraIngredientProductOpenResult = (
+export const emitIngredientProductOpenResult = (
   ctx: AnalyticsContext,
   props: {
     card_id?: string | null;
-    ingredient_id: string;
     product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-    price?: number | null;
-    currency?: string | null;
-    pdp_url?: string | null;
-    success: boolean;
+    source_card_type?: string | null;
+    url?: string | null;
+    result: 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
     blocked_reason?: string | null;
-    open_mode?: 'anchor_new_tab' | 'window_open' | 'same_tab_fallback' | string;
   } & Record<string, unknown>,
 ) => emitWithContext('ingredient_product_open_result', ctx, props);
 
-export const emitAuroraIngredientExternalFallbackUsed = (
+export const emitDiscoveryLinkOpenAttempt = (
   ctx: AnalyticsContext,
   props: {
     card_id?: string | null;
-    ingredient_id: string;
-    source?: string | null;
-    fallback_type?: string | null;
+    source_card_type?: string | null;
+    url?: string | null;
   } & Record<string, unknown>,
-) => emitWithContext('ingredient_external_fallback_used', ctx, props);
+) => emitWithContext('discovery_link_open_attempt', ctx, props);
+
+export const emitDiscoveryLinkOpenResult = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    source_card_type?: string | null;
+    url?: string | null;
+    result: 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
+    blocked_reason?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('discovery_link_open_result', ctx, props);
 
 export const emitOpenedCompatibility = (
   ctx: AnalyticsContext,
   props: {
-    source: 'check_with_my_products' | 'how_to_layer' | 'advanced_compatibility_check';
+    source: 'check_with_my_products' | 'how_to_layer';
     base_product_name?: string;
     selected_count?: number;
   } & Record<string, unknown>,
@@ -387,22 +329,3 @@ export const emitViewedCompatibilityResult = (
     base_product_name?: string;
   } & Record<string, unknown>,
 ) => emitWithContext('viewed_compatibility_result', ctx, props);
-
-export const emitAuroraProductAlternativesFiltered = (
-  ctx: AnalyticsContext,
-  props: {
-    request_id?: string | null;
-    bff_trace_id?: string | null;
-    competitors_filtered?: number;
-    related_filtered?: number;
-    dupes_filtered?: number;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_product_alternatives_filtered', ctx, props);
-
-export const emitAuroraHowToLayerInlineOpened = (
-  ctx: AnalyticsContext,
-  props: {
-    request_id?: string | null;
-    bff_trace_id?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_how_to_layer_inline_opened', ctx, props);

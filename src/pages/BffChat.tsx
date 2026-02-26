@@ -14,12 +14,10 @@ import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard, type AuroraLoadingIntent } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
-import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
-import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
@@ -46,7 +44,6 @@ import {
 import {
   emitAgentProfileQuestionAnswered,
   emitAgentStateEntered,
-  emitAuroraGatewayUnavailable,
   emitPdpClick,
   emitPdpFailReason,
   emitPdpLatencyMs,
@@ -223,39 +220,6 @@ const toBffErrorMessage = (err: unknown): string => {
     return err.message;
   }
   return err instanceof Error ? err.message : String(err);
-};
-
-const isGatewayNetworkFailure = (err: unknown): boolean => {
-  if (err instanceof TypeError) return true;
-  const msg = String(err instanceof Error ? err.message : err || '').trim().toLowerCase();
-  return /failed to fetch|networkerror|load failed|cors|network request failed/.test(msg);
-};
-
-const classifyGatewayErrorForDisplay = (
-  err: unknown,
-  language: UiLanguage,
-): { message: string; status: number | null; isNetworkError: boolean } | null => {
-  if (err instanceof PivotaAgentBffError && err.status === 503) {
-    return {
-      message:
-        language === 'CN'
-          ? '服务暂时不可用，请稍后重试。'
-          : 'Service is temporarily unavailable. Please retry shortly.',
-      status: 503,
-      isNetworkError: false,
-    };
-  }
-  if (isGatewayNetworkFailure(err)) {
-    return {
-      message:
-        language === 'CN'
-          ? '网关暂时不可达或服务正在重启，请稍后重试。'
-          : 'Gateway is temporarily unreachable or restarting. Please retry shortly.',
-      status: null,
-      isNetworkError: true,
-    };
-  }
-  return null;
 };
 
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
@@ -565,7 +529,8 @@ const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
   if (t === 'diagnosis_gate') return Activity;
   if (t === 'budget_gate') return Wallet;
-  if (t === 'ingredient_plan' || t === 'ingredient_plan_v2') return FlaskConical;
+  if (t === 'ingredient_plan') return FlaskConical;
+  if (t === 'ingredient_plan_v2') return FlaskConical;
   if (t === 'analysis_story_v2') return ListChecks;
   if (t === 'routine_prompt') return Sparkles;
   if (t === 'confidence_notice') return AlertTriangle;
@@ -587,7 +552,7 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'budget_gate') return language === 'CN' ? '预算确认' : 'Budget';
   if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
-  if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（含商品）' : 'Ingredient plan (with products)';
+  if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（个性化）' : 'Ingredient plan (personalized)';
   if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
   if (key === 'routine_prompt') return language === 'CN' ? '补全 Routine' : 'Complete routine';
   if (key === 'confidence_notice') return language === 'CN' ? '置信度提示' : 'Confidence notice';
@@ -2939,13 +2904,7 @@ function BffCardView({
 
   const structuredCitations = cardType === 'aurora_structured' ? extractExternalVerificationCitations(payload) : [];
 
-  if (
-    !debug &&
-    (cardType === 'gate_notice' ||
-      cardType === 'session_bootstrap' ||
-      cardType === 'budget_gate')
-  )
-    return null;
+  if (!debug && cardType === 'session_bootstrap') return null;
 
   if (!debug && cardType === 'aurora_structured' && structuredCitations.length === 0) return null;
 
@@ -3066,7 +3025,6 @@ function BffCardView({
         analyticsCtx={analyticsCtx}
         cardId={card.card_id}
         sanitizerDrops={sanitizer_drops}
-        debug={debug}
       />
     );
   }
@@ -3113,69 +3071,144 @@ function BffCardView({
   }
 
   if (cardType === 'analysis_story_v2') {
-    return <AnalysisStoryCard payload={payload} language={language} onAction={(id, data) => onAction(id, data)} />;
+    return <AnalysisStoryCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
   if (cardType === 'routine_prompt') {
-    const prompt = asObject(payload) ?? {};
-    const title = asString(prompt.title) || (language === 'CN' ? '先补全 routine 再推荐' : 'Complete routine before recommendations');
-    const subtitle =
-      asString(prompt.subtitle) ||
+    const missingFields = asArray((payload as any).missing_fields).map((item) => asString(item)).filter(Boolean) as string[];
+    const whyNow =
+      asString((payload as any).why_now) ||
       (language === 'CN'
-        ? '先补全 AM/PM 习惯，可显著提升推荐准确度与兼容性。'
-        : 'Complete AM/PM routine first to improve recommendation relevance and compatibility.');
-    const ctaText = asString(prompt.cta_text) || (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
-    const actionId = asString(prompt.action_id) || 'chip.start.routine';
-    const replyText =
-      asString(prompt.reply_text) ||
-      (language === 'CN'
-        ? '我来补全 AM/PM routine，再给我个性化产品建议。'
-        : 'Let me complete AM/PM routine, then give me personalized product recommendations.');
-    const missingFields = asArray(prompt.missing_fields).map((item) => asString(item)).filter(Boolean) as string[];
-    const whyNow = asString(prompt.why_now);
+        ? '补全 AM/PM routine 后，系统会基于你当前产品做冲突规避与个性化排序。'
+        : 'Complete AM/PM routine to unlock conflict-aware personalized ranking.');
+    const ctaLabel = asString((payload as any).cta_label) || (language === 'CN' ? '补全 AM/PM Routine' : 'Add AM/PM routine');
 
     return (
-      <div className="space-y-2 rounded-2xl border border-primary/30 bg-primary/5 p-3">
-        <div className="text-sm font-semibold text-foreground">{title}</div>
-        <div className="text-xs text-muted-foreground">{subtitle}</div>
-        {whyNow ? <div className="text-xs text-muted-foreground">{whyNow}</div> : null}
-        {missingFields.length ? (
-          <div className="text-xs text-muted-foreground">
-            {(language === 'CN' ? '待补充：' : 'Missing: ') + missingFields.slice(0, 8).join(', ')}
-          </div>
-        ) : null}
+      <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
+        <div className="text-sm text-foreground">{whyNow}</div>
+        {missingFields.length ? <div className="mt-2 text-xs text-muted-foreground">{missingFields.join(' · ')}</div> : null}
         <button
           type="button"
-          className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15"
-          onClick={() => onAction(actionId, { reply_text: replyText, trigger_source: 'routine_prompt' })}
+          className="chip-button chip-button-primary mt-3"
+          onClick={() =>
+            onAction('chip.start.routine', {
+              trigger_source: 'routine_prompt',
+              source_card_type: 'routine_prompt',
+              cta_action: asString((payload as any).cta_action) || 'open_routine_intake',
+            })
+          }
         >
-          {ctaText}
+          {ctaLabel}
         </button>
       </div>
     );
   }
 
   if (cardType === 'ingredient_plan') {
+    const planObj = asObject((payload as any).plan) ?? asObject(payload) ?? {};
+    const intensity = asString((planObj as any).intensity) || asString((payload as any).intensity) || 'balanced';
+    const targets = asArray((planObj as any).targets ?? (payload as any).targets)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const avoid = asArray((planObj as any).avoid ?? (payload as any).avoid)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const conflicts = asArray((planObj as any).conflicts ?? (payload as any).conflicts)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+
     return (
-      <IngredientPlanCard
-        payload={payload}
-        language={language}
-        variant="v1"
-        analyticsCtx={analyticsCtx}
-        cardId={card.card_id}
-      />
+      <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+        <div className="text-xs font-semibold text-foreground">
+          {language === 'CN' ? `强度：${intensity}` : `Intensity: ${intensity}`}
+        </div>
+        {targets.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '推荐成分' : 'Target ingredients'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {targets.slice(0, 6).map((item, idx) => (
+                <li key={`target_${idx}`}>
+                  {asString((item as any).ingredient_id) || asString((item as any).ingredientId) || 'ingredient'}
+                  {Number.isFinite(Number((item as any).priority)) ? ` · P${Math.round(Number((item as any).priority))}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {avoid.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '需规避/谨慎' : 'Avoid / caution'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {avoid.slice(0, 6).map((item, idx) => (
+                <li key={`avoid_${idx}`}>
+                  {asString((item as any).ingredient_id) || 'ingredient'}
+                  {asString((item as any).severity) ? ` · ${asString((item as any).severity)}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {conflicts.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '冲突说明' : 'Conflicts'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {conflicts.slice(0, 4).map((item, idx) => (
+                <li key={`conflict_${idx}`}>
+                  {asString((item as any).description) || asString((item as any).message) || ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
   if (cardType === 'ingredient_plan_v2') {
     return (
       <IngredientPlanCard
-        payload={payload}
+        payload={payload as Record<string, unknown>}
         language={language}
-        variant="v2"
         analyticsCtx={analyticsCtx}
         cardId={card.card_id}
       />
+    );
+  }
+
+  if (cardType === 'gate_notice' || cardType === 'budget_gate') {
+    const gatePayload = asObject(payload) ?? {};
+    const reason = asString((gatePayload as any).reason);
+    const summary =
+      cardType === 'budget_gate'
+        ? language === 'CN'
+          ? '预算补充（可选）'
+          : 'Budget details (optional)'
+        : language === 'CN'
+          ? '分析限制与补充信息'
+          : 'Analysis limits and optional details';
+    const hint =
+      cardType === 'budget_gate'
+        ? language === 'CN'
+          ? '主结果已给出，补充预算可用于细化推荐。'
+          : 'Main answer is already provided. Budget can refine recommendations.'
+        : language === 'CN'
+          ? '主结果已返回；以下信息仅用于提高精度。'
+          : 'Main answer already returned. Details below only improve precision.';
+    return (
+      <details className="rounded-2xl border border-border/60 bg-background/50 p-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-foreground">
+          <span>{summary}</span>
+          <ChevronDown className="h-4 w-4" />
+        </summary>
+        <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+          <div>{hint}</div>
+          {reason ? (
+            <div className="rounded-xl border border-border/50 bg-muted/40 px-2 py-1">
+              {language === 'CN' ? `原因：${reason}` : `Reason: ${reason}`}
+            </div>
+          ) : null}
+        </div>
+      </details>
     );
   }
 
@@ -4955,28 +4988,6 @@ export default function BffChat() {
     [applyEnvelope],
   );
 
-  const handleGatewayUnavailableError = useCallback(
-    (err: unknown, path: string) => {
-      const classified = classifyGatewayErrorForDisplay(err, language);
-      if (!classified) return false;
-      const analyticsCtx: AnalyticsContext = {
-        brief_id: headers.brief_id,
-        trace_id: headers.trace_id,
-        aurora_uid: headers.aurora_uid,
-        lang: toLangPref(language),
-        state: agentState,
-      };
-      emitAuroraGatewayUnavailable(analyticsCtx, {
-        path,
-        status: classified.status,
-        is_network_error: classified.isNetworkError,
-      });
-      setError(classified.message);
-      return true;
-    },
-    [agentState, headers.aurora_uid, headers.brief_id, headers.trace_id, language],
-  );
-
   const bootstrap = useCallback(async () => {
     setChatBusy(true);
     try {
@@ -5828,9 +5839,7 @@ export default function BffChat() {
         });
         applyEnvelope(env);
       } catch (err) {
-        if (tryApplyEnvelopeFromBffError(err)) return;
-        if (handleGatewayUnavailableError(err, '/v1/chat')) return;
-        setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
         setLoadingIntent('default');
@@ -5847,7 +5856,6 @@ export default function BffChat() {
       language,
       profileSnapshot,
       sessionState,
-      handleGatewayUnavailableError,
       tryApplyEnvelopeFromBffError,
     ]
   );
@@ -5872,7 +5880,6 @@ export default function BffChat() {
       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: inputText }]);
       setChatBusy(true);
       setError(null);
-      let failurePath = '/v1/product/parse';
 
       try {
         setSessionState('P1_PRODUCT_ANALYZING');
@@ -5929,7 +5936,6 @@ export default function BffChat() {
 
         let analyzeEnv: V1Envelope;
         try {
-          failurePath = '/v1/product/analyze';
           analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
             method: 'POST',
             body: JSON.stringify(analyzeBody),
@@ -5992,14 +5998,12 @@ export default function BffChat() {
         applyEnvelope(analyzeEnv);
         setSessionState('P2_PRODUCT_RESULT');
       } catch (err) {
-        if (tryApplyEnvelopeFromBffError(err)) return;
-        if (handleGatewayUnavailableError(err, typeof failurePath === 'string' ? failurePath : '/v1/product/analyze')) return;
-        setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
       }
     },
-    [agentState, applyEnvelope, headers, language, parseMaybeUrl, handleGatewayUnavailableError, tryApplyEnvelopeFromBffError],
+    [agentState, applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
   );
 
   const runDupeSearch = useCallback(
@@ -6342,19 +6346,19 @@ export default function BffChat() {
           trigger_id: actionId,
           requested_next_state: 'RECO_GATE',
         });
+        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
         if (!validation.ok) {
-          setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
-          return;
+          console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
         }
-        if (validation.next_state !== fromState) {
+        if (resolvedNextState !== fromState) {
           emitAgentStateEntered(
-            { ...ctx, state: validation.next_state },
-            { state_name: validation.next_state, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+            { ...ctx, state: resolvedNextState },
+            { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
           );
-          setAgentStateSafe(validation.next_state);
+          setAgentStateSafe(resolvedNextState);
         }
-        if (validation.next_state === 'RECO_GATE') {
-          emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
+        if (resolvedNextState === 'RECO_GATE') {
+          emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
         }
         setItems((prev) => [
           ...prev,
@@ -6369,7 +6373,7 @@ export default function BffChat() {
           },
         }, {
           client_state: fromState,
-          requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: validation.next_state },
+          requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
         });
         return;
       }
@@ -6393,19 +6397,19 @@ export default function BffChat() {
             trigger_id: actionId,
             requested_next_state: 'RECO_GATE',
           });
+          const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
           if (!validation.ok) {
-            setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
-            return;
+            console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
           }
-          if (validation.next_state !== fromState) {
+          if (resolvedNextState !== fromState) {
             emitAgentStateEntered(
-              { ...ctx, state: validation.next_state },
-              { state_name: validation.next_state, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+              { ...ctx, state: resolvedNextState },
+              { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
             );
-            setAgentStateSafe(validation.next_state);
+            setAgentStateSafe(resolvedNextState);
           }
-          if (validation.next_state === 'RECO_GATE') {
-            emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
+          if (resolvedNextState === 'RECO_GATE') {
+            emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
           }
           const replyText =
             actionId === 'analysis_gentler'
@@ -6421,7 +6425,7 @@ export default function BffChat() {
             data: { reply_text: replyText, include_alternatives: true },
           }, {
             client_state: fromState,
-            requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: validation.next_state },
+            requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
           });
           return;
         }
@@ -6453,20 +6457,22 @@ export default function BffChat() {
       trigger_id: actionId,
       requested_next_state: 'RECO_GATE',
     });
+    const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
     if (!validation.ok) {
-      setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
-      return;
+      console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
     }
 
-    if (validation.next_state !== fromState) {
+    if (resolvedNextState !== fromState) {
       emitAgentStateEntered(
-        { ...ctx, state: validation.next_state },
-        { state_name: validation.next_state, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+        { ...ctx, state: resolvedNextState },
+        { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
       );
-      setAgentStateSafe(validation.next_state);
+      setAgentStateSafe(resolvedNextState);
     }
 
-    emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'action', prior_value_moment: 'product_picks' });
+    if (resolvedNextState === 'RECO_GATE') {
+      emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'product_picks' });
+    }
 
     setItems((prev) => [
       ...prev,
@@ -6490,7 +6496,7 @@ export default function BffChat() {
       },
       {
         client_state: fromState,
-        requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: validation.next_state },
+        requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
       },
     );
   }, [agentState, headers, isLoading, language, sendChat, setAgentStateSafe]);
@@ -6782,26 +6788,26 @@ export default function BffChat() {
       }
 
       let requestedTransition: RequestedTransition | null = null;
-        if (toState !== fromState) {
-          const validation = validateRequestedTransition({
-            from_state: fromState,
-            trigger_source: 'chip',
-            trigger_id: id,
-            requested_next_state: toState,
+      if (toState !== fromState) {
+        const validation = validateRequestedTransition({
+          from_state: fromState,
+          trigger_source: 'chip',
+          trigger_id: id,
+          requested_next_state: toState,
         });
+        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
         if (!validation.ok) {
-          setError(language === 'CN' ? '这个操作当前不可用（状态机硬规则拒绝）。' : 'This action is not allowed right now (state machine hard rule).');
-          return;
+          console.warn('[StateMachine] soft fallback on chip transition', { chipId: id, fromState, reason: validation.reason });
         }
-        requestedTransition = { trigger_source: 'chip', trigger_id: id, requested_next_state: validation.next_state };
+        requestedTransition = { trigger_source: 'chip', trigger_id: id, requested_next_state: resolvedNextState };
         emitAgentStateEntered(
-          { ...ctx, state: validation.next_state },
-          { state_name: validation.next_state, from_state: fromState, trigger_source: 'chip', trigger_id: id },
+          { ...ctx, state: resolvedNextState },
+          { state_name: resolvedNextState, from_state: fromState, trigger_source: 'chip', trigger_id: id },
         );
-        if (validation.next_state === 'RECO_GATE') {
-          emitUiRecosRequested({ ...ctx, state: validation.next_state }, { entry_point: 'chip', prior_value_moment: null });
+        if (resolvedNextState === 'RECO_GATE') {
+          emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'chip', prior_value_moment: null });
         }
-        setAgentStateSafe(validation.next_state);
+        setAgentStateSafe(resolvedNextState);
       }
 
       const userItem: ChatItem = { id: nextId(), role: 'user', kind: 'text', content: chip.label };

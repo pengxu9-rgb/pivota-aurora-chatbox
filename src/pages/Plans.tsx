@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, CalendarDays, ChevronRight, Loader2, MapPin, Menu, MessageCircle, Plus } from 'lucide-react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { Archive, CalendarDays, Loader2, MapPin, Menu, MessageCircle, Pencil, Plus } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import type { Language } from '@/lib/pivotaAgentBff';
@@ -9,6 +9,7 @@ import {
   archiveTravelPlan,
   createTravelPlan,
   listTravelPlans,
+  updateTravelPlan,
   type TravelPlanCardModel,
   type TravelPlansSummary,
 } from '@/lib/travelPlansApi';
@@ -84,13 +85,14 @@ const buildCreateValidationError = (draft: PlanDraft, language: Language): strin
 
 export default function Plans() {
   const { openSidebar, startChat } = useOutletContext<MobileShellContext>();
-  const navigate = useNavigate();
   const [draft, setDraft] = useState<PlanDraft>(makeEmptyDraft());
   const [plans, setPlans] = useState<TravelPlanCardModel[]>([]);
   const [summary, setSummary] = useState<TravelPlansSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingCreate, setSavingCreate] = useState(false);
-  const [archivingTripId, setArchivingTripId] = useState<string | null>(null);
+  const [workingTripId, setWorkingTripId] = useState<string | null>(null);
+  const [editingTripId, setEditingTripId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<PlanDraft>(makeEmptyDraft());
   const [error, setError] = useState('');
   const language: Language = useMemo(() => (getLangPref() === 'cn' ? 'CN' : 'EN'), []);
 
@@ -116,22 +118,6 @@ export default function Plans() {
     void refreshPlans();
   }, [refreshPlans]);
 
-  const startPlanAnalysis = useCallback(
-    (plan: { destination: string; start_date: string; end_date: string; itinerary?: string }) => {
-      const itineraryText = String(plan.itinerary || '').trim();
-      const query =
-        language === 'CN'
-          ? `请基于我的旅行计划给护肤建议。目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`
-          : `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
-      startChat({
-        kind: 'query',
-        title: language === 'CN' ? '旅行护肤计划' : 'Travel skincare plan',
-        query,
-      });
-    },
-    [language, startChat],
-  );
-
   const submitCreate = async () => {
     setError('');
     const validationError = buildCreateValidationError(draft, language);
@@ -142,7 +128,7 @@ export default function Plans() {
 
     try {
       setSavingCreate(true);
-      const createPayload = {
+      await createTravelPlan(language, {
         destination: draft.destination.trim(),
         start_date: draft.start_date,
         end_date: draft.end_date,
@@ -150,16 +136,9 @@ export default function Plans() {
           ? { indoor_outdoor_ratio: normalizeRatio(draft.indoor_outdoor_ratio) as number }
           : {}),
         ...(draft.itinerary.trim() ? { itinerary: draft.itinerary.trim().slice(0, 1200) } : {}),
-      };
-      const created = await createTravelPlan(language, createPayload);
+      });
       setDraft(makeEmptyDraft());
       toast({ title: language === 'CN' ? '计划已保存' : 'Plan saved' });
-      startPlanAnalysis({
-        destination: String((created?.plan as any)?.destination || createPayload.destination),
-        start_date: String((created?.plan as any)?.start_date || createPayload.start_date),
-        end_date: String((created?.plan as any)?.end_date || createPayload.end_date),
-        itinerary: String((created?.plan as any)?.itinerary || (createPayload as any).itinerary || ''),
-      });
       await refreshPlans({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -168,10 +147,60 @@ export default function Plans() {
     }
   };
 
-  const openDetails = (plan: TravelPlanCardModel) => {
-    const tripId = String(plan.trip_id || '').trim();
-    if (!tripId) return;
-    navigate(`/plans/${encodeURIComponent(tripId)}`, { state: { plan } });
+  const beginEdit = (plan: TravelPlanCardModel) => {
+    setEditingTripId(plan.trip_id);
+    setEditDraft({
+      destination: plan.destination || '',
+      start_date: plan.start_date || '',
+      end_date: plan.end_date || '',
+      indoor_outdoor_ratio:
+        Number.isFinite(Number(plan.indoor_outdoor_ratio)) && plan.indoor_outdoor_ratio != null
+          ? String(plan.indoor_outdoor_ratio)
+          : '',
+      itinerary: plan.itinerary || '',
+    });
+  };
+
+  const submitEdit = async (tripId: string) => {
+    setError('');
+    const validationError = buildCreateValidationError(editDraft, language);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    try {
+      setWorkingTripId(tripId);
+      const itineraryText = editDraft.itinerary.trim();
+      await updateTravelPlan(language, tripId, {
+        destination: editDraft.destination.trim(),
+        start_date: editDraft.start_date,
+        end_date: editDraft.end_date,
+        ...(normalizeRatio(editDraft.indoor_outdoor_ratio) != null
+          ? { indoor_outdoor_ratio: normalizeRatio(editDraft.indoor_outdoor_ratio) as number }
+          : {}),
+        ...(itineraryText ? { itinerary: itineraryText.slice(0, 1200) } : {}),
+      });
+      setEditingTripId(null);
+      toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
+      await refreshPlans({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setWorkingTripId(null);
+    }
+  };
+
+  const submitArchive = async (tripId: string) => {
+    try {
+      setWorkingTripId(tripId);
+      await archiveTravelPlan(language, tripId);
+      toast({ title: language === 'CN' ? '计划已归档' : 'Plan archived' });
+      await refreshPlans({ silent: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setWorkingTripId(null);
+    }
   };
 
   const openPlanInChat = (plan: TravelPlanCardModel) => {
@@ -180,25 +209,11 @@ export default function Plans() {
       language === 'CN'
         ? `请基于我的旅行计划给护肤建议。目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`
         : `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
-
     startChat({
       kind: 'query',
       title: language === 'CN' ? '旅行护肤计划' : 'Travel skincare plan',
       query,
     });
-  };
-
-  const archivePlan = async (tripId: string) => {
-    try {
-      setArchivingTripId(tripId);
-      await archiveTravelPlan(language, tripId);
-      toast({ title: language === 'CN' ? '计划已归档' : 'Plan archived' });
-      await refreshPlans({ silent: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setArchivingTripId(null);
-    }
   };
 
   return (
@@ -219,14 +234,196 @@ export default function Plans() {
       <div className="ios-panel mt-4">
         <div className="flex items-start gap-3">
           <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
+            <CalendarDays className="h-[18px] w-[18px]" />
+          </div>
+          <div>
+            <div className="ios-section-title">{language === 'CN' ? 'Your travel plans' : 'Your travel plans'}</div>
+            <div className="ios-caption mt-1">
+              {language === 'CN'
+                ? '在这里追踪已设置的旅行计划。只有点击 Open in chat 才会进入对话。'
+                : 'Track your saved travel plans here. Chat opens only when you explicitly click Open in chat.'}
+            </div>
+          </div>
+        </div>
+
+        {summary ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
+              {language === 'CN' ? `行程中 ${summary.counts.in_trip}` : `In trip ${summary.counts.in_trip}`}
+            </span>
+            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
+              {language === 'CN' ? `即将出行 ${summary.counts.upcoming}` : `Upcoming ${summary.counts.upcoming}`}
+            </span>
+            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
+              {language === 'CN' ? `已结束 ${summary.counts.completed}` : `Completed ${summary.counts.completed}`}
+            </span>
+            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
+              {language === 'CN' ? `已归档 ${summary.counts.archived}` : `Archived ${summary.counts.archived}`}
+            </span>
+          </div>
+        ) : null}
+
+        <div className="mt-4 space-y-3">
+          {loading ? (
+            <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {language === 'CN' ? '加载计划中...' : 'Loading plans...'}
+            </div>
+          ) : plans.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border/70 bg-background/40 px-3 py-4 text-sm text-muted-foreground">
+              {language === 'CN'
+                ? '还没有旅行计划。创建后会在这里持续追踪，不会自动跳转到聊天。'
+                : 'No travel plans yet. Create one below and track it here without auto-jumping to chat.'}
+            </div>
+          ) : (
+            plans.map((plan) => {
+              const isWorking = workingTripId === plan.trip_id;
+              const isEditing = editingTripId === plan.trip_id;
+              return (
+                <div key={plan.trip_id} className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[15px] font-semibold text-foreground">{plan.destination}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{buildDateRangeLabel(plan)}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{getTimingLabel(plan, language)}</div>
+                    </div>
+                    <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                      {getStatusLabel(plan.status, language)}
+                    </span>
+                  </div>
+
+                  {plan.itinerary ? (
+                    <div className="mt-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-2 text-xs text-muted-foreground">
+                      {plan.itinerary}
+                    </div>
+                  ) : null}
+
+                  {Array.isArray(plan.prep_checklist) && plan.prep_checklist.length > 0 ? (
+                    <div className="mt-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-2">
+                      <div className="mb-1 text-[11px] font-semibold text-muted-foreground">
+                        {language === 'CN' ? '准备清单' : 'Prep checklist'}
+                      </div>
+                      <ul className="space-y-1 text-xs text-muted-foreground">
+                        {plan.prep_checklist.slice(0, 6).map((item, index) => (
+                          <li key={`${plan.trip_id}_${index}`} className="leading-relaxed">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground"
+                      onClick={() => openPlanInChat(plan)}
+                    >
+                      <MessageCircle className="h-3.5 w-3.5" />
+                      {language === 'CN' ? 'Open in chat' : 'Open in chat'}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground"
+                      onClick={() => beginEdit(plan)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      {language === 'CN' ? '编辑' : 'Edit'}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-foreground disabled:opacity-60"
+                      disabled={isWorking || plan.status === 'archived'}
+                      onClick={() => submitArchive(plan.trip_id)}
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                      {language === 'CN' ? '归档' : 'Archive'}
+                    </button>
+                  </div>
+
+                  {isEditing ? (
+                    <div className="mt-3 space-y-2 rounded-xl border border-border/60 bg-background/60 p-2.5">
+                      <input
+                        type="text"
+                        value={editDraft.destination}
+                        onChange={(e) => setEditDraft((prev) => ({ ...prev, destination: e.target.value }))}
+                        className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
+                        placeholder={language === 'CN' ? '目的地' : 'Destination'}
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="date"
+                          value={editDraft.start_date}
+                          onChange={(e) => setEditDraft((prev) => ({ ...prev, start_date: e.target.value }))}
+                          className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
+                        />
+                        <input
+                          type="date"
+                          value={editDraft.end_date}
+                          onChange={(e) => setEditDraft((prev) => ({ ...prev, end_date: e.target.value }))}
+                          className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
+                        />
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={editDraft.indoor_outdoor_ratio}
+                        onChange={(e) => setEditDraft((prev) => ({ ...prev, indoor_outdoor_ratio: e.target.value }))}
+                        className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
+                        placeholder={language === 'CN' ? '户外比例 (0-1)' : 'Outdoor ratio (0-1)'}
+                      />
+                      <textarea
+                        value={editDraft.itinerary}
+                        onChange={(e) => setEditDraft((prev) => ({ ...prev, itinerary: e.target.value }))}
+                        className="min-h-[78px] w-full resize-none rounded-xl border border-border/60 bg-background px-2.5 py-2 text-[13px] text-foreground outline-none"
+                        placeholder={language === 'CN' ? '行程备注（可选）' : 'Itinerary notes (optional)'}
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-border/60 bg-background px-3 py-1.5 text-xs text-foreground"
+                          onClick={() => setEditingTripId(null)}
+                          disabled={isWorking}
+                        >
+                          {language === 'CN' ? '取消' : 'Cancel'}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-border/60 bg-background px-3 py-1.5 text-xs text-foreground disabled:opacity-60"
+                          onClick={() => submitEdit(plan.trip_id)}
+                          disabled={isWorking}
+                        >
+                          {isWorking
+                            ? language === 'CN'
+                              ? '保存中...'
+                              : 'Saving...'
+                            : language === 'CN'
+                              ? '保存修改'
+                              : 'Save changes'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div className="ios-panel mt-4">
+        <div className="flex items-start gap-3">
+          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
             <Plus className="h-[18px] w-[18px]" />
           </div>
           <div>
             <div className="ios-section-title">{language === 'CN' ? 'Create new plan' : 'Create new plan'}</div>
             <div className="ios-caption mt-1">
               {language === 'CN'
-                ? '保存后会自动进入对话分析，同时下方保留行程卡片。'
-                : 'Saving starts chat analysis automatically, while keeping trip cards below.'}
+                ? '创建后会留在当前页面，并生成可追踪卡片。'
+                : 'After saving, you stay on this page and get a trackable plan card.'}
             </div>
           </div>
         </div>
@@ -307,109 +504,6 @@ export default function Plans() {
           <Plus className="h-4 w-4" />
           {savingCreate ? (language === 'CN' ? '保存中...' : 'Saving...') : language === 'CN' ? '保存计划' : 'Save plan'}
         </button>
-      </div>
-
-      <div className="ios-panel mt-4">
-        <div className="flex items-start gap-3">
-          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
-            <CalendarDays className="h-[18px] w-[18px]" />
-          </div>
-          <div>
-            <div className="ios-section-title">{language === 'CN' ? 'Your travel plans' : 'Your travel plans'}</div>
-            <div className="ios-caption mt-1">
-              {language === 'CN'
-                ? '卡片仅展示基础信息。点击查看详情管理完整行程。'
-                : 'Cards show essentials only. Tap view details for full trip management.'}
-            </div>
-          </div>
-        </div>
-
-        {summary ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
-              {language === 'CN' ? `行程中 ${summary.counts.in_trip}` : `In trip ${summary.counts.in_trip}`}
-            </span>
-            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
-              {language === 'CN' ? `即将出行 ${summary.counts.upcoming}` : `Upcoming ${summary.counts.upcoming}`}
-            </span>
-            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
-              {language === 'CN' ? `已结束 ${summary.counts.completed}` : `Completed ${summary.counts.completed}`}
-            </span>
-            <span className="rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground">
-              {language === 'CN' ? `已归档 ${summary.counts.archived}` : `Archived ${summary.counts.archived}`}
-            </span>
-          </div>
-        ) : null}
-
-        <div className="mt-4 space-y-3">
-          {loading ? (
-            <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-3 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {language === 'CN' ? '加载计划中...' : 'Loading plans...'}
-            </div>
-          ) : plans.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border/70 bg-background/40 px-3 py-4 text-sm text-muted-foreground">
-              {language === 'CN'
-                ? '还没有旅行计划。创建后会在这里展示摘要卡片。'
-                : 'No travel plans yet. A summary card will appear here after creation.'}
-            </div>
-          ) : (
-            plans.map((plan) => (
-              <div key={plan.trip_id} className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[15px] font-semibold text-foreground">{plan.destination}</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">{buildDateRangeLabel(plan)}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{getTimingLabel(plan, language)}</div>
-                  </div>
-                  <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-                    {getStatusLabel(plan.status, language)}
-                  </span>
-                </div>
-
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-foreground"
-                    onClick={() => openPlanInChat(plan)}
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    <span className="truncate">{language === 'CN' ? 'Open in chat' : 'Open in chat'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-foreground disabled:opacity-60"
-                    onClick={() => archivePlan(plan.trip_id)}
-                    disabled={archivingTripId === plan.trip_id || plan.status === 'archived'}
-                  >
-                    {archivingTripId === plan.trip_id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Archive className="h-3.5 w-3.5" />
-                    )}
-                    <span className="truncate">
-                      {plan.status === 'archived'
-                        ? language === 'CN'
-                          ? '已归档'
-                          : 'Archived'
-                        : language === 'CN'
-                          ? '归档'
-                          : 'Archive'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex min-w-0 items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-2 py-1.5 text-xs text-foreground"
-                    onClick={() => openDetails(plan)}
-                  >
-                    <span className="truncate">{language === 'CN' ? '查看详情' : 'View details'}</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
       </div>
     </div>
   );
