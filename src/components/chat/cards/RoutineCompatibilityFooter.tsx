@@ -174,6 +174,29 @@ const localSearch = (query: string, list: CompatibilityProductInput[]) => {
     .slice(0, 10);
 };
 
+const looksLikeUrl = (value: string) => /^https?:\/\/\S+/i.test(String(value || '').trim());
+
+const tokenizeUrlForCompatibility = (value: string) => {
+  const text = String(value || '').trim();
+  if (!looksLikeUrl(text)) return [];
+  try {
+    const parsed = new URL(text);
+    const hostTokens = parsed.hostname.split('.').filter(Boolean);
+    const pathTokens = parsed.pathname
+      .split(/[\/_-]+/g)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return dedupeStrings(
+      [...hostTokens, ...pathTokens]
+        .map((token) => token.replace(/[^a-zA-Z0-9]+/g, ' ').trim())
+        .filter((token) => token.length >= 3),
+      24,
+    );
+  } catch {
+    return [];
+  }
+};
+
 const ratingTitle = (rating: CompatibilityRating, language: 'EN' | 'CN') => {
   if (language === 'CN') {
     if (rating === 'good') return 'Compatibility: 兼容性较好';
@@ -197,6 +220,7 @@ export function RoutineCompatibilityFooter({
   const [tab, setTab] = useState<TabValue>('my_routine');
   const [selectedProducts, setSelectedProducts] = useState<CompatibilityProductInput[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchBrand, setSearchBrand] = useState('');
   const [searchResults, setSearchResults] = useState<CompatibilityProductInput[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchError, setSearchError] = useState<string>('');
@@ -233,6 +257,10 @@ export function RoutineCompatibilityFooter({
   const routineOptions = useMemo(() => (routineProducts.length ? routineProducts : STUB_PRODUCTS), [routineProducts]);
   const mergedLocalSearchPool = useMemo(
     () => dedupeLocalProducts([...routineOptions, ...STUB_PRODUCTS]),
+    [routineOptions],
+  );
+  const quickBrandOptions = useMemo(
+    () => dedupeStrings(routineOptions.map((item) => item.brand || ''), 8),
     [routineOptions],
   );
 
@@ -308,6 +336,7 @@ export function RoutineCompatibilityFooter({
 
   const runSearch = useCallback(async () => {
     const query = searchQuery.trim();
+    const brand = searchBrand.trim();
     if (!query) {
       setSearchResults([]);
       setSearchError('');
@@ -319,7 +348,7 @@ export function RoutineCompatibilityFooter({
 
     try {
       if (resolveProductsSearch) {
-        const resp = await resolveProductsSearch({ query, limit: 8, preferBrand: null });
+        const resp = await resolveProductsSearch({ query, limit: 8, preferBrand: brand || null });
         const normalized = normalizeSearchProducts(resp);
         if (normalized.length) {
           setSearchResults(normalized);
@@ -327,8 +356,15 @@ export function RoutineCompatibilityFooter({
         }
       }
 
-      const fallback = localSearch(query, mergedLocalSearchPool);
+      const fallback = localSearch(brand && !query.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ${query}` : query, mergedLocalSearchPool);
       setSearchResults(fallback);
+      if (!fallback.length && looksLikeUrl(query)) {
+        setSearchError(
+          language === 'CN'
+            ? '这个 URL 没命中现有搜索库。可切到「粘贴 INCI」继续用 URL/成分表补充。'
+            : 'This URL did not match current search sources. Switch to "Paste INCI" and continue with URL/INCI fallback.',
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setSearchError(message || (language === 'CN' ? '搜索失败' : 'Search failed'));
@@ -336,12 +372,15 @@ export function RoutineCompatibilityFooter({
     } finally {
       setSearchBusy(false);
     }
-  }, [language, mergedLocalSearchPool, resolveProductsSearch, searchQuery]);
+  }, [language, mergedLocalSearchPool, resolveProductsSearch, searchBrand, searchQuery]);
 
   const addPastedInci = useCallback(() => {
-    const tokens = parseInciText(pasteInciText);
+    let tokens = parseInciText(pasteInciText);
+    if (!tokens.length && looksLikeUrl(pasteInciText)) {
+      tokens = tokenizeUrlForCompatibility(pasteInciText);
+    }
     if (!tokens.length) return;
-    const name = asString(pasteName) || (language === 'CN' ? '粘贴 INCI' : 'Pasted INCI');
+    const name = asString(pasteName) || (looksLikeUrl(pasteInciText) ? pasteInciText : (language === 'CN' ? '粘贴 INCI' : 'Pasted INCI'));
     addProduct({
       id: `inci_${Date.now()}`,
       name,
@@ -396,11 +435,11 @@ export function RoutineCompatibilityFooter({
           </TabsContent>
 
           <TabsContent value="search" className="space-y-2">
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_auto]">
               <Input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder={language === 'CN' ? '搜索产品名或品牌' : 'Search product name or brand'}
+                placeholder={language === 'CN' ? '搜索产品名或粘贴 URL' : 'Search product name or paste URL'}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault();
@@ -408,10 +447,31 @@ export function RoutineCompatibilityFooter({
                   }
                 }}
               />
+              <Input
+                value={searchBrand}
+                onChange={(event) => setSearchBrand(event.target.value)}
+                placeholder={language === 'CN' ? '品牌（可选）' : 'Brand (optional)'}
+              />
               <Button type="button" variant="outline" disabled={searchBusy} onClick={() => void runSearch()}>
                 <Search className="h-4 w-4" />
               </Button>
             </div>
+
+            {quickBrandOptions.length ? (
+              <div className="flex flex-wrap gap-2">
+                {quickBrandOptions.map((brand) => (
+                  <Button
+                    key={brand}
+                    type="button"
+                    size="sm"
+                    variant={searchBrand.toLowerCase() === brand.toLowerCase() ? 'secondary' : 'outline'}
+                    onClick={() => setSearchBrand(brand)}
+                  >
+                    {brand}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
 
             {searchError ? <div className="text-xs text-rose-600">{searchError}</div> : null}
 
@@ -437,6 +497,29 @@ export function RoutineCompatibilityFooter({
                   </div>
                 );
               })}
+              {!searchBusy && !searchResults.length && searchQuery.trim() ? (
+                <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
+                  <div>
+                    {language === 'CN'
+                      ? '没有匹配到产品。你可以切到「粘贴 INCI」，直接粘贴 URL 或成分表继续。'
+                      : 'No product match found. Switch to "Paste INCI" and continue with URL or ingredient list.'}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    onClick={() => {
+                      setTab('paste_inci');
+                      if (looksLikeUrl(searchQuery)) {
+                        setPasteInciText(searchQuery.trim());
+                      }
+                    }}
+                  >
+                    {language === 'CN' ? 'Use URL/INCI fallback' : 'Use URL/INCI fallback'}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </TabsContent>
 
