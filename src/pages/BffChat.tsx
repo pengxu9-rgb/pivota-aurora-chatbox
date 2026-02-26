@@ -120,6 +120,21 @@ type ChatItem =
   | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
   | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: ReturnWelcomeSummary | null };
 
+type ProductAlternativeTrackItem = {
+  candidate: Record<string, unknown>;
+  block: RecoBlockType;
+  rank: number;
+  intent: 'replace' | 'pair';
+};
+
+type ProductAlternativeTrack = {
+  key: 'replace' | 'pair';
+  title: string;
+  subtitle: string;
+  items: ProductAlternativeTrackItem[];
+  filteredCount: number;
+};
+
 type RoutineDraft = {
   am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
   pm: { cleanser: string; treatment: string; moisturizer: string };
@@ -1451,6 +1466,7 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     competitor_category_unknown_blocked: { CN: '类目信号不足的候选已拦截', EN: 'Category-unknown alternatives were blocked' },
     kb_entry_quarantined: { CN: '命中历史缓存异常，已隔离并实时重算', EN: 'A stale KB hit was quarantined and recalculated in real time' },
     regulatory_source_used: { CN: '已启用监管源补充证据', EN: 'Regulatory source was used as evidence backup' },
+    ingredient_source_conflict: { CN: '不同来源成分存在冲突，已降低置信度', EN: 'Ingredient sources conflict; confidence was lowered' },
     incidecoder_source_used: { CN: '已启用 INCIDecoder 补充证据', EN: 'INCIDecoder was used as a supplemental source' },
     incidecoder_no_match: { CN: 'INCIDecoder 未匹配到对应产品', EN: 'INCIDecoder did not find a matching product' },
     incidecoder_fetch_failed: { CN: 'INCIDecoder 抓取失败', EN: 'INCIDecoder fetch failed' },
@@ -3585,7 +3601,7 @@ function BffCardView({
               <div className="space-y-2">
                 <AuroraAnchorCard product={product} offers={productOffers} language={language} hidePriceWhenUnknown />
                 {anchorSoftBlocked ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <div className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                     {language === 'CN'
                       ? '已阻止不可靠锚点用于 ID 绑定，系统将继续走 URL 实时分析。'
                       : 'An unreliable anchor was blocked from ID binding; URL realtime analysis will continue.'}
@@ -3773,12 +3789,11 @@ function BffCardView({
           }
 
           if (/^profile priorities:/i.test(lower)) {
-            bestForFromReasons.push(line.replace(/^profile priorities:\s*/i, '').trim());
+            // Ignore profile recap lines in fit section; use dedicated assessment/evidence fields instead.
             return;
           }
 
           if (/^your profile:/i.test(lower) || /^你的情况[:：]/i.test(line)) {
-            bestForFromReasons.push(line.replace(/^your profile:\s*/i, '').replace(/^你的情况[:：]\s*/i, '').trim());
             return;
           }
 
@@ -3807,6 +3822,68 @@ function BffCardView({
           ...evidenceKeyIngredients,
           ...(heroName ? [heroName] : []),
         ].map((name) => normalizeIngredientName(name))).slice(0, 12);
+        const ingredientGroupDefs: Array<{
+          key: string;
+          title: string;
+          colorClass: string;
+          patterns: RegExp[];
+        }> = [
+          {
+            key: 'barrier',
+            title: language === 'CN' ? 'Barrier support' : 'Barrier support',
+            colorClass: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+            patterns: [/\b(ceramide|cholesterol|fatty acid|panthenol|beta[-\s]?glucan|allantoin|squalane|glycerin|hyaluron)\b/i],
+          },
+          {
+            key: 'acne',
+            title: language === 'CN' ? 'Acne control' : 'Acne control',
+            colorClass: 'border-sky-200 bg-sky-50 text-sky-800',
+            patterns: [/\b(salicylic|bha|benzoyl|niacinamide|azelaic|adapalene|tretinoin|retinol|retinal|zinc)\b/i],
+          },
+          {
+            key: 'brightening',
+            title: language === 'CN' ? 'Brightening' : 'Brightening',
+            colorClass: 'border-violet-200 bg-violet-50 text-violet-800',
+            patterns: [/\b(ascorb|vitamin c|tranexamic|arbutin|kojic|licorice|niacinamide)\b/i],
+          },
+          {
+            key: 'soothing',
+            title: language === 'CN' ? 'Soothing' : 'Soothing',
+            colorClass: 'border-teal-200 bg-teal-50 text-teal-800',
+            patterns: [/\b(cica|centella|madecassoside|bisabolol|oat|aloe|allantoin|panthenol)\b/i],
+          },
+          {
+            key: 'irritant',
+            title: language === 'CN' ? 'Potential irritants' : 'Potential irritants',
+            colorClass: 'border-rose-200 bg-rose-50 text-rose-800',
+            patterns: [/\b(fragrance|parfum|linalool|limonene|citral|retino|aha|bha|glycolic|lactic|mandelic|oxybenzone|octocrylene)\b/i],
+          },
+        ];
+        const ingredientGroups = (() => {
+          const buckets = ingredientGroupDefs.map((group) => ({ ...group, items: [] as string[] }));
+          const seen = new Set<string>();
+          allDetectedIngredients.forEach((ingredient) => {
+            const token = String(ingredient || '').trim();
+            if (!token) return;
+            const key = token.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            const matched = buckets.filter((group) => group.patterns.some((re) => re.test(token)));
+            if (matched.length) {
+              matched.forEach((group) => {
+                if (!group.items.includes(token)) group.items.push(token);
+              });
+              return;
+            }
+            buckets[0]?.items.push(token);
+          });
+          return buckets.filter((group) => group.items.length > 0).map((group) => ({
+            key: group.key,
+            title: group.title,
+            colorClass: group.colorClass,
+            items: group.items.slice(0, 8),
+          }));
+        })();
 
         const normalizeLineToken = (line: string) =>
           String(line || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -3828,20 +3905,24 @@ function BffCardView({
         };
         const filterNearDuplicateLines = (rows: string[], refs: string[], threshold = 0.7) =>
           rows.filter((line) => !refs.some((ref) => lineSimilarity(line, ref) >= threshold));
+        const isProfileEchoLine = (line: string) =>
+          /^(your profile|profile priorities|你的情况|你的画像|匹配点|fit signal)[:：]/i.test(String(line || '').trim());
 
         const formulaIntentCandidates = uniqueStrings([
           ...assessmentFormulaIntent,
           ...formulaIntentFromReasons,
           ...evidenceMechanisms,
         ])
-          .filter((line) => !/^(your profile|profile priorities|你的情况|匹配点)[:：]/i.test(String(line || '').trim()))
+          .filter((line) => !isProfileEchoLine(line))
           .slice(0, 6);
         const bestForSignalsRaw = uniqueStrings([
           ...assessmentBestFor,
           ...bestForFromReasons,
           ...evidenceFitNotes,
           ...socialPositive,
-        ]).slice(0, 6);
+        ])
+          .filter((line) => !isProfileEchoLine(line))
+          .slice(0, 6);
         const cautionSignalsRaw = uniqueStrings([
           ...assessmentNotFor,
           ...cautionFromReasons,
@@ -3994,7 +4075,7 @@ function BffCardView({
           source: 'base',
         };
         const normalizeRecommendationIntent = (candidate: Record<string, unknown>, block: RecoBlockType): 'replace' | 'pair' => {
-          const raw = asString((candidate as any).recommendation_intent || (candidate as any).recommendationIntent).toLowerCase();
+          const raw = (asString((candidate as any).recommendation_intent || (candidate as any).recommendationIntent) || '').toLowerCase();
           if (raw === 'replace' || raw === 'pair') return raw;
           return block === 'related_products' ? 'pair' : 'replace';
         };
@@ -4014,13 +4095,7 @@ function BffCardView({
         ];
         const replaceAlternatives = flattenedAlternatives.filter((row) => row.intent === 'replace');
         const pairingAlternatives = flattenedAlternatives.filter((row) => row.intent === 'pair');
-        const alternativeTracks: Array<{
-          key: 'replace' | 'pair';
-          title: string;
-          subtitle: string;
-          items: Array<{ candidate: Record<string, unknown>; block: RecoBlockType; rank: number; intent: 'replace' | 'pair' }>;
-          filteredCount: number;
-        }> = [
+        const alternativeTracks: ProductAlternativeTrack[] = [
           {
             key: 'replace',
             title: language === 'CN' ? 'Replace options' : 'Replace options',
@@ -4154,22 +4229,29 @@ function BffCardView({
               </div>
             ) : null}
 
-            {allDetectedIngredients.length ? (
+            {ingredientGroups.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">
                   {language === 'CN' ? '关键活性与支持成分' : 'Notable actives & support ingredients'}
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {allDetectedIngredients.map((ingredient) => (
-                    <button
-                      key={ingredient}
-                      type="button"
-                      className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-foreground transition hover:bg-muted/80"
-                      title={language === 'CN' ? '点击查看成分分析' : 'Click to view ingredient analysis'}
-                      onClick={() => onAction('ingredient_drilldown', { ingredient_name: ingredient })}
-                    >
-                      {ingredient}
-                    </button>
+                <div className="mt-3 space-y-2">
+                  {ingredientGroups.map((group) => (
+                    <div key={group.key}>
+                      <div className="mb-1 text-[11px] font-semibold text-muted-foreground">{group.title}</div>
+                      <div className="flex flex-wrap gap-2">
+                        {group.items.map((ingredient) => (
+                          <button
+                            key={`${group.key}_${ingredient}`}
+                            type="button"
+                            className={`rounded-full border px-2 py-1 text-[11px] transition hover:opacity-90 ${group.colorClass}`}
+                            title={language === 'CN' ? '点击查看成分分析' : 'Click to view ingredient analysis'}
+                            onClick={() => onAction('ingredient_drilldown', { ingredient_name: ingredient })}
+                          >
+                            {ingredient}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -4408,6 +4490,14 @@ function BffCardView({
 
             {hasAlternatives ? (
               <div className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-sm font-semibold text-foreground">
+                  {language === 'CN' ? '可比替代与搭配建议' : 'Comparable alternatives'}
+                </div>
+                <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                  {competitorCandidates.length ? <span>{language === 'CN' ? '对标品' : 'Competitors'}</span> : null}
+                  {dupeCandidates.length ? <span>{language === 'CN' ? '平替' : 'Dupes'}</span> : null}
+                  {relatedCandidates.length ? <span>{language === 'CN' ? '相关产品' : 'Related products'}</span> : null}
+                </div>
                 {alternativeTracks.map((section) => {
                   if (!section.items.length) return null;
                   return (
@@ -4417,16 +4507,30 @@ function BffCardView({
                           <div className="text-xs font-semibold text-muted-foreground">{section.title}</div>
                           <div className="text-[11px] text-muted-foreground">{section.subtitle}</div>
                         </div>
-                        {section.filteredCount > 0 ? (
-                          <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
-                            {language === 'CN'
-                              ? `已过滤非护肤 ${section.filteredCount}`
-                              : `${section.filteredCount} non-skincare filtered`}
-                          </span>
-                        ) : null}
+                        <div className="flex items-center gap-2">
+                          {section.items.length > 1 ? (
+                            <button
+                              type="button"
+                              className="chip-button text-[11px]"
+                              onClick={() => {
+                                setAlternativesSheetTracks(alternativeTracks);
+                                setAlternativesSheetOpen(true);
+                              }}
+                            >
+                              {language === 'CN' ? '更多' : 'More'}
+                            </button>
+                          ) : null}
+                          {section.filteredCount > 0 ? (
+                            <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
+                              {language === 'CN'
+                                ? `已过滤非护肤 ${section.filteredCount}`
+                                : `${section.filteredCount} non-skincare filtered`}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                       <div className="mt-2 space-y-2">
-                        {section.items.slice(0, 3).map((entry, idx) => {
+                        {section.items.slice(0, 1).map((entry, idx) => {
                           const candidate = entry.candidate;
                           const sourceBlock = entry.block;
                           const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
@@ -4623,6 +4727,13 @@ function BffCardView({
                             </div>
                           );
                         })}
+                        {section.items.length > 1 ? (
+                          <div className="text-[11px] text-muted-foreground">
+                            {language === 'CN'
+                              ? `还有 ${section.items.length - 1} 个候选，点击 More 查看。`
+                              : `${section.items.length - 1} more options available. Tap More to view.`}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -5053,6 +5164,8 @@ export default function BffChat() {
   const [routineSheetOpen, setRoutineSheetOpen] = useState(false);
   const [routineTab, setRoutineTab] = useState<'am' | 'pm'>('am');
   const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
+  const [alternativesSheetOpen, setAlternativesSheetOpen] = useState(false);
+  const [alternativesSheetTracks, setAlternativesSheetTracks] = useState<ProductAlternativeTrack[]>([]);
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '' });
@@ -8306,6 +8419,54 @@ export default function BffChat() {
                   {language === 'CN' ? '保存' : 'Save'}
                 </button>
               </div>
+            </div>
+          </Sheet>
+
+          <Sheet
+            open={alternativesSheetOpen}
+            title={language === 'CN' ? '更多替代与搭配建议' : 'More alternatives & pairing ideas'}
+            onClose={() => setAlternativesSheetOpen(false)}
+            onOpenMenu={() => {
+              setAlternativesSheetOpen(false);
+              setSidebarOpen(true);
+            }}
+          >
+            <div className="space-y-3">
+              {alternativesSheetTracks.map((track) => (
+                <div key={`sheet_${track.key}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <div className="text-sm font-semibold text-foreground">{track.title}</div>
+                  <div className="text-xs text-muted-foreground">{track.subtitle}</div>
+                  <div className="mt-2 space-y-2">
+                    {track.items.slice(0, 8).map((entry, idx) => {
+                      const candidate = entry.candidate;
+                      const brand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+                      const name =
+                        asString(candidate.name) ||
+                        asString((candidate as any).display_name) ||
+                        asString((candidate as any).displayName) ||
+                        (language === 'CN' ? '未知产品' : 'Unknown product');
+                      const why = uniqueStrings([
+                        asString((candidate as any)?.why_candidate?.summary),
+                        ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
+                        ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
+                      ])[0];
+                      const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
+                      const tradeoff = uniqueStrings([
+                        ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
+                        ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
+                      ])[0];
+                      return (
+                        <div key={`${track.key}_${brand}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
+                          <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand} - ${name}`}</div>
+                          {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
+                          {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
+                          {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </Sheet>
 
