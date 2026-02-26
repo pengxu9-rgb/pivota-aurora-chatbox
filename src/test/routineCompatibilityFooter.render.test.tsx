@@ -28,9 +28,9 @@ describe('RoutineCompatibilityFooter', () => {
     );
 
     expect(screen.getByText('Compatibility with your routine')).toBeInTheDocument();
-    expect(screen.getByText('Check with my products')).toBeInTheDocument();
+    expect(screen.getByText('Advanced compatibility check')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Check with my products' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced compatibility check' }));
     expect(await screen.findByRole('dialog', { name: 'Check compatibility' })).toBeInTheDocument();
   });
 });
