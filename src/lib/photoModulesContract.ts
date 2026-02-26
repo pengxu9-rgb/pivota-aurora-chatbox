@@ -89,6 +89,7 @@ const actionSchema = z
   .object({
     action_type: z.literal('ingredient'),
     ingredient_id: asNonEmptyString,
+    ingredient_canonical_id: z.string().trim().optional(),
     ingredient_name: asNonEmptyString,
     why: z.string().trim().min(1).max(300),
     how_to_use: z
@@ -123,16 +124,32 @@ const productSchema = z
   .object({
     product_id: z.string().trim().optional(),
     merchant_id: z.string().trim().optional(),
+    product_group_id: z.string().trim().optional(),
+    canonical_product_ref: z
+      .object({
+        product_id: z.union([z.string(), z.number()]).optional(),
+        merchant_id: z.union([z.string(), z.number()]).optional(),
+      })
+      .passthrough()
+      .optional(),
     title: z.string().trim().optional(),
     name: z.string().trim().optional(),
     brand: z.string().trim().optional(),
     image_url: z.string().trim().optional(),
+    benefit_tags: z.array(z.union([z.string(), z.number()])).optional(),
+    price: z.union([z.number(), z.string()]).optional(),
+    currency: z.union([z.string(), z.number()]).optional(),
+    price_label: z.union([z.string(), z.number()]).optional(),
+    social_proof: z
+      .object({
+        rating: z.union([z.number(), z.string()]).optional(),
+        review_count: z.union([z.number(), z.string()]).optional(),
+        summary: z.union([z.string(), z.number()]).optional(),
+      })
+      .passthrough()
+      .optional(),
     why_match: z.string().trim().optional(),
     how_to_use: z.string().trim().optional(),
-    price: z.number().optional(),
-    currency: z.string().trim().optional(),
-    price_tier: z.string().trim().optional(),
-    source_block: z.string().trim().optional(),
     cautions: z.array(z.string().trim().min(1).max(180)).optional(),
   })
   .passthrough();
@@ -143,18 +160,15 @@ const moduleSchema = z
     issues: z.array(issueSchema).default([]),
     actions: z.array(actionSchema).default([]),
     products: z.array(productSchema).optional(),
+    box: bboxSchema.optional(),
     mask_rle_norm: z.union([moduleMaskRleSchema, z.string().trim().min(1)]).optional(),
     mask_grid: z
-      .union([
-        asPositiveInt,
-        z.object({
-          w: asPositiveInt,
-          h: asPositiveInt,
-        }),
-      ])
+      .object({
+        w: asPositiveInt,
+        h: asPositiveInt,
+      })
       .optional(),
     module_pixels: z.array(z.number()).optional(),
-    box: bboxSchema.optional(),
     degraded_reason: z.string().trim().optional(),
     evidence_region_ids: z.array(asNonEmptyString).optional(),
   })
@@ -263,6 +277,7 @@ export type PhotoModulesIssue = {
 export type PhotoModulesAction = {
   action_type: 'ingredient';
   ingredient_id: string;
+  ingredient_canonical_id: string | null;
   ingredient_name: string;
   why: string;
   how_to_use: {
@@ -277,20 +292,28 @@ export type PhotoModulesAction = {
   products: PhotoModulesProduct[];
   products_empty_reason: string | null;
   external_search_ctas: PhotoModulesExternalSearchCta[];
+  rec_debug: Record<string, unknown> | null;
 };
 
 export type PhotoModulesProduct = {
   product_id: string;
   merchant_id: string;
+  product_group_id: string;
+  canonical_product_ref: { product_id: string; merchant_id: string } | null;
   title: string;
   brand: string;
   image_url: string;
+  benefit_tags: string[];
+  price: number | null;
+  currency: string;
+  price_label: string;
+  social_proof: {
+    rating: number | null;
+    review_count: number | null;
+    summary: string;
+  } | null;
   why_match: string;
   how_to_use: string;
-  price?: number;
-  currency?: string;
-  price_tier?: string;
-  source_block?: string;
   cautions: string[];
   product_url: string;
   retrieval_source: string;
@@ -310,6 +333,7 @@ export type PhotoModulesModule = {
   issues: PhotoModulesIssue[];
   actions: PhotoModulesAction[];
   products: PhotoModulesProduct[];
+  box?: Bbox | null;
   mask_rle_norm?:
     | {
         grid?: { w: number; h: number } | null;
@@ -320,16 +344,8 @@ export type PhotoModulesModule = {
     | null;
   mask_grid?: { w: number; h: number } | null;
   module_pixels?: number[];
-  box?: Bbox;
-  degraded_reason?: string;
+  degraded_reason?: string | null;
   evidence_region_ids?: string[];
-};
-
-export type PhotoModulesOverlayDebug = {
-  module_box_mode: string;
-  module_box_dynamic_applied: boolean;
-  skinmask_reliable: boolean | null;
-  degraded_reasons: string[];
 };
 
 export type PhotoModulesUiModelV1 = {
@@ -349,7 +365,6 @@ export type PhotoModulesUiModelV1 = {
   };
   regions: PhotoModulesRegion[];
   modules: PhotoModulesModule[];
-  module_overlay_debug?: PhotoModulesOverlayDebug;
   disclaimers: {
     non_medical: boolean;
     seek_care_triggers: string[];
@@ -635,6 +650,9 @@ const defaultDoNotMix = (issueTypes: Array<(typeof ISSUE_TYPES)[number]>): strin
 const normalizeAction = (action: RawAction): PhotoModulesAction => ({
   action_type: 'ingredient',
   ingredient_id: action.ingredient_id,
+  ingredient_canonical_id:
+    firstNonEmpty((action as any).ingredient_canonical_id, (action as any).ingredientCanonicalId) ||
+    null,
   ingredient_name: action.ingredient_name,
   why: action.why,
   how_to_use: {
@@ -651,7 +669,7 @@ const normalizeAction = (action: RawAction): PhotoModulesAction => ({
   products: (Array.isArray((action as any).products) ? (action as any).products : [])
     .map((product: RawProduct) => normalizeProduct(product))
     .filter((product: PhotoModulesProduct) => Boolean(product.title))
-    .slice(0, 3),
+    .slice(0, 6),
   products_empty_reason: String((action as any).products_empty_reason || '').trim() || null,
   external_search_ctas: (Array.isArray((action as any).external_search_ctas) ? (action as any).external_search_ctas : [])
     .map((cta: any) => ({
@@ -662,13 +680,13 @@ const normalizeAction = (action: RawAction): PhotoModulesAction => ({
     }))
     .filter((cta: PhotoModulesExternalSearchCta) => Boolean(cta.title || cta.url))
     .slice(0, 6),
+  rec_debug:
+    (action as any).rec_debug && typeof (action as any).rec_debug === 'object' && !Array.isArray((action as any).rec_debug)
+      ? ((action as any).rec_debug as Record<string, unknown>)
+      : null,
 });
 
 const normalizeMaskGrid = (value: unknown): { w: number; h: number } | null => {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    const size = Math.max(1, Math.min(1024, Math.round(value)));
-    return { w: size, h: size };
-  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const w = Math.max(1, Math.min(1024, Math.round(Number((value as any).w || 0))));
   const h = Math.max(1, Math.min(1024, Math.round(Number((value as any).h || 0))));
@@ -721,15 +739,49 @@ const normalizeMaskRleNorm = (
 const normalizeProduct = (product: RawProduct): PhotoModulesProduct => ({
   product_id: String(product.product_id || '').trim(),
   merchant_id: String(product.merchant_id || '').trim(),
+  product_group_id: String((product as any).product_group_id || (product as any).productGroupId || '').trim(),
+  canonical_product_ref: (() => {
+    const rawRef =
+      (product as any).canonical_product_ref && typeof (product as any).canonical_product_ref === 'object' && !Array.isArray((product as any).canonical_product_ref)
+        ? (product as any).canonical_product_ref
+        : (product as any).canonicalProductRef && typeof (product as any).canonicalProductRef === 'object' && !Array.isArray((product as any).canonicalProductRef)
+          ? (product as any).canonicalProductRef
+          : null;
+    if (!rawRef) return null;
+    const productId = String(rawRef.product_id || rawRef.productId || '').trim();
+    if (!productId) return null;
+    return {
+      product_id: productId,
+      merchant_id: String(rawRef.merchant_id || rawRef.merchantId || '').trim(),
+    };
+  })(),
   title: firstNonEmpty(product.title, product.name) || 'Recommended product',
   brand: String(product.brand || '').trim(),
   image_url: String(product.image_url || '').trim(),
+  benefit_tags: toUniqueList((Array.isArray((product as any).benefit_tags) ? (product as any).benefit_tags : []).map((row: any) => String(row || '').trim()), 8),
+  price: Number.isFinite(Number((product as any).price)) ? Number((product as any).price) : null,
+  currency: String((product as any).currency || '').trim().toUpperCase(),
+  price_label: String((product as any).price_label || (product as any).priceLabel || '').trim(),
+  social_proof:
+    (product as any).social_proof && typeof (product as any).social_proof === 'object' && !Array.isArray((product as any).social_proof)
+      ? {
+          rating: Number.isFinite(Number((product as any).social_proof.rating)) ? Number((product as any).social_proof.rating) : null,
+          review_count: Number.isFinite(Number((product as any).social_proof.review_count))
+            ? Number((product as any).social_proof.review_count)
+            : null,
+          summary: String((product as any).social_proof.summary || '').trim(),
+        }
+      : (product as any).socialProof && typeof (product as any).socialProof === 'object' && !Array.isArray((product as any).socialProof)
+        ? {
+            rating: Number.isFinite(Number((product as any).socialProof.rating)) ? Number((product as any).socialProof.rating) : null,
+            review_count: Number.isFinite(Number((product as any).socialProof.review_count))
+              ? Number((product as any).socialProof.review_count)
+              : null,
+            summary: String((product as any).socialProof.summary || '').trim(),
+          }
+        : null,
   why_match: String(product.why_match || '').trim(),
   how_to_use: String(product.how_to_use || '').trim(),
-  ...(Number.isFinite(Number(product.price)) ? { price: Number(product.price) } : {}),
-  ...(String(product.currency || '').trim() ? { currency: String(product.currency || '').trim() } : {}),
-  ...(String(product.price_tier || '').trim() ? { price_tier: String(product.price_tier || '').trim() } : {}),
-  ...(String(product.source_block || '').trim() ? { source_block: String(product.source_block || '').trim() } : {}),
   cautions: toUniqueList(product.cautions ?? [], 6),
   product_url: firstNonEmpty((product as any).pdp_url, (product as any).url, (product as any).product_url, (product as any).purchase_path) || '',
   retrieval_source: String((product as any).retrieval_source || '').trim(),
@@ -746,15 +798,16 @@ const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoM
     validRegionIds.has(id),
   );
   const maskGrid = normalizeMaskGrid(module.mask_grid);
+  const normalizedBox = module.box ? normalizeBbox(module.box) : null;
   const normalizedMaskRle = normalizeMaskRleNorm(module.mask_rle_norm, maskGrid);
-
   return {
     module_id: module.module_id,
     issues,
     actions: module.actions.map((action) => normalizeAction(action)),
     products: (Array.isArray(module.products) ? module.products : []).map((product) => normalizeProduct(product)).slice(0, 3),
-    ...(normalizedMaskRle ? { mask_rle_norm: normalizedMaskRle } : {}),
+    ...(normalizedBox ? { box: normalizedBox } : {}),
     ...(maskGrid ? { mask_grid: maskGrid } : {}),
+    ...(normalizedMaskRle ? { mask_rle_norm: normalizedMaskRle } : {}),
     ...(Array.isArray(module.module_pixels)
       ? {
           module_pixels: module.module_pixels
@@ -763,8 +816,7 @@ const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoM
             .slice(0, 200000),
         }
       : {}),
-    ...(module.box ? { box: normalizeBbox(module.box) } : {}),
-    ...(String(module.degraded_reason || '').trim() ? { degraded_reason: String(module.degraded_reason).trim() } : {}),
+    ...(module.degraded_reason ? { degraded_reason: String(module.degraded_reason).trim() || null } : {}),
     ...(moduleEvidenceRegionIds.length ? { evidence_region_ids: moduleEvidenceRegionIds } : {}),
   };
 };
@@ -824,50 +876,6 @@ const normalizeFaceCrop = (payload: RawPayload) => {
   };
 };
 
-const normalizeModuleOverlayDebug = (payload: RawPayload): PhotoModulesOverlayDebug | null => {
-  const rawPayload = payload as any;
-  const overlayDebug =
-    rawPayload?.module_overlay_debug &&
-    typeof rawPayload.module_overlay_debug === 'object' &&
-    !Array.isArray(rawPayload.module_overlay_debug)
-      ? rawPayload.module_overlay_debug
-      : null;
-  const internalDebug =
-    rawPayload?.internal_debug &&
-    typeof rawPayload.internal_debug === 'object' &&
-    !Array.isArray(rawPayload.internal_debug)
-      ? rawPayload.internal_debug
-      : null;
-
-  const moduleBoxMode = firstNonEmpty(
-    String(overlayDebug?.module_box_mode || '').trim() || undefined,
-    String(internalDebug?.module_box_mode || '').trim() || undefined,
-  );
-  const moduleBoxDynamicAppliedRaw = overlayDebug?.module_box_dynamic_applied ?? internalDebug?.module_box_dynamic_applied;
-  const skinmaskReliableRaw = overlayDebug?.skinmask_reliable ?? internalDebug?.skinmask_reliable;
-  const degradedReasons = toUniqueList(
-    [
-      ...(Array.isArray(overlayDebug?.degraded_reasons) ? overlayDebug.degraded_reasons : []),
-      ...(Array.isArray(internalDebug?.degraded_reasons) ? internalDebug.degraded_reasons : []),
-    ],
-    8,
-  );
-
-  const hasAny =
-    Boolean(moduleBoxMode) ||
-    typeof moduleBoxDynamicAppliedRaw === 'boolean' ||
-    typeof skinmaskReliableRaw === 'boolean' ||
-    degradedReasons.length > 0;
-  if (!hasAny) return null;
-
-  return {
-    module_box_mode: moduleBoxMode || 'unknown',
-    module_box_dynamic_applied: Boolean(moduleBoxDynamicAppliedRaw),
-    skinmask_reliable: typeof skinmaskReliableRaw === 'boolean' ? skinmaskReliableRaw : null,
-    degraded_reasons: degradedReasons,
-  };
-};
-
 const formatIssuePath = (path: Array<string | number>): string => {
   if (!path.length) return 'root';
   return path.map((segment) => String(segment)).join('.');
@@ -895,7 +903,6 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
 
   const validRegionIds = new Set(normalizedRegions.map((region) => region.region_id));
   const modules = payload.modules.map((module) => normalizeModule(module, validRegionIds));
-  const overlayDebug = normalizeModuleOverlayDebug(payload);
 
   const model: PhotoModulesUiModelV1 = {
     used_photos: payload.used_photos,
@@ -904,7 +911,6 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
     face_crop: normalizeFaceCrop(payload),
     regions: normalizedRegions,
     modules,
-    ...(overlayDebug ? { module_overlay_debug: overlayDebug } : {}),
     disclaimers: {
       non_medical: payload.disclaimers.non_medical !== false,
       seek_care_triggers: toUniqueList(payload.disclaimers.seek_care_triggers ?? [], 8),
@@ -916,28 +922,4 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
     errors: [],
     sanitizer_drops: sanitizerDrops,
   };
-}
-
-export function decodeRleBinaryMask(rle: string, expectedLength: number): Uint8Array {
-  const chunks = String(rle || '')
-    .split(',')
-    .map((part) => Number(part))
-    .filter((part) => Number.isFinite(part) && part >= 0);
-  const length = Math.max(0, Number(expectedLength) || 0);
-  const out = new Uint8Array(length);
-  let value = 0;
-  let offset = 0;
-  for (const count of chunks) {
-    const runLength = Math.trunc(count);
-    if (runLength <= 0) {
-      value = value ? 0 : 1;
-      continue;
-    }
-    const end = Math.min(length, offset + runLength);
-    if (value) out.fill(1, offset, end);
-    offset = end;
-    value = value ? 0 : 1;
-    if (offset >= length) break;
-  }
-  return out;
 }

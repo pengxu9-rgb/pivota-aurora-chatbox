@@ -2,20 +2,27 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Droplets, Sparkles } from 'lucide-react';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import type {
+  PhotoModulesAction,
+  PhotoModulesProduct,
   PhotoModulesModule,
   PhotoModulesRegion,
   PhotoModulesSanitizerDrop,
   PhotoModulesUiModelV1,
 } from '@/lib/photoModulesContract';
-import { decodeRleBinaryMask } from '@/lib/photoModulesContract';
 import {
   emitAuroraPhotoModulesActionTap,
   emitAuroraPhotoModulesIssueTap,
   emitAuroraPhotoModulesModuleTap,
   emitAuroraPhotoModulesProductTap,
+  emitUiOutboundOpened,
+  emitUiPdpOpened,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
+import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
+import { buildPdpUrl, extractPdpTargetFromProductGroupId, extractStablePdpTargetFromProductsResolveResponse } from '@/lib/pivotaShop';
 import type { Language } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -27,23 +34,15 @@ const PRODUCT_REC_ENABLED = (() => {
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 })();
+const MORE_PANEL_ENABLED = (() => {
+  const raw = String(import.meta.env.VITE_PHOTO_ACTION_MORE_PANEL_ENABLED ?? 'true')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+})();
 
 type IssueType = 'redness' | 'acne' | 'tone' | 'shine' | 'texture';
 type Rgb = { r: number; g: number; b: number };
-type RenderSourceKind = 'crop' | 'original_crop' | 'original_full';
-type RenderSourceCandidate = {
-  kind: RenderSourceKind;
-  src: string;
-};
-
-type ModuleMaskOverlay = {
-  module_id: string;
-  mask_grid: { w: number; h: number };
-  mask: Uint8Array;
-  box: { x: number; y: number; w: number; h: number } | null;
-  color: Rgb;
-  degraded_reason: string | null;
-};
 
 const ISSUE_COLOR_MAP: Record<IssueType, Rgb> = {
   redness: { r: 255, g: 77, b: 79 },
@@ -71,27 +70,6 @@ const ISSUE_LABELS: Record<IssueType, { en: string; zh: string }> = {
   texture: { en: 'Texture/Pores', zh: '纹理/毛孔' },
 };
 
-const normalizeSeverityLevel = (value: number): 1 | 2 | 3 | 4 => {
-  const rounded = Math.round(Number.isFinite(value) ? value : 1);
-  if (rounded <= 1) return 1;
-  if (rounded === 2) return 2;
-  if (rounded === 3) return 3;
-  return 4;
-};
-
-const getSeverityLabel = (level: 1 | 2 | 3 | 4, language: Language): string => {
-  if (language === 'CN') {
-    if (level === 1) return '轻度';
-    if (level === 2) return '中度';
-    if (level === 3) return '明显';
-    return '重度';
-  }
-  if (level === 1) return 'Mild';
-  if (level === 2) return 'Moderate';
-  if (level === 3) return 'Noticeable';
-  return 'High';
-};
-
 const clamp01 = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
   if (value <= 0) return 0;
@@ -112,146 +90,6 @@ const pickColor = (region: PhotoModulesRegion): Rgb => {
   return ISSUE_COLOR_MAP.texture;
 };
 
-const colorForModule = (module: PhotoModulesModule): Rgb => {
-  const issueType = module.issues[0]?.issue_type;
-  if (issueType && ISSUE_COLOR_MAP[issueType as IssueType]) return ISSUE_COLOR_MAP[issueType as IssueType];
-  return ISSUE_COLOR_MAP.texture;
-};
-
-const parseRleCounts = (counts: unknown): number[] => {
-  if (Array.isArray(counts)) {
-    return counts
-      .map((value) => Math.max(0, Math.round(Number(value))))
-      .filter((value) => Number.isFinite(value));
-  }
-  if (typeof counts === 'string') {
-    return counts
-      .split(/[\s,]+/)
-      .map((token) => Math.max(0, Math.round(Number(token))))
-      .filter((value) => Number.isFinite(value));
-  }
-  return [];
-};
-
-const resolveMaskGrid = (module: PhotoModulesModule): { w: number; h: number } | null => {
-  const maskObject =
-    module.mask_rle_norm && typeof module.mask_rle_norm === 'object' && !Array.isArray(module.mask_rle_norm)
-      ? module.mask_rle_norm
-      : null;
-  const grid = module.mask_grid || (maskObject ? maskObject.grid : null) || null;
-  if (!grid || typeof grid !== 'object') return null;
-  const w = Math.max(1, Math.min(1024, Math.round(Number((grid as any).w || 0))));
-  const h = Math.max(1, Math.min(1024, Math.round(Number((grid as any).h || 0))));
-  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
-  return { w, h };
-};
-
-const decodeMask = (module: PhotoModulesModule): { grid: { w: number; h: number }; mask: Uint8Array } | null => {
-  const grid = resolveMaskGrid(module);
-  if (!grid) return null;
-  const expectedLength = grid.w * grid.h;
-  if (expectedLength <= 0) return null;
-
-  const maskObject =
-    module.mask_rle_norm && typeof module.mask_rle_norm === 'object' && !Array.isArray(module.mask_rle_norm)
-      ? module.mask_rle_norm
-      : null;
-
-  const values = Array.isArray(maskObject?.values) ? maskObject?.values : null;
-  if (values && values.length === expectedLength) {
-    const mask = new Uint8Array(expectedLength);
-    for (let index = 0; index < expectedLength; index += 1) {
-      mask[index] = clamp01(Number(values[index])) > 0.3 ? 1 : 0;
-    }
-    return { grid, mask };
-  }
-
-  const countsRaw = maskObject?.counts;
-  if (countsRaw != null) {
-    const startsWith = maskObject?.starts_with === 1 ? 1 : 0;
-    const counts = parseRleCounts(countsRaw);
-    if (counts.length) {
-      const mask = new Uint8Array(expectedLength);
-      let value = startsWith;
-      let offset = 0;
-      for (const runLength of counts) {
-        if (runLength > 0) {
-          const end = Math.min(expectedLength, offset + runLength);
-          if (value) mask.fill(1, offset, end);
-          offset = end;
-        }
-        value = value ? 0 : 1;
-        if (offset >= expectedLength) break;
-      }
-      return { grid, mask };
-    }
-  }
-
-  const legacyRle = typeof module.mask_rle_norm === 'object' ? null : String(module.mask_rle_norm || '').trim();
-  if (legacyRle) {
-    return {
-      grid,
-      mask: decodeRleBinaryMask(legacyRle, expectedLength),
-    };
-  }
-
-  if (Array.isArray(module.module_pixels) && module.module_pixels.length) {
-    const mask = new Uint8Array(expectedLength);
-    for (const raw of module.module_pixels) {
-      const idx = Math.round(Number(raw));
-      if (!Number.isFinite(idx) || idx < 0 || idx >= expectedLength) continue;
-      mask[idx] = 1;
-    }
-    return { grid, mask };
-  }
-
-  return null;
-};
-
-const drawModuleMask = (
-  context: CanvasRenderingContext2D,
-  overlay: ModuleMaskOverlay,
-  width: number,
-  height: number,
-  fillAlpha: number,
-  strokeAlpha: number,
-) => {
-  const grid = overlay.mask_grid;
-  if (!overlay.mask || overlay.mask.length !== grid.w * grid.h) return;
-
-  const bufferCanvas = document.createElement('canvas');
-  bufferCanvas.width = grid.w;
-  bufferCanvas.height = grid.h;
-  const bufferContext = bufferCanvas.getContext('2d');
-  if (!bufferContext) return;
-  const imageData = bufferContext.createImageData(grid.w, grid.h);
-  const alpha = Math.max(0, Math.min(1, fillAlpha));
-  for (let index = 0; index < overlay.mask.length; index += 1) {
-    if (!overlay.mask[index]) continue;
-    const pixelIndex = index * 4;
-    imageData.data[pixelIndex] = overlay.color.r;
-    imageData.data[pixelIndex + 1] = overlay.color.g;
-    imageData.data[pixelIndex + 2] = overlay.color.b;
-    imageData.data[pixelIndex + 3] = Math.round(alpha * 255);
-  }
-  bufferContext.putImageData(imageData, 0, 0);
-
-  context.save();
-  context.imageSmoothingEnabled = false;
-  context.drawImage(bufferCanvas, 0, 0, width, height);
-  context.restore();
-
-  if (!overlay.box) return;
-  const box = overlay.box;
-  const x = box.x * width;
-  const y = box.y * height;
-  const boxWidth = box.w * width;
-  const boxHeight = box.h * height;
-  context.strokeStyle = rgba(overlay.color, Math.max(0, Math.min(1, strokeAlpha)));
-  context.lineWidth = 1.4;
-  context.strokeRect(x, y, boxWidth, boxHeight);
-};
-
 const drawBbox = (
   context: CanvasRenderingContext2D,
   region: PhotoModulesRegion,
@@ -267,10 +105,10 @@ const drawBbox = (
   const boxWidth = region.bbox.w * width;
   const boxHeight = region.bbox.h * height;
   const intensity = clamp01(region.style.intensity);
-  const strokeAlpha = (0.28 + intensity * 0.35) * alphaScale;
-  const tunedFillAlpha = (0.015 + intensity * 0.06) * alphaScale;
+  const fillAlpha = (0.12 + intensity * 0.2) * alphaScale;
+  const strokeAlpha = (0.35 + intensity * 0.45) * alphaScale;
 
-  context.fillStyle = rgba(color, tunedFillAlpha);
+  context.fillStyle = rgba(color, fillAlpha);
   context.fillRect(x, y, boxWidth, boxHeight);
   context.strokeStyle = rgba(color, strokeAlpha);
   context.lineWidth = 1.2 + intensity * 2.2 * lineBoost;
@@ -289,8 +127,8 @@ const drawPolygon = (
   if (!polygon?.points?.length) return;
   const color = pickColor(region);
   const intensity = clamp01(region.style.intensity);
-  const fillAlpha = (0.015 + intensity * 0.07) * alphaScale;
-  const strokeAlpha = (0.30 + intensity * 0.42) * alphaScale;
+  const fillAlpha = (0.1 + intensity * 0.18) * alphaScale;
+  const strokeAlpha = (0.34 + intensity * 0.48) * alphaScale;
 
   context.beginPath();
   polygon.points.forEach((point, index) => {
@@ -341,6 +179,127 @@ const drawHeatmap = (
   context.imageSmoothingEnabled = smoothing_hint !== 'nearest';
   context.drawImage(bufferCanvas, 0, 0, width, height);
   context.restore();
+};
+
+const parseRleCounts = (counts: unknown): number[] => {
+  if (Array.isArray(counts)) {
+    return counts
+      .map((value) => Math.max(0, Math.round(Number(value))))
+      .filter((value) => Number.isFinite(value));
+  }
+  if (typeof counts === 'string') {
+    return counts
+      .split(/[\s,]+/)
+      .map((token) => Math.max(0, Math.round(Number(token))))
+      .filter((value) => Number.isFinite(value));
+  }
+  return [];
+};
+
+const resolveModuleMaskGrid = (module: PhotoModulesModule): { w: number; h: number } | null => {
+  const grid = module.mask_grid || module.mask_rle_norm?.grid || null;
+  if (!grid) return null;
+  const w = Math.max(1, Math.min(1024, Math.round(Number((grid as any).w || 0))));
+  const h = Math.max(1, Math.min(1024, Math.round(Number((grid as any).h || 0))));
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  return { w, h };
+};
+
+const decodeModuleMaskValues = (module: PhotoModulesModule): { grid: { w: number; h: number }; values: number[] } | null => {
+  const grid = resolveModuleMaskGrid(module);
+  if (!grid) return null;
+  const total = grid.w * grid.h;
+  if (total <= 0) return null;
+
+  const valuesRaw = Array.isArray(module.mask_rle_norm?.values) ? module.mask_rle_norm?.values : null;
+  if (valuesRaw && valuesRaw.length === total) {
+    return {
+      grid,
+      values: valuesRaw.map((value) => clamp01(Number.isFinite(Number(value)) ? Number(value) : 0)),
+    };
+  }
+
+  const counts = parseRleCounts(module.mask_rle_norm?.counts);
+  if (counts.length) {
+    const start = module.mask_rle_norm?.starts_with === 1 ? 1 : 0;
+    const out: number[] = new Array(total).fill(0);
+    let writeIndex = 0;
+    let state = start;
+    for (const run of counts) {
+      if (run <= 0) continue;
+      const end = Math.min(total, writeIndex + run);
+      if (state === 1) {
+        for (let idx = writeIndex; idx < end; idx += 1) out[idx] = 1;
+      }
+      writeIndex = end;
+      state = state === 1 ? 0 : 1;
+      if (writeIndex >= total) break;
+    }
+    return { grid, values: out };
+  }
+
+  if (Array.isArray(module.module_pixels) && module.module_pixels.length) {
+    const out: number[] = new Array(total).fill(0);
+    for (const raw of module.module_pixels) {
+      const idx = Math.round(Number(raw));
+      if (!Number.isFinite(idx) || idx < 0 || idx >= total) continue;
+      out[idx] = 1;
+    }
+    return { grid, values: out };
+  }
+
+  return null;
+};
+
+const drawModuleMask = (
+  context: CanvasRenderingContext2D,
+  module: PhotoModulesModule,
+  width: number,
+  height: number,
+  alphaScale: number,
+): boolean => {
+  const decoded = decodeModuleMaskValues(module);
+  if (decoded) {
+    const issueType = module.issues[0]?.issue_type;
+    const color = issueType && ISSUE_COLOR_MAP[issueType as IssueType] ? ISSUE_COLOR_MAP[issueType as IssueType] : ISSUE_COLOR_MAP.texture;
+    const bufferCanvas = document.createElement('canvas');
+    bufferCanvas.width = decoded.grid.w;
+    bufferCanvas.height = decoded.grid.h;
+    const bufferContext = bufferCanvas.getContext('2d');
+    if (!bufferContext) return false;
+
+    const imageData = bufferContext.createImageData(decoded.grid.w, decoded.grid.h);
+    for (let idx = 0; idx < decoded.values.length; idx += 1) {
+      const alpha = clamp01(decoded.values[idx] * alphaScale);
+      const offset = idx * 4;
+      imageData.data[offset] = color.r;
+      imageData.data[offset + 1] = color.g;
+      imageData.data[offset + 2] = color.b;
+      imageData.data[offset + 3] = Math.round(alpha * 255);
+    }
+    bufferContext.putImageData(imageData, 0, 0);
+    context.save();
+    context.imageSmoothingEnabled = true;
+    context.drawImage(bufferCanvas, 0, 0, width, height);
+    context.restore();
+    return true;
+  }
+
+  if (module.box) {
+    const color = ISSUE_COLOR_MAP.texture;
+    const x = module.box.x * width;
+    const y = module.box.y * height;
+    const boxWidth = module.box.w * width;
+    const boxHeight = module.box.h * height;
+    context.fillStyle = rgba(color, 0.18 * alphaScale);
+    context.fillRect(x, y, boxWidth, boxHeight);
+    context.strokeStyle = rgba(color, 0.68 * alphaScale);
+    context.lineWidth = 2;
+    context.strokeRect(x, y, boxWidth, boxHeight);
+    return true;
+  }
+
+  return false;
 };
 
 const drawRegions = (
@@ -408,20 +367,83 @@ const sourceBadgeLabel = (source: string, language: Language): string => {
   return language === 'CN' ? '推荐' : 'Recommended';
 };
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(Boolean(mql.matches));
+    onChange();
+    if (typeof mql.addEventListener === 'function') mql.addEventListener('change', onChange);
+    else mql.addListener(onChange);
+    return () => {
+      if (typeof mql.removeEventListener === 'function') mql.removeEventListener('change', onChange);
+      else mql.removeListener(onChange);
+    };
+  }, [query]);
+
+  return matches;
+}
+
+const formatPriceText = (product: PhotoModulesProduct): string => {
+  const label = String(product.price_label || '').trim();
+  if (label) return label;
+  if (!Number.isFinite(Number(product.price))) return '';
+  const currency = String(product.currency || '').trim().toUpperCase();
+  const amount = Number(product.price);
+  const symbol = currency === 'CNY' || currency === 'RMB' ? '¥' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$';
+  return `${symbol}${Math.round(amount * 100) / 100}`;
+};
+
+const formatSocialProofText = (product: PhotoModulesProduct, language: Language): string => {
+  const social = product.social_proof;
+  if (!social) return '';
+  const parts: string[] = [];
+  if (Number.isFinite(Number(social.rating))) parts.push(`${Number(social.rating).toFixed(1)}/5`);
+  if (Number.isFinite(Number(social.review_count))) {
+    const count = Math.max(0, Math.trunc(Number(social.review_count)));
+    parts.push(language === 'CN' ? `${count} 条评价` : `${count} reviews`);
+  }
+  if (String(social.summary || '').trim()) parts.push(String(social.summary || '').trim());
+  return parts.join(' · ');
+};
+
+const buildActionProductQuery = (action: PhotoModulesAction, product: PhotoModulesProduct): string => {
+  const title = String(product.title || '').trim();
+  const brand = String(product.brand || '').trim();
+  const ingredient = String(action.ingredient_name || '').trim();
+  return [brand, title, ingredient].filter(Boolean).join(' ').trim();
+};
+
 export function PhotoModulesCard({
   model,
   language,
   analyticsCtx,
   cardId,
   sanitizerDrops,
-  debug = false,
+  resolveProductRef,
+  onOpenPdp,
 }: {
   model: PhotoModulesUiModelV1;
   language: Language;
   analyticsCtx?: AnalyticsContext;
   cardId?: string;
   sanitizerDrops?: PhotoModulesSanitizerDrop[];
-  debug?: boolean;
+  resolveProductRef?: (args: {
+    query: string;
+    lang: 'en' | 'cn';
+    hints?: {
+      product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+      product_id?: string | null;
+      sku_id?: string | null;
+      aliases?: Array<string | null | undefined>;
+      brand?: string | null;
+      title?: string | null;
+    };
+    signal?: AbortSignal;
+  }) => Promise<any>;
+  onOpenPdp?: (args: { url: string; title?: string }) => void;
 }) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -431,48 +453,15 @@ export function PhotoModulesCard({
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [selectedIssueType, setSelectedIssueType] = useState<string | null>(null);
   const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null);
+  const [morePanelOpen, setMorePanelOpen] = useState(false);
+  const [morePanelModuleId, setMorePanelModuleId] = useState<string | null>(null);
+  const [morePanelActionIngredientId, setMorePanelActionIngredientId] = useState<string | null>(null);
+  const [openingProductKey, setOpeningProductKey] = useState<string | null>(null);
+  const isDesktop = useMediaQuery('(min-width: 768px)');
   const imageAspect = `${model.face_crop.render_size_px_hint.w}/${model.face_crop.render_size_px_hint.h}`;
   const cropImageUrl = model.face_crop.crop_image_url;
   const originalImageUrl = model.face_crop.original_image_url;
-  const [failedRenderKinds, setFailedRenderKinds] = useState<RenderSourceKind[]>([]);
-
-  const originalCropStyle = useMemo(() => {
-    const bbox = model.face_crop.bbox_px;
-    const orig = model.face_crop.orig_size_px;
-    if (!bbox.w || !bbox.h || !orig.w || !orig.h) return null;
-
-    return {
-      width: `${(orig.w / bbox.w) * 100}%`,
-      height: `${(orig.h / bbox.h) * 100}%`,
-      left: `${-(bbox.x / bbox.w) * 100}%`,
-      top: `${-(bbox.y / bbox.h) * 100}%`,
-    };
-  }, [model.face_crop.bbox_px, model.face_crop.orig_size_px]);
-
-  const renderCandidates = useMemo<RenderSourceCandidate[]>(() => {
-    const candidates: RenderSourceCandidate[] = [];
-    if (cropImageUrl) candidates.push({ kind: 'crop', src: cropImageUrl });
-    if (originalImageUrl && originalCropStyle) candidates.push({ kind: 'original_crop', src: originalImageUrl });
-    if (originalImageUrl) candidates.push({ kind: 'original_full', src: originalImageUrl });
-    return candidates;
-  }, [cropImageUrl, originalCropStyle, originalImageUrl]);
-
-  const renderCandidatesKey = useMemo(
-    () => renderCandidates.map((candidate) => `${candidate.kind}:${candidate.src}`).join('|'),
-    [renderCandidates],
-  );
-
-  useEffect(() => {
-    setFailedRenderKinds([]);
-  }, [renderCandidatesKey]);
-
-  const activeRenderCandidate = useMemo(
-    () => renderCandidates.find((candidate) => !failedRenderKinds.includes(candidate.kind)) ?? null,
-    [failedRenderKinds, renderCandidates],
-  );
-
-  const hasRenderableImage = Boolean(activeRenderCandidate);
-  const noRenderableReason = renderCandidates.length > 0 ? 'load_failed' : 'missing_source';
+  const hasRenderableImage = Boolean(cropImageUrl || originalImageUrl);
 
   useEffect(() => {
     if (!selectedModuleId || model.modules.some((module) => module.module_id === selectedModuleId)) return;
@@ -519,35 +508,26 @@ export function PhotoModulesCard({
     () => model.modules.find((module) => module.module_id === selectedModuleId) ?? model.modules[0] ?? null,
     [model.modules, selectedModuleId],
   );
-  const moduleMaskOverlays = useMemo<ModuleMaskOverlay[]>(() => {
-    const overlays: ModuleMaskOverlay[] = [];
-    for (const module of model.modules) {
-      const decodedMask = decodeMask(module);
-      if (!decodedMask) continue;
-      const { grid, mask } = decodedMask;
-      let activePixels = 0;
-      for (let i = 0; i < mask.length; i += 1) {
-        if (mask[i]) activePixels += 1;
-      }
-      if (!activePixels) continue;
-      overlays.push({
-        module_id: module.module_id,
-        mask_grid: grid,
-        mask,
-        box: module.box ?? null,
-        color: colorForModule(module),
-        degraded_reason: typeof module.degraded_reason === 'string' && module.degraded_reason.trim() ? module.degraded_reason.trim() : null,
-      });
+  const morePanelModule = useMemo(
+    () => model.modules.find((module) => module.module_id === morePanelModuleId) ?? null,
+    [model.modules, morePanelModuleId],
+  );
+  const morePanelAction = useMemo(
+    () =>
+      (morePanelModule?.actions || []).find(
+        (action) => `${morePanelModule?.module_id || ''}::${action.ingredient_id}` === morePanelActionIngredientId,
+      ) || null,
+    [morePanelActionIngredientId, morePanelModule],
+  );
+  useEffect(() => {
+    if (!morePanelOpen) return;
+    if (!MORE_PANEL_ENABLED) {
+      setMorePanelOpen(false);
+      return;
     }
-    return overlays;
-  }, [model.modules]);
-  const moduleMaskById = useMemo(() => {
-    const map = new Map<string, ModuleMaskOverlay>();
-    moduleMaskOverlays.forEach((overlay) => map.set(overlay.module_id, overlay));
-    return map;
-  }, [moduleMaskOverlays]);
-  const preferRegionOverlay = model.module_overlay_debug?.skinmask_reliable === false;
-  const overlayMode = moduleMaskOverlays.length > 0 && !preferRegionOverlay ? 'mask' : 'region';
+    if (morePanelModule && morePanelAction) return;
+    setMorePanelOpen(false);
+  }, [morePanelAction, morePanelModule, morePanelOpen]);
 
   const moduleEvidenceRegionIds = useMemo(() => {
     if (!hasModuleSelection || !selectedModule) return allRegionIds;
@@ -570,6 +550,7 @@ export function PhotoModulesCard({
   }, [hasModuleSelection, selectedIssueType, selectedModule]);
 
   const issueSelectionActive = Boolean(selectedIssueType && issueEvidenceRegionIds && issueEvidenceRegionIds.size > 0);
+
   const visibleRegionIds = issueEvidenceRegionIds ?? moduleEvidenceRegionIds;
 
   const highlightedRegionIds = useMemo(() => {
@@ -578,9 +559,10 @@ export function PhotoModulesCard({
     return ids;
   }, [hoveredRegionId, visibleRegionIds]);
 
-  const hasFocusedSelection = overlayMode === 'mask'
-    ? hasModuleSelection || issueSelectionActive
-    : highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
+  const selectedModuleHasMask = useMemo(() => {
+    if (!selectedModule) return false;
+    return Boolean(decodeModuleMaskValues(selectedModule) || selectedModule.box);
+  }, [selectedModule]);
 
   const selectedTopIssueType = useMemo(() => {
     if (!selectedModule || !Array.isArray(selectedModule.issues) || !selectedModule.issues.length) return null;
@@ -590,6 +572,8 @@ export function PhotoModulesCard({
     });
     return sorted[0]?.issue_type || null;
   }, [selectedModule]);
+
+  const hasFocusedSelection = highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
 
   useEffect(() => {
     const canvas = baseCanvasRef.current;
@@ -605,18 +589,11 @@ export function PhotoModulesCard({
 
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, stageSize.width, stageSize.height);
-    if (overlayMode === 'mask' && moduleMaskOverlays.length) {
-      moduleMaskOverlays.forEach((overlay) => {
-        drawModuleMask(context, overlay, stageSize.width, stageSize.height, 0.08, 0.12);
-      });
-      return;
-    }
-
     drawRegions(context, regions, stageSize.width, stageSize.height, {
-      alphaScale: 0.45,
+      alphaScale: 0.95,
       lineBoost: 1,
     });
-  }, [moduleMaskOverlays, overlayMode, regions, stageSize.height, stageSize.width]);
+  }, [regions, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     const canvas = highlightCanvasRef.current;
@@ -633,34 +610,7 @@ export function PhotoModulesCard({
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, stageSize.width, stageSize.height);
 
-    if (overlayMode === 'mask') {
-      if (hasModuleSelection && selectedModule && selectedIssueType && issueEvidenceRegionIds?.size) {
-        drawRegions(context, regions, stageSize.width, stageSize.height, {
-          includeIds: issueEvidenceRegionIds,
-          alphaScale: 1,
-          lineBoost: 1.35,
-        });
-        return;
-      }
-
-      if (hasModuleSelection && selectedModule) {
-        const overlay = moduleMaskById.get(selectedModule.module_id);
-        if (overlay) {
-          drawModuleMask(context, overlay, stageSize.width, stageSize.height, 0.26, 0.78);
-          return;
-        }
-      }
-
-      if (hoveredRegionId) {
-        drawRegions(context, regions, stageSize.width, stageSize.height, {
-          includeIds: new Set([hoveredRegionId]),
-          alphaScale: 1,
-          lineBoost: 1.35,
-        });
-      }
-      return;
-    }
-
+    if (!issueSelectionActive && selectedModule && drawModuleMask(context, selectedModule, stageSize.width, stageSize.height, 0.92)) return;
     if (!highlightedRegionIds.size || highlightedRegionIds.size === allRegionIds.size) return;
 
     drawRegions(context, regions, stageSize.width, stageSize.height, {
@@ -668,20 +618,7 @@ export function PhotoModulesCard({
       alphaScale: 1,
       lineBoost: 1.3,
     });
-  }, [
-    allRegionIds.size,
-    highlightedRegionIds,
-    hoveredRegionId,
-    issueEvidenceRegionIds,
-    moduleMaskById,
-    overlayMode,
-    regions,
-    hasModuleSelection,
-    selectedIssueType,
-    selectedModule,
-    stageSize.height,
-    stageSize.width,
-  ]);
+  }, [allRegionIds.size, highlightedRegionIds, issueSelectionActive, regions, selectedModule, stageSize.height, stageSize.width]);
 
   const hasActionProducts = Boolean(
     PRODUCT_REC_ENABLED &&
@@ -692,6 +629,19 @@ export function PhotoModulesCard({
     PRODUCT_REC_ENABLED && selectedModule
       ? selectedModule.products.filter((product) => Boolean(product.title)).slice(0, 3)
       : [];
+
+  const originalCropStyle = useMemo(() => {
+    const bbox = model.face_crop.bbox_px;
+    const orig = model.face_crop.orig_size_px;
+    if (!bbox.w || !bbox.h || !orig.w || !orig.h) return null;
+
+    return {
+      width: `${(orig.w / bbox.w) * 100}%`,
+      height: `${(orig.h / bbox.h) * 100}%`,
+      left: `${-(bbox.x / bbox.w) * 100}%`,
+      top: `${-(bbox.y / bbox.h) * 100}%`,
+    };
+  }, [model.face_crop.bbox_px, model.face_crop.orig_size_px]);
 
   const handleModuleSelect = (moduleId: string) => {
     setSelectedIssueType(null);
@@ -729,6 +679,257 @@ export function PhotoModulesCard({
     });
   };
 
+  const openMorePanel = (module: PhotoModulesModule, action: PhotoModulesAction) => {
+    if (!MORE_PANEL_ENABLED) return;
+    setMorePanelModuleId(module.module_id);
+    setMorePanelActionIngredientId(`${module.module_id}::${action.ingredient_id}`);
+    setMorePanelOpen(true);
+  };
+
+  const openExternal = (url: string, query: string) => {
+    const normalizedUrl = normalizeOutboundFallbackUrl(String(url || '').trim());
+    if (normalizedUrl) {
+      try {
+        if (analyticsCtx) {
+          let domain = '';
+          try {
+            domain = new URL(normalizedUrl).hostname;
+          } catch {
+            domain = '';
+          }
+          emitUiOutboundOpened(analyticsCtx, {
+            merchant_domain: domain || 'external',
+            card_position: 0,
+            sku_type: 'external_url',
+            card_id: cardId ?? null,
+          });
+        }
+        const opened = window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
+        if (!opened) window.location.assign(normalizedUrl);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    const googleUrl = buildGoogleSearchFallbackUrl(query, language);
+    if (!googleUrl) return false;
+    try {
+      const opened = window.open(googleUrl, '_blank', 'noopener,noreferrer');
+      if (!opened) window.location.assign(googleUrl);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const openProduct = async ({
+    moduleId,
+    action,
+    product,
+    productIndex,
+  }: {
+    moduleId: string;
+    action: PhotoModulesAction;
+    product: PhotoModulesProduct;
+    productIndex: number;
+  }) => {
+    const productKey = `${moduleId}::${action.ingredient_id}::${product.product_id || product.title || productIndex}`;
+    setOpeningProductKey(productKey);
+    const title = [String(product.brand || '').trim(), String(product.title || '').trim()].filter(Boolean).join(' ').trim();
+    const query = buildActionProductQuery(action, product);
+    try {
+      if (analyticsCtx) {
+        emitAuroraPhotoModulesProductTap(analyticsCtx, {
+          card_id: cardId ?? null,
+          module_id: moduleId,
+          product_id: product.product_id || null,
+          merchant_id: product.merchant_id || null,
+          title: product.title,
+          ingredient_id: action.ingredient_id,
+        });
+      }
+
+      const groupTarget = extractPdpTargetFromProductGroupId(product.product_group_id || null);
+      if (groupTarget?.product_id) {
+        const pdpUrl = buildPdpUrl(groupTarget);
+        if (analyticsCtx) {
+          emitUiPdpOpened(analyticsCtx, {
+            product_id: groupTarget.product_id,
+            merchant_id: groupTarget.merchant_id ?? null,
+            card_position: productIndex,
+            sku_type: 'product_group_id',
+            card_id: cardId ?? null,
+          });
+        }
+        if (onOpenPdp) onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
+        else window.location.assign(pdpUrl);
+        return;
+      }
+
+      const canonicalRef = product.canonical_product_ref;
+      if (canonicalRef?.product_id) {
+        const pdpUrl = buildPdpUrl({
+          product_id: canonicalRef.product_id,
+          merchant_id: canonicalRef.merchant_id || product.merchant_id || null,
+        });
+        if (analyticsCtx) {
+          emitUiPdpOpened(analyticsCtx, {
+            product_id: canonicalRef.product_id,
+            merchant_id: canonicalRef.merchant_id || product.merchant_id || null,
+            card_position: productIndex,
+            sku_type: 'canonical_ref',
+            card_id: cardId ?? null,
+          });
+        }
+        if (onOpenPdp) onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
+        else window.location.assign(pdpUrl);
+        return;
+      }
+
+      const directUrl = String(product.product_url || '').trim();
+      if (directUrl) {
+        if (openExternal(directUrl, query || title || action.ingredient_name)) return;
+      }
+
+      if (resolveProductRef && query) {
+        try {
+          const resp = await resolveProductRef({
+            query,
+            lang: language === 'CN' ? 'cn' : 'en',
+            hints: {
+              ...(product.product_id ? { product_id: product.product_id } : {}),
+              ...(product.brand ? { brand: product.brand } : {}),
+              ...(product.title ? { title: product.title } : {}),
+              aliases: [title, action.ingredient_name, product.title].filter(Boolean),
+              ...(product.product_id || product.merchant_id
+                ? {
+                    product_ref: {
+                      ...(product.product_id ? { product_id: product.product_id } : {}),
+                      ...(product.merchant_id ? { merchant_id: product.merchant_id } : {}),
+                    },
+                  }
+                : {}),
+            },
+          });
+          const target = extractStablePdpTargetFromProductsResolveResponse(resp);
+          if (target?.product_id) {
+            const pdpUrl = buildPdpUrl({
+              product_id: target.product_id,
+              merchant_id: target.merchant_id || null,
+            });
+            if (analyticsCtx) {
+              emitUiPdpOpened(analyticsCtx, {
+                product_id: target.product_id,
+                merchant_id: target.merchant_id || null,
+                card_position: productIndex,
+                sku_type: 'resolve',
+                card_id: cardId ?? null,
+              });
+            }
+            if (onOpenPdp) onOpenPdp({ url: pdpUrl, ...(title ? { title } : {}) });
+            else window.location.assign(pdpUrl);
+            return;
+          }
+        } catch {
+          // Falls through to search fallback.
+        }
+      }
+
+      openExternal('', query || title || action.ingredient_name);
+    } finally {
+      setOpeningProductKey((prev) => (prev === productKey ? null : prev));
+    }
+  };
+
+  const renderMorePanelBody = () => {
+    if (!morePanelAction || !morePanelModule) return null;
+    const products = (Array.isArray(morePanelAction.products) ? morePanelAction.products : []).filter((row) => Boolean(row.title));
+    const hasProducts = products.length > 0;
+    return (
+      <div className="mt-3 space-y-3 px-4 pb-4">
+        <div className="text-xs text-muted-foreground">
+          {language === 'CN'
+            ? `${morePanelAction.ingredient_name} · 共 ${products.length} 个推荐`
+            : `${morePanelAction.ingredient_name} · ${products.length} recommendations`}
+        </div>
+        {hasProducts ? (
+          <div className="space-y-2">
+            {products.map((product, index) => (
+              <button
+                key={`${morePanelModule.module_id}_${morePanelAction.ingredient_id}_${product.product_id || product.title || index}`}
+                type="button"
+                className="w-full rounded-xl border border-border/60 bg-background/80 p-3 text-left hover:bg-background disabled:opacity-70"
+                disabled={openingProductKey === `${morePanelModule.module_id}::${morePanelAction.ingredient_id}::${product.product_id || product.title || index}`}
+                onClick={() =>
+                  void openProduct({
+                    moduleId: morePanelModule.module_id,
+                    action: morePanelAction,
+                    product,
+                    productIndex: index,
+                  })
+                }
+              >
+                <div className="flex items-start gap-3">
+                  {product.image_url ? (
+                    <img src={product.image_url} alt={product.title} className="h-14 w-14 rounded-lg border border-border/60 object-cover" />
+                  ) : (
+                    <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-border/60 bg-muted/30">
+                      <Sparkles className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-sm font-semibold text-foreground">{product.title}</div>
+                      {product.retrieval_source ? (
+                        <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                          {sourceBadgeLabel(product.retrieval_source, language)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {product.brand ? <div className="mt-0.5 text-xs text-muted-foreground">{product.brand}</div> : null}
+                    {product.benefit_tags.length ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {product.benefit_tags.slice(0, 4).map((tag) => (
+                          <span key={tag} className="rounded-full border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {(formatPriceText(product) || formatSocialProofText(product, language)) ? (
+                      <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                        {formatPriceText(product) ? <span>{formatPriceText(product)}</span> : null}
+                        {formatSocialProofText(product, language) ? <span>{formatSocialProofText(product, language)}</span> : null}
+                      </div>
+                    ) : null}
+                    {product.why_match ? <div className="mt-1 text-[11px] text-muted-foreground">{product.why_match}</div> : null}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              {explainProductsEmptyReason(morePanelAction.products_empty_reason, language)}
+            </div>
+            {(Array.isArray(morePanelAction.external_search_ctas) ? morePanelAction.external_search_ctas : []).slice(0, 4).map((cta, idx) => (
+              <a
+                key={`${morePanelAction.ingredient_id}_cta_${idx}`}
+                href={cta.url || '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
+              >
+                {cta.title || (language === 'CN' ? '外部搜索' : 'External search')}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <Card className="w-full max-w-[48rem] border border-border/70 bg-background/90">
       <CardHeader className="space-y-2 p-4 pb-2">
@@ -764,13 +965,9 @@ export function PhotoModulesCard({
         <div className="space-y-2">
           {!hasRenderableImage ? (
             <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {noRenderableReason === 'load_failed'
-                ? language === 'CN'
-                  ? '照片预览加载失败。以下先展示模块结论与行动建议；重新上传或重拍后可恢复叠加图。'
-                  : 'Photo preview failed to load. Module findings are still shown below; re-uploading or retaking can restore overlays.'
-                : language === 'CN'
-                  ? '当前未拿到可渲染照片，以下先展示模块结论与行动建议。'
-                  : 'Photo overlay preview is unavailable for this response. Module findings and actions are shown below.'}
+              {language === 'CN'
+                ? '当前未拿到可渲染照片，以下先展示模块结论与行动建议。'
+                : 'No renderable photo is available right now. Module findings and actions are shown below.'}
             </div>
           ) : null}
 
@@ -780,90 +977,45 @@ export function PhotoModulesCard({
               className="relative w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/20"
               style={{ aspectRatio: imageAspect }}
             >
-              <img
-                src={activeRenderCandidate!.src}
-                alt={
-                  activeRenderCandidate!.kind === 'crop'
-                    ? language === 'CN'
-                      ? '脸部裁剪图'
-                      : 'Face crop'
-                    : activeRenderCandidate!.kind === 'original_crop'
-                      ? language === 'CN'
-                        ? '原图裁剪预览'
-                        : 'Original crop preview'
-                      : language === 'CN'
-                        ? '原图预览'
-                        : 'Original image preview'
-                }
-                className={
-                  activeRenderCandidate!.kind === 'original_crop'
-                    ? 'absolute'
-                    : 'absolute inset-0 h-full w-full object-cover'
-                }
-                style={activeRenderCandidate!.kind === 'original_crop' ? originalCropStyle ?? undefined : undefined}
-                draggable={false}
-                onError={() => {
-                  setFailedRenderKinds((previous) => {
-                    if (previous.includes(activeRenderCandidate!.kind)) return previous;
-                    return [...previous, activeRenderCandidate!.kind];
-                  });
-                }}
-              />
+              {cropImageUrl ? (
+                <img
+                  src={cropImageUrl}
+                  alt={language === 'CN' ? '脸部裁剪图' : 'Face crop'}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  draggable={false}
+                />
+              ) : originalImageUrl && originalCropStyle ? (
+                <img
+                  src={originalImageUrl}
+                  alt={language === 'CN' ? '原图裁剪预览' : 'Original crop preview'}
+                  className="absolute"
+                  style={originalCropStyle}
+                  draggable={false}
+                />
+              ) : (
+                <img
+                  src={originalImageUrl}
+                  alt={language === 'CN' ? '原图预览' : 'Original image preview'}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  draggable={false}
+                />
+              )}
 
               <canvas
                 ref={baseCanvasRef}
                 data-testid="photo-modules-base-canvas"
                 data-focused={hasFocusedSelection ? '1' : '0'}
-                data-overlay-mode={overlayMode}
-                data-mask-count={moduleMaskOverlays.length}
                 className="pointer-events-none absolute inset-0 h-full w-full"
-                style={{
-                  opacity:
-                    overlayMode === 'mask'
-                      ? issueSelectionActive
-                        ? 0.22
-                        : hasFocusedSelection
-                        ? 0.38
-                        : 0.48
-                      : hasFocusedSelection
-                        ? 0.04
-                        : 0.3,
-                }}
+                style={{ opacity: hasFocusedSelection ? 0.2 : 1 }}
               />
               <canvas
                 ref={highlightCanvasRef}
                 data-testid="photo-modules-highlight-canvas"
                 data-visible-count={visibleRegionIds.size}
-                data-highlight-count={
-                  issueSelectionActive
-                    ? highlightedRegionIds.size
-                    : overlayMode === 'mask' && hasModuleSelection && selectedModule && moduleMaskById.has(selectedModule.module_id)
-                      ? 1
-                      : highlightedRegionIds.size
-                }
-                data-overlay-mode={overlayMode}
-                data-highlight-mode={
-                  issueSelectionActive
-                    ? 'region'
-                    : overlayMode === 'mask' && hasModuleSelection
-                      ? 'mask'
-                      : hasFocusedSelection
-                        ? 'region'
-                        : 'none'
-                }
+                data-highlight-count={issueSelectionActive ? highlightedRegionIds.size : selectedModuleHasMask ? 1 : highlightedRegionIds.size}
+                data-highlight-mode={issueSelectionActive ? 'region' : selectedModuleHasMask ? 'mask' : hasFocusedSelection ? 'region' : 'none'}
                 className="pointer-events-none absolute inset-0 h-full w-full"
               />
-            </div>
-          ) : null}
-          {hasRenderableImage && activeRenderCandidate && activeRenderCandidate.kind !== 'crop' ? (
-            <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              {activeRenderCandidate.kind === 'original_crop'
-                ? language === 'CN'
-                  ? '当前使用原图裁剪回退进行叠加渲染。'
-                  : 'Using original-photo crop fallback for overlay rendering.'
-                : language === 'CN'
-                  ? '当前使用原图全幅回退进行叠加渲染，分区位置可能略有偏差。'
-                  : 'Using original full-frame fallback; region alignment may be less precise.'}
             </div>
           ) : null}
 
@@ -884,8 +1036,6 @@ export function PhotoModulesCard({
           <div className="flex flex-wrap gap-2">
             {model.modules.map((module) => {
               const maxSeverity = module.issues.reduce((max, issue) => Math.max(max, issue.severity_0_4), 0);
-              const severityLevel = normalizeSeverityLevel(maxSeverity);
-              const severityLabel = getSeverityLabel(severityLevel, language);
               const isActive = selectedModuleId === module.module_id;
               return (
                 <button
@@ -898,8 +1048,7 @@ export function PhotoModulesCard({
                     isActive ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {getModuleLabel(module.module_id, language)} · {severityLabel}
-                  {debug ? ` (S${severityLevel})` : ''}
+                  {getModuleLabel(module.module_id, language)} · S{maxSeverity}
                 </button>
               );
             })}
@@ -941,7 +1090,7 @@ export function PhotoModulesCard({
                           </div>
                           <div className="flex items-center gap-1.5">
                             <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] font-semibold text-foreground">
-                              S{normalizeSeverityLevel(issue.severity_0_4)}
+                              S{issue.severity_0_4}
                             </span>
                             <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
                               {toPercent(issue.confidence_0_1)}
@@ -975,13 +1124,13 @@ export function PhotoModulesCard({
                 <div className="space-y-2">
                   {selectedModule.actions.map((action) => {
                     const actionProducts = PRODUCT_REC_ENABLED
-                      ? (Array.isArray(action.products) ? action.products : []).filter((product) => Boolean(product.title)).slice(0, 3)
+                      ? (Array.isArray(action.products) ? action.products : []).filter((product) => Boolean(product.title)).slice(0, 6)
                       : [];
+                    const primaryProduct = actionProducts[0] ?? null;
                     const externalSearchCtas = PRODUCT_REC_ENABLED
                       ? (Array.isArray(action.external_search_ctas) ? action.external_search_ctas : []).slice(0, 2)
                       : [];
                     const showActionFallback = PRODUCT_REC_ENABLED && !actionProducts.length && (Boolean(action.products_empty_reason) || externalSearchCtas.length > 0);
-
                     return (
                       <div
                         key={`${selectedModule.module_id}_${action.ingredient_id}`}
@@ -1029,40 +1178,63 @@ export function PhotoModulesCard({
                           ) : null}
                         </button>
 
-                        {PRODUCT_REC_ENABLED && actionProducts.length ? (
+                        {PRODUCT_REC_ENABLED && primaryProduct ? (
                           <div className="mt-2 space-y-2" data-testid={`photo-modules-action-products-${action.ingredient_id}`}>
-                            <div className="text-[11px] font-semibold text-muted-foreground">
-                              {language === 'CN' ? '关联商品' : 'Matched products'}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[11px] font-semibold text-muted-foreground">
+                                {language === 'CN' ? '主推商品' : 'Top match'}
+                              </div>
+                              {MORE_PANEL_ENABLED && actionProducts.length > 1 ? (
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] font-semibold text-foreground hover:bg-background"
+                                  onClick={() => openMorePanel(selectedModule, action)}
+                                >
+                                  {language === 'CN' ? '更多' : 'More'}
+                                </button>
+                              ) : null}
                             </div>
-                            {actionProducts.map((product) => (
-                              <button
-                                key={`${selectedModule.module_id}_${action.ingredient_id}_${product.product_id || product.title}`}
-                                type="button"
-                                className="w-full rounded-lg border border-border/60 bg-background/80 p-2 text-left hover:bg-background"
-                                onClick={() => {
-                                  if (!analyticsCtx) return;
-                                  emitAuroraPhotoModulesProductTap(analyticsCtx, {
-                                    card_id: cardId ?? null,
-                                    module_id: selectedModule.module_id,
-                                    product_id: product.product_id || null,
-                                    merchant_id: product.merchant_id || null,
-                                    title: product.title,
-                                    ingredient_id: action.ingredient_id,
-                                  });
-                                }}
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-xs font-semibold text-foreground">{product.title}</div>
-                                  {product.retrieval_source ? (
-                                    <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                                      {sourceBadgeLabel(product.retrieval_source, language)}
-                                    </span>
-                                  ) : null}
+                            <button
+                              type="button"
+                              className="w-full rounded-lg border border-border/60 bg-background/80 p-2 text-left hover:bg-background disabled:cursor-not-allowed disabled:opacity-70"
+                              disabled={openingProductKey === `${selectedModule.module_id}::${action.ingredient_id}::${primaryProduct.product_id || primaryProduct.title || 0}`}
+                              onClick={() =>
+                                void openProduct({
+                                  moduleId: selectedModule.module_id,
+                                  action,
+                                  product: primaryProduct,
+                                  productIndex: 0,
+                                })
+                              }
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate text-xs font-semibold text-foreground">{primaryProduct.title}</div>
+                                  {primaryProduct.brand ? <div className="mt-0.5 text-[11px] text-muted-foreground">{primaryProduct.brand}</div> : null}
                                 </div>
-                                {product.brand ? <div className="mt-0.5 text-[11px] text-muted-foreground">{product.brand}</div> : null}
-                                {product.why_match ? <div className="mt-1 text-[11px] text-muted-foreground">{product.why_match}</div> : null}
-                              </button>
-                            ))}
+                                {primaryProduct.retrieval_source ? (
+                                  <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                                    {sourceBadgeLabel(primaryProduct.retrieval_source, language)}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {primaryProduct.why_match ? <div className="mt-1 text-[11px] text-muted-foreground">{primaryProduct.why_match}</div> : null}
+                              {primaryProduct.benefit_tags.length ? (
+                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                  {primaryProduct.benefit_tags.slice(0, 3).map((tag) => (
+                                    <span key={tag} className="rounded-full border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {(formatPriceText(primaryProduct) || formatSocialProofText(primaryProduct, language)) ? (
+                                <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                  {formatPriceText(primaryProduct) ? <span>{formatPriceText(primaryProduct)}</span> : null}
+                                  {formatSocialProofText(primaryProduct, language) ? <span>{formatSocialProofText(primaryProduct, language)}</span> : null}
+                                </div>
+                              ) : null}
+                            </button>
                           </div>
                         ) : null}
 
@@ -1112,20 +1284,29 @@ export function PhotoModulesCard({
                       key={`${selectedModule.module_id}_${product.product_id || product.title}`}
                       type="button"
                       className="w-full rounded-xl border border-border/60 bg-muted/20 p-3 text-left hover:bg-muted/30"
-                      onClick={() => {
-                        if (!analyticsCtx) return;
-                        emitAuroraPhotoModulesProductTap(analyticsCtx, {
-                          card_id: cardId ?? null,
-                          module_id: selectedModule.module_id,
-                          product_id: product.product_id || null,
-                          merchant_id: product.merchant_id || null,
-                          source_block: product.source_block || null,
-                          price_tier: product.price_tier || null,
-                          price: typeof product.price === 'number' ? product.price : null,
-                          currency: product.currency || null,
-                          title: product.title,
-                        });
-                      }}
+                      onClick={() =>
+                        void openProduct({
+                          moduleId: selectedModule.module_id,
+                          action: {
+                            action_type: 'ingredient',
+                            ingredient_id: 'module_summary',
+                            ingredient_canonical_id: null,
+                            ingredient_name: language === 'CN' ? '模块汇总' : 'Module summary',
+                            why: '',
+                            how_to_use: { time: 'AM_PM', frequency: '2-3x_week', notes: '' },
+                            cautions: [],
+                            evidence_issue_types: [],
+                            timeline: '',
+                            do_not_mix: [],
+                            products: [],
+                            products_empty_reason: null,
+                            external_search_ctas: [],
+                            rec_debug: null,
+                          },
+                          product,
+                          productIndex: 0,
+                        })
+                      }
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -1217,6 +1398,32 @@ export function PhotoModulesCard({
           ) : null}
         </div>
       </CardContent>
+      {MORE_PANEL_ENABLED ? (
+        isDesktop ? (
+        <Sheet open={morePanelOpen} onOpenChange={setMorePanelOpen}>
+          <SheetContent
+            side="right"
+            className="w-[480px] max-w-[92vw] overflow-y-auto"
+            aria-label={language === 'CN' ? '查看更多商品' : 'More products'}
+            aria-describedby={undefined}
+          >
+            <SheetHeader>
+              <SheetTitle>{language === 'CN' ? '查看更多商品' : 'More products'}</SheetTitle>
+            </SheetHeader>
+            {renderMorePanelBody()}
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Drawer open={morePanelOpen} onOpenChange={setMorePanelOpen}>
+          <DrawerContent aria-label={language === 'CN' ? '查看更多商品' : 'More products'} aria-describedby={undefined}>
+            <DrawerHeader>
+              <DrawerTitle>{language === 'CN' ? '查看更多商品' : 'More products'}</DrawerTitle>
+            </DrawerHeader>
+            {renderMorePanelBody()}
+          </DrawerContent>
+        </Drawer>
+      )
+      ) : null}
     </Card>
   );
 }

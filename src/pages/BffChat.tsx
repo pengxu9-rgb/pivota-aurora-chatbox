@@ -6,6 +6,8 @@ import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
+import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
+import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
 import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompatibilityFooter';
@@ -57,6 +59,10 @@ import {
   emitUiOutboundOpened,
   emitUiPdpOpened,
   emitAuroraPhotoModulesSchemaFail,
+  emitIngredientsAnswerServed,
+  emitIngredientsEntryOpened,
+  emitIngredientsModeSelected,
+  emitIngredientsOptinDiagnosis,
   emitUiRecosRequested,
   emitUiReturnVisit,
   emitUiSessionStarted,
@@ -529,6 +535,8 @@ const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
   if (t === 'diagnosis_gate') return Activity;
   if (t === 'budget_gate') return Wallet;
+  if (t === 'ingredient_hub') return FlaskConical;
+  if (t === 'ingredient_goal_match') return FlaskConical;
   if (t === 'ingredient_plan') return FlaskConical;
   if (t === 'ingredient_plan_v2') return FlaskConical;
   if (t === 'analysis_story_v2') return ListChecks;
@@ -550,6 +558,8 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   const key = t.toLowerCase();
   if (key === 'diagnosis_gate') return language === 'CN' ? '先做一个极简肤况确认' : 'Quick skin profile first';
   if (key === 'budget_gate') return language === 'CN' ? '预算确认' : 'Budget';
+  if (key === 'ingredient_hub') return language === 'CN' ? '成分查询入口' : 'Ingredient hub';
+  if (key === 'ingredient_goal_match') return language === 'CN' ? '按功效找成分' : 'Ingredient goal match';
   if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
   if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（个性化）' : 'Ingredient plan (personalized)';
@@ -3028,8 +3038,18 @@ function BffCardView({
         analyticsCtx={analyticsCtx}
         cardId={card.card_id}
         sanitizerDrops={sanitizer_drops}
+        resolveProductRef={resolveProductRef}
+        onOpenPdp={onOpenPdp}
       />
     );
+  }
+
+  if (cardType === 'ingredient_hub') {
+    return <IngredientHubCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'ingredient_goal_match') {
+    return <IngredientGoalMatchCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
   if (cardType === 'diagnosis_gate') {
@@ -5289,7 +5309,7 @@ export default function BffChat() {
           data: { reply_text: lang === 'CN' ? '帮我找平替并比较 tradeoffs' : 'Find dupes/cheaper alternatives' },
         },
         {
-          chip_id: 'chip.start.ingredients',
+          chip_id: 'chip.start.ingredients.entry',
           label: lang === 'CN' ? '成分机理/证据链' : 'Ingredient science (evidence)',
           kind: 'quick_reply',
           data: {

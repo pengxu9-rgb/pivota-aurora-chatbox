@@ -1,35 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { decodeRleBinaryMask, normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
+import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 
 const makeHeatmapValues = (value = 0.5) => Array.from({ length: 64 * 64 }, () => value);
-const encodeRleBinaryMask = (mask: Uint8Array): string => {
-  const chunks: number[] = [];
-  let current = 0;
-  let run = 0;
-  for (let i = 0; i < mask.length; i += 1) {
-    const value = mask[i] ? 1 : 0;
-    if (value === current) {
-      run += 1;
-      continue;
-    }
-    chunks.push(run);
-    run = 1;
-    current = value;
-  }
-  chunks.push(run);
-  return chunks.join(',');
-};
-
-const buildMask = (grid: number, x0: number, y0: number, x1: number, y1: number) => {
-  const out = new Uint8Array(grid * grid);
-  for (let y = y0; y < y1; y += 1) {
-    for (let x = x0; x < x1; x += 1) {
-      out[y * grid + x] = 1;
-    }
-  }
-  return out;
-};
 
 const makeBasePayload = () => ({
   used_photos: true,
@@ -86,10 +59,6 @@ const makeBasePayload = () => ({
   modules: [
     {
       module_id: 'left_cheek',
-      mask_grid: 64,
-      mask_rle_norm: encodeRleBinaryMask(buildMask(64, 6, 20, 28, 42)),
-      box: { x: 0.08, y: 0.34, w: 0.34, h: 0.3 },
-      degraded_reason: 'MODULE_TOO_THIN',
       issues: [
         {
           issue_type: 'redness',
@@ -112,8 +81,15 @@ const makeBasePayload = () => ({
             {
               product_id: 'prod_1',
               merchant_id: 'merchant_1',
+              product_group_id: 'pg:merchant_1:prod_1',
+              canonical_product_ref: { product_id: 'prod_1', merchant_id: 'merchant_1' },
               name: 'Niacinamide Serum',
               brand: 'Brand A',
+              benefit_tags: ['oil_control', 'barrier_support'],
+              price: 18.8,
+              currency: 'USD',
+              price_label: '$18.80',
+              social_proof: { rating: 4.6, review_count: 231, summary: 'Widely praised for low irritation.' },
               why_match: 'Matches redness support.',
               retrieval_source: 'catalog',
               retrieval_reason: 'catalog_evidence_match',
@@ -132,27 +108,17 @@ const makeBasePayload = () => ({
           products_empty_reason: null,
         },
       ],
-      products: [
-        {
-          product_id: 'prod_1',
-          merchant_id: 'merchant_1',
-          name: 'Niacinamide Serum 10%',
-          brand: 'Brand A',
-          price: 18.5,
-          currency: 'USD',
-          price_tier: 'low',
-          source_block: 'dupe',
-          why_match: 'Budget-friendly niacinamide option.',
-        },
-      ],
+      products: [],
+      mask_grid: { w: 8, h: 8 },
+      mask_rle_norm: {
+        grid: { w: 8, h: 8 },
+        values: Array.from({ length: 64 }, (_, idx) => (idx % 3 === 0 ? 1 : 0)),
+      },
+      box: { x: 0.12, y: 0.2, w: 0.3, h: 0.28 },
+      degraded_reason: 'heatmap_component_missing',
+      evidence_region_ids: ['bbox_1'],
     },
   ],
-  module_overlay_debug: {
-    module_box_mode: 'dynamic_skinmask',
-    module_box_dynamic_applied: false,
-    skinmask_reliable: false,
-    degraded_reasons: ['SKINMASK_UNRELIABLE'],
-  },
   disclaimers: {
     non_medical: true,
     seek_care_triggers: ['If persistent irritation occurs, seek professional care.'],
@@ -183,29 +149,21 @@ describe('photo modules contract', () => {
 
     const issue = model.modules[0]?.issues[0];
     expect(issue?.evidence_region_ids).toEqual(['bbox_1']);
-    expect(model.modules[0]?.mask_grid).toEqual({ w: 64, h: 64 });
-    expect(typeof model.modules[0]?.mask_rle_norm).toBe('object');
-    expect(model.modules[0]?.degraded_reason).toBe('MODULE_TOO_THIN');
+    expect(model.modules[0]?.mask_grid).toEqual({ w: 8, h: 8 });
+    expect(model.modules[0]?.mask_rle_norm?.grid).toEqual({ w: 8, h: 8 });
+    expect(Array.isArray(model.modules[0]?.mask_rle_norm?.values)).toBe(true);
+    expect(model.modules[0]?.degraded_reason).toBe('heatmap_component_missing');
+    expect(model.modules[0]?.evidence_region_ids).toEqual(['bbox_1']);
     expect(model.modules[0]?.actions[0]?.products).toHaveLength(1);
     expect(model.modules[0]?.actions[0]?.products[0]?.retrieval_source).toBe('catalog');
     expect(model.modules[0]?.actions[0]?.products[0]?.product_url).toBe('https://example.com/p/niacinamide-serum');
+    expect(model.modules[0]?.actions[0]?.products[0]?.benefit_tags).toEqual(['oil_control', 'barrier_support']);
+    expect(model.modules[0]?.actions[0]?.products[0]?.price).toBe(18.8);
+    expect(model.modules[0]?.actions[0]?.products[0]?.currency).toBe('USD');
+    expect(model.modules[0]?.actions[0]?.products[0]?.social_proof?.rating).toBe(4.6);
+    expect(model.modules[0]?.actions[0]?.products[0]?.canonical_product_ref?.product_id).toBe('prod_1');
     expect(model.modules[0]?.actions[0]?.external_search_ctas).toHaveLength(1);
     expect(model.modules[0]?.actions[0]?.products_empty_reason).toBeNull();
-    expect(model.module_overlay_debug?.skinmask_reliable).toBe(false);
-    expect(model.module_overlay_debug?.module_box_mode).toBe('dynamic_skinmask');
-    const product = model.modules[0]?.products?.[0];
-    expect(product?.price).toBe(18.5);
-    expect(product?.currency).toBe('USD');
-    expect(product?.price_tier).toBe('low');
-    expect(product?.source_block).toBe('dupe');
-  });
-
-  it('decodes module rle masks for mask overlay compatibility', () => {
-    const mask = buildMask(8, 2, 2, 6, 6);
-    const encoded = encodeRleBinaryMask(mask);
-    const decoded = decodeRleBinaryMask(encoded, 64);
-    expect(decoded.length).toBe(64);
-    expect(decoded.reduce((acc, value) => acc + (value ? 1 : 0), 0)).toBe(16);
   });
 
   it('drops invalid heatmap shape and records sanitizer reason', () => {
