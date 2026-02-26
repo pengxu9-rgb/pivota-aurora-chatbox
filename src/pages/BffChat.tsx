@@ -3283,7 +3283,8 @@ function BffCardView({
     const token = String(type || '').trim().toLowerCase();
     if (token === 'official_page') return 0;
     if (token === 'regulatory') return 1;
-    if (token === 'inci_decoder') return 2;
+    if (token === 'retail_page') return 2;
+    if (token === 'inci_decoder') return 3;
     return 9;
   };
   const evidenceSources = asArray((evidence as any)?.sources)
@@ -3678,7 +3679,31 @@ function BffCardView({
           return '';
         })();
 
-        const formulaIntent: string[] = [];
+        const assessmentSummary = (asString((assessment as any)?.summary || (assessment as any)?.quick_summary || (assessment as any)?.quickSummary) || '').trim();
+        const assessmentFormulaIntent = uniqueStrings([
+          ...uniqueStrings((assessment as any)?.formula_intent),
+          ...uniqueStrings((assessment as any)?.formulaIntent),
+        ]).slice(0, 6);
+        const assessmentBestFor = uniqueStrings([
+          ...uniqueStrings((assessment as any)?.best_for),
+          ...uniqueStrings((assessment as any)?.bestFor),
+        ]).slice(0, 6);
+        const assessmentNotFor = uniqueStrings([
+          ...uniqueStrings((assessment as any)?.not_for),
+          ...uniqueStrings((assessment as any)?.notFor),
+        ]).slice(0, 6);
+        const assessmentIfNotIdeal = uniqueStrings([
+          ...uniqueStrings((assessment as any)?.if_not_ideal),
+          ...uniqueStrings((assessment as any)?.ifNotIdeal),
+        ]).slice(0, 6);
+        const assessmentBetterPairing = uniqueStrings([
+          ...uniqueStrings((assessment as any)?.better_pairing),
+          ...uniqueStrings((assessment as any)?.betterPairing),
+        ]).slice(0, 6);
+        const assessmentFollowUpQuestion = (asString((assessment as any)?.follow_up_question || (assessment as any)?.followUpQuestion) || '').trim();
+
+        const formulaIntentFromReasons: string[] = [];
+        const bestForFromReasons: string[] = [];
         const usageHintsFromReasons: string[] = [];
         const cautionFromReasons: string[] = [];
         const dataNotesFromReasons: string[] = [];
@@ -3725,11 +3750,26 @@ function BffCardView({
           }
 
           if (/^profile priorities:/i.test(lower)) {
-            formulaIntent.push(line.replace(/^profile priorities:\s*/i, '').trim());
+            bestForFromReasons.push(line.replace(/^profile priorities:\s*/i, '').trim());
             return;
           }
 
-          formulaIntent.push(line);
+          if (/^your profile:/i.test(lower) || /^你的情况[:：]/i.test(line)) {
+            bestForFromReasons.push(line.replace(/^your profile:\s*/i, '').replace(/^你的情况[:：]\s*/i, '').trim());
+            return;
+          }
+
+          if (/^fit:/i.test(lower) || /^匹配点[:：]/i.test(line)) {
+            bestForFromReasons.push(line.replace(/^fit:\s*/i, '').replace(/^匹配点[:：]\s*/i, '').trim());
+            return;
+          }
+
+          if (/risk|watchout|caution|irrit|敏感|刺激|刺痛|泛红/i.test(lower)) {
+            cautionFromReasons.push(line);
+            return;
+          }
+
+          formulaIntentFromReasons.push(line);
         });
 
         const verdictStyle = (() => {
@@ -3745,25 +3785,89 @@ function BffCardView({
           ...(heroName ? [heroName] : []),
         ].map((name) => normalizeIngredientName(name))).slice(0, 12);
 
-        const bestForSignals = uniqueStrings([
-          ...formulaIntent,
+        const normalizeLineToken = (line: string) =>
+          String(line || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ').replace(/\s+/g, ' ').trim();
+        const lineSimilarity = (left: string, right: string) => {
+          const l = normalizeLineToken(left);
+          const r = normalizeLineToken(right);
+          if (!l || !r) return 0;
+          if (l === r) return 1;
+          if (l.includes(r) || r.includes(l)) return 0.85;
+          const leftTokens = new Set(l.split(' ').filter(Boolean));
+          const rightTokens = new Set(r.split(' ').filter(Boolean));
+          if (!leftTokens.size || !rightTokens.size) return 0;
+          let overlap = 0;
+          leftTokens.forEach((token) => {
+            if (rightTokens.has(token)) overlap += 1;
+          });
+          const denom = Math.max(leftTokens.size, rightTokens.size);
+          return denom > 0 ? overlap / denom : 0;
+        };
+        const filterNearDuplicateLines = (rows: string[], refs: string[], threshold = 0.7) =>
+          rows.filter((line) => !refs.some((ref) => lineSimilarity(line, ref) >= threshold));
+
+        const formulaIntentCandidates = uniqueStrings([
+          ...assessmentFormulaIntent,
+          ...formulaIntentFromReasons,
+          ...evidenceMechanisms,
+        ])
+          .filter((line) => !/^(your profile|profile priorities|你的情况|匹配点)[:：]/i.test(String(line || '').trim()))
+          .slice(0, 6);
+        const bestForSignalsRaw = uniqueStrings([
+          ...assessmentBestFor,
+          ...bestForFromReasons,
           ...evidenceFitNotes,
           ...socialPositive,
-        ]).slice(0, 3);
-
-        const cautionSignals = uniqueStrings([
+        ]).slice(0, 6);
+        const cautionSignalsRaw = uniqueStrings([
+          ...assessmentNotFor,
           ...cautionFromReasons,
           ...evidenceRiskNotes,
           ...socialNegative,
           ...socialRisks,
-        ]).slice(0, 4);
+        ]).slice(0, 6);
+
+        const formulaIntent = filterNearDuplicateLines(formulaIntentCandidates, bestForSignalsRaw, 0.72).slice(0, 3);
+        const bestForSignals = filterNearDuplicateLines(bestForSignalsRaw, formulaIntent, 0.72).slice(0, 3);
+        const cautionSignals = uniqueStrings(cautionSignalsRaw).slice(0, 4);
+        const ifNotIdealSignals = uniqueStrings([
+          ...assessmentIfNotIdeal,
+          ...(cautionSignals.length
+            ? [language === 'CN'
+              ? '如果出现持续刺痛/泛红，请暂停该产品并回到温和修护基线。'
+              : 'If persistent stinging/redness occurs, pause this product and return to a gentle repair baseline.']
+            : []),
+        ]).slice(0, 3);
+        const betterPairingSignals = uniqueStrings([
+          ...assessmentBetterPairing,
+          ...(cautionSignals.some((line) => /\b(dry|drying|tight|dehydrat|干燥|紧绷)\b/i.test(String(line || '')))
+            ? [language === 'CN'
+              ? '建议叠加屏障保湿层（如神经酰胺/泛醇）来降低拔干概率。'
+              : 'Pair with a barrier-hydration layer (for example ceramide/panthenol) to reduce dryness risk.']
+            : []),
+          ...(bestForSignals.some((line) => /\b(acne|pores?|痘|毛孔)\b/i.test(String(line || '')))
+            ? [language === 'CN'
+              ? '如果重点是控痘，优先低刺激控油路线，避免同晚叠加强活性。'
+              : 'If acne control is the priority, prefer low-irritation oil-control pairing and avoid same-night strong active stacking.']
+            : []),
+        ]).slice(0, 3);
+        const profilePromptNeeded = profilePromptRaw?.needed === true || rawMissing.includes('profile_not_provided');
+        const followUpQuestion = assessmentFollowUpQuestion || (
+          profilePromptNeeded
+            ? (language === 'CN'
+              ? '你当前更在意控痘、提亮还是屏障修护？我可以据此把下一步方案收敛到 2-3 个选项。'
+              : 'Which matters most right now: acne control, brightening, or barrier repair? I can narrow next steps to 2-3 options.')
+            : (language === 'CN'
+              ? '你更倾向更温和还是更快见效？我可以按这个偏好细化后续方案。'
+              : 'Do you prefer gentler progression or faster visible results? I can tailor the next-step plan accordingly.')
+        );
 
         const keyTakeawayLines = uniqueStrings([
+          assessmentSummary,
           verdict ? (language === 'CN' ? `结论：${verdict}` : `Verdict: ${verdict}`) : '',
           bestForSignals[0] || '',
           cautionSignals[0] ? (language === 'CN' ? `主要注意：${cautionSignals[0]}` : `Main watchout: ${cautionSignals[0]}`) : '',
-        ]).slice(0, 2);
-        const profilePromptNeeded = profilePromptRaw?.needed === true || rawMissing.includes('profile_not_provided');
+        ]).slice(0, 3);
         const profilePromptFields = uniqueStrings(
           (profilePromptRaw as any)?.missing_fields || (profilePromptRaw as any)?.missingFields || [],
         );
@@ -3925,8 +4029,8 @@ function BffCardView({
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-amber-700">
                   <span>
                     {language === 'CN'
-                      ? `当前分析限制（${visibleMissingLabels.length}）`
-                      : `Current analysis limits (${visibleMissingLabels.length})`}
+                      ? `分析限制（${visibleMissingLabels.length}）：${visibleMissingLabels[0]}${visibleMissingLabels.length > 1 ? '…' : ''}`
+                      : `Analysis limits (${visibleMissingLabels.length}): ${visibleMissingLabels[0]}${visibleMissingLabels.length > 1 ? '…' : ''}`}
                   </span>
                   <ChevronDown className="h-4 w-4" />
                 </summary>
@@ -4023,7 +4127,9 @@ function BffCardView({
             ) : null}
 
             {(bestForSignals.length || cautionSignals.length) ? (
-              <div className="grid grid-cols-1 gap-3 rounded-2xl border border-border/60 bg-background/60 p-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '是否适合你' : 'Is it a fit for you?'}</div>
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {bestForSignals.length ? (
                   <div>
                     <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
@@ -4036,7 +4142,7 @@ function BffCardView({
                 ) : null}
                 {cautionSignals.length ? (
                   <div>
-                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '使用注意' : 'Use with caution'}</div>
+                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '不太适合/需谨慎' : 'Not ideal for / caution'}</div>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
                       {cautionSignals.slice(0, 3).map((item) => (
                         <li key={item}>{item}</li>
@@ -4044,6 +4150,33 @@ function BffCardView({
                     </ul>
                   </div>
                 ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {ifNotIdealSignals.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {language === 'CN' ? '如果不太适合，现在该怎么做' : 'If not ideal, what to do now'}
+                </div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {ifNotIdealSignals.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {betterPairingSignals.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {language === 'CN' ? '更理想的搭配方式' : 'Better pairing for your goals'}
+                </div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {betterPairingSignals.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
               </div>
             ) : null}
 
@@ -4073,6 +4206,15 @@ function BffCardView({
                   ))}
                 </ul>
               </details>
+            ) : null}
+
+            {followUpQuestion ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {language === 'CN' ? '下一步关键追问' : 'One smart follow-up question'}
+                </div>
+                <div className="mt-2 text-sm text-foreground">{followUpQuestion}</div>
+              </div>
             ) : null}
 
             <div className="flex flex-wrap gap-2">
@@ -4188,6 +4330,8 @@ function BffCardView({
                     const sourceLabel = source.label ||
                       (source.type === 'regulatory'
                         ? (language === 'CN' ? '监管源' : 'Regulatory')
+                        : source.type === 'retail_page'
+                          ? (language === 'CN' ? '零售页补充' : 'Retail PDP')
                         : source.type === 'inci_decoder'
                           ? (language === 'CN' ? 'INCIDecoder' : 'INCIDecoder')
                         : (language === 'CN' ? '官网页面' : 'Official page'));
@@ -5956,7 +6100,7 @@ export default function BffChat() {
           analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
             ? (analyzeCard.payload as Record<string, unknown>)
             : null;
-        const verdict = asString((analyzeAssessment as any)?.verdict).trim().toLowerCase();
+        const verdict = (asString((analyzeAssessment as any)?.verdict) || '').trim().toLowerCase();
         const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
         const analyzeMissingReasons = uniqueStrings([
           ...asArray((analyzePayload as any)?.missing_info).map((item) => asString(item)).filter(Boolean),
