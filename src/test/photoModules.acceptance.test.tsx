@@ -112,6 +112,19 @@ const buildValidPayload = () => ({
           evidence_issue_types: ['redness', 'shine'],
           timeline: 'AM/PM',
           do_not_mix: ['Strong acids in same routine'],
+          products: [
+            {
+              product_id: 'prod_niacinamide_1',
+              merchant_id: 'merchant_1',
+              name: 'Niacinamide 5% Serum',
+              brand: 'Brand A',
+              why_match: 'Balanced for redness and shine concerns.',
+              retrieval_source: 'catalog',
+              retrieval_reason: 'catalog_evidence_match',
+            },
+          ],
+          products_empty_reason: null,
+          external_search_ctas: [],
         },
       ],
       products: [],
@@ -266,16 +279,20 @@ describe('photo_modules_v1 acceptance', () => {
 
     expect(baseCanvas).toHaveAttribute('data-focused', '0');
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '3');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'none');
     expect(screen.getByText('Left cheek · Noticeable')).toBeInTheDocument();
-    expect(screen.queryByText(/S3/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
     expect(baseCanvas).toHaveAttribute('data-focused', '1');
-    expect(highlightCanvas).toHaveAttribute('data-highlight-count', '2');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'mask');
 
     fireEvent.click(screen.getByTestId('photo-modules-issue-shine'));
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-visible-count', '1');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
+    expect(screen.getByText('Matched products')).toBeInTheDocument();
+    expect(screen.getByText('Niacinamide 5% Serum')).toBeInTheDocument();
   });
 
   it('keeps module summary/actions visible in no-image mode without big placeholder canvas', () => {

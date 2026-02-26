@@ -105,6 +105,20 @@ const actionSchema = z
   })
   .passthrough();
 
+const moduleMaskRleSchema = z
+  .object({
+    grid: z
+      .object({
+        w: asPositiveInt,
+        h: asPositiveInt,
+      })
+      .optional(),
+    counts: z.union([z.array(asPositiveInt), z.string().trim().min(1)]).optional(),
+    values: z.array(z.number()).optional(),
+    starts_with: z.union([z.literal(0), z.literal(1)]).optional(),
+  })
+  .passthrough();
+
 const productSchema = z
   .object({
     product_id: z.string().trim().optional(),
@@ -129,10 +143,20 @@ const moduleSchema = z
     issues: z.array(issueSchema).default([]),
     actions: z.array(actionSchema).default([]),
     products: z.array(productSchema).optional(),
-    mask_rle_norm: z.string().trim().optional(),
-    mask_grid: asPositiveInt.optional(),
+    mask_rle_norm: z.union([moduleMaskRleSchema, z.string().trim().min(1)]).optional(),
+    mask_grid: z
+      .union([
+        asPositiveInt,
+        z.object({
+          w: asPositiveInt,
+          h: asPositiveInt,
+        }),
+      ])
+      .optional(),
+    module_pixels: z.array(z.number()).optional(),
     box: bboxSchema.optional(),
     degraded_reason: z.string().trim().optional(),
+    evidence_region_ids: z.array(asNonEmptyString).optional(),
   })
   .passthrough();
 
@@ -250,6 +274,9 @@ export type PhotoModulesAction = {
   evidence_issue_types: Array<(typeof ISSUE_TYPES)[number]>;
   timeline: string;
   do_not_mix: string[];
+  products: PhotoModulesProduct[];
+  products_empty_reason: string | null;
+  external_search_ctas: PhotoModulesExternalSearchCta[];
 };
 
 export type PhotoModulesProduct = {
@@ -265,6 +292,17 @@ export type PhotoModulesProduct = {
   price_tier?: string;
   source_block?: string;
   cautions: string[];
+  product_url: string;
+  retrieval_source: string;
+  retrieval_reason: string;
+  suitability_score: number | null;
+};
+
+export type PhotoModulesExternalSearchCta = {
+  title: string;
+  url: string;
+  source: string;
+  reason: string;
 };
 
 export type PhotoModulesModule = {
@@ -272,10 +310,19 @@ export type PhotoModulesModule = {
   issues: PhotoModulesIssue[];
   actions: PhotoModulesAction[];
   products: PhotoModulesProduct[];
-  mask_rle_norm?: string;
-  mask_grid?: number;
+  mask_rle_norm?:
+    | {
+        grid?: { w: number; h: number } | null;
+        counts?: number[] | string | null;
+        values?: number[] | null;
+        starts_with?: 0 | 1 | null;
+      }
+    | null;
+  mask_grid?: { w: number; h: number } | null;
+  module_pixels?: number[];
   box?: Bbox;
   degraded_reason?: string;
+  evidence_region_ids?: string[];
 };
 
 export type PhotoModulesUiModelV1 = {
@@ -593,7 +640,75 @@ const normalizeAction = (action: RawAction): PhotoModulesAction => ({
   do_not_mix: toUniqueList(action.do_not_mix ?? [], 6).length
     ? toUniqueList(action.do_not_mix ?? [], 6)
     : defaultDoNotMix(action.evidence_issue_types),
+  products: (Array.isArray((action as any).products) ? (action as any).products : [])
+    .map((product: RawProduct) => normalizeProduct(product))
+    .filter((product: PhotoModulesProduct) => Boolean(product.title))
+    .slice(0, 3),
+  products_empty_reason: String((action as any).products_empty_reason || '').trim() || null,
+  external_search_ctas: (Array.isArray((action as any).external_search_ctas) ? (action as any).external_search_ctas : [])
+    .map((cta: any) => ({
+      title: firstNonEmpty(cta?.title, cta?.name, cta?.query) || '',
+      url: String(cta?.url || '').trim(),
+      source: String(cta?.source || '').trim(),
+      reason: String(cta?.reason || '').trim(),
+    }))
+    .filter((cta: PhotoModulesExternalSearchCta) => Boolean(cta.title || cta.url))
+    .slice(0, 6),
 });
+
+const normalizeMaskGrid = (value: unknown): { w: number; h: number } | null => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    const size = Math.max(1, Math.min(1024, Math.round(value)));
+    return { w: size, h: size };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const w = Math.max(1, Math.min(1024, Math.round(Number((value as any).w || 0))));
+  const h = Math.max(1, Math.min(1024, Math.round(Number((value as any).h || 0))));
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  return { w, h };
+};
+
+const normalizeMaskRleNorm = (
+  value: unknown,
+  fallbackGrid: { w: number; h: number } | null,
+): PhotoModulesModule['mask_rle_norm'] => {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return null;
+    return {
+      grid: fallbackGrid,
+      counts: text,
+      values: null,
+      starts_with: 0,
+    };
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as any;
+  const grid = normalizeMaskGrid(raw.grid) || fallbackGrid;
+  const counts =
+    Array.isArray(raw.counts) && raw.counts.length
+      ? raw.counts
+          .map((n: unknown) => Math.max(0, Math.round(Number(n || 0))))
+          .filter((n: number) => Number.isFinite(n))
+      : typeof raw.counts === 'string' && raw.counts.trim()
+        ? raw.counts.trim()
+        : null;
+  const values =
+    Array.isArray(raw.values) && raw.values.length
+      ? raw.values
+          .map((n: unknown) => clamp01(Number.isFinite(Number(n)) ? Number(n) : 0))
+          .slice(0, 1024 * 1024)
+      : null;
+  const startsWith = raw.starts_with === 1 ? 1 : 0;
+  if (!grid && !counts && !values) return null;
+  return {
+    grid,
+    counts,
+    values,
+    starts_with: startsWith,
+  };
+};
 
 const normalizeProduct = (product: RawProduct): PhotoModulesProduct => ({
   product_id: String(product.product_id || '').trim(),
@@ -608,18 +723,43 @@ const normalizeProduct = (product: RawProduct): PhotoModulesProduct => ({
   ...(String(product.price_tier || '').trim() ? { price_tier: String(product.price_tier || '').trim() } : {}),
   ...(String(product.source_block || '').trim() ? { source_block: String(product.source_block || '').trim() } : {}),
   cautions: toUniqueList(product.cautions ?? [], 6),
+  product_url: firstNonEmpty((product as any).pdp_url, (product as any).url, (product as any).product_url, (product as any).purchase_path) || '',
+  retrieval_source: String((product as any).retrieval_source || '').trim(),
+  retrieval_reason: String((product as any).retrieval_reason || '').trim(),
+  suitability_score: Number.isFinite(Number((product as any).suitability_score))
+    ? Number((product as any).suitability_score)
+    : null,
 });
 
-const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoModulesModule => ({
-  module_id: module.module_id,
-  issues: module.issues.map((issue) => normalizeIssue(issue, validRegionIds)),
-  actions: module.actions.map((action) => normalizeAction(action)),
-  products: (Array.isArray(module.products) ? module.products : []).map((product) => normalizeProduct(product)).slice(0, 3),
-  ...(String(module.mask_rle_norm || '').trim() ? { mask_rle_norm: String(module.mask_rle_norm).trim() } : {}),
-  ...(Number.isFinite(Number(module.mask_grid)) ? { mask_grid: Math.max(1, Math.trunc(Number(module.mask_grid))) } : {}),
-  ...(module.box ? { box: normalizeBbox(module.box) } : {}),
-  ...(String(module.degraded_reason || '').trim() ? { degraded_reason: String(module.degraded_reason).trim() } : {}),
-});
+const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoModulesModule => {
+  const issues = module.issues.map((issue) => normalizeIssue(issue, validRegionIds));
+  const flattenedIssueEvidence = toUniqueList(issues.flatMap((issue) => issue.evidence_region_ids));
+  const moduleEvidenceRegionIds = toUniqueList(module.evidence_region_ids || flattenedIssueEvidence).filter((id) =>
+    validRegionIds.has(id),
+  );
+  const maskGrid = normalizeMaskGrid(module.mask_grid);
+  const normalizedMaskRle = normalizeMaskRleNorm(module.mask_rle_norm, maskGrid);
+
+  return {
+    module_id: module.module_id,
+    issues,
+    actions: module.actions.map((action) => normalizeAction(action)),
+    products: (Array.isArray(module.products) ? module.products : []).map((product) => normalizeProduct(product)).slice(0, 3),
+    ...(normalizedMaskRle ? { mask_rle_norm: normalizedMaskRle } : {}),
+    ...(maskGrid ? { mask_grid: maskGrid } : {}),
+    ...(Array.isArray(module.module_pixels)
+      ? {
+          module_pixels: module.module_pixels
+            .map((n) => Math.round(Number(n)))
+            .filter((n) => Number.isFinite(n) && n >= 0)
+            .slice(0, 200000),
+        }
+      : {}),
+    ...(module.box ? { box: normalizeBbox(module.box) } : {}),
+    ...(String(module.degraded_reason || '').trim() ? { degraded_reason: String(module.degraded_reason).trim() } : {}),
+    ...(moduleEvidenceRegionIds.length ? { evidence_region_ids: moduleEvidenceRegionIds } : {}),
+  };
+};
 
 const normalizeFaceCrop = (payload: RawPayload) => {
   const faceCrop = payload.face_crop;

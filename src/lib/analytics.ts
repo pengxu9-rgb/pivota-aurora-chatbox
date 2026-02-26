@@ -103,6 +103,11 @@ class AnalyticsStore {
         keepalive: true,
       });
 
+      // /v1/events uses 204 as "accepted" and intentionally returns an empty body.
+      if (res.status === 204) {
+        this.backoffMs = 0;
+        return;
+      }
       if (!res.ok) {
         throw new Error(`Event ingest failed: ${res.status}`);
       }

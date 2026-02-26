@@ -108,6 +108,28 @@ const makeBasePayload = () => ({
           how_to_use: { time: 'AM_PM', frequency: '2-3x_week', notes: '' },
           cautions: ['Patch test first'],
           evidence_issue_types: ['redness'],
+          products: [
+            {
+              product_id: 'prod_1',
+              merchant_id: 'merchant_1',
+              name: 'Niacinamide Serum',
+              brand: 'Brand A',
+              why_match: 'Matches redness support.',
+              retrieval_source: 'catalog',
+              retrieval_reason: 'catalog_evidence_match',
+              suitability_score: 0.91,
+              pdp_url: 'https://example.com/p/niacinamide-serum',
+            },
+          ],
+          external_search_ctas: [
+            {
+              title: 'Niacinamide products',
+              url: 'https://www.google.com/search?q=niacinamide',
+              source: 'fallback',
+              reason: 'strict_filter_all_dropped_fallback',
+            },
+          ],
+          products_empty_reason: null,
         },
       ],
       products: [
@@ -155,9 +177,14 @@ describe('photo modules contract', () => {
 
     const issue = model.modules[0]?.issues[0];
     expect(issue?.evidence_region_ids).toEqual(['bbox_1']);
-    expect(model.modules[0]?.mask_grid).toBe(64);
-    expect(typeof model.modules[0]?.mask_rle_norm).toBe('string');
+    expect(model.modules[0]?.mask_grid).toEqual({ w: 64, h: 64 });
+    expect(typeof model.modules[0]?.mask_rle_norm).toBe('object');
     expect(model.modules[0]?.degraded_reason).toBe('MODULE_TOO_THIN');
+    expect(model.modules[0]?.actions[0]?.products).toHaveLength(1);
+    expect(model.modules[0]?.actions[0]?.products[0]?.retrieval_source).toBe('catalog');
+    expect(model.modules[0]?.actions[0]?.products[0]?.product_url).toBe('https://example.com/p/niacinamide-serum');
+    expect(model.modules[0]?.actions[0]?.external_search_ctas).toHaveLength(1);
+    expect(model.modules[0]?.actions[0]?.products_empty_reason).toBeNull();
     const product = model.modules[0]?.products?.[0];
     expect(product?.price).toBe(18.5);
     expect(product?.currency).toBe('USD');

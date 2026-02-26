@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 const HEATMAP_GRID = 64;
 
 const PRODUCT_REC_ENABLED = (() => {
-  const raw = String(import.meta.env.VITE_DIAG_PRODUCT_REC ?? 'false')
+  const raw = String(import.meta.env.VITE_DIAG_PRODUCT_REC ?? 'true')
     .trim()
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
@@ -38,7 +38,7 @@ type RenderSourceCandidate = {
 
 type ModuleMaskOverlay = {
   module_id: string;
-  mask_grid: number;
+  mask_grid: { w: number; h: number };
   mask: Uint8Array;
   box: { x: number; y: number; w: number; h: number } | null;
   color: Rgb;
@@ -118,6 +118,96 @@ const colorForModule = (module: PhotoModulesModule): Rgb => {
   return ISSUE_COLOR_MAP.texture;
 };
 
+const parseRleCounts = (counts: unknown): number[] => {
+  if (Array.isArray(counts)) {
+    return counts
+      .map((value) => Math.max(0, Math.round(Number(value))))
+      .filter((value) => Number.isFinite(value));
+  }
+  if (typeof counts === 'string') {
+    return counts
+      .split(/[\s,]+/)
+      .map((token) => Math.max(0, Math.round(Number(token))))
+      .filter((value) => Number.isFinite(value));
+  }
+  return [];
+};
+
+const resolveMaskGrid = (module: PhotoModulesModule): { w: number; h: number } | null => {
+  const maskObject =
+    module.mask_rle_norm && typeof module.mask_rle_norm === 'object' && !Array.isArray(module.mask_rle_norm)
+      ? module.mask_rle_norm
+      : null;
+  const grid = module.mask_grid || (maskObject ? maskObject.grid : null) || null;
+  if (!grid || typeof grid !== 'object') return null;
+  const w = Math.max(1, Math.min(1024, Math.round(Number((grid as any).w || 0))));
+  const h = Math.max(1, Math.min(1024, Math.round(Number((grid as any).h || 0))));
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  return { w, h };
+};
+
+const decodeMask = (module: PhotoModulesModule): { grid: { w: number; h: number }; mask: Uint8Array } | null => {
+  const grid = resolveMaskGrid(module);
+  if (!grid) return null;
+  const expectedLength = grid.w * grid.h;
+  if (expectedLength <= 0) return null;
+
+  const maskObject =
+    module.mask_rle_norm && typeof module.mask_rle_norm === 'object' && !Array.isArray(module.mask_rle_norm)
+      ? module.mask_rle_norm
+      : null;
+
+  const values = Array.isArray(maskObject?.values) ? maskObject?.values : null;
+  if (values && values.length === expectedLength) {
+    const mask = new Uint8Array(expectedLength);
+    for (let index = 0; index < expectedLength; index += 1) {
+      mask[index] = clamp01(Number(values[index])) > 0.3 ? 1 : 0;
+    }
+    return { grid, mask };
+  }
+
+  const countsRaw = maskObject?.counts;
+  if (countsRaw != null) {
+    const startsWith = maskObject?.starts_with === 1 ? 1 : 0;
+    const counts = parseRleCounts(countsRaw);
+    if (counts.length) {
+      const mask = new Uint8Array(expectedLength);
+      let value = startsWith;
+      let offset = 0;
+      for (const runLength of counts) {
+        if (runLength > 0) {
+          const end = Math.min(expectedLength, offset + runLength);
+          if (value) mask.fill(1, offset, end);
+          offset = end;
+        }
+        value = value ? 0 : 1;
+        if (offset >= expectedLength) break;
+      }
+      return { grid, mask };
+    }
+  }
+
+  const legacyRle = typeof module.mask_rle_norm === 'object' ? null : String(module.mask_rle_norm || '').trim();
+  if (legacyRle) {
+    return {
+      grid,
+      mask: decodeRleBinaryMask(legacyRle, expectedLength),
+    };
+  }
+
+  if (Array.isArray(module.module_pixels) && module.module_pixels.length) {
+    const mask = new Uint8Array(expectedLength);
+    for (const raw of module.module_pixels) {
+      const idx = Math.round(Number(raw));
+      if (!Number.isFinite(idx) || idx < 0 || idx >= expectedLength) continue;
+      mask[idx] = 1;
+    }
+    return { grid, mask };
+  }
+
+  return null;
+};
+
 const drawModuleMask = (
   context: CanvasRenderingContext2D,
   overlay: ModuleMaskOverlay,
@@ -126,15 +216,15 @@ const drawModuleMask = (
   fillAlpha: number,
   strokeAlpha: number,
 ) => {
-  const grid = Math.max(1, Math.trunc(Number(overlay.mask_grid) || 0));
-  if (!overlay.mask || overlay.mask.length !== grid * grid) return;
+  const grid = overlay.mask_grid;
+  if (!overlay.mask || overlay.mask.length !== grid.w * grid.h) return;
 
   const bufferCanvas = document.createElement('canvas');
-  bufferCanvas.width = grid;
-  bufferCanvas.height = grid;
+  bufferCanvas.width = grid.w;
+  bufferCanvas.height = grid.h;
   const bufferContext = bufferCanvas.getContext('2d');
   if (!bufferContext) return;
-  const imageData = bufferContext.createImageData(grid, grid);
+  const imageData = bufferContext.createImageData(grid.w, grid.h);
   const alpha = Math.max(0, Math.min(1, fillAlpha));
   for (let index = 0; index < overlay.mask.length; index += 1) {
     if (!overlay.mask[index]) continue;
@@ -291,6 +381,33 @@ const getModuleLabel = (moduleId: string, language: Language): string => {
 
 const toPercent = (value: number) => `${Math.round(clamp01(value) * 100)}%`;
 
+const explainProductsEmptyReason = (reason: string | null, language: Language): string => {
+  const token = String(reason || '').trim().toLowerCase();
+  if (!token) {
+    return language === 'CN' ? '当前暂无可展示商品。' : 'No suitable product is available right now.';
+  }
+  if (token === 'ingredient_id_missing') {
+    return language === 'CN' ? '成分标识缺失，暂时无法匹配商品。' : 'Ingredient id is missing, so product matching is unavailable.';
+  }
+  if (token === 'strict_filter_fallback_only') {
+    return language === 'CN' ? '严格过滤后暂无直出商品，可先查看外部搜索建议。' : 'Strict filtering removed all direct products. External search suggestions are available.';
+  }
+  if (token === 'low_evidence') {
+    return language === 'CN' ? '当前证据强度不足，暂不直推商品。' : 'Evidence strength is limited, so direct product output is withheld.';
+  }
+  return language === 'CN'
+    ? `暂无直出商品（${token}）。`
+    : `No direct product was returned (${token}).`;
+};
+
+const sourceBadgeLabel = (source: string, language: Language): string => {
+  const token = String(source || '').trim().toLowerCase();
+  if (token === 'catalog') return language === 'CN' ? '目录' : 'Catalog';
+  if (token === 'external_seed') return language === 'CN' ? '外部候选' : 'External';
+  if (token === 'llm_fallback') return language === 'CN' ? 'LLM 兜底' : 'LLM fallback';
+  return language === 'CN' ? '推荐' : 'Recommended';
+};
+
 export function PhotoModulesCard({
   model,
   language,
@@ -405,11 +522,9 @@ export function PhotoModulesCard({
   const moduleMaskOverlays = useMemo<ModuleMaskOverlay[]>(() => {
     const overlays: ModuleMaskOverlay[] = [];
     for (const module of model.modules) {
-      const grid = Number(module.mask_grid);
-      const rle = String(module.mask_rle_norm || '').trim();
-      if (!Number.isFinite(grid) || grid <= 0 || !rle) continue;
-      const normalizedGrid = Math.max(1, Math.trunc(grid));
-      const mask = decodeRleBinaryMask(rle, normalizedGrid * normalizedGrid);
+      const decodedMask = decodeMask(module);
+      if (!decodedMask) continue;
+      const { grid, mask } = decodedMask;
       let activePixels = 0;
       for (let i = 0; i < mask.length; i += 1) {
         if (mask[i]) activePixels += 1;
@@ -417,7 +532,7 @@ export function PhotoModulesCard({
       if (!activePixels) continue;
       overlays.push({
         module_id: module.module_id,
-        mask_grid: normalizedGrid,
+        mask_grid: grid,
         mask,
         box: module.box ?? null,
         color: colorForModule(module),
@@ -435,6 +550,9 @@ export function PhotoModulesCard({
 
   const moduleEvidenceRegionIds = useMemo(() => {
     if (!hasModuleSelection || !selectedModule) return allRegionIds;
+    if (Array.isArray(selectedModule.evidence_region_ids) && selectedModule.evidence_region_ids.length) {
+      return new Set(selectedModule.evidence_region_ids);
+    }
     const ids = new Set<string>();
     selectedModule.issues.forEach((issue) => {
       issue.evidence_region_ids.forEach((regionId) => ids.add(regionId));
@@ -450,6 +568,7 @@ export function PhotoModulesCard({
     return new Set(issue.evidence_region_ids);
   }, [hasModuleSelection, selectedIssueType, selectedModule]);
 
+  const issueSelectionActive = Boolean(selectedIssueType && issueEvidenceRegionIds && issueEvidenceRegionIds.size > 0);
   const visibleRegionIds = issueEvidenceRegionIds ?? moduleEvidenceRegionIds;
 
   const highlightedRegionIds = useMemo(() => {
@@ -459,8 +578,17 @@ export function PhotoModulesCard({
   }, [hoveredRegionId, visibleRegionIds]);
 
   const hasFocusedSelection = overlayMode === 'mask'
-    ? hasModuleSelection
+    ? hasModuleSelection || issueSelectionActive
     : highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
+
+  const selectedTopIssueType = useMemo(() => {
+    if (!selectedModule || !Array.isArray(selectedModule.issues) || !selectedModule.issues.length) return null;
+    const sorted = [...selectedModule.issues].sort((left, right) => {
+      if (right.severity_0_4 !== left.severity_0_4) return right.severity_0_4 - left.severity_0_4;
+      return right.confidence_0_1 - left.confidence_0_1;
+    });
+    return sorted[0]?.issue_type || null;
+  }, [selectedModule]);
 
   useEffect(() => {
     const canvas = baseCanvasRef.current;
@@ -554,8 +682,15 @@ export function PhotoModulesCard({
     stageSize.width,
   ]);
 
-  const hasProducts =
-    PRODUCT_REC_ENABLED && selectedModule ? selectedModule.products.filter((product) => Boolean(product.title)).length > 0 : false;
+  const hasActionProducts = Boolean(
+    PRODUCT_REC_ENABLED &&
+      selectedModule &&
+      selectedModule.actions.some((action) => Array.isArray(action.products) && action.products.some((product) => Boolean(product.title))),
+  );
+  const moduleSummaryProducts =
+    PRODUCT_REC_ENABLED && selectedModule
+      ? selectedModule.products.filter((product) => Boolean(product.title)).slice(0, 3)
+      : [];
 
   const handleModuleSelect = (moduleId: string) => {
     setSelectedIssueType(null);
@@ -684,7 +819,9 @@ export function PhotoModulesCard({
                 style={{
                   opacity:
                     overlayMode === 'mask'
-                      ? hasFocusedSelection
+                      ? issueSelectionActive
+                        ? 0.22
+                        : hasFocusedSelection
                         ? 0.38
                         : 0.48
                       : hasFocusedSelection
@@ -696,8 +833,23 @@ export function PhotoModulesCard({
                 ref={highlightCanvasRef}
                 data-testid="photo-modules-highlight-canvas"
                 data-visible-count={visibleRegionIds.size}
-                data-highlight-count={highlightedRegionIds.size}
+                data-highlight-count={
+                  issueSelectionActive
+                    ? highlightedRegionIds.size
+                    : overlayMode === 'mask' && hasModuleSelection && selectedModule && moduleMaskById.has(selectedModule.module_id)
+                      ? 1
+                      : highlightedRegionIds.size
+                }
                 data-overlay-mode={overlayMode}
+                data-highlight-mode={
+                  issueSelectionActive
+                    ? 'region'
+                    : overlayMode === 'mask' && hasModuleSelection
+                      ? 'mask'
+                      : hasFocusedSelection
+                        ? 'region'
+                        : 'none'
+                }
                 className="pointer-events-none absolute inset-0 h-full w-full"
               />
             </div>
@@ -763,6 +915,7 @@ export function PhotoModulesCard({
                 <div className="space-y-2">
                   {selectedModule.issues.map((issue) => {
                     const active = selectedIssueType === issue.issue_type;
+                    const topConcern = selectedTopIssueType === issue.issue_type;
                     return (
                       <button
                         key={`${selectedModule.module_id}_${issue.issue_type}`}
@@ -777,15 +930,24 @@ export function PhotoModulesCard({
                         onMouseLeave={() => setHoveredRegionId(null)}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div className="text-sm font-medium text-foreground">{getIssueLabel(issue.issue_type, language)}</div>
-                          <div className="text-[11px] text-muted-foreground">
-                            {getSeverityLabel(normalizeSeverityLevel(issue.severity_0_4), language)}
-                            {debug ? ` (S${normalizeSeverityLevel(issue.severity_0_4)})` : ''}
-                            {' · '}
-                            {toPercent(issue.confidence_0_1)}
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-semibold text-foreground">{getIssueLabel(issue.issue_type, language)}</div>
+                            {topConcern ? (
+                              <span className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
+                                {language === 'CN' ? '重点问题' : 'Top Concern'}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] font-semibold text-foreground">
+                              S{normalizeSeverityLevel(issue.severity_0_4)}
+                            </span>
+                            <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
+                              {toPercent(issue.confidence_0_1)}
+                            </span>
                           </div>
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">{issue.explanation_short}</div>
+                        <div className="mt-1 text-xs font-medium text-foreground/90">{issue.explanation_short}</div>
                         {issue.evidence_region_ids.length ? (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {issue.evidence_region_ids.slice(0, 3).map((regionId) => (
@@ -810,47 +972,124 @@ export function PhotoModulesCard({
               <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '成分行动建议' : 'Ingredient actions'}</div>
               {selectedModule.actions.length ? (
                 <div className="space-y-2">
-                  {selectedModule.actions.map((action) => (
-                    <button
-                      key={`${selectedModule.module_id}_${action.ingredient_id}`}
-                      type="button"
-                      className="w-full rounded-xl border border-border/60 bg-muted/20 p-3 text-left hover:bg-muted/30"
-                      onClick={() => {
-                        if (!analyticsCtx) return;
-                        emitAuroraPhotoModulesActionTap(analyticsCtx, {
-                          card_id: cardId ?? null,
-                          module_id: selectedModule.module_id,
-                          action_type: action.action_type,
-                          ingredient_id: action.ingredient_id,
-                          issue_types: action.evidence_issue_types,
-                        });
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-foreground">{action.ingredient_name}</div>
-                        <div className="text-[11px] text-muted-foreground">{action.timeline || 'AM/PM'}</div>
+                  {selectedModule.actions.map((action) => {
+                    const actionProducts = PRODUCT_REC_ENABLED
+                      ? (Array.isArray(action.products) ? action.products : []).filter((product) => Boolean(product.title)).slice(0, 3)
+                      : [];
+                    const externalSearchCtas = PRODUCT_REC_ENABLED
+                      ? (Array.isArray(action.external_search_ctas) ? action.external_search_ctas : []).slice(0, 2)
+                      : [];
+                    const showActionFallback = PRODUCT_REC_ENABLED && !actionProducts.length && (Boolean(action.products_empty_reason) || externalSearchCtas.length > 0);
+
+                    return (
+                      <div
+                        key={`${selectedModule.module_id}_${action.ingredient_id}`}
+                        className="rounded-xl border border-border/60 bg-muted/20 p-3"
+                      >
+                        <button
+                          type="button"
+                          className="w-full text-left"
+                          onClick={() => {
+                            if (!analyticsCtx) return;
+                            emitAuroraPhotoModulesActionTap(analyticsCtx, {
+                              card_id: cardId ?? null,
+                              module_id: selectedModule.module_id,
+                              action_type: action.action_type,
+                              ingredient_id: action.ingredient_id,
+                              issue_types: action.evidence_issue_types,
+                            });
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-foreground">{action.ingredient_name}</div>
+                            <div className="text-[11px] text-muted-foreground">{action.timeline || 'AM/PM'}</div>
+                          </div>
+                          <div className="mt-1 rounded-lg border border-border/50 bg-background/70 px-2 py-1.5 text-xs font-medium text-foreground/90">
+                            {language === 'CN' ? '为什么推荐：' : 'Why it matters: '}
+                            {action.why}
+                          </div>
+                          <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                            <div className="rounded-lg border border-border/60 bg-background/80 px-2 py-1.5">
+                              {language === 'CN' ? '使用方式' : 'How to use'}: {action.how_to_use.time} · {action.how_to_use.frequency}
+                              {action.how_to_use.notes ? ` · ${action.how_to_use.notes}` : ''}
+                            </div>
+                            <div className="rounded-lg border border-border/60 bg-background/80 px-2 py-1.5">
+                              {language === 'CN' ? '避免同用' : 'Do not mix'}: {action.do_not_mix.join(' / ')}
+                            </div>
+                          </div>
+                          {action.cautions.length ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {action.cautions.slice(0, 4).map((caution) => (
+                                <span key={caution} className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700">
+                                  {caution}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </button>
+
+                        {PRODUCT_REC_ENABLED && actionProducts.length ? (
+                          <div className="mt-2 space-y-2" data-testid={`photo-modules-action-products-${action.ingredient_id}`}>
+                            <div className="text-[11px] font-semibold text-muted-foreground">
+                              {language === 'CN' ? '关联商品' : 'Matched products'}
+                            </div>
+                            {actionProducts.map((product) => (
+                              <button
+                                key={`${selectedModule.module_id}_${action.ingredient_id}_${product.product_id || product.title}`}
+                                type="button"
+                                className="w-full rounded-lg border border-border/60 bg-background/80 p-2 text-left hover:bg-background"
+                                onClick={() => {
+                                  if (!analyticsCtx) return;
+                                  emitAuroraPhotoModulesProductTap(analyticsCtx, {
+                                    card_id: cardId ?? null,
+                                    module_id: selectedModule.module_id,
+                                    product_id: product.product_id || null,
+                                    merchant_id: product.merchant_id || null,
+                                    title: product.title,
+                                    ingredient_id: action.ingredient_id,
+                                  });
+                                }}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-xs font-semibold text-foreground">{product.title}</div>
+                                  {product.retrieval_source ? (
+                                    <span className="rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                                      {sourceBadgeLabel(product.retrieval_source, language)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {product.brand ? <div className="mt-0.5 text-[11px] text-muted-foreground">{product.brand}</div> : null}
+                                {product.why_match ? <div className="mt-1 text-[11px] text-muted-foreground">{product.why_match}</div> : null}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {showActionFallback ? (
+                          <div className="mt-2 space-y-2 text-xs text-muted-foreground" data-testid={`photo-modules-action-empty-${action.ingredient_id}`}>
+                            <div className="rounded-lg border border-border/60 bg-background/70 px-2 py-1.5">
+                              {explainProductsEmptyReason(action.products_empty_reason, language)}
+                            </div>
+                            {externalSearchCtas.length ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {externalSearchCtas.map((cta, index) => (
+                                  <a
+                                    key={`${action.ingredient_id}_cta_${index}`}
+                                    href={cta.url || '#'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="rounded-full border border-border/60 bg-background/80 px-2 py-1 text-[10px] text-foreground hover:bg-background"
+                                  >
+                                    {cta.title || (language === 'CN' ? '外部搜索' : 'External search')}
+                                  </a>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">{action.why}</div>
-                      <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                        <div className="rounded-lg border border-border/60 bg-background/80 px-2 py-1.5">
-                          {language === 'CN' ? '使用方式' : 'How to use'}: {action.how_to_use.time} · {action.how_to_use.frequency}
-                          {action.how_to_use.notes ? ` · ${action.how_to_use.notes}` : ''}
-                        </div>
-                        <div className="rounded-lg border border-border/60 bg-background/80 px-2 py-1.5">
-                          {language === 'CN' ? '避免同用' : 'Do not mix'}: {action.do_not_mix.join(' / ')}
-                        </div>
-                      </div>
-                      {action.cautions.length ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {action.cautions.slice(0, 4).map((caution) => (
-                            <span key={caution} className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700">
-                              {caution}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
@@ -862,10 +1101,12 @@ export function PhotoModulesCard({
             </div>
 
             <div className="space-y-2">
-              <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '产品建议（Beta）' : 'Product rec (beta)'}</div>
-              {hasProducts ? (
+              <div className="text-xs font-semibold text-muted-foreground">
+                {language === 'CN' ? '模块汇总商品（次级）' : 'Module-level product summary'}
+              </div>
+              {PRODUCT_REC_ENABLED && moduleSummaryProducts.length ? (
                 <div className="space-y-2">
-                  {selectedModule.products.slice(0, 3).map((product) => (
+                  {moduleSummaryProducts.map((product) => (
                     <button
                       key={`${selectedModule.module_id}_${product.product_id || product.title}`}
                       type="button"
@@ -899,6 +1140,13 @@ export function PhotoModulesCard({
                         )}
                       </div>
                       {product.why_match ? <div className="mt-2 text-xs text-muted-foreground">{product.why_match}</div> : null}
+                      {product.retrieval_source ? (
+                        <div className="mt-2 text-[11px] text-muted-foreground">
+                          {language === 'CN' ? '来源：' : 'Source: '}
+                          {sourceBadgeLabel(product.retrieval_source, language)}
+                          {product.retrieval_reason ? ` · ${product.retrieval_reason}` : ''}
+                        </div>
+                      ) : null}
                       {product.how_to_use ? (
                         <div className="mt-2 rounded-lg border border-border/60 bg-background/80 px-2 py-1.5 text-xs text-muted-foreground">
                           {product.how_to_use}
@@ -918,9 +1166,17 @@ export function PhotoModulesCard({
                 </div>
               ) : (
                 <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                  {language === 'CN'
-                    ? 'Product rec 为 Beta 或当前不可用，先按成分行动执行。'
-                    : 'Product rec is beta/unavailable. Continue with ingredient actions for now.'}
+                  {!PRODUCT_REC_ENABLED
+                    ? (language === 'CN'
+                      ? '商品推荐已通过开关关闭。'
+                      : 'Product recommendations are disabled by feature flag.')
+                    : hasActionProducts
+                      ? (language === 'CN'
+                        ? '优先查看上方每个成分下的商品推荐。'
+                        : 'Primary recommendations are shown under each ingredient action above.')
+                      : (language === 'CN'
+                        ? '当前模块暂无可汇总商品，请先参考成分行动建议。'
+                        : 'No module-level products are available right now. Follow ingredient actions first.')}
                 </div>
               )}
             </div>
