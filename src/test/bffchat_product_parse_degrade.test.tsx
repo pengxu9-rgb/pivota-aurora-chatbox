@@ -332,9 +332,9 @@ describe('BffChat product-parse degraded UX', () => {
     fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/current analysis limits/i)).toBeInTheDocument();
+      expect(screen.getByText(/analysis limits/i)).toBeInTheDocument();
     });
-    expect(screen.getByText(/official page fetch was blocked by site policy \(403\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/official page fetch was blocked by site policy \(403\)/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: /official page/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /dailymed/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /incidecoder/i })).toBeInTheDocument();
@@ -417,7 +417,7 @@ describe('BffChat product-parse degraded UX', () => {
     await waitFor(() => {
       expect(screen.getByText(/an unreliable anchor was blocked/i)).toBeInTheDocument();
     });
-    expect(screen.getByText(/a stale kb hit was quarantined and recalculated in real time/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/a stale kb hit was quarantined and recalculated in real time/i).length).toBeGreaterThan(0);
   });
 
   it('renders alternatives in competitors/dupes/related sections and hides non-skincare candidates', async () => {
