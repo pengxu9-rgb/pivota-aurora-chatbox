@@ -7,7 +7,7 @@ import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 
 const HEATMAP_VALUES = Array.from({ length: 64 * 64 }, () => 0.2);
 
-const buildPayload = (withMask: boolean) => ({
+const buildPayload = (withMask: boolean, skinmaskReliable: boolean | null = true) => ({
   used_photos: true,
   quality_grade: 'pass',
   photo_notice: '',
@@ -83,6 +83,16 @@ const buildPayload = (withMask: boolean) => ({
         : {}),
     },
   ],
+  ...(withMask
+    ? {
+        module_overlay_debug: {
+          module_box_mode: 'dynamic_skinmask',
+          module_box_dynamic_applied: true,
+          skinmask_reliable: skinmaskReliable,
+          degraded_reasons: skinmaskReliable === false ? ['SKINMASK_UNRELIABLE'] : [],
+        },
+      }
+    : {}),
   disclaimers: { non_medical: true, seek_care_triggers: [] },
 });
 
@@ -214,6 +224,17 @@ describe('photo modules mask overlay priority', () => {
 
   it('falls back to region highlight when mask is missing', () => {
     const normalized = normalizePhotoModulesUiModelV1(buildPayload(false));
+    expect(normalized.model).not.toBeNull();
+
+    render(<PhotoModulesCard model={normalized.model!} language="EN" />);
+    fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
+
+    const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
+  });
+
+  it('falls back to region highlight when skinmask is marked unreliable', () => {
+    const normalized = normalizePhotoModulesUiModelV1(buildPayload(true, false));
     expect(normalized.model).not.toBeNull();
 
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);

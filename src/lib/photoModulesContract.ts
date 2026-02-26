@@ -325,6 +325,13 @@ export type PhotoModulesModule = {
   evidence_region_ids?: string[];
 };
 
+export type PhotoModulesOverlayDebug = {
+  module_box_mode: string;
+  module_box_dynamic_applied: boolean;
+  skinmask_reliable: boolean | null;
+  degraded_reasons: string[];
+};
+
 export type PhotoModulesUiModelV1 = {
   used_photos: boolean;
   quality_grade: 'pass' | 'degraded' | 'fail';
@@ -342,6 +349,7 @@ export type PhotoModulesUiModelV1 = {
   };
   regions: PhotoModulesRegion[];
   modules: PhotoModulesModule[];
+  module_overlay_debug?: PhotoModulesOverlayDebug;
   disclaimers: {
     non_medical: boolean;
     seek_care_triggers: string[];
@@ -816,6 +824,50 @@ const normalizeFaceCrop = (payload: RawPayload) => {
   };
 };
 
+const normalizeModuleOverlayDebug = (payload: RawPayload): PhotoModulesOverlayDebug | null => {
+  const rawPayload = payload as any;
+  const overlayDebug =
+    rawPayload?.module_overlay_debug &&
+    typeof rawPayload.module_overlay_debug === 'object' &&
+    !Array.isArray(rawPayload.module_overlay_debug)
+      ? rawPayload.module_overlay_debug
+      : null;
+  const internalDebug =
+    rawPayload?.internal_debug &&
+    typeof rawPayload.internal_debug === 'object' &&
+    !Array.isArray(rawPayload.internal_debug)
+      ? rawPayload.internal_debug
+      : null;
+
+  const moduleBoxMode = firstNonEmpty(
+    String(overlayDebug?.module_box_mode || '').trim() || undefined,
+    String(internalDebug?.module_box_mode || '').trim() || undefined,
+  );
+  const moduleBoxDynamicAppliedRaw = overlayDebug?.module_box_dynamic_applied ?? internalDebug?.module_box_dynamic_applied;
+  const skinmaskReliableRaw = overlayDebug?.skinmask_reliable ?? internalDebug?.skinmask_reliable;
+  const degradedReasons = toUniqueList(
+    [
+      ...(Array.isArray(overlayDebug?.degraded_reasons) ? overlayDebug.degraded_reasons : []),
+      ...(Array.isArray(internalDebug?.degraded_reasons) ? internalDebug.degraded_reasons : []),
+    ],
+    8,
+  );
+
+  const hasAny =
+    Boolean(moduleBoxMode) ||
+    typeof moduleBoxDynamicAppliedRaw === 'boolean' ||
+    typeof skinmaskReliableRaw === 'boolean' ||
+    degradedReasons.length > 0;
+  if (!hasAny) return null;
+
+  return {
+    module_box_mode: moduleBoxMode || 'unknown',
+    module_box_dynamic_applied: Boolean(moduleBoxDynamicAppliedRaw),
+    skinmask_reliable: typeof skinmaskReliableRaw === 'boolean' ? skinmaskReliableRaw : null,
+    degraded_reasons: degradedReasons,
+  };
+};
+
 const formatIssuePath = (path: Array<string | number>): string => {
   if (!path.length) return 'root';
   return path.map((segment) => String(segment)).join('.');
@@ -843,6 +895,7 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
 
   const validRegionIds = new Set(normalizedRegions.map((region) => region.region_id));
   const modules = payload.modules.map((module) => normalizeModule(module, validRegionIds));
+  const overlayDebug = normalizeModuleOverlayDebug(payload);
 
   const model: PhotoModulesUiModelV1 = {
     used_photos: payload.used_photos,
@@ -851,6 +904,7 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
     face_crop: normalizeFaceCrop(payload),
     regions: normalizedRegions,
     modules,
+    ...(overlayDebug ? { module_overlay_debug: overlayDebug } : {}),
     disclaimers: {
       non_medical: payload.disclaimers.non_medical !== false,
       seek_care_triggers: toUniqueList(payload.disclaimers.seek_care_triggers ?? [], 8),

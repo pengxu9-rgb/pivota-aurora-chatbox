@@ -147,6 +147,12 @@ const makeBasePayload = () => ({
       ],
     },
   ],
+  module_overlay_debug: {
+    module_box_mode: 'dynamic_skinmask',
+    module_box_dynamic_applied: false,
+    skinmask_reliable: false,
+    degraded_reasons: ['SKINMASK_UNRELIABLE'],
+  },
   disclaimers: {
     non_medical: true,
     seek_care_triggers: ['If persistent irritation occurs, seek professional care.'],
@@ -185,6 +191,8 @@ describe('photo modules contract', () => {
     expect(model.modules[0]?.actions[0]?.products[0]?.product_url).toBe('https://example.com/p/niacinamide-serum');
     expect(model.modules[0]?.actions[0]?.external_search_ctas).toHaveLength(1);
     expect(model.modules[0]?.actions[0]?.products_empty_reason).toBeNull();
+    expect(model.module_overlay_debug?.skinmask_reliable).toBe(false);
+    expect(model.module_overlay_debug?.module_box_mode).toBe('dynamic_skinmask');
     const product = model.modules[0]?.products?.[0];
     expect(product?.price).toBe(18.5);
     expect(product?.currency).toBe('USD');

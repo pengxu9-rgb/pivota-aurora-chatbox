@@ -546,7 +546,8 @@ export function PhotoModulesCard({
     moduleMaskOverlays.forEach((overlay) => map.set(overlay.module_id, overlay));
     return map;
   }, [moduleMaskOverlays]);
-  const overlayMode = moduleMaskOverlays.length > 0 ? 'mask' : 'region';
+  const preferRegionOverlay = model.module_overlay_debug?.skinmask_reliable === false;
+  const overlayMode = moduleMaskOverlays.length > 0 && !preferRegionOverlay ? 'mask' : 'region';
 
   const moduleEvidenceRegionIds = useMemo(() => {
     if (!hasModuleSelection || !selectedModule) return allRegionIds;
