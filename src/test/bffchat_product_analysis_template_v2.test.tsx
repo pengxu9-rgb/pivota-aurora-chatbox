@@ -154,6 +154,9 @@ describe('BffChat product-analysis template v2', () => {
     expect(screen.getByText(/one smart follow-up question/i)).toBeInTheDocument();
     expect(screen.getByText(/do you get tightness within 30 minutes/i)).toBeInTheDocument();
     expect(screen.getByText(/analysis limits \(2\)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/your profile:\s*oily/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/how to layer \(inline guidance\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/observation window:/i)).toBeInTheDocument();
 
   });
 });
