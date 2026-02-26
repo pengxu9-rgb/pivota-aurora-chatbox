@@ -435,6 +435,11 @@ export function RoutineCompatibilityFooter({
           </TabsContent>
 
           <TabsContent value="search" className="space-y-2">
+            <div className="text-xs text-muted-foreground">
+              {language === 'CN'
+                ? '先填品牌再搜产品命中率更高；搜不到可直接贴 URL。'
+                : 'Brand-first search gives better hits; if not found, paste a product URL directly.'}
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px_auto]">
               <Input
                 value={searchQuery}
