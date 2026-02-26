@@ -1435,6 +1435,9 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
     competitors_non_skincare_filtered: { CN: '已过滤非护肤竞品候选', EN: 'Non-skincare competitor candidates were filtered out' },
     related_products_non_skincare_filtered: { CN: '已过滤非护肤 related 候选', EN: 'Non-skincare related-product candidates were filtered out' },
     dupes_non_skincare_filtered: { CN: '已过滤非护肤平替候选', EN: 'Non-skincare dupe candidates were filtered out' },
+    followup_anchor_missing: { CN: 'follow-up 缺少锚点，需补充 URL/产品名/产品图', EN: 'Follow-up is missing an anchor; add URL/name/product photo' },
+    followup_goal_not_resolved: { CN: 'follow-up 目标未明确，已按通用替代路径处理', EN: 'Follow-up goal was unclear; handled with default alternatives path' },
+    related_semantics_reclassified: { CN: '部分 related 候选已重分类为搭配建议', EN: 'Some related candidates were reclassified as pairing ideas' },
     competitor_category_unknown_blocked: { CN: '类目信号不足的候选已拦截', EN: 'Category-unknown alternatives were blocked' },
     kb_entry_quarantined: { CN: '命中历史缓存异常，已隔离并实时重算', EN: 'A stale KB hit was quarantined and recalculated in real time' },
     regulatory_source_used: { CN: '已启用监管源补充证据', EN: 'Regulatory source was used as evidence backup' },
@@ -3868,6 +3871,14 @@ function BffCardView({
           bestForSignals[0] || '',
           cautionSignals[0] ? (language === 'CN' ? `主要注意：${cautionSignals[0]}` : `Main watchout: ${cautionSignals[0]}`) : '',
         ]).slice(0, 3);
+        const followupAnchorPayload = {
+          ...(asString((anchorRaw as any)?.product_id) ? { product_id: asString((anchorRaw as any)?.product_id) } : {}),
+          ...(asString((anchorRaw as any)?.sku_id) ? { sku_id: asString((anchorRaw as any)?.sku_id) } : {}),
+          ...(asString((anchorRaw as any)?.brand) ? { brand: asString((anchorRaw as any)?.brand) } : {}),
+          ...(asString((anchorRaw as any)?.name) ? { name: asString((anchorRaw as any)?.name) } : {}),
+          ...(asString((anchorRaw as any)?.display_name) ? { display_name: asString((anchorRaw as any)?.display_name) } : {}),
+          ...(asString((anchorRaw as any)?.url) ? { url: asString((anchorRaw as any)?.url) } : {}),
+        };
         const profilePromptFields = uniqueStrings(
           (profilePromptRaw as any)?.missing_fields || (profilePromptRaw as any)?.missingFields || [],
         );
@@ -3962,33 +3973,51 @@ function BffCardView({
           ),
           source: 'base',
         };
-        const alternativeSections: Array<{
-          block: RecoBlockType;
+        const normalizeRecommendationIntent = (candidate: Record<string, unknown>, block: RecoBlockType): 'replace' | 'pair' => {
+          const raw = asString((candidate as any).recommendation_intent || (candidate as any).recommendationIntent).toLowerCase();
+          if (raw === 'replace' || raw === 'pair') return raw;
+          return block === 'related_products' ? 'pair' : 'replace';
+        };
+        const flattenAlternatives = (
+          candidates: Array<Record<string, unknown>>,
+          block: RecoBlockType,
+        ) => candidates.map((candidate, idx) => ({
+          candidate,
+          block,
+          rank: idx + 1,
+          intent: normalizeRecommendationIntent(candidate, block),
+        }));
+        const flattenedAlternatives = [
+          ...flattenAlternatives(competitorCandidates, 'competitors'),
+          ...flattenAlternatives(dupeCandidates, 'dupes'),
+          ...flattenAlternatives(relatedCandidates, 'related_products'),
+        ];
+        const replaceAlternatives = flattenedAlternatives.filter((row) => row.intent === 'replace');
+        const pairingAlternatives = flattenedAlternatives.filter((row) => row.intent === 'pair');
+        const alternativeTracks: Array<{
+          key: 'replace' | 'pair';
           title: string;
-          candidates: Array<Record<string, unknown>>;
+          subtitle: string;
+          items: Array<{ candidate: Record<string, unknown>; block: RecoBlockType; rank: number; intent: 'replace' | 'pair' }>;
           filteredCount: number;
         }> = [
           {
-            block: 'competitors',
-            title: language === 'CN' ? 'Comparable alternatives' : 'Comparable alternatives',
-            candidates: competitorCandidates,
-            filteredCount: alternativeFilteredStats.competitors,
+            key: 'replace',
+            title: language === 'CN' ? 'Replace options' : 'Replace options',
+            subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
+            items: replaceAlternatives,
+            filteredCount: alternativeFilteredStats.competitors + alternativeFilteredStats.dupes,
           },
           {
-            block: 'dupes',
-            title: language === 'CN' ? 'Dupes' : 'Dupes',
-            candidates: dupeCandidates,
-            filteredCount: alternativeFilteredStats.dupes,
-          },
-          {
-            block: 'related_products',
-            title: language === 'CN' ? 'Related products' : 'Related products',
-            candidates: relatedCandidates,
+            key: 'pair',
+            title: language === 'CN' ? 'Pairing ideas' : 'Pairing ideas',
+            subtitle: language === 'CN' ? '用于搭配补位，不是直接替代' : 'Companion products to pair with your current pick',
+            items: pairingAlternatives,
             filteredCount: alternativeFilteredStats.related_products,
           },
         ];
-        const hasAlternatives = alternativeSections.some((section) => section.candidates.length > 0);
-        const totalFilteredAlternatives = alternativeSections.reduce((acc, section) => acc + Number(section.filteredCount || 0), 0);
+        const hasAlternatives = alternativeTracks.some((section) => section.items.length > 0);
+        const totalFilteredAlternatives = alternativeTracks.reduce((acc, section) => acc + Number(section.filteredCount || 0), 0);
         if (analyticsCtx && totalFilteredAlternatives > 0) {
           const eventKey = `${card.card_id || 'product_analysis'}::${totalFilteredAlternatives}`;
           if (!alternativesFilterEventKeysRef.current.has(eventKey)) {
@@ -4222,6 +4251,8 @@ function BffCardView({
                 type="button"
                 className="chip-button"
                 onClick={() => onAction('analysis_followup_prompt', {
+                  goal: 'less_drying',
+                  anchor: followupAnchorPayload,
                   prompt: language === 'CN'
                     ? '基于这款产品，帮我找更不容易拔干的替代品，并说明利弊取舍。'
                     : 'Find less-drying alternatives to this product and explain the tradeoffs.',
@@ -4233,6 +4264,8 @@ function BffCardView({
                 type="button"
                 className="chip-button"
                 onClick={() => onAction('analysis_followup_prompt', {
+                  goal: 'acne_focus',
+                  anchor: followupAnchorPayload,
                   prompt: language === 'CN'
                     ? '如果目标是 acne 控制，帮我找更聚焦的替代品并给出选择建议。'
                     : 'Find acne-focused alternatives and give me a clear pick recommendation.',
@@ -4244,6 +4277,8 @@ function BffCardView({
                 type="button"
                 className="chip-button"
                 onClick={() => onAction('analysis_followup_prompt', {
+                  goal: 'pros_cons',
+                  anchor: followupAnchorPayload,
                   prompt: language === 'CN'
                     ? '总结这个产品的用户反馈优缺点，按常见好评和常见踩雷分开。'
                     : 'Show user-reported pros and cons for this product.',
@@ -4353,12 +4388,15 @@ function BffCardView({
 
             {hasAlternatives ? (
               <div className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
-                {alternativeSections.map((section) => {
-                  if (!section.candidates.length) return null;
+                {alternativeTracks.map((section) => {
+                  if (!section.items.length) return null;
                   return (
-                    <div key={section.block} className="rounded-xl border border-border/50 bg-muted/30 p-3">
+                    <div key={section.key} className="rounded-xl border border-border/50 bg-muted/30 p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-muted-foreground">{section.title}</div>
+                        <div>
+                          <div className="text-xs font-semibold text-muted-foreground">{section.title}</div>
+                          <div className="text-[11px] text-muted-foreground">{section.subtitle}</div>
+                        </div>
                         {section.filteredCount > 0 ? (
                           <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
                             {language === 'CN'
@@ -4368,7 +4406,9 @@ function BffCardView({
                         ) : null}
                       </div>
                       <div className="mt-2 space-y-2">
-                        {section.candidates.slice(0, 3).map((candidate, idx) => {
+                        {section.items.slice(0, 3).map((entry, idx) => {
+                          const candidate = entry.candidate;
+                          const sourceBlock = entry.block;
                           const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
                           const cName =
                             asString(candidate.name) ||
@@ -4384,7 +4424,9 @@ function BffCardView({
                             ]).slice(0, 2)
                             : uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate).slice(0, 2);
                           const cHighlights = uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights).slice(0, 3);
-                          const cTradeoff = cHighlights.find((line) => !isLikelyUrl(line)) || cWhy[1] || '';
+                          const cTradeoffNotes = uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes).slice(0, 3);
+                          const cTradeoff = cTradeoffNotes[0] || cHighlights.find((line) => !isLikelyUrl(line)) || cWhy[1] || '';
+                          const cExpectedOutcome = asString((candidate as any).expected_outcome || (candidate as any).expectedOutcome);
                           const cUrl = cHighlights.find((x) => isLikelyUrl(x)) || asString((candidate as any).url) || '';
                           const llmSuggestion = asObject((candidate as any).llm_suggestion || (candidate as any).llmSuggestion) || null;
                           const llmSuggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
@@ -4395,13 +4437,13 @@ function BffCardView({
                           const llmFlags = uniqueStrings(llmSuggestion?.flags).slice(0, 4);
                           const llmConfidence = asNumber(llmSuggestion?.confidence);
                           const candidateId = asString((candidate as any).product_id) || asString((candidate as any).sku_id) || cName;
-                          const feedbackKey = `${section.block}::${candidateId}`.toLowerCase();
+                          const feedbackKey = `${sourceBlock}::${candidateId}`.toLowerCase();
                           const feedbackBusy = feedbackBusyByKey[feedbackKey] === true;
                           const feedbackSaved = feedbackSavedByKey[feedbackKey] || null;
                           const feedbackError = asString(feedbackErrorByKey[feedbackKey]);
 
                           return (
-                            <div key={`${section.block}_${cBrand}_${cName}_${idx}`} className="rounded-xl border border-border/50 bg-background/60 p-3">
+                            <div key={`${section.key}_${sourceBlock}_${cBrand}_${cName}_${idx}`} className="rounded-xl border border-border/50 bg-background/60 p-3">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <div className="text-[11px] text-muted-foreground">#{idx + 1}</div>
@@ -4420,9 +4462,19 @@ function BffCardView({
                               {cWhy.length ? (
                                 <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
                                   {cWhy.map((x) => (
-                                    <li key={x}>{x}</li>
+                                    <li key={x}>
+                                      <span className="font-medium text-foreground">{language === 'CN' ? 'Why this: ' : 'Why this: '}</span>
+                                      {x}
+                                    </li>
                                   ))}
                                 </ul>
+                              ) : null}
+
+                              {cExpectedOutcome ? (
+                                <div className="mt-2 text-[11px] text-muted-foreground">
+                                  <span className="font-medium text-foreground">{language === 'CN' ? 'Best use: ' : 'Best use: '}</span>
+                                  {cExpectedOutcome}
+                                </div>
                               ) : null}
 
                               {cTradeoff ? (
@@ -4431,7 +4483,7 @@ function BffCardView({
                                 </div>
                               ) : null}
 
-                              {(canShowEmployeeFeedbackControls && anchorProductIdForFeedback && section.block === 'competitors') ? (
+                              {(canShowEmployeeFeedbackControls && anchorProductIdForFeedback && sourceBlock === 'competitors') ? (
                                 <div className="mt-2 space-y-2 rounded-xl border border-border/60 bg-background/70 p-2">
                                   {llmSuggestedLabel ? (
                                     <div className="space-y-1 text-[11px] text-muted-foreground">
@@ -4461,7 +4513,7 @@ function BffCardView({
                                       onClick={() => {
                                         void submitRecoFeedback({
                                           candidate,
-                                          block: 'competitors',
+                                          block: sourceBlock,
                                           rankPosition: idx + 1,
                                           feedbackType: 'relevant',
                                           anchorProductId: anchorProductIdForFeedback,
@@ -4479,7 +4531,7 @@ function BffCardView({
                                       onClick={() => {
                                         void submitRecoFeedback({
                                           candidate,
-                                          block: 'competitors',
+                                          block: sourceBlock,
                                           rankPosition: idx + 1,
                                           feedbackType: 'not_relevant',
                                           anchorProductId: anchorProductIdForFeedback,
@@ -4497,7 +4549,7 @@ function BffCardView({
                                       onClick={() => {
                                         void submitRecoFeedback({
                                           candidate,
-                                          block: 'competitors',
+                                          block: sourceBlock,
                                           rankPosition: idx + 1,
                                           feedbackType: 'wrong_block',
                                           wrongBlockTarget: llmWrongBlockTarget || 'dupes',
@@ -6454,9 +6506,35 @@ export default function BffChat() {
 
       if (actionId === 'analysis_followup_prompt') {
         const prompt = typeof data?.prompt === 'string' ? data.prompt.trim() : '';
+        const goalRaw = typeof data?.goal === 'string' ? data.goal.trim().toLowerCase() : '';
+        const goal =
+          goalRaw === 'acne_focus' || goalRaw === 'less_drying' || goalRaw === 'pros_cons'
+            ? goalRaw
+            : undefined;
+        const anchorFromData = data?.anchor && typeof data.anchor === 'object'
+          ? (data.anchor as Record<string, unknown>)
+          : null;
+        const fallbackAnchor =
+          anchorProductId || anchorProductUrl
+            ? {
+              ...(anchorProductId ? { product_id: anchorProductId } : {}),
+              ...(anchorProductUrl ? { url: anchorProductUrl } : {}),
+            }
+            : null;
+        const anchor = anchorFromData || fallbackAnchor;
         if (!prompt) return;
         setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: prompt }]);
-        await sendChat(prompt);
+        await sendChat(undefined, {
+          action_id: 'chat.followup.alternatives',
+          kind: 'action',
+          data: {
+            ...(goal ? { goal } : {}),
+            ...(anchor ? { anchor } : {}),
+            prompt,
+            reply_text: prompt,
+            include_alternatives: true,
+          },
+        });
         return;
       }
 
