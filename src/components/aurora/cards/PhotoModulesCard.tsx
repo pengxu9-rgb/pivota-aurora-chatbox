@@ -3,10 +3,12 @@ import { AlertTriangle, Droplets, Sparkles } from 'lucide-react';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import type {
+  PhotoModulesModule,
   PhotoModulesRegion,
   PhotoModulesSanitizerDrop,
   PhotoModulesUiModelV1,
 } from '@/lib/photoModulesContract';
+import { decodeRleBinaryMask } from '@/lib/photoModulesContract';
 import {
   emitAuroraPhotoModulesActionTap,
   emitAuroraPhotoModulesIssueTap,
@@ -28,6 +30,20 @@ const PRODUCT_REC_ENABLED = (() => {
 
 type IssueType = 'redness' | 'acne' | 'tone' | 'shine' | 'texture';
 type Rgb = { r: number; g: number; b: number };
+type RenderSourceKind = 'crop' | 'original_crop' | 'original_full';
+type RenderSourceCandidate = {
+  kind: RenderSourceKind;
+  src: string;
+};
+
+type ModuleMaskOverlay = {
+  module_id: string;
+  mask_grid: number;
+  mask: Uint8Array;
+  box: { x: number; y: number; w: number; h: number } | null;
+  color: Rgb;
+  degraded_reason: string | null;
+};
 
 const ISSUE_COLOR_MAP: Record<IssueType, Rgb> = {
   redness: { r: 255, g: 77, b: 79 },
@@ -55,6 +71,27 @@ const ISSUE_LABELS: Record<IssueType, { en: string; zh: string }> = {
   texture: { en: 'Texture/Pores', zh: '纹理/毛孔' },
 };
 
+const normalizeSeverityLevel = (value: number): 1 | 2 | 3 | 4 => {
+  const rounded = Math.round(Number.isFinite(value) ? value : 1);
+  if (rounded <= 1) return 1;
+  if (rounded === 2) return 2;
+  if (rounded === 3) return 3;
+  return 4;
+};
+
+const getSeverityLabel = (level: 1 | 2 | 3 | 4, language: Language): string => {
+  if (language === 'CN') {
+    if (level === 1) return '轻度';
+    if (level === 2) return '中度';
+    if (level === 3) return '明显';
+    return '重度';
+  }
+  if (level === 1) return 'Mild';
+  if (level === 2) return 'Moderate';
+  if (level === 3) return 'Noticeable';
+  return 'High';
+};
+
 const clamp01 = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
   if (value <= 0) return 0;
@@ -75,6 +112,56 @@ const pickColor = (region: PhotoModulesRegion): Rgb => {
   return ISSUE_COLOR_MAP.texture;
 };
 
+const colorForModule = (module: PhotoModulesModule): Rgb => {
+  const issueType = module.issues[0]?.issue_type;
+  if (issueType && ISSUE_COLOR_MAP[issueType as IssueType]) return ISSUE_COLOR_MAP[issueType as IssueType];
+  return ISSUE_COLOR_MAP.texture;
+};
+
+const drawModuleMask = (
+  context: CanvasRenderingContext2D,
+  overlay: ModuleMaskOverlay,
+  width: number,
+  height: number,
+  fillAlpha: number,
+  strokeAlpha: number,
+) => {
+  const grid = Math.max(1, Math.trunc(Number(overlay.mask_grid) || 0));
+  if (!overlay.mask || overlay.mask.length !== grid * grid) return;
+
+  const bufferCanvas = document.createElement('canvas');
+  bufferCanvas.width = grid;
+  bufferCanvas.height = grid;
+  const bufferContext = bufferCanvas.getContext('2d');
+  if (!bufferContext) return;
+  const imageData = bufferContext.createImageData(grid, grid);
+  const alpha = Math.max(0, Math.min(1, fillAlpha));
+  for (let index = 0; index < overlay.mask.length; index += 1) {
+    if (!overlay.mask[index]) continue;
+    const pixelIndex = index * 4;
+    imageData.data[pixelIndex] = overlay.color.r;
+    imageData.data[pixelIndex + 1] = overlay.color.g;
+    imageData.data[pixelIndex + 2] = overlay.color.b;
+    imageData.data[pixelIndex + 3] = Math.round(alpha * 255);
+  }
+  bufferContext.putImageData(imageData, 0, 0);
+
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.drawImage(bufferCanvas, 0, 0, width, height);
+  context.restore();
+
+  if (!overlay.box) return;
+  const box = overlay.box;
+  const x = box.x * width;
+  const y = box.y * height;
+  const boxWidth = box.w * width;
+  const boxHeight = box.h * height;
+  context.strokeStyle = rgba(overlay.color, Math.max(0, Math.min(1, strokeAlpha)));
+  context.lineWidth = 1.4;
+  context.strokeRect(x, y, boxWidth, boxHeight);
+};
+
 const drawBbox = (
   context: CanvasRenderingContext2D,
   region: PhotoModulesRegion,
@@ -90,10 +177,10 @@ const drawBbox = (
   const boxWidth = region.bbox.w * width;
   const boxHeight = region.bbox.h * height;
   const intensity = clamp01(region.style.intensity);
-  const fillAlpha = (0.12 + intensity * 0.2) * alphaScale;
-  const strokeAlpha = (0.35 + intensity * 0.45) * alphaScale;
+  const strokeAlpha = (0.28 + intensity * 0.35) * alphaScale;
+  const tunedFillAlpha = (0.015 + intensity * 0.06) * alphaScale;
 
-  context.fillStyle = rgba(color, fillAlpha);
+  context.fillStyle = rgba(color, tunedFillAlpha);
   context.fillRect(x, y, boxWidth, boxHeight);
   context.strokeStyle = rgba(color, strokeAlpha);
   context.lineWidth = 1.2 + intensity * 2.2 * lineBoost;
@@ -112,8 +199,8 @@ const drawPolygon = (
   if (!polygon?.points?.length) return;
   const color = pickColor(region);
   const intensity = clamp01(region.style.intensity);
-  const fillAlpha = (0.1 + intensity * 0.18) * alphaScale;
-  const strokeAlpha = (0.34 + intensity * 0.48) * alphaScale;
+  const fillAlpha = (0.015 + intensity * 0.07) * alphaScale;
+  const strokeAlpha = (0.30 + intensity * 0.42) * alphaScale;
 
   context.beginPath();
   polygon.points.forEach((point, index) => {
@@ -210,12 +297,14 @@ export function PhotoModulesCard({
   analyticsCtx,
   cardId,
   sanitizerDrops,
+  debug = false,
 }: {
   model: PhotoModulesUiModelV1;
   language: Language;
   analyticsCtx?: AnalyticsContext;
   cardId?: string;
   sanitizerDrops?: PhotoModulesSanitizerDrop[];
+  debug?: boolean;
 }) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -228,7 +317,45 @@ export function PhotoModulesCard({
   const imageAspect = `${model.face_crop.render_size_px_hint.w}/${model.face_crop.render_size_px_hint.h}`;
   const cropImageUrl = model.face_crop.crop_image_url;
   const originalImageUrl = model.face_crop.original_image_url;
-  const hasRenderableImage = Boolean(cropImageUrl || originalImageUrl);
+  const [failedRenderKinds, setFailedRenderKinds] = useState<RenderSourceKind[]>([]);
+
+  const originalCropStyle = useMemo(() => {
+    const bbox = model.face_crop.bbox_px;
+    const orig = model.face_crop.orig_size_px;
+    if (!bbox.w || !bbox.h || !orig.w || !orig.h) return null;
+
+    return {
+      width: `${(orig.w / bbox.w) * 100}%`,
+      height: `${(orig.h / bbox.h) * 100}%`,
+      left: `${-(bbox.x / bbox.w) * 100}%`,
+      top: `${-(bbox.y / bbox.h) * 100}%`,
+    };
+  }, [model.face_crop.bbox_px, model.face_crop.orig_size_px]);
+
+  const renderCandidates = useMemo<RenderSourceCandidate[]>(() => {
+    const candidates: RenderSourceCandidate[] = [];
+    if (cropImageUrl) candidates.push({ kind: 'crop', src: cropImageUrl });
+    if (originalImageUrl && originalCropStyle) candidates.push({ kind: 'original_crop', src: originalImageUrl });
+    if (originalImageUrl) candidates.push({ kind: 'original_full', src: originalImageUrl });
+    return candidates;
+  }, [cropImageUrl, originalCropStyle, originalImageUrl]);
+
+  const renderCandidatesKey = useMemo(
+    () => renderCandidates.map((candidate) => `${candidate.kind}:${candidate.src}`).join('|'),
+    [renderCandidates],
+  );
+
+  useEffect(() => {
+    setFailedRenderKinds([]);
+  }, [renderCandidatesKey]);
+
+  const activeRenderCandidate = useMemo(
+    () => renderCandidates.find((candidate) => !failedRenderKinds.includes(candidate.kind)) ?? null,
+    [failedRenderKinds, renderCandidates],
+  );
+
+  const hasRenderableImage = Boolean(activeRenderCandidate);
+  const noRenderableReason = renderCandidates.length > 0 ? 'load_failed' : 'missing_source';
 
   useEffect(() => {
     if (!selectedModuleId || model.modules.some((module) => module.module_id === selectedModuleId)) return;
@@ -275,6 +402,36 @@ export function PhotoModulesCard({
     () => model.modules.find((module) => module.module_id === selectedModuleId) ?? model.modules[0] ?? null,
     [model.modules, selectedModuleId],
   );
+  const moduleMaskOverlays = useMemo<ModuleMaskOverlay[]>(() => {
+    const overlays: ModuleMaskOverlay[] = [];
+    for (const module of model.modules) {
+      const grid = Number(module.mask_grid);
+      const rle = String(module.mask_rle_norm || '').trim();
+      if (!Number.isFinite(grid) || grid <= 0 || !rle) continue;
+      const normalizedGrid = Math.max(1, Math.trunc(grid));
+      const mask = decodeRleBinaryMask(rle, normalizedGrid * normalizedGrid);
+      let activePixels = 0;
+      for (let i = 0; i < mask.length; i += 1) {
+        if (mask[i]) activePixels += 1;
+      }
+      if (!activePixels) continue;
+      overlays.push({
+        module_id: module.module_id,
+        mask_grid: normalizedGrid,
+        mask,
+        box: module.box ?? null,
+        color: colorForModule(module),
+        degraded_reason: typeof module.degraded_reason === 'string' && module.degraded_reason.trim() ? module.degraded_reason.trim() : null,
+      });
+    }
+    return overlays;
+  }, [model.modules]);
+  const moduleMaskById = useMemo(() => {
+    const map = new Map<string, ModuleMaskOverlay>();
+    moduleMaskOverlays.forEach((overlay) => map.set(overlay.module_id, overlay));
+    return map;
+  }, [moduleMaskOverlays]);
+  const overlayMode = moduleMaskOverlays.length > 0 ? 'mask' : 'region';
 
   const moduleEvidenceRegionIds = useMemo(() => {
     if (!hasModuleSelection || !selectedModule) return allRegionIds;
@@ -301,7 +458,9 @@ export function PhotoModulesCard({
     return ids;
   }, [hoveredRegionId, visibleRegionIds]);
 
-  const hasFocusedSelection = highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
+  const hasFocusedSelection = overlayMode === 'mask'
+    ? hasModuleSelection
+    : highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
 
   useEffect(() => {
     const canvas = baseCanvasRef.current;
@@ -317,11 +476,18 @@ export function PhotoModulesCard({
 
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, stageSize.width, stageSize.height);
+    if (overlayMode === 'mask' && moduleMaskOverlays.length) {
+      moduleMaskOverlays.forEach((overlay) => {
+        drawModuleMask(context, overlay, stageSize.width, stageSize.height, 0.08, 0.12);
+      });
+      return;
+    }
+
     drawRegions(context, regions, stageSize.width, stageSize.height, {
-      alphaScale: 0.95,
+      alphaScale: 0.45,
       lineBoost: 1,
     });
-  }, [regions, stageSize.height, stageSize.width]);
+  }, [moduleMaskOverlays, overlayMode, regions, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     const canvas = highlightCanvasRef.current;
@@ -338,6 +504,34 @@ export function PhotoModulesCard({
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, stageSize.width, stageSize.height);
 
+    if (overlayMode === 'mask') {
+      if (hasModuleSelection && selectedModule && selectedIssueType && issueEvidenceRegionIds?.size) {
+        drawRegions(context, regions, stageSize.width, stageSize.height, {
+          includeIds: issueEvidenceRegionIds,
+          alphaScale: 1,
+          lineBoost: 1.35,
+        });
+        return;
+      }
+
+      if (hasModuleSelection && selectedModule) {
+        const overlay = moduleMaskById.get(selectedModule.module_id);
+        if (overlay) {
+          drawModuleMask(context, overlay, stageSize.width, stageSize.height, 0.26, 0.78);
+          return;
+        }
+      }
+
+      if (hoveredRegionId) {
+        drawRegions(context, regions, stageSize.width, stageSize.height, {
+          includeIds: new Set([hoveredRegionId]),
+          alphaScale: 1,
+          lineBoost: 1.35,
+        });
+      }
+      return;
+    }
+
     if (!highlightedRegionIds.size || highlightedRegionIds.size === allRegionIds.size) return;
 
     drawRegions(context, regions, stageSize.width, stageSize.height, {
@@ -345,23 +539,23 @@ export function PhotoModulesCard({
       alphaScale: 1,
       lineBoost: 1.3,
     });
-  }, [allRegionIds.size, highlightedRegionIds, regions, stageSize.height, stageSize.width]);
+  }, [
+    allRegionIds.size,
+    highlightedRegionIds,
+    hoveredRegionId,
+    issueEvidenceRegionIds,
+    moduleMaskById,
+    overlayMode,
+    regions,
+    hasModuleSelection,
+    selectedIssueType,
+    selectedModule,
+    stageSize.height,
+    stageSize.width,
+  ]);
 
   const hasProducts =
     PRODUCT_REC_ENABLED && selectedModule ? selectedModule.products.filter((product) => Boolean(product.title)).length > 0 : false;
-
-  const originalCropStyle = useMemo(() => {
-    const bbox = model.face_crop.bbox_px;
-    const orig = model.face_crop.orig_size_px;
-    if (!bbox.w || !bbox.h || !orig.w || !orig.h) return null;
-
-    return {
-      width: `${(orig.w / bbox.w) * 100}%`,
-      height: `${(orig.h / bbox.h) * 100}%`,
-      left: `${-(bbox.x / bbox.w) * 100}%`,
-      top: `${-(bbox.y / bbox.h) * 100}%`,
-    };
-  }, [model.face_crop.bbox_px, model.face_crop.orig_size_px]);
 
   const handleModuleSelect = (moduleId: string) => {
     setSelectedIssueType(null);
@@ -434,9 +628,13 @@ export function PhotoModulesCard({
         <div className="space-y-2">
           {!hasRenderableImage ? (
             <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {language === 'CN'
-                ? '当前未拿到可渲染照片，以下先展示模块结论与行动建议。'
-                : 'No renderable photo is available right now. Module findings and actions are shown below.'}
+              {noRenderableReason === 'load_failed'
+                ? language === 'CN'
+                  ? '照片预览加载失败。以下先展示模块结论与行动建议；重新上传或重拍后可恢复叠加图。'
+                  : 'Photo preview failed to load. Module findings are still shown below; re-uploading or retaking can restore overlays.'
+                : language === 'CN'
+                  ? '当前未拿到可渲染照片，以下先展示模块结论与行动建议。'
+                  : 'Photo overlay preview is unavailable for this response. Module findings and actions are shown below.'}
             </div>
           ) : null}
 
@@ -446,44 +644,73 @@ export function PhotoModulesCard({
               className="relative w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/20"
               style={{ aspectRatio: imageAspect }}
             >
-              {cropImageUrl ? (
-                <img
-                  src={cropImageUrl}
-                  alt={language === 'CN' ? '脸部裁剪图' : 'Face crop'}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  draggable={false}
-                />
-              ) : originalImageUrl && originalCropStyle ? (
-                <img
-                  src={originalImageUrl}
-                  alt={language === 'CN' ? '原图裁剪预览' : 'Original crop preview'}
-                  className="absolute"
-                  style={originalCropStyle}
-                  draggable={false}
-                />
-              ) : (
-                <img
-                  src={originalImageUrl}
-                  alt={language === 'CN' ? '原图预览' : 'Original image preview'}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  draggable={false}
-                />
-              )}
+              <img
+                src={activeRenderCandidate!.src}
+                alt={
+                  activeRenderCandidate!.kind === 'crop'
+                    ? language === 'CN'
+                      ? '脸部裁剪图'
+                      : 'Face crop'
+                    : activeRenderCandidate!.kind === 'original_crop'
+                      ? language === 'CN'
+                        ? '原图裁剪预览'
+                        : 'Original crop preview'
+                      : language === 'CN'
+                        ? '原图预览'
+                        : 'Original image preview'
+                }
+                className={
+                  activeRenderCandidate!.kind === 'original_crop'
+                    ? 'absolute'
+                    : 'absolute inset-0 h-full w-full object-cover'
+                }
+                style={activeRenderCandidate!.kind === 'original_crop' ? originalCropStyle ?? undefined : undefined}
+                draggable={false}
+                onError={() => {
+                  setFailedRenderKinds((previous) => {
+                    if (previous.includes(activeRenderCandidate!.kind)) return previous;
+                    return [...previous, activeRenderCandidate!.kind];
+                  });
+                }}
+              />
 
               <canvas
                 ref={baseCanvasRef}
                 data-testid="photo-modules-base-canvas"
                 data-focused={hasFocusedSelection ? '1' : '0'}
+                data-overlay-mode={overlayMode}
+                data-mask-count={moduleMaskOverlays.length}
                 className="pointer-events-none absolute inset-0 h-full w-full"
-                style={{ opacity: hasFocusedSelection ? 0.2 : 1 }}
+                style={{
+                  opacity:
+                    overlayMode === 'mask'
+                      ? hasFocusedSelection
+                        ? 0.38
+                        : 0.48
+                      : hasFocusedSelection
+                        ? 0.04
+                        : 0.3,
+                }}
               />
               <canvas
                 ref={highlightCanvasRef}
                 data-testid="photo-modules-highlight-canvas"
                 data-visible-count={visibleRegionIds.size}
                 data-highlight-count={highlightedRegionIds.size}
+                data-overlay-mode={overlayMode}
                 className="pointer-events-none absolute inset-0 h-full w-full"
               />
+            </div>
+          ) : null}
+          {hasRenderableImage && activeRenderCandidate && activeRenderCandidate.kind !== 'crop' ? (
+            <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              {activeRenderCandidate.kind === 'original_crop'
+                ? language === 'CN'
+                  ? '当前使用原图裁剪回退进行叠加渲染。'
+                  : 'Using original-photo crop fallback for overlay rendering.'
+                : language === 'CN'
+                  ? '当前使用原图全幅回退进行叠加渲染，分区位置可能略有偏差。'
+                  : 'Using original full-frame fallback; region alignment may be less precise.'}
             </div>
           ) : null}
 
@@ -504,6 +731,8 @@ export function PhotoModulesCard({
           <div className="flex flex-wrap gap-2">
             {model.modules.map((module) => {
               const maxSeverity = module.issues.reduce((max, issue) => Math.max(max, issue.severity_0_4), 0);
+              const severityLevel = normalizeSeverityLevel(maxSeverity);
+              const severityLabel = getSeverityLabel(severityLevel, language);
               const isActive = selectedModuleId === module.module_id;
               return (
                 <button
@@ -516,7 +745,8 @@ export function PhotoModulesCard({
                     isActive ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {getModuleLabel(module.module_id, language)} · S{maxSeverity}
+                  {getModuleLabel(module.module_id, language)} · {severityLabel}
+                  {debug ? ` (S${severityLevel})` : ''}
                 </button>
               );
             })}
@@ -549,7 +779,10 @@ export function PhotoModulesCard({
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-sm font-medium text-foreground">{getIssueLabel(issue.issue_type, language)}</div>
                           <div className="text-[11px] text-muted-foreground">
-                            S{issue.severity_0_4} · {toPercent(issue.confidence_0_1)}
+                            {getSeverityLabel(normalizeSeverityLevel(issue.severity_0_4), language)}
+                            {debug ? ` (S${normalizeSeverityLevel(issue.severity_0_4)})` : ''}
+                            {' · '}
+                            {toPercent(issue.confidence_0_1)}
                           </div>
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">{issue.explanation_short}</div>
@@ -644,6 +877,10 @@ export function PhotoModulesCard({
                           module_id: selectedModule.module_id,
                           product_id: product.product_id || null,
                           merchant_id: product.merchant_id || null,
+                          source_block: product.source_block || null,
+                          price_tier: product.price_tier || null,
+                          price: typeof product.price === 'number' ? product.price : null,
+                          currency: product.currency || null,
                           title: product.title,
                         });
                       }}

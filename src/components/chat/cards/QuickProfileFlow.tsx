@@ -20,6 +20,23 @@ const makeChip = (chip_id: string, label: string, questionId: string, answer: st
 
 export function QuickProfileFlow({ language, step, disabled, onChip }: Props) {
   const isCN = language === 'CN';
+  const progress = useMemo(() => {
+    switch (step) {
+      case 'skin_feel':
+        return { current: 1, total: 4 };
+      case 'goal_primary':
+        return { current: 2, total: 4 };
+      case 'sensitivity_flag':
+        return { current: 3, total: 4 };
+      case 'opt_in_more':
+        return { current: 4, total: 4 };
+      case 'routine_complexity':
+        return { current: 5, total: 6 };
+      case 'rx_flag':
+      default:
+        return { current: 6, total: 6 };
+    }
+  }, [step]);
 
   const model = useMemo(() => {
     if (step === 'skin_feel') {
@@ -97,16 +114,27 @@ export function QuickProfileFlow({ language, step, disabled, onChip }: Props) {
   }, [isCN, step]);
 
   const skipChip = useMemo(
-    () => makeChip('qp.skip', isCN ? '跳过' : 'Skip', 'skip', 'skip'),
+    () => makeChip('qp.skip', isCN ? '稍后再说' : 'Not now', 'skip', 'skip'),
     [isCN],
   );
 
   return (
     <div className="chat-card-elevated space-y-3">
       <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            {isCN ? `第 ${progress.current}/${progress.total} 问` : `Question ${progress.current} of ${progress.total}`}
+          </div>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/70">
+          <div
+            className="h-full rounded-full bg-primary transition-all duration-200 ease-out"
+            style={{ width: `${(progress.current / progress.total) * 100}%` }}
+          />
+        </div>
         <div className="text-sm font-semibold text-foreground">{model.title}</div>
         <div className="text-sm text-muted-foreground">{model.question}</div>
-        <div className="text-xs text-muted-foreground">{isCN ? '你可以随时跳过，回到聊天。' : 'You can skip anytime and return to chat.'}</div>
+        <div className="text-xs text-muted-foreground">{isCN ? '如不想继续，可稍后再答。' : 'If you prefer, you can answer later.'}</div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -121,11 +149,18 @@ export function QuickProfileFlow({ language, step, disabled, onChip }: Props) {
             {chip.label}
           </button>
         ))}
-        <button type="button" className="chip-button" onClick={() => onChip(skipChip)} disabled={disabled}>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+          onClick={() => onChip(skipChip)}
+          disabled={disabled}
+        >
           {skipChip.label}
         </button>
       </div>
     </div>
   );
 }
-

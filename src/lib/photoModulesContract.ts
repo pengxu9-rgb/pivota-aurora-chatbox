@@ -115,6 +115,10 @@ const productSchema = z
     image_url: z.string().trim().optional(),
     why_match: z.string().trim().optional(),
     how_to_use: z.string().trim().optional(),
+    price: z.number().optional(),
+    currency: z.string().trim().optional(),
+    price_tier: z.string().trim().optional(),
+    source_block: z.string().trim().optional(),
     cautions: z.array(z.string().trim().min(1).max(180)).optional(),
   })
   .passthrough();
@@ -125,6 +129,10 @@ const moduleSchema = z
     issues: z.array(issueSchema).default([]),
     actions: z.array(actionSchema).default([]),
     products: z.array(productSchema).optional(),
+    mask_rle_norm: z.string().trim().optional(),
+    mask_grid: asPositiveInt.optional(),
+    box: bboxSchema.optional(),
+    degraded_reason: z.string().trim().optional(),
   })
   .passthrough();
 
@@ -252,6 +260,10 @@ export type PhotoModulesProduct = {
   image_url: string;
   why_match: string;
   how_to_use: string;
+  price?: number;
+  currency?: string;
+  price_tier?: string;
+  source_block?: string;
   cautions: string[];
 };
 
@@ -260,6 +272,10 @@ export type PhotoModulesModule = {
   issues: PhotoModulesIssue[];
   actions: PhotoModulesAction[];
   products: PhotoModulesProduct[];
+  mask_rle_norm?: string;
+  mask_grid?: number;
+  box?: Bbox;
+  degraded_reason?: string;
 };
 
 export type PhotoModulesUiModelV1 = {
@@ -587,6 +603,10 @@ const normalizeProduct = (product: RawProduct): PhotoModulesProduct => ({
   image_url: String(product.image_url || '').trim(),
   why_match: String(product.why_match || '').trim(),
   how_to_use: String(product.how_to_use || '').trim(),
+  ...(Number.isFinite(Number(product.price)) ? { price: Number(product.price) } : {}),
+  ...(String(product.currency || '').trim() ? { currency: String(product.currency || '').trim() } : {}),
+  ...(String(product.price_tier || '').trim() ? { price_tier: String(product.price_tier || '').trim() } : {}),
+  ...(String(product.source_block || '').trim() ? { source_block: String(product.source_block || '').trim() } : {}),
   cautions: toUniqueList(product.cautions ?? [], 6),
 });
 
@@ -595,6 +615,10 @@ const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoM
   issues: module.issues.map((issue) => normalizeIssue(issue, validRegionIds)),
   actions: module.actions.map((action) => normalizeAction(action)),
   products: (Array.isArray(module.products) ? module.products : []).map((product) => normalizeProduct(product)).slice(0, 3),
+  ...(String(module.mask_rle_norm || '').trim() ? { mask_rle_norm: String(module.mask_rle_norm).trim() } : {}),
+  ...(Number.isFinite(Number(module.mask_grid)) ? { mask_grid: Math.max(1, Math.trunc(Number(module.mask_grid))) } : {}),
+  ...(module.box ? { box: normalizeBbox(module.box) } : {}),
+  ...(String(module.degraded_reason || '').trim() ? { degraded_reason: String(module.degraded_reason).trim() } : {}),
 });
 
 const normalizeFaceCrop = (payload: RawPayload) => {
@@ -698,4 +722,28 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
     errors: [],
     sanitizer_drops: sanitizerDrops,
   };
+}
+
+export function decodeRleBinaryMask(rle: string, expectedLength: number): Uint8Array {
+  const chunks = String(rle || '')
+    .split(',')
+    .map((part) => Number(part))
+    .filter((part) => Number.isFinite(part) && part >= 0);
+  const length = Math.max(0, Number(expectedLength) || 0);
+  const out = new Uint8Array(length);
+  let value = 0;
+  let offset = 0;
+  for (const count of chunks) {
+    const runLength = Math.trunc(count);
+    if (runLength <= 0) {
+      value = value ? 0 : 1;
+      continue;
+    }
+    const end = Math.min(length, offset + runLength);
+    if (value) out.fill(1, offset, end);
+    offset = end;
+    value = value ? 0 : 1;
+    if (offset >= length) break;
+  }
+  return out;
 }

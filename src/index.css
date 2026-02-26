@@ -655,6 +655,15 @@
     border-color: hsl(var(--aurora-home-primary));
   }
 
+  .chip-button-skip {
+    border-style: dashed;
+    opacity: 0.9;
+  }
+
+  .chip-button-skip:hover {
+    opacity: 1;
+  }
+
   /* Aurora Action Buttons - enhanced with better shadows */
   .action-button {
     @apply w-full py-3 px-4 rounded-xl border font-medium;

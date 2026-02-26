@@ -51,6 +51,26 @@ describe('photoModulesFallback', () => {
     expect((result as any).face_crop.original_image_url).toBe('data:image/jpeg;base64,daylight-preview');
   });
 
+  it('fills original_image_url from top-level slot/photo hints with nested photos payload', () => {
+    const payload = {
+      face_crop: {},
+      slot_id: 'indoor_white',
+      photo_id: 'p_indoor',
+    };
+
+    const result = enrichPhotoModulesPayloadWithSessionPreview(
+      payload,
+      [{ slot_id: 'indoor_white', photo_id: 'p_indoor' }],
+      {
+        photos: {
+          indoor_white: { preview: 'data:image/jpeg;base64,nested-indoor-preview' },
+        },
+      },
+    );
+
+    expect((result as any).face_crop.original_image_url).toBe('data:image/jpeg;base64,nested-indoor-preview');
+  });
+
   it('falls back to default slot priority (daylight first)', () => {
     const payload = {
       face_crop: {},
@@ -62,6 +82,27 @@ describe('photoModulesFallback', () => {
     });
 
     expect((result as any).face_crop.original_image_url).toBe('data:image/jpeg;base64,daylight-first');
+  });
+
+  it('falls back to any available preview entry when slot keys are non-standard', () => {
+    const payload = {
+      face_crop: {
+        slot_id: 'unknown_slot',
+      },
+    };
+
+    const result = enrichPhotoModulesPayloadWithSessionPreview(
+      payload,
+      [],
+      {
+        photos: {
+          // backend variants may use non-standard slot buckets; fallback should still salvage preview.
+          selfie: { preview: 'data:image/jpeg;base64,any-preview' },
+        },
+      } as any,
+    );
+
+    expect((result as any).face_crop.original_image_url).toBe('data:image/jpeg;base64,any-preview');
   });
 
   it('returns original payload when no session preview is available', () => {

@@ -47,6 +47,46 @@ export const getUploadBaseUrl = () => {
   return getApiBaseUrl();
 };
 
+const getOrigin = (rawUrl?: string) => {
+  if (!rawUrl) return null;
+  try {
+    const resolved = new URL(rawUrl, window.location.href);
+    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') return null;
+    return resolved.origin;
+  } catch {
+    return null;
+  }
+};
+
+const ensureLinkHint = (rel: 'dns-prefetch' | 'preconnect', href: string, withCors = false) => {
+  if (typeof document === 'undefined') return;
+  const selector = `link[rel="${rel}"][href="${href}"]`;
+  if (document.head.querySelector(selector)) return;
+  const link = document.createElement('link');
+  link.rel = rel;
+  link.href = href;
+  if (withCors) link.crossOrigin = 'anonymous';
+  document.head.appendChild(link);
+};
+
+export const ensureApiPreconnectHints = () => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  const currentOrigin = window.location.origin;
+  const origins = new Set<string>();
+  const candidates = [getApiRootUrl(), getApiBaseUrl(), getUploadBaseUrl(), getShopGatewayUrl()];
+  for (const candidate of candidates) {
+    const origin = getOrigin(candidate || undefined);
+    if (!origin || origin === currentOrigin) continue;
+    origins.add(origin);
+  }
+
+  for (const origin of origins) {
+    ensureLinkHint('dns-prefetch', origin);
+    ensureLinkHint('preconnect', origin, true);
+  }
+};
+
 const joinUrl = (baseUrl: string, path: string) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${normalizeBaseUrl(baseUrl)}${normalizedPath}`;

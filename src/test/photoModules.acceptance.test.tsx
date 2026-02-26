@@ -1,11 +1,38 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 
 const HEATMAP_VALUES = Array.from({ length: 64 * 64 }, () => 0.35);
+const encodeRleBinaryMask = (mask: Uint8Array): string => {
+  const chunks: number[] = [];
+  let current = 0;
+  let run = 0;
+  for (let i = 0; i < mask.length; i += 1) {
+    const value = mask[i] ? 1 : 0;
+    if (value === current) {
+      run += 1;
+      continue;
+    }
+    chunks.push(run);
+    run = 1;
+    current = value;
+  }
+  chunks.push(run);
+  return chunks.join(',');
+};
+
+const buildMask = (grid: number, x0: number, y0: number, x1: number, y1: number) => {
+  const out = new Uint8Array(grid * grid);
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      out[y * grid + x] = 1;
+    }
+  }
+  return out;
+};
 
 const buildValidPayload = () => ({
   used_photos: true,
@@ -55,6 +82,9 @@ const buildValidPayload = () => ({
   modules: [
     {
       module_id: 'left_cheek',
+      mask_grid: 64,
+      mask_rle_norm: encodeRleBinaryMask(buildMask(64, 7, 22, 29, 43)),
+      box: { x: 0.08, y: 0.34, w: 0.34, h: 0.3 },
       issues: [
         {
           issue_type: 'redness',
@@ -88,6 +118,9 @@ const buildValidPayload = () => ({
     },
     {
       module_id: 'right_cheek',
+      mask_grid: 64,
+      mask_rle_norm: encodeRleBinaryMask(buildMask(64, 36, 22, 57, 43)),
+      box: { x: 0.58, y: 0.34, w: 0.34, h: 0.3 },
       issues: [
         {
           issue_type: 'tone',
@@ -227,9 +260,14 @@ describe('photo_modules_v1 acceptance', () => {
     const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');
     expect(baseCanvas).toBeInTheDocument();
     expect(highlightCanvas).toBeInTheDocument();
+    expect(baseCanvas).toHaveAttribute('data-overlay-mode', 'mask');
+    expect(baseCanvas).toHaveAttribute('data-mask-count', '2');
+    expect(highlightCanvas).toHaveAttribute('data-overlay-mode', 'mask');
 
     expect(baseCanvas).toHaveAttribute('data-focused', '0');
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '3');
+    expect(screen.getByText('Left cheek · Noticeable')).toBeInTheDocument();
+    expect(screen.queryByText(/S3/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
     expect(baseCanvas).toHaveAttribute('data-focused', '1');
@@ -252,12 +290,27 @@ describe('photo_modules_v1 acceptance', () => {
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);
 
     expect(
-      screen.getByText('No renderable photo is available right now. Module findings and actions are shown below.'),
+      screen.getByText('Photo overlay preview is unavailable for this response. Module findings and actions are shown below.'),
     ).toBeInTheDocument();
     expect(screen.queryByTestId('photo-modules-base-canvas')).not.toBeInTheDocument();
     expect(screen.queryByTestId('photo-modules-highlight-canvas')).not.toBeInTheDocument();
     expect(screen.getByTestId('photo-modules-module-left_cheek')).toBeInTheDocument();
     expect(screen.getByText('Ingredient actions')).toBeInTheDocument();
+  });
+
+  it('falls back to original crop preview when crop image fails to load', async () => {
+    const normalized = normalizePhotoModulesUiModelV1(buildValidPayload());
+    expect(normalized.errors).toHaveLength(0);
+    expect(normalized.model).not.toBeNull();
+
+    render(<PhotoModulesCard model={normalized.model!} language="EN" />);
+
+    fireEvent.error(screen.getByAltText('Face crop'));
+
+    await waitFor(() => {
+      expect(screen.getByAltText('Original crop preview')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Using original-photo crop fallback for overlay rendering.')).toBeInTheDocument();
   });
 
   it('returns model=null on schema-fail payload and allows safe downgrade path', () => {
