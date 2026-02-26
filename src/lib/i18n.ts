@@ -39,8 +39,11 @@ const translations = {
     'diagnosis.sensitivity.low': "Sensitivity: low",
     'diagnosis.sensitivity.medium': "Sensitivity: medium",
     'diagnosis.sensitivity.high': "Sensitivity: high",
+    'diagnosis.sensitivity.pending': "Pick barrier status first",
     'diagnosis.concerns.label': "What concerns you most?",
     'diagnosis.concerns.hint': "Select up to 3 concerns",
+    'diagnosis.concerns.count': "{count}/3 selected",
+    'diagnosis.step_indicator': "Step {current} of {total}",
     'diagnosis.concern.acne': "Acne/Breakouts",
     'diagnosis.concern.dark_spots': "Dark spots",
     'diagnosis.concern.wrinkles': "Fine lines",
@@ -59,6 +62,7 @@ const translations = {
     'diagnosis.btn.back': "Back",
     'diagnosis.btn.analyze': "Analyze my skin",
     'diagnosis.btn.skip': "Skip",
+    'diagnosis.skip_lite': "Not now",
 
     // S3 Photo Option
     's3.intro': "Optional: add 1–2 photos for more precise recommendations.",
@@ -248,8 +252,11 @@ const translations = {
     'diagnosis.sensitivity.low': "敏感：低",
     'diagnosis.sensitivity.medium': "敏感：中",
     'diagnosis.sensitivity.high': "敏感：高",
+    'diagnosis.sensitivity.pending': "先选择屏障状态",
     'diagnosis.concerns.label': "你最关心什么问题？",
     'diagnosis.concerns.hint': "最多选3个",
+    'diagnosis.concerns.count': "已选 {count}/3",
+    'diagnosis.step_indicator': "第 {current}/{total} 步",
     'diagnosis.concern.acne': "痘痘/粉刺",
     'diagnosis.concern.dark_spots': "色斑",
     'diagnosis.concern.wrinkles': "细纹",
@@ -268,6 +275,7 @@ const translations = {
     'diagnosis.btn.back': "返回",
     'diagnosis.btn.analyze': "分析我的皮肤",
     'diagnosis.btn.skip': "跳过",
+    'diagnosis.skip_lite': "稍后再说",
 
     // S3 Photo Option
     's3.intro': "可选：上传1-2张照片获得更精准推荐。",

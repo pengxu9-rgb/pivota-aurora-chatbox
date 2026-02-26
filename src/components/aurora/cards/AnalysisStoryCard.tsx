@@ -2,232 +2,281 @@ import React from 'react';
 
 import type { Language } from '@/lib/types';
 
-type StoryItem = {
-  title?: string;
-  detail?: string;
+type Dict = Record<string, unknown>;
+
+const asObject = (value: unknown): Dict | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Dict;
 };
 
-type StoryStep = {
-  step?: string;
-  purpose?: string;
+const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+const asString = (value: unknown): string => {
+  if (value == null) return '';
+  return String(value).trim();
 };
 
-type RoutineBridge = {
-  missing_fields?: string[];
-  why_now?: string;
-  cta_label?: string;
-  cta_action?: string;
+const toStringList = (value: unknown, max = 12): string[] => {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of asArray(value)) {
+    const text = asString(item);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+    if (out.length >= max) break;
+  }
+  return out;
 };
 
-type AnalysisStoryPayload = {
-  skin_profile?: {
-    skin_type_tendency?: string;
-    sensitivity_tendency?: string;
-    current_strengths?: string[];
-  };
-  priority_findings?: StoryItem[];
-  target_state?: string[];
-  core_principles?: string[];
-  am_plan?: StoryStep[];
-  pm_plan?: StoryStep[];
-  timeline?: {
-    first_4_weeks?: string[];
-    week_8_12_expectation?: string[];
-  };
-  safety_notes?: string[];
-  routine_bridge?: RoutineBridge;
-};
-
-const asTextArray = (value: unknown): string[] =>
-  (Array.isArray(value) ? value : [])
-    .map((item) => (typeof item === 'string' ? item.trim() : String(item || '').trim()))
+const toPlanLines = (value: unknown, max = 8): string[] =>
+  asArray(value)
+    .map((item) => {
+      const row = asObject(item);
+      if (!row) return asString(item);
+      const step = asString(row.step) || asString(row.title) || asString(row.name);
+      const purpose = asString(row.purpose) || asString(row.why) || asString(row.goal);
+      if (step && purpose) return `${step} - ${purpose}`;
+      return step || purpose || '';
+    })
+    .map((line) => line.trim())
     .filter(Boolean)
-    .slice(0, 12);
+    .slice(0, max);
 
-const asSteps = (value: unknown): StoryStep[] =>
-  (Array.isArray(value) ? value : [])
-    .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as StoryStep) : null))
-    .filter(Boolean)
-    .slice(0, 8) as StoryStep[];
+const renderSectionTitle = (language: Language, en: string, cn: string) => (language === 'CN' ? cn : en);
 
-const asFindings = (value: unknown): StoryItem[] =>
-  (Array.isArray(value) ? value : [])
-    .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as StoryItem) : null))
-    .filter(Boolean)
-    .slice(0, 8) as StoryItem[];
+function OptimizationList({
+  language,
+  titleEn,
+  titleCn,
+  items,
+}: {
+  language: Language;
+  titleEn: string;
+  titleCn: string;
+  items: string[];
+}) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, titleEn, titleCn)}</div>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+        {items.map((item) => (
+          <li key={`${titleEn}_${item}`}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export function AnalysisStoryCard({
   payload,
   language,
   onAction,
 }: {
-  payload: Record<string, unknown>;
+  payload: unknown;
   language: Language;
-  onAction: (actionId: string, data?: Record<string, unknown>) => void;
+  onAction?: (actionId: string, data?: Record<string, unknown>) => void;
 }) {
-  const story = (payload || {}) as AnalysisStoryPayload;
-  const skinProfile = story.skin_profile || {};
-  const findings = asFindings(story.priority_findings);
-  const targetState = asTextArray(story.target_state);
-  const corePrinciples = asTextArray(story.core_principles);
-  const amPlan = asSteps(story.am_plan);
-  const pmPlan = asSteps(story.pm_plan);
-  const timeline4Weeks = asTextArray(story.timeline?.first_4_weeks);
-  const timeline8To12 = asTextArray(story.timeline?.week_8_12_expectation);
-  const safetyNotes = asTextArray(story.safety_notes);
-  const routineBridge = (story.routine_bridge || {}) as RoutineBridge;
-  const missingFields = asTextArray(routineBridge.missing_fields);
+  const root = asObject(payload) || {};
+  const confidenceOverall = asString(root.confidence_overall);
+  const skinProfile = asObject(root.skin_profile);
+  const profileBullets = toStringList(
+    skinProfile
+      ? [
+          skinProfile.skin_type_tendency,
+          skinProfile.sensitivity_tendency,
+          ...(asArray(skinProfile.current_strengths) as unknown[]),
+        ]
+      : [],
+    8,
+  );
 
-  const labels =
-    language === 'CN'
-      ? {
-          title: '分析解读',
-          profile: '皮肤画像',
-          concerns: '优先关注',
-          target: '目标状态',
-          principles: '关键原则',
-          am: '早间计划',
-          pm: '晚间计划',
-          timeline: '执行节奏',
-          safety: '安全提示',
-        }
-      : {
-          title: 'Analysis Story',
-          profile: 'Skin profile',
-          concerns: 'Priority findings',
-          target: 'Target state',
-          principles: 'Core principles',
-          am: 'AM plan',
-          pm: 'PM plan',
-          timeline: 'Timeline',
-          safety: 'Safety notes',
-        };
+  const findings = asArray(root.priority_findings)
+    .map(asObject)
+    .filter(Boolean)
+    .slice(0, 6) as Dict[];
+  const targetState = toStringList(root.target_state, 6);
+  const principles = toStringList(root.core_principles, 8);
+  const amPlan = toPlanLines(root.am_plan, 8);
+  const pmPlan = toPlanLines(root.pm_plan, 8);
+  const timeline = toStringList(root.timeline, 6);
+  const safetyNotes = toStringList(root.safety_notes, 6);
+  const disclaimer = asString(root.disclaimer_non_medical);
 
-  const ctaLabel = String(routineBridge.cta_label || '').trim() || (language === 'CN' ? '补全 AM/PM Routine' : 'Add AM/PM routine');
+  const optimization = asObject(root.existing_products_optimization);
+  const keepList = toStringList(optimization?.keep, 6);
+  const addList = toStringList(optimization?.add, 6);
+  const replaceList = toStringList(optimization?.replace, 6);
+  const removeList = toStringList(optimization?.remove, 6);
+
+  const bridge = asObject(root.routine_bridge);
+  const ctaText =
+    asString(bridge?.cta_text) ||
+    (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
+  const actionId = asString(bridge?.action_id) || 'chip.start.routine';
+  const replyText =
+    asString(bridge?.reply_text) ||
+    (language === 'CN'
+      ? '我来补全 AM/PM routine，再给我个性化产品建议。'
+      : 'Let me complete AM/PM routine, then give me personalized product recommendations.');
+  const bridgeWhyNow = asString(bridge?.why_now);
+  const bridgeMissing = toStringList(bridge?.missing_fields, 8);
 
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
-      <div className="text-sm font-semibold text-foreground">{labels.title}</div>
-
-      <div className="rounded-xl border border-border/60 bg-background/80 p-3 text-sm text-foreground">
-        <div className="text-xs font-medium text-muted-foreground">{labels.profile}</div>
-        <div className="mt-1">
-          {(language === 'CN' ? '肤质倾向：' : 'Skin type: ') + String(skinProfile.skin_type_tendency || (language === 'CN' ? '待补充' : 'pending'))}
+      <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+        <div className="text-sm font-semibold text-foreground">
+          {renderSectionTitle(language, 'Personalized skin analysis', '个性化肤况分析')}
         </div>
-        <div className="mt-1">
-          {(language === 'CN' ? '敏感倾向：' : 'Sensitivity: ') +
-            String(skinProfile.sensitivity_tendency || (language === 'CN' ? '待补充' : 'pending'))}
-        </div>
-        {asTextArray(skinProfile.current_strengths).length ? (
-          <div className="mt-2 text-xs text-muted-foreground">{asTextArray(skinProfile.current_strengths).join(' · ')}</div>
+        {confidenceOverall ? (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {renderSectionTitle(language, `Confidence: ${confidenceOverall}`, `置信度：${confidenceOverall}`)}
+          </div>
         ) : null}
       </div>
 
+      {profileBullets.length ? (
+        <div>
+          <div className="text-xs font-medium text-muted-foreground">
+            {renderSectionTitle(language, 'Current profile', '当前画像')}
+          </div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+            {profileBullets.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {findings.length ? (
         <div>
-          <div className="text-xs font-medium text-muted-foreground">{labels.concerns}</div>
+          <div className="text-xs font-medium text-muted-foreground">
+            {renderSectionTitle(language, 'Priority findings', '优先问题')}
+          </div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {findings.map((item, index) => (
-              <li key={`finding_${index}`}>{String(item.title || item.detail || '').trim()}</li>
-            ))}
+            {findings.map((item, idx) => {
+              const priority = asString(item.priority) || asString(item.priority_level);
+              const title = asString(item.title) || asString(item.finding) || asString(item.issue);
+              const area = asString(item.area) || asString(item.region) || asString(item.module);
+              const text = [priority, title, area].filter(Boolean).join(' · ');
+              return <li key={`finding_${idx}`}>{text || asString(item.description)}</li>;
+            })}
           </ul>
         </div>
       ) : null}
 
       {targetState.length ? (
         <div>
-          <div className="text-xs font-medium text-muted-foreground">{labels.target}</div>
-          <div className="mt-1 text-sm text-foreground">{targetState.join(' ')}</div>
-        </div>
-      ) : null}
-
-      {corePrinciples.length ? (
-        <div>
-          <div className="text-xs font-medium text-muted-foreground">{labels.principles}</div>
+          <div className="text-xs font-medium text-muted-foreground">
+            {renderSectionTitle(language, 'Target state', '目标状态')}
+          </div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {corePrinciples.map((line) => (
-              <li key={`principle_${line}`}>{line}</li>
+            {targetState.map((item) => (
+              <li key={`target_${item}`}>{item}</li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {amPlan.length ? (
+      {principles.length ? (
         <div>
-          <div className="text-xs font-medium text-muted-foreground">{labels.am}</div>
+          <div className="text-xs font-medium text-muted-foreground">
+            {renderSectionTitle(language, 'Core principles', '关键原则')}
+          </div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {amPlan.map((step, index) => (
-              <li key={`am_${index}`}>
-                {String(step.step || '').trim()}
-                {String(step.purpose || '').trim() ? ` · ${String(step.purpose || '').trim()}` : ''}
-              </li>
+            {principles.map((item) => (
+              <li key={`principle_${item}`}>{item}</li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {pmPlan.length ? (
+      {amPlan.length || pmPlan.length ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '早间计划 (AM)' : 'AM plan'}</div>
+            {amPlan.length ? (
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+                {amPlan.map((item) => (
+                  <li key={`am_${item}`}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-1 text-sm text-muted-foreground">{language === 'CN' ? '暂无 AM 步骤' : 'No AM steps yet.'}</div>
+            )}
+          </div>
+          <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '晚间计划 (PM)' : 'PM plan'}</div>
+            {pmPlan.length ? (
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+                {pmPlan.map((item) => (
+                  <li key={`pm_${item}`}>{item}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-1 text-sm text-muted-foreground">{language === 'CN' ? '暂无 PM 步骤' : 'No PM steps yet.'}</div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {optimization ? (
+        <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+          <div className="text-xs font-medium text-muted-foreground">
+            {renderSectionTitle(language, 'Optimize your existing products', '现有产品优化建议')}
+          </div>
+          <OptimizationList language={language} titleEn="Keep" titleCn="保留" items={keepList} />
+          <OptimizationList language={language} titleEn="Add" titleCn="新增" items={addList} />
+          <OptimizationList language={language} titleEn="Replace" titleCn="替换" items={replaceList} />
+          <OptimizationList language={language} titleEn="Remove" titleCn="移除" items={removeList} />
+        </div>
+      ) : null}
+
+      {timeline.length ? (
         <div>
-          <div className="text-xs font-medium text-muted-foreground">{labels.pm}</div>
+          <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, 'Timeline', '时间线')}</div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {pmPlan.map((step, index) => (
-              <li key={`pm_${index}`}>
-                {String(step.step || '').trim()}
-                {String(step.purpose || '').trim() ? ` · ${String(step.purpose || '').trim()}` : ''}
-              </li>
+            {timeline.map((item) => (
+              <li key={`timeline_${item}`}>{item}</li>
             ))}
           </ul>
         </div>
       ) : null}
-
-      {(timeline4Weeks.length || timeline8To12.length) && (
-        <div>
-          <div className="text-xs font-medium text-muted-foreground">{labels.timeline}</div>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {timeline4Weeks.map((line) => (
-              <li key={`timeline_w4_${line}`}>{line}</li>
-            ))}
-            {timeline8To12.map((line) => (
-              <li key={`timeline_w12_${line}`}>{line}</li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {safetyNotes.length ? (
         <div>
-          <div className="text-xs font-medium text-muted-foreground">{labels.safety}</div>
+          <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, 'Safety notes', '安全提示')}</div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {safetyNotes.map((line) => (
-              <li key={`safety_${line}`}>{line}</li>
+            {safetyNotes.map((item) => (
+              <li key={`safety_${item}`}>{item}</li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {String(routineBridge.why_now || '').trim() ? (
-        <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-          <div className="text-xs text-muted-foreground">{String(routineBridge.why_now || '').trim()}</div>
-          {missingFields.length ? (
-            <div className="mt-1 text-[11px] text-muted-foreground">{missingFields.join(' · ')}</div>
+      {bridgeWhyNow || bridgeMissing.length ? (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+          <div className="text-xs font-semibold text-foreground">
+            {renderSectionTitle(language, 'Next best step', '下一步建议')}
+          </div>
+          {bridgeWhyNow ? <div className="mt-1 text-sm text-muted-foreground">{bridgeWhyNow}</div> : null}
+          {bridgeMissing.length ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              {(language === 'CN' ? '待补充：' : 'Missing: ') + bridgeMissing.join(', ')}
+            </div>
           ) : null}
           <button
             type="button"
-            className="chip-button chip-button-primary mt-3"
-            data-testid="analysis-story-routine-cta"
-            onClick={() =>
-              onAction('chip.start.routine', {
-                trigger_source: 'analysis_story_v2',
-                source_card_type: 'analysis_story_v2',
-                cta_action: String(routineBridge.cta_action || '').trim() || 'open_routine_intake',
-              })
-            }
+            className="mt-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15"
+            onClick={() => onAction?.(actionId, { reply_text: replyText, trigger_source: 'analysis_story_v2' })}
           >
-            {ctaLabel}
+            {ctaText}
           </button>
         </div>
       ) : null}
+
+      {disclaimer ? <div className="text-[11px] text-muted-foreground">{disclaimer}</div> : null}
     </div>
   );
 }
-

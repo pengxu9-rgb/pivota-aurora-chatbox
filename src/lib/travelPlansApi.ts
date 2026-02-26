@@ -101,3 +101,13 @@ export const archiveTravelPlan = async (
     method: 'POST',
   });
 };
+
+export const getTravelPlanById = async (
+  language: Language,
+  tripId: string,
+): Promise<TravelPlanMutationResponse> => {
+  const headers = makeDefaultHeaders(language);
+  return bffJson<TravelPlanMutationResponse>(`/v1/travel-plans/${encodeURIComponent(tripId)}`, headers, {
+    method: 'GET',
+  });
+};
