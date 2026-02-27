@@ -63,6 +63,10 @@ export type ChatTelemetryV1 = {
   intent: string;
   intent_confidence: number;
   entities: Array<Record<string, unknown>>;
+  ui_language?: 'CN' | 'EN';
+  matching_language?: 'CN' | 'EN';
+  language_mismatch?: boolean;
+  language_resolution_source?: 'header' | 'body' | 'text_detected' | 'mixed_override';
 };
 
 export type ChatResponseV1 = {

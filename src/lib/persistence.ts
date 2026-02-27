@@ -50,6 +50,15 @@ const safeJsonParse = <T>(raw: string): T | undefined => {
   }
 };
 
+const inferBrowserLangPref = (): LangPref => {
+  if (!isBrowser()) return 'en';
+  const nav = window.navigator;
+  const preferred =
+    (Array.isArray(nav.languages) && typeof nav.languages[0] === 'string' ? nav.languages[0] : '') ||
+    (typeof nav.language === 'string' ? nav.language : '');
+  return /^zh\b/i.test(String(preferred || '').trim()) ? 'cn' : 'en';
+};
+
 export const getOrCreateAuroraUid = (): string => {
   const existing = safeStorageGet(UID_KEY);
   if (existing) return existing;
@@ -104,7 +113,7 @@ export const getLangPref = (): LangPref => {
     return 'cn';
   }
   if (memoryLangPref) return memoryLangPref;
-  return 'en';
+  return inferBrowserLangPref();
 };
 
 export const setLangPref = (lang: LangPref) => {

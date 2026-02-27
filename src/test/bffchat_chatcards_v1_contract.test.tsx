@@ -116,6 +116,50 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
   });
 
+  it('shows language mismatch hint when telemetry reports mismatch', async () => {
+    window.localStorage.setItem('lang_pref', 'en');
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope());
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'v1 mismatch telemetry',
+            telemetry: {
+              intent: 'reco_products',
+              intent_confidence: 0.9,
+              entities: [],
+              ui_language: 'EN',
+              matching_language: 'CN',
+              language_mismatch: true,
+              language_resolution_source: 'mixed_override',
+            },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: '我想买防晒' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByText('v1 mismatch telemetry');
+    await screen.findByText(/Detected input language CN/i);
+  });
+
   it('uses routine adapter when v1 routine card contains routine_structured section', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {

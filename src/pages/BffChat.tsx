@@ -5804,6 +5804,13 @@ export default function BffChat() {
 
       const assistantTextRaw = String(response.assistant_text || '');
       const assistantText = debug ? assistantTextRaw : stripInternalKbRefsFromText(assistantTextRaw);
+      const telemetryUiLang = response.telemetry.ui_language;
+      const telemetryMatchLang = response.telemetry.matching_language;
+      const showLanguageMismatchHint =
+        response.telemetry.language_mismatch === true &&
+        telemetryUiLang &&
+        telemetryMatchLang &&
+        telemetryUiLang !== telemetryMatchLang;
 
       const toLegacyCard = (card: ChatCardV1): Card => ({
         card_id: card.id,
@@ -5857,6 +5864,13 @@ export default function BffChat() {
       const nextItems: ChatItem[] = [];
       if (assistantText.trim()) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: assistantText });
+      }
+      if (showLanguageMismatchHint) {
+        const mismatchText =
+          language === 'CN'
+            ? `检测到你的输入语言为 ${telemetryMatchLang}，当前界面语言为 ${telemetryUiLang}。如需更一致的体验，可切换界面语言。`
+            : `Detected input language ${telemetryMatchLang} while UI language is ${telemetryUiLang}. Switch UI language for a more consistent experience.`;
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: mismatchText });
       }
 
       const rawCards = response.cards.map(toLegacyCard);

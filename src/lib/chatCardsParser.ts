@@ -140,6 +140,29 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
   const riskLevel: ChatResponseV1['safety']['risk_level'] =
     riskLevelRaw === 'high' || riskLevelRaw === 'medium' || riskLevelRaw === 'low' ? riskLevelRaw : 'none';
   const telemetryConfidenceRaw = Number(telemetryRaw.intent_confidence);
+  const telemetryUiLanguage = (() => {
+    const token = asString(telemetryRaw.ui_language).toUpperCase();
+    if (token === 'CN' || token === 'EN') return token as 'CN' | 'EN';
+    return undefined;
+  })();
+  const telemetryMatchingLanguage = (() => {
+    const token = asString(telemetryRaw.matching_language).toUpperCase();
+    if (token === 'CN' || token === 'EN') return token as 'CN' | 'EN';
+    return undefined;
+  })();
+  const telemetryResolutionSource = (() => {
+    const token = asString(telemetryRaw.language_resolution_source).toLowerCase();
+    if (token === 'header' || token === 'body' || token === 'text_detected' || token === 'mixed_override') {
+      return token as 'header' | 'body' | 'text_detected' | 'mixed_override';
+    }
+    return undefined;
+  })();
+  const telemetryLanguageMismatch =
+    typeof telemetryRaw.language_mismatch === 'boolean'
+      ? telemetryRaw.language_mismatch
+      : telemetryUiLanguage && telemetryMatchingLanguage
+        ? telemetryUiLanguage !== telemetryMatchingLanguage
+        : false;
 
   return {
     version: '1.0',
@@ -187,6 +210,12 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
         .map((item) => asRecord(item))
         .filter(Boolean)
         .slice(0, 16) as Array<Record<string, unknown>>,
+      ...(telemetryUiLanguage ? { ui_language: telemetryUiLanguage } : {}),
+      ...(telemetryMatchingLanguage ? { matching_language: telemetryMatchingLanguage } : {}),
+      ...(typeof telemetryRaw.language_mismatch === 'boolean' || (telemetryUiLanguage && telemetryMatchingLanguage)
+        ? { language_mismatch: telemetryLanguageMismatch }
+        : {}),
+      ...(telemetryResolutionSource ? { language_resolution_source: telemetryResolutionSource } : {}),
     },
   };
 };

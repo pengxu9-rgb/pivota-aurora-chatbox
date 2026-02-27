@@ -23,11 +23,21 @@ describe('persistence', () => {
     expect(window.localStorage.getItem('aurora_uid')).toBe('legacy_uid');
   });
 
-  it('lang_pref defaults to en and can be set', () => {
-    expect(getLangPref()).toBe('en');
+  it('lang_pref defaults from browser language and can be set', () => {
+    const expected = /^zh\b/i.test(window.navigator.language || '') ? 'cn' : 'en';
+    expect(getLangPref()).toBe(expected);
     setLangPref('cn');
     expect(getLangPref()).toBe('cn');
     expect(window.localStorage.getItem('lang_pref')).toBe('cn');
+  });
+
+  it('defaults to cn when browser language is zh-*', () => {
+    const langSpy = vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('zh-CN');
+    const langsSpy = vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['zh-CN']);
+    window.localStorage.clear();
+    expect(getLangPref()).toBe('cn');
+    langSpy.mockRestore();
+    langsSpy.mockRestore();
   });
 
   it('migrates legacy `pivota_aurora_lang_pref_v1` -> `lang_pref`', () => {
@@ -47,4 +57,3 @@ describe('persistence', () => {
     spy.mockRestore();
   });
 });
-
