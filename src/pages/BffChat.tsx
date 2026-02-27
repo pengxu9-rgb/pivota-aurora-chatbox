@@ -5,10 +5,12 @@ import { bffJson, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedb
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
+import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
 import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
+import { ProductAnalysisCard } from '@/components/chat/cards/ProductAnalysisCard';
 import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
 import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompatibilityFooter';
 import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
@@ -66,6 +68,15 @@ import {
   emitUiRecosRequested,
   emitUiReturnVisit,
   emitUiSessionStarted,
+  emitIntentDetected,
+  emitAuroraToolCalled,
+  emitCardImpression,
+  emitCardActionClick,
+  emitTriageStageShown,
+  emitTriageActionTap,
+  emitNudgeActionTap,
+  emitThreadOp,
+  emitMemoryWritten,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
 import { buildChatSession } from '@/lib/chatSession';
@@ -77,6 +88,9 @@ import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } 
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
 import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
 import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
+import { parseChatResponseV1 } from '@/lib/chatCardsParser';
+import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
+import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
 import { toast } from '@/components/ui/use-toast';
 import {
   buildPdpUrl,
@@ -237,7 +251,9 @@ const toBffErrorMessage = (err: unknown): string => {
   if (err instanceof PivotaAgentBffError) {
     const body = err.responseBody as any;
     const msg = body?.assistant_message?.content;
+    const msgV1 = typeof body?.assistant_text === 'string' ? body.assistant_text : '';
     if (typeof msg === 'string' && msg.trim()) return msg.trim();
+    if (typeof msgV1 === 'string' && msgV1.trim()) return msgV1.trim();
     return err.message;
   }
   return err instanceof Error ? err.message : String(err);
@@ -546,8 +562,27 @@ const getChipVisualRoles = (chips: SuggestedChip[]): ChipVisualRole[] => {
   });
 };
 
+const CHAT_CARDS_V1_TYPES = new Set([
+  'product_verdict',
+  'compatibility',
+  'routine',
+  'triage',
+  'skin_status',
+  'effect_review',
+  'travel',
+  'nudge',
+]);
+
 const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
+  if (t === 'product_verdict') return Search;
+  if (t === 'compatibility') return ListChecks;
+  if (t === 'routine') return Sparkles;
+  if (t === 'triage') return AlertTriangle;
+  if (t === 'skin_status') return Activity;
+  if (t === 'effect_review') return RefreshCw;
+  if (t === 'travel') return Globe;
+  if (t === 'nudge') return Sparkles;
   if (t === 'diagnosis_gate') return Activity;
   if (t === 'budget_gate') return Wallet;
   if (t === 'ingredient_hub') return FlaskConical;
@@ -571,6 +606,14 @@ const iconForCard = (type: string): IconType => {
 const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   const t = String(type || '');
   const key = t.toLowerCase();
+  if (key === 'product_verdict') return language === 'CN' ? '产品决策结论' : 'Product verdict';
+  if (key === 'compatibility') return language === 'CN' ? '搭配与冲突建议' : 'Compatibility';
+  if (key === 'routine') return language === 'CN' ? 'AM/PM 护肤流程' : 'Routine';
+  if (key === 'triage') return language === 'CN' ? '应急分诊建议' : 'Triage';
+  if (key === 'skin_status') return language === 'CN' ? '当前肤况判断' : 'Skin status';
+  if (key === 'effect_review') return language === 'CN' ? '效果复盘' : 'Effect review';
+  if (key === 'travel') return language === 'CN' ? '旅行模式' : 'Travel mode';
+  if (key === 'nudge') return language === 'CN' ? '可选加分项' : 'Optional nudge';
   if (key === 'diagnosis_gate') return language === 'CN' ? '先做一个极简肤况确认' : 'Quick skin profile first';
   if (key === 'budget_gate') return language === 'CN' ? '预算确认' : 'Budget';
   if (key === 'ingredient_hub') return language === 'CN' ? '成分查询入口' : 'Ingredient hub';
@@ -2800,6 +2843,7 @@ function BffCardView({
   card,
   language,
   debug,
+  meta,
   requestHeaders,
   session,
   onAction,
@@ -2821,6 +2865,7 @@ function BffCardView({
   card: Card;
   language: UiLanguage;
   debug: boolean;
+  meta?: Pick<V1Envelope, 'request_id' | 'trace_id' | 'events'>;
   requestHeaders: BffHeaders;
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
@@ -2973,6 +3018,315 @@ function BffCardView({
           </details>
         ) : null}
       </div>
+    );
+  }
+
+  if (CHAT_CARDS_V1_TYPES.has(cardType)) {
+    const adapterHit = adaptChatCardForRichRender({
+      cardType,
+      payload: asObject(payload) || {},
+      language,
+    });
+    if (adapterHit?.kind === 'compatibility') {
+      return (
+        <CompatibilityInsightsCard
+          routineSimulationPayload={adapterHit.data.routineSimulationPayload}
+          conflictHeatmapPayload={adapterHit.data.conflictHeatmapPayload}
+          language={language}
+          debug={debug}
+          meta={meta}
+          analyticsCtx={analyticsCtx}
+        />
+      );
+    }
+
+    if (adapterHit?.kind === 'routine') {
+      return (
+        <AuroraRoutineCard
+          amSteps={adapterHit.data.amSteps}
+          pmSteps={adapterHit.data.pmSteps}
+          conflicts={adapterHit.data.conflicts}
+          compatibility={adapterHit.data.compatibility}
+          language={language}
+        />
+      );
+    }
+
+    if (adapterHit?.kind === 'travel') {
+      return (
+        <EnvStressCard
+          payload={adapterHit.data.payload}
+          language={language}
+          onOpenCheckin={onOpenCheckin}
+          onOpenRecommendations={() =>
+            onAction('chip.start.reco_products', {
+              reply_text:
+                language === 'CN'
+                  ? '请给我完整护肤产品推荐。'
+                  : 'Show full skincare product recommendations.',
+              force_route: 'reco_products',
+            })
+          }
+          onRefineRoutine={() =>
+            onAction('chip.start.routine', {
+              reply_text:
+                language === 'CN'
+                  ? '用我的 AM/PM routine 进一步细化建议'
+                  : 'Refine recommendations with my AM/PM routine',
+            })
+          }
+        />
+      );
+    }
+
+    if (adapterHit?.kind === 'product_verdict') {
+      return (
+        <ProductAnalysisCard
+          result={adapterHit.data.result}
+          photoPreview={adapterHit.data.photoPreview}
+          language={language}
+          onAction={(id, data) => onAction(id, data)}
+        />
+      );
+    }
+
+    if (adapterHit?.kind === 'skin_status') {
+      return (
+        <SkinIdentityCard
+          payload={adapterHit.data.payload}
+          onAction={(id, data) => onAction(id, data)}
+          language={language}
+        />
+      );
+    }
+
+    if (adapterHit?.kind === 'effect_review') {
+      return (
+        <AnalysisStoryCard
+          payload={adapterHit.data.payload}
+          language={language}
+          onAction={(id, data) => onAction(id, data)}
+        />
+      );
+    }
+
+    if (adapterHit?.kind === 'triage') {
+      const data = adapterHit.data;
+      const riskToneClass =
+        data.riskLevel === 'high'
+          ? 'border-rose-300 bg-rose-50 text-rose-900'
+          : data.riskLevel === 'medium'
+            ? 'border-amber-300 bg-amber-50 text-amber-900'
+            : 'border-border/60 bg-background/70 text-foreground';
+      return (
+        <div data-testid="chatcards-triage-adapter" className={`space-y-3 rounded-2xl border p-3 ${riskToneClass}`}>
+          <div className="text-sm font-semibold">
+            {language === 'CN' ? '应急分诊建议' : 'Triage plan'}
+            {data.recoveryWindowHours
+              ? (
+                <span className="ml-2 text-xs font-medium opacity-80">
+                  {language === 'CN'
+                    ? `${data.recoveryWindowHours}小时观察窗`
+                    : `${data.recoveryWindowHours}h observation window`}
+                </span>
+              )
+              : null}
+          </div>
+          <div className="text-sm">{data.summary}</div>
+          {data.actionPoints.length ? (
+            <div>
+              <div className="text-xs font-semibold opacity-80">{language === 'CN' ? '执行要点' : 'Action points'}</div>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                {data.actionPoints.slice(0, 6).map((line, idx) => (
+                  <li key={`triage_action_${idx}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {data.redFlags.length ? (
+            <div>
+              <div className="text-xs font-semibold opacity-80">{language === 'CN' ? '红旗信号' : 'Red flags'}</div>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                {data.redFlags.slice(0, 4).map((line, idx) => (
+                  <li key={`triage_redflag_${idx}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              className="chip-button chip-button-primary"
+              onClick={() => {
+                const actionType = data.primaryAction?.type || 'log_symptom';
+                const actionLabel = data.primaryAction?.label || (language === 'CN' ? '记录症状' : 'Log symptom');
+                const actionPayload = data.primaryAction?.payload || {};
+                if (analyticsCtx) {
+                  emitCardActionClick(analyticsCtx, {
+                    card_type: cardType,
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                  });
+                  emitTriageActionTap(analyticsCtx, {
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                    risk_level: data.riskLevel,
+                    recovery_window_hours:
+                      typeof data.recoveryWindowHours === 'number' ? data.recoveryWindowHours : null,
+                  });
+                }
+                onAction(actionType, actionPayload);
+              }}
+            >
+              {data.primaryAction?.label || (language === 'CN' ? '记录症状' : 'Log symptom')}
+            </button>
+            <button
+              type="button"
+              className="chip-button chip-button-outline"
+              onClick={() => {
+                const actionType = data.secondaryAction?.type || 'add_to_experiment';
+                const actionLabel =
+                  data.secondaryAction?.label || (language === 'CN' ? '创建恢复实验' : 'Create recovery experiment');
+                const actionPayload = data.secondaryAction?.payload || {};
+                if (analyticsCtx) {
+                  emitCardActionClick(analyticsCtx, {
+                    card_type: cardType,
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                  });
+                  emitTriageActionTap(analyticsCtx, {
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                    risk_level: data.riskLevel,
+                    recovery_window_hours:
+                      typeof data.recoveryWindowHours === 'number' ? data.recoveryWindowHours : null,
+                  });
+                }
+                onAction(actionType, actionPayload);
+              }}
+            >
+              {data.secondaryAction?.label || (language === 'CN' ? '创建恢复实验' : 'Create recovery experiment')}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (adapterHit?.kind === 'nudge') {
+      const data = adapterHit.data;
+      return (
+        <div data-testid="chatcards-nudge-adapter" className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+          <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '可选加分项' : 'Optional nudge'}</div>
+          <div className="text-sm text-foreground">{data.message}</div>
+          {data.hints.length ? (
+            <div>
+              <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '为什么有帮助' : 'Why this helps'}</div>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+                {data.hints.slice(0, 4).map((line, idx) => (
+                  <li key={`nudge_hint_${idx}`}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {typeof data.cadenceDays === 'number' && data.cadenceDays > 0 ? (
+            <div className="text-xs text-muted-foreground">
+              {language === 'CN'
+                ? `建议 ${data.cadenceDays} 天后复查一次。`
+                : `Suggested check-in cadence: every ${data.cadenceDays} days.`}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              className="chip-button chip-button-primary"
+              onClick={() => {
+                const actionType = data.primaryAction?.type || 'dismiss';
+                const actionLabel = data.primaryAction?.label || (language === 'CN' ? '暂时不需要' : 'Dismiss');
+                const actionPayload = data.primaryAction?.payload || {};
+                if (analyticsCtx) {
+                  emitCardActionClick(analyticsCtx, {
+                    card_type: cardType,
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                  });
+                  emitNudgeActionTap(analyticsCtx, {
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                    cadence_days: typeof data.cadenceDays === 'number' ? data.cadenceDays : null,
+                    hint_count: data.hints.length,
+                  });
+                }
+                onAction(actionType, actionPayload);
+              }}
+            >
+              {data.primaryAction?.label || (language === 'CN' ? '暂时不需要' : 'Dismiss')}
+            </button>
+            <button
+              type="button"
+              className="chip-button chip-button-outline"
+              onClick={() => {
+                const actionType = data.secondaryAction?.type || 'save_tip';
+                const actionLabel = data.secondaryAction?.label || (language === 'CN' ? '加入提醒' : 'Save tip');
+                const actionPayload = data.secondaryAction?.payload || {};
+                if (analyticsCtx) {
+                  emitCardActionClick(analyticsCtx, {
+                    card_type: cardType,
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                  });
+                  emitNudgeActionTap(analyticsCtx, {
+                    card_id: card.card_id || null,
+                    action_type: actionType,
+                    action_label: actionLabel,
+                    cadence_days: typeof data.cadenceDays === 'number' ? data.cadenceDays : null,
+                    hint_count: data.hints.length,
+                  });
+                }
+                onAction(actionType, actionPayload);
+              }}
+            >
+              {data.secondaryAction?.label || (language === 'CN' ? '加入提醒' : 'Save tip')}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const cardTitle = asString(card.title) || asString((payload as any)?.title) || titleForCard(cardType, language);
+    const subtitle = asString((payload as any)?.subtitle) || undefined;
+    const tags = asArray((payload as any)?.tags).map((item) => asString(item)).filter(Boolean) as string[];
+    const sections = asArray((payload as any)?.sections).map((item) => asObject(item)).filter(Boolean) as Array<Record<string, unknown>>;
+    const actions = asArray((payload as any)?.actions).map((item) => asObject(item)).filter(Boolean) as Array<Record<string, unknown>>;
+
+    return (
+      <ChatCardsV1Card
+        cardType={cardType}
+        cardId={card.card_id}
+        title={cardTitle}
+        subtitle={subtitle}
+        tags={tags}
+        sections={sections}
+        actions={actions as any}
+        language={language}
+        onAction={(actionId, data) => {
+          if (analyticsCtx) {
+            emitCardActionClick(analyticsCtx, {
+              card_type: cardType,
+              card_id: card.card_id || null,
+              action_type: actionId,
+              action_label: typeof data?.action_label === 'string' ? data.action_label : null,
+            });
+          }
+          onAction(actionId, data);
+        }}
+      />
     );
   }
 
@@ -5300,6 +5654,22 @@ export default function BffChat() {
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
     const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards));
     const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+    const cardTypes = new Set(cards.map((card) => String(card?.type || '').trim().toLowerCase()).filter(Boolean));
+    if (cardTypes.has('ingredient_goal_match') || cardTypes.has('aurora_ingredient_report') || cardTypes.has('ingredient_hub')) {
+      const analyticsCtx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: toLangPref(language),
+        state: agentStateRef.current,
+      };
+      const answerType = cardTypes.has('ingredient_goal_match')
+        ? 'ingredient_goal_match'
+        : cardTypes.has('aurora_ingredient_report')
+          ? 'ingredient_report'
+          : 'ingredient_hub';
+      emitIngredientsAnswerServed(analyticsCtx, { answer_type: answerType, card_count: cards.length });
+    }
 
     if (cards.length) {
       nextItems.push({
@@ -5330,19 +5700,239 @@ export default function BffChat() {
         return [...base, ...nextItems];
       });
     }
-  }, [debug]);
+  }, [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, language]);
+
+  const applyChatResponseV1 = useCallback(
+    (response: ChatResponseV1) => {
+      const analyticsCtx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: toLangPref(language),
+        state: agentStateRef.current,
+      };
+
+      emitIntentDetected(analyticsCtx, {
+        intent_id: response.telemetry.intent,
+        confidence: response.telemetry.intent_confidence,
+      });
+      emitAuroraToolCalled(analyticsCtx, {
+        tool_name: response.telemetry.intent || 'unknown',
+        success: true,
+      });
+      response.cards.forEach((card, idx) => {
+        emitCardImpression(analyticsCtx, {
+          card_type: card.type,
+          card_id: card.id,
+          card_position: idx,
+        });
+        const adapterPayload: Record<string, unknown> = {
+          title: card.title,
+          ...(card.subtitle ? { subtitle: card.subtitle } : {}),
+          priority: card.priority,
+          tags: card.tags,
+          sections: card.sections,
+          actions: card.actions,
+        };
+        const adapterHit = adaptChatCardForRichRender({
+          cardType: card.type,
+          payload: adapterPayload,
+          language,
+        });
+        if (adapterHit?.kind === 'triage') {
+          emitTriageStageShown(analyticsCtx, {
+            card_id: card.id,
+            card_position: idx,
+            risk_level: adapterHit.data.riskLevel,
+            recovery_window_hours:
+              typeof adapterHit.data.recoveryWindowHours === 'number'
+                ? adapterHit.data.recoveryWindowHours
+                : null,
+            red_flag_count: adapterHit.data.redFlags.length,
+            action_point_count: adapterHit.data.actionPoints.length,
+          });
+        }
+      });
+      response.ops.thread_ops.forEach((op) => {
+        emitThreadOp(analyticsCtx, {
+          op: op.op,
+          topic_id: op.topic_id,
+          ...(op.summary ? { summary: op.summary } : {}),
+          ...(typeof op.timestamp_ms === 'number' ? { timestamp_ms: op.timestamp_ms } : {}),
+        });
+      });
+      if (
+        response.ops.profile_patch.length > 0 ||
+        response.ops.routine_patch.length > 0 ||
+        response.ops.experiment_events.length > 0
+      ) {
+        emitMemoryWritten(analyticsCtx, {
+          profile_written: response.ops.profile_patch.length,
+          routine_written: response.ops.routine_patch.length,
+          experiment_written: response.ops.experiment_events.length,
+        });
+      }
+
+      setError(null);
+
+      const profilePatch = asObject(response.ops.profile_patch[0]) || null;
+      const routinePatch = asObject(response.ops.routine_patch[0]) || null;
+
+      if (profilePatch || routinePatch) {
+        setProfileSnapshot((prev) => {
+          const base = asObject(prev) || {};
+          return {
+            ...base,
+            ...(profilePatch || {}),
+            ...(routinePatch || {}),
+          };
+        });
+
+        setBootstrapInfo((prev) => {
+          const merged: BootstrapInfo = prev
+            ? { ...prev }
+            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+          const baseProfile = asObject(merged.profile) || {};
+          merged.profile = {
+            ...baseProfile,
+            ...(profilePatch || {}),
+            ...(routinePatch || {}),
+          };
+          return merged;
+        });
+      }
+
+      const assistantTextRaw = String(response.assistant_text || '');
+      const assistantText = debug ? assistantTextRaw : stripInternalKbRefsFromText(assistantTextRaw);
+
+      const toLegacyCard = (card: ChatCardV1): Card => ({
+        card_id: card.id,
+        type: card.type,
+        title: card.title,
+        payload: {
+          title: card.title,
+          ...(card.subtitle ? { subtitle: card.subtitle } : {}),
+          priority: card.priority,
+          tags: card.tags,
+          sections: card.sections,
+          actions: card.actions,
+          safety: response.safety,
+          telemetry: response.telemetry,
+        },
+      });
+
+      const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => ({
+        chip_id: `quick_${reply.id}`,
+        label: reply.label,
+        kind: 'quick_reply',
+        data: {
+          ...(reply.metadata || {}),
+          reply_text: reply.value || reply.label,
+          trigger_source: 'chip',
+        },
+      });
+
+      const followUpToChips = (followUp: ChatResponseV1['follow_up_questions'][number]): SuggestedChip[] => {
+        if (!Array.isArray(followUp.options) || followUp.options.length === 0) return [];
+        return followUp.options.slice(0, 3).map((option) => ({
+          chip_id: `fup_${followUp.id}_${option.id}`,
+          label: option.label,
+          kind: 'quick_reply',
+          data: {
+            ...(option.metadata || {}),
+            follow_up_id: followUp.id,
+            follow_up_question: followUp.question,
+            follow_up_required: followUp.required,
+            reply_text: option.value || option.label,
+            trigger_source: 'chip',
+          },
+        }));
+      };
+
+      const suggestedChips = [
+        ...response.suggested_quick_replies.map(quickReplyToChip),
+        ...response.follow_up_questions.flatMap(followUpToChips),
+      ].slice(0, 12);
+
+      const nextItems: ChatItem[] = [];
+      if (assistantText.trim()) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: assistantText });
+      }
+
+      const rawCards = response.cards.map(toLegacyCard);
+      const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
+      const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards));
+      const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+
+      if (cards.length) {
+        nextItems.push({
+          id: nextId(),
+          role: 'assistant',
+          kind: 'cards',
+          cards,
+          meta: {
+            request_id: response.request_id,
+            trace_id: response.trace_id,
+            events: [
+              {
+                event_name: 'intent_detected',
+                data: {
+                  intent: response.telemetry.intent,
+                  confidence: response.telemetry.intent_confidence,
+                },
+              },
+              ...response.ops.thread_ops.map((op) => ({
+                event_name: op.op,
+                data: {
+                  topic_id: op.topic_id,
+                  ...(op.summary ? { summary: op.summary } : {}),
+                  ...(typeof op.timestamp_ms === 'number' ? { timestamp_ms: op.timestamp_ms } : {}),
+                },
+              })),
+            ],
+          },
+        });
+      }
+
+      const suppressChips = cards.length
+        ? cards.some((c) => {
+            const t = String((c as any)?.type || '').toLowerCase();
+            return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
+          })
+        : false;
+
+      if (!suppressChips && suggestedChips.length) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: suggestedChips });
+      }
+
+      if (nextItems.length) {
+        setItems((prev) => {
+          const base = hasAnalysisSummaryCard
+            ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
+            : prev;
+          return [...base, ...nextItems];
+        });
+      }
+    },
+    [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+  );
 
   const tryApplyEnvelopeFromBffError = useCallback(
     (err: unknown) => {
       if (!(err instanceof PivotaAgentBffError)) return false;
       const body = err.responseBody;
       if (!body || typeof body !== 'object') return false;
+      const parsedV1 = parseChatResponseV1(body);
+      if (parsedV1) {
+        applyChatResponseV1(parsedV1);
+        return true;
+      }
       const env = body as any;
       if (typeof env.request_id !== 'string' || !Array.isArray(env.cards)) return false;
       applyEnvelope(env as V1Envelope);
       return true;
     },
-    [applyEnvelope],
+    [applyChatResponseV1, applyEnvelope],
   );
 
   const bootstrap = useCallback(async () => {
@@ -6189,12 +6779,16 @@ export default function BffChat() {
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
 
-        const env = await bffJson<V1Envelope>('/v1/chat', requestHeaders, {
+        const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
           method: 'POST',
           body: JSON.stringify(body),
           timeoutMs,
         });
-        applyEnvelope(env);
+        const parsedV1 = parseChatResponseV1(bodyRaw);
+        if (!parsedV1) {
+          throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+        }
+        applyChatResponseV1(parsedV1);
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -6206,7 +6800,7 @@ export default function BffChat() {
       agentState,
       anchorProductId,
       anchorProductUrl,
-      applyEnvelope,
+      applyChatResponseV1,
       bootstrapInfo?.profile,
       debug,
       headers,
@@ -6460,6 +7054,152 @@ export default function BffChat() {
         if (pending) {
           await sendChat(undefined, pending);
         }
+        return;
+      }
+
+      if (actionId === 'ingredient.lookup') {
+        const ingredientQuery =
+          typeof data?.ingredient_query === 'string'
+            ? data.ingredient_query.trim()
+            : typeof data?.query === 'string'
+              ? data.query.trim()
+              : '';
+        const lookupPrompt =
+          typeof data?.reply_text === 'string' && data.reply_text.trim()
+            ? data.reply_text.trim()
+            : ingredientQuery
+              ? language === 'CN'
+                ? `请做成分查询：${ingredientQuery}。给我 1-minute ingredient report（功效、证据等级、注意事项、人群风险）。`
+                : `Ingredient lookup: ${ingredientQuery}. Give me a 1-minute ingredient report (benefits, evidence grade, watchouts, risk by profile).`
+              : '';
+
+        const analyticsCtx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: agentState,
+        };
+        emitIngredientsModeSelected(analyticsCtx, {
+          mode: 'lookup',
+          entry_source: typeof data?.entry_source === 'string' ? data.entry_source : null,
+        });
+
+        if (!ingredientQuery) {
+          setItems((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              role: 'assistant',
+              kind: 'text',
+              content:
+                language === 'CN'
+                  ? '请输入想查询的成分（INCI/别名）。例如：niacinamide、azelaic acid。'
+                  : 'Please enter an ingredient to lookup (INCI/alias), for example niacinamide or azelaic acid.',
+            },
+          ]);
+          return;
+        }
+
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? `查成分：${ingredientQuery}` : `Lookup ingredient: ${ingredientQuery}`,
+          },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'ingredient.lookup',
+          kind: 'action',
+          data: {
+            ...(data || {}),
+            ingredient_query: ingredientQuery,
+            reply_text: lookupPrompt,
+          },
+        });
+        return;
+      }
+
+      if (actionId === 'ingredient.by_goal') {
+        const goal = typeof data?.goal === 'string' ? data.goal.trim() : '';
+        const sensitivity = typeof data?.sensitivity === 'string' ? data.sensitivity.trim() : 'unknown';
+        const replyText =
+          typeof data?.reply_text === 'string' && data.reply_text.trim()
+            ? data.reply_text.trim()
+            : language === 'CN'
+              ? `按功效找成分：目标=${goal || 'barrier'}，敏感度=${sensitivity || 'unknown'}。`
+              : `Find ingredients by goal: goal=${goal || 'barrier'}, sensitivity=${sensitivity || 'unknown'}.`;
+        const analyticsCtx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: agentState,
+        };
+        emitIngredientsModeSelected(analyticsCtx, {
+          mode: 'by_goal',
+          entry_source: typeof data?.entry_source === 'string' ? data.entry_source : null,
+        });
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content:
+              language === 'CN'
+                ? `按功效找成分：${goal || '修护'}（敏感度：${sensitivity || 'unknown'}）`
+                : `Find ingredients by goal: ${goal || 'barrier'} (sensitivity: ${sensitivity || 'unknown'})`,
+          },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'ingredient.by_goal',
+          kind: 'action',
+          data: {
+            ...(data || {}),
+            goal: goal || 'barrier',
+            sensitivity: sensitivity || 'unknown',
+            reply_text: replyText,
+          },
+        });
+        return;
+      }
+
+      if (actionId === 'ingredient.optin_diagnosis') {
+        const analyticsCtx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: agentState,
+        };
+        emitIngredientsOptinDiagnosis(analyticsCtx, {
+          entry_source: typeof data?.entry_source === 'string' ? data.entry_source : null,
+        });
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? '提高准确度（开始诊断）' : 'Improve accuracy (start diagnosis)',
+          },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'ingredient.optin_diagnosis',
+          kind: 'action',
+          data: {
+            ...(data || {}),
+            reply_text:
+              typeof data?.reply_text === 'string' && data.reply_text.trim()
+                ? data.reply_text.trim()
+                : language === 'CN'
+                  ? '我想开始诊断来提高成分推荐准确度。'
+                  : 'I want to start diagnosis to improve ingredient precision.',
+          },
+        });
         return;
       }
 
@@ -7075,6 +7815,12 @@ export default function BffChat() {
       };
 
       emitUiChipClicked(ctx, { chip_id: id, from_state: fromState, to_state: toState });
+      if (id === 'chip.start.ingredients.entry' || id === 'chip.start.ingredients') {
+        emitIngredientsEntryOpened(ctx, {
+          entry_source: ((chip.data as any)?.trigger_source === 'deeplink' ? 'deeplink' : 'chip'),
+          action_id: id,
+        });
+      }
 
       const stripReturnWelcome = (prev: ChatItem[]) => prev.filter((it) => it.kind !== 'return_welcome');
 
@@ -7339,11 +8085,16 @@ export default function BffChat() {
         chip_get_recos: { EN: 'Recommend products', CN: '产品推荐' },
         'chip.start.routine': { EN: 'Build an AM/PM routine', CN: '生成早晚护肤 routine' },
         'chip.start.dupes': { EN: 'Find dupes / alternatives', CN: '找平替/替代品' },
+        'chip.start.ingredients.entry': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
         'chip.start.ingredients': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
       };
 
       const label = (labelMap[id]?.[isCN ? 'CN' : 'EN'] ?? id).slice(0, 80);
       const replyTextMap: Record<string, { EN: string; CN: string }> = {
+        'chip.start.ingredients.entry': {
+          EN: 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
+          CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
+        },
         'chip.start.ingredients': {
           EN: 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
           CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
@@ -7482,6 +8233,35 @@ export default function BffChat() {
     if (actionIntentConsumedRef.current === sig) return;
     actionIntentConsumedRef.current = sig;
 
+    const clearActionIntentParams = () => {
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        let changed = false;
+        for (const k of ['q', 'chip_id']) {
+          if (!sp.has(k)) continue;
+          sp.delete(k);
+          changed = true;
+        }
+        if (!sp.get('brief_id') && headers.brief_id) {
+          sp.set('brief_id', headers.brief_id);
+          changed = true;
+        }
+        if (!sp.get('trace_id') && headers.trace_id) {
+          sp.set('trace_id', headers.trace_id);
+          changed = true;
+        }
+        if (changed) {
+          const next = sp.toString();
+          navigate({ pathname: '/chat', search: next ? `?${next}` : '' }, { replace: true });
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    // Clear deeplink action params immediately to avoid stale chip_id replay during rapid rerenders.
+    clearActionIntentParams();
+
     const run = async () => {
       if (searchParams.chip_id) {
         await onChip(deepLinkChip(searchParams.chip_id));
@@ -7491,31 +8271,7 @@ export default function BffChat() {
         await submitText(searchParams.q);
       }
     };
-    void run();
-
-    try {
-      const sp = new URLSearchParams(window.location.search);
-      let changed = false;
-      for (const k of ['q', 'chip_id']) {
-        if (!sp.has(k)) continue;
-        sp.delete(k);
-        changed = true;
-      }
-      if (!sp.get('brief_id') && headers.brief_id) {
-        sp.set('brief_id', headers.brief_id);
-        changed = true;
-      }
-      if (!sp.get('trace_id') && headers.trace_id) {
-        sp.set('trace_id', headers.trace_id);
-        changed = true;
-      }
-      if (changed) {
-        const next = sp.toString();
-        navigate({ pathname: '/chat', search: next ? `?${next}` : '' }, { replace: true });
-      }
-    } catch {
-      // ignore
-    }
+    void run().finally(() => clearActionIntentParams());
   }, [deepLinkChip, hasBootstrapped, headers.brief_id, headers.trace_id, navigate, onChip, searchParams, submitText]);
 
   const switchLanguage = useCallback(
@@ -8623,6 +9379,7 @@ export default function BffChat() {
                             card={card}
                             language={language}
                             debug={debug}
+                            meta={item.meta}
                             requestHeaders={headers}
                             session={sessionForCards}
                             onAction={onCardAction}

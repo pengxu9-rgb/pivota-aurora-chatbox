@@ -20,7 +20,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
 import { toast } from '@/components/ui/use-toast';
-import { bffJson } from '@/lib/pivotaAgentBff';
+import { bffJson, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
@@ -125,17 +125,21 @@ function setupBffMock(args?: {
     }
 
     if (path === '/v1/chat') {
-      return Promise.resolve(
-        makeEnvelope({
-          request_id: 'req_chat',
-          trace_id: 'trace_chat',
-          assistant_message: {
-            role: 'assistant',
-            format: 'markdown',
-            content: 'I put this ingredient into a 1-minute report below.',
-          },
-          cards: [makeIngredientReportCard()],
-        }),
+      return Promise.reject(
+        new PivotaAgentBffError(
+          'legacy envelope fallback',
+          502,
+          makeEnvelope({
+            request_id: 'req_chat',
+            trace_id: 'trace_chat',
+            assistant_message: {
+              role: 'assistant',
+              format: 'markdown',
+              content: 'I put this ingredient into a 1-minute report below.',
+            },
+            cards: [makeIngredientReportCard()],
+          }),
+        ),
       );
     }
 

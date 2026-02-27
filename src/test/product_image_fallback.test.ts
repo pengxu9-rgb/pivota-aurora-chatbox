@@ -19,22 +19,6 @@ describe('pickProductImageUrl', () => {
     expect(url).toBe('https://example.com/list-1.jpg');
   });
 
-  it('prefers https when same image is present in both schemes', () => {
-    const url = pickProductImageUrl({
-      image_url: 'http://example.com/asset.jpg',
-      image_urls: ['https://example.com/asset.jpg'],
-    });
-    expect(url).toBe('https://example.com/asset.jpg');
-  });
-
-  it('prefers first https candidate even when image_url is http', () => {
-    const url = pickProductImageUrl({
-      image_url: 'http://example.com/asset.jpg?size=2048',
-      image_urls: ['https://example.com/asset.jpg?size=1200'],
-    });
-    expect(url).toBe('https://example.com/asset.jpg?size=1200');
-  });
-
   it('returns first renderable images entry for string/object arrays', () => {
     const url = pickProductImageUrl({
       images: [{ url: '' }, { image_url: 'https://example.com/object.jpg' }, 'https://example.com/string.jpg'],

@@ -21,6 +21,7 @@ import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
 import { bffJson } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
+import type { ChatResponseV1 } from '@/lib/chatCardsTypes';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -31,6 +32,34 @@ function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
     cards: args?.cards ?? [],
     session_patch: args?.session_patch ?? {},
     events: args?.events ?? [],
+  };
+}
+
+function makeV1Response(args?: Partial<ChatResponseV1>): ChatResponseV1 {
+  return {
+    version: '1.0',
+    request_id: args?.request_id ?? 'req_chat',
+    trace_id: args?.trace_id ?? 'trace_chat',
+    assistant_text: args?.assistant_text ?? 'v1 response',
+    cards: args?.cards ?? [],
+    follow_up_questions: args?.follow_up_questions ?? [],
+    suggested_quick_replies: args?.suggested_quick_replies ?? [],
+    ops: args?.ops ?? {
+      thread_ops: [],
+      profile_patch: [],
+      routine_patch: [],
+      experiment_events: [],
+    },
+    safety: args?.safety ?? {
+      risk_level: 'none',
+      red_flags: [],
+      disclaimer: '',
+    },
+    telemetry: args?.telemetry ?? {
+      intent: 'travel',
+      intent_confidence: 0.9,
+      entities: [],
+    },
   };
 }
 
@@ -92,61 +121,70 @@ describe('BffChat env stress recommendation routing', () => {
         const actionId = String(payload?.action?.action_id || '').trim();
         if (actionId === 'chip.start.reco_products') {
           return Promise.resolve(
-            makeEnvelope({
+            makeV1Response({
               request_id: 'req_chat_reco',
               trace_id: 'trace_chat_reco',
-              assistant_message: { role: 'assistant', content: 'Routing to recommendations.' } as any,
+              assistant_text: 'Routing to recommendations.',
             }),
           );
         }
         return Promise.resolve(
-          makeEnvelope({
+          makeV1Response({
             request_id: 'req_chat_env',
             trace_id: 'trace_chat_env',
-            assistant_message: { role: 'assistant', content: 'Here is your travel environment plan.' } as any,
+            assistant_text: 'Here is your travel environment plan.',
             cards: [
               {
-                card_id: 'env_bootstrap',
-                type: 'env_stress',
-                payload: {
-                  schema_version: 'aurora.ui.env_stress.v1',
-                  ess: 44,
-                  tier: 'Medium',
-                  radar: [{ axis: 'Weather', value: 40 }],
-                  travel_readiness: {
-                    destination_context: {
-                      destination: 'Paris',
-                      start_date: '2026-02-27',
-                      end_date: '2026-03-02',
-                      env_source: 'weather_api',
-                      epi: 44,
-                    },
-                    delta_vs_home: {
-                      temperature: { home: 16, destination: 9, delta: -7, unit: 'C' },
-                      humidity: { home: 62, destination: 72, delta: 10, unit: '%' },
-                      uv: { home: 4, destination: 5, delta: 1, unit: '' },
-                      summary_tags: ['colder', 'more_humid'],
-                      baseline_status: 'ok',
-                    },
-                    adaptive_actions: [{ why: 'humidity', what_to_do: 'Switch to lighter AM moisturizer.' }],
-                    personal_focus: [{ focus: 'Barrier', why: 'sensitive', what_to_do: 'Avoid active stacking.' }],
-                    jetlag_sleep: {
-                      hours_diff: 9,
-                      risk_level: 'high',
-                      sleep_tips: ['Shift bedtime'],
-                      mask_tips: ['Use hydration mask after flight'],
-                    },
-                    shopping_preview: {
-                      products: [],
-                      buying_channels: ['pharmacy', 'ecommerce'],
-                    },
-                    confidence: {
-                      level: 'medium',
-                      missing_inputs: ['recent_logs'],
-                      improve_by: [],
+                id: 'env_bootstrap',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 44,
+                      tier: 'Medium',
+                      radar: [{ axis: 'Weather', value: 40 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Paris',
+                          start_date: '2026-02-27',
+                          end_date: '2026-03-02',
+                          env_source: 'weather_api',
+                          epi: 44,
+                        },
+                        delta_vs_home: {
+                          temperature: { home: 16, destination: 9, delta: -7, unit: 'C' },
+                          humidity: { home: 62, destination: 72, delta: 10, unit: '%' },
+                          uv: { home: 4, destination: 5, delta: 1, unit: '' },
+                          summary_tags: ['colder', 'more_humid'],
+                          baseline_status: 'ok',
+                        },
+                        adaptive_actions: [{ why: 'humidity', what_to_do: 'Switch to lighter AM moisturizer.' }],
+                        personal_focus: [{ focus: 'Barrier', why: 'sensitive', what_to_do: 'Avoid active stacking.' }],
+                        jetlag_sleep: {
+                          hours_diff: 9,
+                          risk_level: 'high',
+                          sleep_tips: ['Shift bedtime'],
+                          mask_tips: ['Use hydration mask after flight'],
+                        },
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy', 'ecommerce'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: ['recent_logs'],
+                          improve_by: [],
+                        },
+                      },
                     },
                   },
-                },
+                ],
+                actions: [],
               },
             ],
           }),

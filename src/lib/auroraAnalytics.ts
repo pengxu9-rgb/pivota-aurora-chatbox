@@ -65,6 +65,37 @@ export const emitUiChipClicked = (
   }
 ) => emitWithContext('ui_chip_clicked', ctx, props);
 
+export const emitIngredientsEntryOpened = (
+  ctx: AnalyticsContext,
+  props: {
+    entry_source: 'chip' | 'deeplink' | 'other';
+    action_id?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('ingredients_entry_opened', ctx, props);
+
+export const emitIngredientsModeSelected = (
+  ctx: AnalyticsContext,
+  props: {
+    mode: 'lookup' | 'by_goal';
+    entry_source?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('ingredients_mode_selected', ctx, props);
+
+export const emitIngredientsAnswerServed = (
+  ctx: AnalyticsContext,
+  props: {
+    answer_type: 'ingredient_report' | 'ingredient_goal_match' | 'ingredient_hub';
+    card_count?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('ingredients_answer_served', ctx, props);
+
+export const emitIngredientsOptinDiagnosis = (
+  ctx: AnalyticsContext,
+  props: {
+    entry_source?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('ingredients_optin_diagnosis', ctx, props);
+
 export const emitUiOutboundOpened = (
   ctx: AnalyticsContext,
   props: {
@@ -259,80 +290,6 @@ export const emitAuroraProductAnalysisDegraded = (
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_product_analysis_degraded', ctx, props);
 
-export const emitAuroraIngredientExternalFallbackUsed = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id?: string | null;
-    source?: string | null;
-    fallback_type?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_ingredient_external_fallback_used', ctx, props);
-
-export const emitAuroraIngredientProductImpression = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id?: string | null;
-    product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_ingredient_product_impression', ctx, props);
-
-export const emitAuroraIngredientProductClick = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id?: string | null;
-    product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-    click_target?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_ingredient_product_click', ctx, props);
-
-export const emitAuroraIngredientPlanProductTap = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id?: string | null;
-    product_id?: string | null;
-    source_block?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_ingredient_plan_product_tap', ctx, props);
-
-export const emitAuroraIngredientProductOpenAttempt = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id?: string | null;
-    product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-    url?: string | null;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_ingredient_product_open_attempt', ctx, props);
-
-export const emitAuroraIngredientProductOpenResult = (
-  ctx: AnalyticsContext,
-  props: {
-    card_id?: string | null;
-    ingredient_id?: string | null;
-    product_id?: string | null;
-    source?: string | null;
-    source_block?: string | null;
-    fallback_type?: string | null;
-    url?: string | null;
-    result: 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
-    blocked_reason?: string | null;
-    open_mode?: 'window_open' | 'same_tab_fallback' | null;
-  } & Record<string, unknown>,
-) => emitWithContext('aurora_ingredient_product_open_result', ctx, props);
-
 export const emitIngredientProductOpenAttempt = (
   ctx: AnalyticsContext,
   props: {
@@ -378,7 +335,7 @@ export const emitDiscoveryLinkOpenResult = (
 export const emitOpenedCompatibility = (
   ctx: AnalyticsContext,
   props: {
-    source: 'check_with_my_products' | 'how_to_layer';
+    source: 'check_with_my_products' | 'how_to_layer' | 'advanced_compatibility_check';
     base_product_name?: string;
     selected_count?: number;
   } & Record<string, unknown>,
@@ -422,3 +379,89 @@ export const emitAuroraHowToLayerInlineOpened = (
     bff_trace_id?: string | null;
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_how_to_layer_inline_opened', ctx, props);
+
+export const emitIntentDetected = (
+  ctx: AnalyticsContext,
+  props: {
+    intent_id: string;
+    confidence: number;
+  } & Record<string, unknown>,
+) => emitWithContext('intent_detected', ctx, props);
+
+export const emitAuroraToolCalled = (
+  ctx: AnalyticsContext,
+  props: {
+    tool_name: string;
+    success?: boolean;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_tool_called', ctx, props);
+
+export const emitCardImpression = (
+  ctx: AnalyticsContext,
+  props: {
+    card_type: string;
+    card_id?: string | null;
+    card_position?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('card_impression', ctx, props);
+
+export const emitCardActionClick = (
+  ctx: AnalyticsContext,
+  props: {
+    card_type: string;
+    card_id?: string | null;
+    action_type: string;
+    action_label?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('card_action_click', ctx, props);
+
+export const emitTriageStageShown = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    card_position?: number;
+    risk_level?: 'none' | 'low' | 'medium' | 'high' | string | null;
+    recovery_window_hours?: number | null;
+    red_flag_count?: number;
+    action_point_count?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('triage_stage_shown', ctx, props);
+
+export const emitTriageActionTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    action_type: string;
+    action_label?: string | null;
+    risk_level?: 'none' | 'low' | 'medium' | 'high' | string | null;
+    recovery_window_hours?: number | null;
+  } & Record<string, unknown>,
+) => emitWithContext('triage_action_tap', ctx, props);
+
+export const emitNudgeActionTap = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    action_type: string;
+    action_label?: string | null;
+    cadence_days?: number | null;
+    hint_count?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('nudge_action_tap', ctx, props);
+
+export const emitThreadOp = (
+  ctx: AnalyticsContext,
+  props: {
+    op: 'thread_push' | 'thread_pop' | 'thread_update';
+    topic_id: string;
+  } & Record<string, unknown>,
+) => emitWithContext(props.op, ctx, props);
+
+export const emitMemoryWritten = (
+  ctx: AnalyticsContext,
+  props: {
+    profile_written?: number;
+    routine_written?: number;
+    experiment_written?: number;
+  } & Record<string, unknown>,
+) => emitWithContext('memory_written', ctx, props);

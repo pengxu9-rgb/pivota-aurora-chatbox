@@ -23,6 +23,13 @@ type PlanDraft = {
   itinerary: string;
 };
 
+type PlanChatPayload = {
+  destination: string;
+  start_date: string;
+  end_date: string;
+  itinerary?: string | null;
+};
+
 const makeEmptyDraft = (): PlanDraft => ({
   destination: '',
   start_date: '',
@@ -83,6 +90,14 @@ const buildCreateValidationError = (draft: PlanDraft, language: Language): strin
   return null;
 };
 
+const buildPlanChatQuery = (plan: PlanChatPayload, language: Language): string => {
+  const itineraryText = String(plan.itinerary || '').trim();
+  if (language === 'CN') {
+    return `请基于我的旅行计划给护肤建议。目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`;
+  }
+  return `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
+};
+
 export default function Plans() {
   const { openSidebar, startChat } = useOutletContext<MobileShellContext>();
   const [draft, setDraft] = useState<PlanDraft>(makeEmptyDraft());
@@ -118,6 +133,17 @@ export default function Plans() {
     void refreshPlans();
   }, [refreshPlans]);
 
+  const startPlanChat = useCallback(
+    (plan: PlanChatPayload) => {
+      startChat({
+        kind: 'query',
+        title: language === 'CN' ? '旅行护肤计划' : 'Travel skincare plan',
+        query: buildPlanChatQuery(plan, language),
+      });
+    },
+    [language, startChat],
+  );
+
   const submitCreate = async () => {
     setError('');
     const validationError = buildCreateValidationError(draft, language);
@@ -128,7 +154,7 @@ export default function Plans() {
 
     try {
       setSavingCreate(true);
-      await createTravelPlan(language, {
+      const createPayload = {
         destination: draft.destination.trim(),
         start_date: draft.start_date,
         end_date: draft.end_date,
@@ -136,10 +162,18 @@ export default function Plans() {
           ? { indoor_outdoor_ratio: normalizeRatio(draft.indoor_outdoor_ratio) as number }
           : {}),
         ...(draft.itinerary.trim() ? { itinerary: draft.itinerary.trim().slice(0, 1200) } : {}),
-      });
+      };
+      const created = await createTravelPlan(language, createPayload);
+      const planForChat: PlanChatPayload = {
+        destination: String((created?.plan as any)?.destination || createPayload.destination),
+        start_date: String((created?.plan as any)?.start_date || createPayload.start_date),
+        end_date: String((created?.plan as any)?.end_date || createPayload.end_date),
+        itinerary: String((created?.plan as any)?.itinerary || (createPayload as any).itinerary || ''),
+      };
       setDraft(makeEmptyDraft());
       toast({ title: language === 'CN' ? '计划已保存' : 'Plan saved' });
-      await refreshPlans({ silent: true });
+      void refreshPlans({ silent: true });
+      startPlanChat(planForChat);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -171,7 +205,7 @@ export default function Plans() {
     try {
       setWorkingTripId(tripId);
       const itineraryText = editDraft.itinerary.trim();
-      await updateTravelPlan(language, tripId, {
+      const updatePayload = {
         destination: editDraft.destination.trim(),
         start_date: editDraft.start_date,
         end_date: editDraft.end_date,
@@ -179,10 +213,18 @@ export default function Plans() {
           ? { indoor_outdoor_ratio: normalizeRatio(editDraft.indoor_outdoor_ratio) as number }
           : {}),
         ...(itineraryText ? { itinerary: itineraryText.slice(0, 1200) } : {}),
-      });
+      };
+      const updated = await updateTravelPlan(language, tripId, updatePayload);
+      const planForChat: PlanChatPayload = {
+        destination: String((updated?.plan as any)?.destination || updatePayload.destination),
+        start_date: String((updated?.plan as any)?.start_date || updatePayload.start_date),
+        end_date: String((updated?.plan as any)?.end_date || updatePayload.end_date),
+        itinerary: String((updated?.plan as any)?.itinerary || (updatePayload as any).itinerary || ''),
+      };
       setEditingTripId(null);
       toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
-      await refreshPlans({ silent: true });
+      void refreshPlans({ silent: true });
+      startPlanChat(planForChat);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -204,15 +246,11 @@ export default function Plans() {
   };
 
   const openPlanInChat = (plan: TravelPlanCardModel) => {
-    const itineraryText = String(plan.itinerary || '').trim();
-    const query =
-      language === 'CN'
-        ? `请基于我的旅行计划给护肤建议。目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`
-        : `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
-    startChat({
-      kind: 'query',
-      title: language === 'CN' ? '旅行护肤计划' : 'Travel skincare plan',
-      query,
+    startPlanChat({
+      destination: String(plan.destination || '').trim(),
+      start_date: String(plan.start_date || ''),
+      end_date: String(plan.end_date || ''),
+      itinerary: String(plan.itinerary || '').trim(),
     });
   };
 
@@ -240,8 +278,8 @@ export default function Plans() {
             <div className="ios-section-title">{language === 'CN' ? 'Your travel plans' : 'Your travel plans'}</div>
             <div className="ios-caption mt-1">
               {language === 'CN'
-                ? '在这里追踪已设置的旅行计划。只有点击 Open in chat 才会进入对话。'
-                : 'Track your saved travel plans here. Chat opens only when you explicitly click Open in chat.'}
+                ? '保存或更新计划后会自动进入对话分析；也可点击 Open in chat 重新打开。'
+                : 'Saving or updating a plan auto-opens chat analysis. You can also reopen with Open in chat.'}
             </div>
           </div>
         </div>
@@ -272,8 +310,8 @@ export default function Plans() {
           ) : plans.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 bg-background/40 px-3 py-4 text-sm text-muted-foreground">
               {language === 'CN'
-                ? '还没有旅行计划。创建后会在这里持续追踪，不会自动跳转到聊天。'
-                : 'No travel plans yet. Create one below and track it here without auto-jumping to chat.'}
+                ? '还没有旅行计划。创建后会自动进入分析，并在这里持续追踪。'
+                : 'No travel plans yet. Create one below to auto-start analysis and keep tracking here.'}
             </div>
           ) : (
             plans.map((plan) => {
@@ -422,8 +460,8 @@ export default function Plans() {
             <div className="ios-section-title">{language === 'CN' ? 'Create new plan' : 'Create new plan'}</div>
             <div className="ios-caption mt-1">
               {language === 'CN'
-                ? '创建后会留在当前页面，并生成可追踪卡片。'
-                : 'After saving, you stay on this page and get a trackable plan card.'}
+                ? '保存后会自动进入对话分析，同时保留可追踪卡片。'
+                : 'After saving, chat analysis opens automatically and a trackable card is kept here.'}
             </div>
           </div>
         </div>

@@ -5,61 +5,51 @@ import { describe, expect, it, vi } from 'vitest';
 import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 
 describe('analysis_story_v2 ui', () => {
-  it('renders structured sections and routine CTA', () => {
+  it('renders structured blocks and routine CTA', () => {
     const onAction = vi.fn();
-
     render(
       <AnalysisStoryCard
         language="EN"
         onAction={onAction}
         payload={{
-          schema_version: 'aurora.analysis_story.v2',
-          confidence_overall: 'high',
           skin_profile: {
-            skin_type_tendency: 'Combination-dry',
-            sensitivity_tendency: 'Mildly sensitive',
-            current_strengths: ['Fine texture', 'Low active acne'],
+            skin_type_tendency: 'combination',
+            sensitivity_tendency: 'low',
+            current_strengths: ['low inflammation', 'small pores'],
           },
-          priority_findings: [
-            { priority: 'P1', title: 'Freckle-like pigmentation', area: 'cheeks + nose' },
-            { priority: 'P2', title: 'Mild dehydration', area: 'perioral' },
-          ],
-          target_state: ['More even tone', 'Hydrated glow without shine'],
-          core_principles: ['Daily SPF50+', 'One active at a time'],
-          am_plan: [{ step: 'Gentle cleanser', purpose: 'Keep barrier stable' }],
-          pm_plan: [{ step: 'Azelaic acid 2-3x/week', purpose: 'Tone support' }],
-          existing_products_optimization: {
-            keep: ['Current gentle cleanser'],
-            add: ['Broad-spectrum sunscreen'],
-            replace: ['Harsh scrub -> mild exfoliant'],
-            remove: ['Fragrance-heavy toner'],
+          priority_findings: [{ title: 'Mild redness around cheek' }],
+          target_state: ['More stable barrier and even tone'],
+          core_principles: ['Stability first'],
+          am_plan: [{ step: 'Gentle cleanse', purpose: 'Reduce irritation' }],
+          pm_plan: [{ step: 'Barrier moisturizer', purpose: 'Night recovery' }],
+          timeline: {
+            first_4_weeks: ['Week1 baseline'],
+            week_8_12_expectation: ['Observe gradual improvements'],
           },
-          timeline: ['Week 1: stabilize routine', 'Week 8-12: visible tone improvement'],
-          safety_notes: ['Patch test new actives'],
-          disclaimer_non_medical: 'Non-medical guidance.',
+          safety_notes: ['Pause actives if irritation persists'],
           routine_bridge: {
-            missing_fields: ['am.spf', 'pm.active'],
-            cta_text: 'Complete AM/PM routine',
-            action_id: 'chip.start.routine',
-            reply_text: 'Let me complete AM/PM routine first.',
-            why_now: 'Routine context is required for conflict-aware ranking.',
+            missing_fields: ['currentRoutine.am', 'currentRoutine.pm'],
+            why_now: 'Need routine to personalize recommendations.',
+            cta_label: 'Add AM/PM routine',
+            cta_action: 'open_routine_intake',
           },
         }}
       />,
     );
 
-    expect(screen.getByText('Personalized skin analysis')).toBeInTheDocument();
+    expect(screen.getByText('Analysis Story')).toBeInTheDocument();
+    expect(screen.getByText('Skin profile')).toBeInTheDocument();
     expect(screen.getByText('Priority findings')).toBeInTheDocument();
-    expect(screen.getByText('Optimize your existing products')).toBeInTheDocument();
-    expect(screen.getByText('Complete AM/PM routine')).toBeInTheDocument();
+    expect(screen.getByText('AM plan')).toBeInTheDocument();
+    expect(screen.getByText('PM plan')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Complete AM/PM routine'));
+    fireEvent.click(screen.getByTestId('analysis-story-routine-cta'));
     expect(onAction).toHaveBeenCalledWith(
       'chip.start.routine',
       expect.objectContaining({
-        reply_text: 'Let me complete AM/PM routine first.',
-        trigger_source: 'analysis_story_v2',
+        source_card_type: 'analysis_story_v2',
       }),
     );
   });
 });
+

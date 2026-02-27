@@ -165,11 +165,69 @@ export interface AnalysisResult {
   needs_risk_check: boolean;
   risk_answered?: boolean;
   using_actives?: boolean;
+  routine_expert?: RoutineExpertV1;
 }
 
 export interface AnalysisFeature {
   observation: string;
   confidence: 'pretty_sure' | 'somewhat_sure' | 'not_sure';
+}
+
+export type RoutineIssueSeverity = 'high' | 'medium' | 'low';
+
+export interface RoutineIssue {
+  id: string;
+  title: string;
+  severity: RoutineIssueSeverity;
+  evidence: string[];
+  impact: string;
+  source_ref_ids?: string[];
+}
+
+export interface RoutinePlan7D {
+  am: string[];
+  pm: string[];
+  observe_metrics: string[];
+  stop_conditions: string[];
+}
+
+export interface RoutinePhasePlan {
+  phase_1_14d: string[];
+  phase_2_3_6w: string[];
+}
+
+export interface RoutineEvidenceRef {
+  id: string;
+  title: string;
+  url: string;
+  why_relevant: string;
+}
+
+export interface RoutineUpgradeStep {
+  week: string;
+  focus: string;
+  action: string;
+  guardrail: string;
+}
+
+export interface RoutineExpertV1 {
+  contract: 'aurora.routine_expert.v1';
+  snapshot: {
+    summary: string;
+    am_steps: string[];
+    pm_steps: string[];
+    active_families: string[];
+    risk_flags: string[];
+  };
+  key_issues: RoutineIssue[];
+  why_it_happens: string[];
+  plan_7d: RoutinePlan7D;
+  upgrade_path: RoutineUpgradeStep[];
+  primary_question?: string;
+  conditional_followups?: string[];
+  phase_plan?: RoutinePhasePlan;
+  evidence_refs?: RoutineEvidenceRef[];
+  ask_3_questions: string[];
 }
 
 export interface RoutineSet {

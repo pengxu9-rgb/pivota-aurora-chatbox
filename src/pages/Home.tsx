@@ -121,7 +121,7 @@ export default function Home() {
           <QuickActionIcon
             label="Ingredients"
             Icon={FlaskConical}
-            onClick={() => startChat({ kind: 'chip', title: 'Ingredient Science', chip_id: 'chip.start.ingredients' })}
+            onClick={() => startChat({ kind: 'chip', title: 'Ingredient Science', chip_id: 'chip.start.ingredients.entry' })}
           />
           <QuickActionIcon
             label="Dupes"

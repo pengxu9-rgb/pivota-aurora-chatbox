@@ -49,7 +49,7 @@ const QUICK_ACTIONS: QuickAction[] = [
     title: 'Ingredient Science',
     subtitle: 'Evidence & mechanism',
     Icon: FlaskConical,
-    intent: { chip_id: 'chip.start.ingredients' },
+    intent: { chip_id: 'chip.start.ingredients.entry' },
   },
   {
     id: 'dupes',

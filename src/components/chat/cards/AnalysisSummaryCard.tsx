@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import type { AnalysisResult, Language, Session } from '@/lib/types';
+import type { AnalysisResult, Language, RoutineExpertV1, Session } from '@/lib/types';
 
 type Props = {
   payload: {
@@ -44,7 +44,6 @@ function toConfidenceLabel(confidence: string | null | undefined): 'High' | 'Lik
 function toIconKind(observation: string, confidence: string | null | undefined): 'check' | 'warn' {
   const c = String(confidence || '');
   if (c === 'pretty_sure') {
-    // Pretty sure can still be a warning, so only mark "check" when it's explicitly positive.
     const lower = String(observation || '').toLowerCase();
     const positive = ['balanced', 'healthy', 'stable', 'good', 'improves', 'calm', 'compatible', 'safe', 'passed', 'ok'];
     const negative = ['irritated', 'impaired', 'unclear', 'stressed', 'risk', 'avoid', 'pause', 'sensitive', 'stinging', 'redness', 'flaking'];
@@ -153,8 +152,95 @@ function describePhotoBasis({
   return `Based on your answers + ${photoCount} photo${photoCount > 1 ? 's' : ''}${slotLabel}`;
 }
 
+const isStringArray = (input: unknown): input is string[] => Array.isArray(input) && input.every((item) => typeof item === 'string');
+
+const normalizeRoutineExpert = (raw: unknown): RoutineExpertV1 | null => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as any;
+  if (String(obj.contract || '') !== 'aurora.routine_expert.v1') return null;
+  const snapshot = obj.snapshot && typeof obj.snapshot === 'object' && !Array.isArray(obj.snapshot) ? obj.snapshot : null;
+  if (!snapshot) return null;
+  const plan7d = obj.plan_7d && typeof obj.plan_7d === 'object' && !Array.isArray(obj.plan_7d) ? obj.plan_7d : null;
+  if (!plan7d) return null;
+
+  return {
+    contract: 'aurora.routine_expert.v1',
+    snapshot: {
+      summary: String(snapshot.summary || '').trim(),
+      am_steps: isStringArray(snapshot.am_steps) ? snapshot.am_steps.slice(0, 6) : [],
+      pm_steps: isStringArray(snapshot.pm_steps) ? snapshot.pm_steps.slice(0, 6) : [],
+      active_families: isStringArray(snapshot.active_families) ? snapshot.active_families.slice(0, 8) : [],
+      risk_flags: isStringArray(snapshot.risk_flags) ? snapshot.risk_flags.slice(0, 8) : [],
+    },
+    key_issues: Array.isArray(obj.key_issues)
+      ? obj.key_issues
+          .map((item) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+            const severityRaw = String((item as any).severity || '').trim().toLowerCase();
+            const severity = severityRaw === 'high' || severityRaw === 'medium' || severityRaw === 'low' ? severityRaw : 'medium';
+            const title = String((item as any).title || '').trim();
+            if (!title) return null;
+            return {
+              id: String((item as any).id || title).trim(),
+              title,
+              severity,
+              evidence: isStringArray((item as any).evidence) ? (item as any).evidence.slice(0, 4) : [],
+              impact: String((item as any).impact || '').trim(),
+              source_ref_ids: isStringArray((item as any).source_ref_ids) ? (item as any).source_ref_ids.slice(0, 2) : [],
+            };
+          })
+          .filter(Boolean)
+          .slice(0, 3)
+      : [],
+    why_it_happens: isStringArray(obj.why_it_happens) ? obj.why_it_happens.slice(0, 4) : [],
+    plan_7d: {
+      am: isStringArray(plan7d.am) ? plan7d.am.slice(0, 5) : [],
+      pm: isStringArray(plan7d.pm) ? plan7d.pm.slice(0, 5) : [],
+      observe_metrics: isStringArray(plan7d.observe_metrics) ? plan7d.observe_metrics.slice(0, 4) : [],
+      stop_conditions: isStringArray(plan7d.stop_conditions) ? plan7d.stop_conditions.slice(0, 4) : [],
+    },
+    upgrade_path: Array.isArray(obj.upgrade_path)
+      ? obj.upgrade_path
+          .map((item) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+            const week = String((item as any).week || '').trim();
+            const focus = String((item as any).focus || '').trim();
+            const action = String((item as any).action || '').trim();
+            const guardrail = String((item as any).guardrail || '').trim();
+            if (!week || !action) return null;
+            return { week, focus, action, guardrail };
+          })
+          .filter(Boolean)
+          .slice(0, 3)
+      : [],
+    primary_question: String(obj.primary_question || '').trim() || undefined,
+    conditional_followups: isStringArray(obj.conditional_followups) ? obj.conditional_followups.slice(0, 2) : [],
+    phase_plan:
+      obj.phase_plan && typeof obj.phase_plan === 'object' && !Array.isArray(obj.phase_plan)
+        ? {
+            phase_1_14d: isStringArray((obj.phase_plan as any).phase_1_14d) ? (obj.phase_plan as any).phase_1_14d.slice(0, 6) : [],
+            phase_2_3_6w: isStringArray((obj.phase_plan as any).phase_2_3_6w) ? (obj.phase_plan as any).phase_2_3_6w.slice(0, 6) : [],
+          }
+        : undefined,
+    evidence_refs: Array.isArray(obj.evidence_refs)
+      ? obj.evidence_refs
+          .map((item: any) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+            const id = String(item.id || '').trim();
+            const title = String(item.title || '').trim();
+            const url = String(item.url || '').trim();
+            const why_relevant = String(item.why_relevant || '').trim();
+            if (!id || !title || !url) return null;
+            return { id, title, url, why_relevant };
+          })
+          .filter(Boolean)
+          .slice(0, 6)
+      : [],
+    ask_3_questions: isStringArray(obj.ask_3_questions) ? obj.ask_3_questions.slice(0, 3) : [],
+  };
+};
+
 export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [quickCheck, setQuickCheck] = useState<'yes' | 'no' | null>(null);
 
   const lowConfidence = Boolean(payload.low_confidence);
@@ -163,8 +249,44 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
     () => (Array.isArray(payload.photo_qc) ? payload.photo_qc.map((v) => String(v || '').trim()).filter(Boolean) : []),
     [payload.photo_qc],
   );
+  const routineExpert = useMemo(() => normalizeRoutineExpert(payload.analysis?.routine_expert), [payload.analysis?.routine_expert]);
+
+  const copy = useMemo(
+    () => ({
+      title: language === 'CN' ? '肤况总结' : 'Skin summary',
+      keyTakeaways: language === 'CN' ? '关键问题' : 'Key takeaways',
+      next7Days: language === 'CN' ? '未来 7 天计划' : 'Next 7 days plan',
+      quickCheck: language === 'CN' ? '快速确认' : 'Quick check',
+      quickCheckQuestion: language === 'CN' ? '最近是否有刺痛或泛红？' : 'Any stinging or redness recently?',
+      phase1: language === 'CN' ? 'Phase 1（1-14 天）' : 'Phase 1 (Days 1-14)',
+      phase2: language === 'CN' ? 'Phase 2（3-6 周）' : 'Phase 2 (Weeks 3-6)',
+      upgradePath: language === 'CN' ? '第 2-4 周升级路径' : 'Week 2-4 upgrade path',
+      ask3: language === 'CN' ? '补充问题' : 'Follow-up questions',
+      mechanism: language === 'CN' ? '机制解释' : 'Why it happens',
+      evidence: language === 'CN' ? '证据来源' : 'Evidence refs',
+      conditional: language === 'CN' ? '可选追问' : 'Conditional follow-ups',
+      observe: language === 'CN' ? '观察指标' : 'Observe metrics',
+      stop: language === 'CN' ? '停止条件' : 'Stop conditions',
+      yes: language === 'CN' ? '是' : 'Yes',
+      no: language === 'CN' ? '否' : 'No',
+      caution:
+        language === 'CN'
+          ? '如出现刺痛或泛红，先极简护理并暂停强活性。'
+          : 'If you feel stinging or see redness, keep it minimal and pause strong actives.',
+    }),
+    [language],
+  );
 
   const takeaways = useMemo(() => {
+    if (routineExpert && routineExpert.key_issues.length > 0) {
+      return routineExpert.key_issues.slice(0, 3).map((issue) => ({
+        icon: 'warn' as const,
+        title: clampText(issue.title, 44),
+        subtitle: clampText(issue.impact || issue.evidence[0] || '', 64),
+        confidence: issue.severity === 'high' ? ('High' as const) : ('Likely' as const),
+      }));
+    }
+
     const fallback = [
       {
         icon: 'warn' as const,
@@ -205,18 +327,56 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
     const out = parsed.slice(0, 3);
     while (out.length < 3) out.push(fallback[out.length]);
     return out;
-  }, [payload.analysis?.features]);
+  }, [payload.analysis?.features, routineExpert]);
 
-  const plan = useMemo(() => {
-    const fallback = [
-      'Minimal routine: cleanser + moisturizer + SPF',
-      'Pause actives if stinging/redness; focus on repair',
-      'For pores/texture: start 2×/week, watch 72h',
-    ];
+  const phase1Plan = useMemo(() => {
+    if (routineExpert?.phase_plan?.phase_1_14d?.length) {
+      return routineExpert.phase_plan.phase_1_14d.slice(0, 4).map((line) => clampText(line, 140));
+    }
+    if (routineExpert) {
+      const am = routineExpert.plan_7d.am.filter(Boolean).slice(0, 2);
+      const pm = routineExpert.plan_7d.pm.filter(Boolean).slice(0, 2);
+      return [...am, ...pm].slice(0, 4).map((line) => clampText(line, 140));
+    }
     const extracted = extractPlan(payload.analysis?.strategy || '');
-    if (extracted.length >= 3) return extracted.slice(0, 3).map((x) => clampText(x, 88));
-    return fallback;
-  }, [payload.analysis?.strategy]);
+    if (extracted.length) return extracted.slice(0, 3).map((line) => clampText(line, 110));
+    return [
+      language === 'CN' ? '先用温和洁面 + 保湿 + 防晒的极简基线。' : 'Start with a minimal gentle baseline: cleanser + moisturizer + SPF.',
+      language === 'CN' ? '若刺痛/泛红持续，先停强活性。' : 'Pause strong actives if stinging/redness persists.',
+      language === 'CN' ? '连续观察 7 天再升级。' : 'Observe for 7 days before escalating.',
+    ];
+  }, [payload.analysis?.strategy, routineExpert]);
+
+  const phase2Plan = useMemo(() => {
+    if (routineExpert?.phase_plan?.phase_2_3_6w?.length) {
+      return routineExpert.phase_plan.phase_2_3_6w.slice(0, 4).map((line) => clampText(line, 140));
+    }
+    if (routineExpert?.upgrade_path?.length) {
+      return routineExpert.upgrade_path.slice(0, 4).map((step) => clampText(`${step.week}: ${step.action}`, 140));
+    }
+    return [];
+  }, [routineExpert]);
+
+  const primaryQuestion = useMemo(() => {
+    if (routineExpert?.primary_question?.trim()) return routineExpert.primary_question.trim();
+    if (routineExpert?.ask_3_questions?.[0]) return routineExpert.ask_3_questions[0];
+    return copy.quickCheckQuestion;
+  }, [copy.quickCheckQuestion, routineExpert]);
+
+  const conditionalFollowups = useMemo(() => {
+    if (!routineExpert) return [];
+    const fromConditional = Array.isArray(routineExpert.conditional_followups) ? routineExpert.conditional_followups : [];
+    const fallback = Array.isArray(routineExpert.ask_3_questions) ? routineExpert.ask_3_questions.slice(1) : [];
+    const merged = [...fromConditional, ...fallback].filter((line) => Boolean(String(line || '').trim()));
+    const dedup: string[] = [];
+    for (const line of merged) {
+      if (line === primaryQuestion) continue;
+      if (dedup.includes(line)) continue;
+      dedup.push(line);
+      if (dedup.length >= 3) break;
+    }
+    return dedup;
+  }, [primaryQuestion, routineExpert]);
 
   const toggleQuick = (value: 'yes' | 'no') => {
     const next = quickCheck === value ? null : value;
@@ -238,10 +398,10 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
 
   return (
     <article className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      {/* Header */}
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">Skin summary</h2>
+        <h2 className="text-lg font-semibold text-slate-900">{copy.title}</h2>
         <p className="text-xs text-slate-500">{subtitle}</p>
+        {routineExpert?.snapshot?.summary ? <p className="text-xs text-slate-700">{routineExpert.snapshot.summary}</p> : null}
         {lowConfidence ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
             {language === 'CN'
@@ -252,10 +412,9 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
       </div>
 
       <div className="mt-4 space-y-4">
-        {/* Key takeaways */}
         <section aria-labelledby="key-takeaways">
           <h3 id="key-takeaways" className="text-sm font-semibold text-slate-900">
-            Key takeaways
+            {copy.keyTakeaways}
           </h3>
           <ul className="mt-3 space-y-3">
             {takeaways.map((t) => (
@@ -273,51 +432,74 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
           </ul>
         </section>
 
-        {/* Next 7 days plan */}
-        <section aria-labelledby="next-7-days">
-          <h3 id="next-7-days" className="text-sm font-semibold text-slate-900">
-            Next 7 days plan
+        <section aria-labelledby="phase-1">
+          <h3 id="phase-1" className="text-sm font-semibold text-slate-900">
+            {routineExpert ? copy.phase1 : copy.next7Days}
           </h3>
-
           <ol className="mt-3 list-decimal space-y-3 pl-5 text-sm leading-relaxed text-slate-800">
-            {plan.map((item) => (
+            {phase1Plan.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ol>
-
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-700">
-            If you feel stinging or see redness, keep it minimal and skip strong actives for now.
-          </div>
-
-          <div className="mt-3">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-lg px-1 text-sm font-medium text-slate-700 hover:text-slate-900"
-              aria-expanded={detailsOpen}
-              onClick={() => setDetailsOpen((v) => !v)}
-            >
-              <span>Show details</span>
-              <span className="text-slate-400" aria-hidden="true">
-                {detailsOpen ? '▴' : '▾'}
-              </span>
-            </button>
-
-            {detailsOpen ? (
-              <div className="mt-2 text-sm leading-relaxed text-slate-700">
-                Actives to pause: acids / high-strength vitamin C / retinoids
-              </div>
-            ) : null}
-          </div>
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-700">{copy.caution}</div>
         </section>
 
-        {/* Quick check */}
+        {routineExpert ? (
+          <section aria-labelledby="phase-2">
+            <h3 id="phase-2" className="text-sm font-semibold text-slate-900">
+              {copy.phase2}
+            </h3>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-800">
+              {phase2Plan.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {routineExpert?.why_it_happens?.length ? (
+          <section aria-labelledby="mechanism">
+            <h3 id="mechanism" className="text-sm font-semibold text-slate-900">
+              {copy.mechanism}
+            </h3>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-800">
+              {routineExpert.why_it_happens.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {routineExpert?.evidence_refs?.length ? (
+          <section aria-labelledby="evidence-refs">
+            <h3 id="evidence-refs" className="text-sm font-semibold text-slate-900">
+              {copy.evidence}
+            </h3>
+            <ul className="mt-3 space-y-2 text-sm leading-relaxed text-slate-800">
+              {routineExpert.evidence_refs.map((ref) => (
+                <li key={ref.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <a
+                    className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:decoration-slate-500"
+                    href={ref.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {ref.title}
+                  </a>
+                  {ref.why_relevant ? <p className="mt-1 text-xs text-slate-600">{ref.why_relevant}</p> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         <section aria-labelledby="quick-check">
           <h3 id="quick-check" className="text-sm font-semibold text-slate-900">
-            Quick check
+            {copy.quickCheck}
           </h3>
 
           <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-slate-700">Any stinging or redness recently?</p>
+            <p className="text-sm text-slate-700">{primaryQuestion}</p>
             <div
               className="inline-flex shrink-0 overflow-hidden rounded-full border border-slate-200 bg-white"
               role="group"
@@ -331,7 +513,7 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
                 aria-pressed={quickCheck === 'yes'}
                 onClick={() => toggleQuick('yes')}
               >
-                Yes
+                {copy.yes}
               </button>
               <button
                 type="button"
@@ -341,13 +523,34 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
                 aria-pressed={quickCheck === 'no'}
                 onClick={() => toggleQuick('no')}
               >
-                No
+                {copy.no}
               </button>
             </div>
           </div>
+
+          {routineExpert && quickCheck && conditionalFollowups.length ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-semibold text-slate-900">{copy.conditional}</div>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                {conditionalFollowups.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {routineExpert && quickCheck && !conditionalFollowups.length && routineExpert.ask_3_questions.length > 1 ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-semibold text-slate-900">{copy.ask3}</div>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                {routineExpert.ask_3_questions.slice(1).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
 
-        {/* Actions */}
         <footer className="space-y-3">
           <button
             type="button"

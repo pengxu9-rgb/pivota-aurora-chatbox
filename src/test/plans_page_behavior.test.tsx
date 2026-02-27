@@ -85,7 +85,7 @@ describe('Plans page behavior', () => {
     });
   });
 
-  it('create plan stays on page and does not auto-start chat', async () => {
+  it('create plan auto-starts travel analysis chat', async () => {
     render(<Plans />);
     await screen.findByText('Create new plan');
 
@@ -100,7 +100,20 @@ describe('Plans page behavior', () => {
     await waitFor(() => {
       expect(createTravelPlan).toHaveBeenCalledTimes(1);
     });
-    expect(outletContext.startChat).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(outletContext.startChat).toHaveBeenCalledTimes(1);
+    });
+    expect(outletContext.startChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'query',
+        title: 'Travel skincare plan',
+      }),
+    );
+    expect(outletContext.startChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.stringContaining('Destination: Tokyo'),
+      }),
+    );
     expect(toast).toHaveBeenCalled();
   });
 
