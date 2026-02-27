@@ -284,6 +284,13 @@ const FF_PHOTO_MODULES_CARD = (() => {
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
 })();
 
+const FF_SHOW_PASSIVE_GATES = (() => {
+  const raw = String(import.meta.env.VITE_SHOW_PASSIVE_GATES ?? 'false')
+    .trim()
+    .toLowerCase();
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+})();
+
 const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
 
 const getInitialLanguage = (): UiLanguage => (getLangPref() === 'cn' ? 'CN' : 'EN');
@@ -814,6 +821,40 @@ const isRoutineSimulationCard = (card: Card): boolean => {
 const asArray = (v: unknown) => (Array.isArray(v) ? v : []);
 const asObject = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 const asString = (v: unknown) => (typeof v === 'string' ? v : v == null ? null : String(v));
+const isTruthyFlag = (v: unknown): boolean => {
+  if (typeof v === 'boolean') return v;
+  const token = String(v ?? '')
+    .trim()
+    .toLowerCase();
+  return token === '1' || token === 'true' || token === 'yes' || token === 'on';
+};
+const PASSIVE_PROFILE_CHIP_PREFIXES = ['chip.profile.pregnancy.', 'chip.profile.age_band.', 'chip.profile.lactation.'];
+const isPassiveProfileChipId = (chipId: string): boolean => {
+  const token = String(chipId || '').trim().toLowerCase();
+  if (!token) return false;
+  return PASSIVE_PROFILE_CHIP_PREFIXES.some((prefix) => token.startsWith(prefix));
+};
+const isPassiveAdvisoryNoticeCard = (card: Card): boolean => {
+  if (String(card?.type || '').trim().toLowerCase() !== 'confidence_notice') return false;
+  const payload = asObject(card?.payload) ?? {};
+  const reason = String((payload as any).reason || '').trim().toLowerCase();
+  if (!reason) return false;
+  if (reason === 'pregnancy_optional_profile') return true;
+  const nonBlocking = isTruthyFlag((payload as any).non_blocking);
+  if (!nonBlocking) return false;
+  return reason === 'safety_optional_profile_missing' || reason === 'gate_advisory';
+};
+const filterPassiveAdvisoryCards = (cards: Card[], showPassive: boolean): Card[] => {
+  if (showPassive) return cards;
+  return cards.filter((card) => !isPassiveAdvisoryNoticeCard(card));
+};
+const filterPassiveAdvisoryChips = (chips: SuggestedChip[], showPassive: boolean): SuggestedChip[] => {
+  if (showPassive) return chips;
+  return chips.filter((chip) => {
+    const chipId = String((chip && (chip as any).chip_id) || '').trim();
+    return !isPassiveProfileChipId(chipId);
+  });
+};
 const asNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
@@ -3662,6 +3703,7 @@ function BffCardView({
   }
 
   if (cardType === 'confidence_notice') {
+    if (!FF_SHOW_PASSIVE_GATES && isPassiveAdvisoryNoticeCard(card)) return null;
     const notice = asObject(payload) ?? {};
     const messageText = asString((notice as any).message) || (language === 'CN' ? '当前建议以保守策略输出。' : 'Current guidance is conservative.');
     const details = asArray((notice as any).details).map((item) => asString(item)).filter(Boolean) as string[];
@@ -5710,7 +5752,8 @@ export default function BffChat() {
 
     const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
-    const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards));
+    const passiveFilteredCards = filterPassiveAdvisoryCards(gatedCards, FF_SHOW_PASSIVE_GATES);
+    const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards));
     const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
     const cardTypes = new Set(cards.map((card) => String(card?.type || '').trim().toLowerCase()).filter(Boolean));
     if (cardTypes.has('ingredient_goal_match') || cardTypes.has('aurora_ingredient_report') || cardTypes.has('ingredient_hub')) {
@@ -5746,8 +5789,12 @@ export default function BffChat() {
         })
       : false;
 
-    if (!suppressChips && Array.isArray(enhancedEnv.suggested_chips) && enhancedEnv.suggested_chips.length) {
-      nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: enhancedEnv.suggested_chips });
+    const visibleChips = filterPassiveAdvisoryChips(
+      Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
+      FF_SHOW_PASSIVE_GATES,
+    );
+    if (!suppressChips && visibleChips.length) {
+      nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: visibleChips });
     }
 
     if (nextItems.length) {
