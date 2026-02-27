@@ -4,6 +4,8 @@ const UID_KEY = 'aurora_uid';
 const LEGACY_UID_KEY = 'pivota_aurora_uid_v1';
 const LANG_PREF_KEY = 'lang_pref';
 const LEGACY_LANG_PREF_KEY = 'pivota_aurora_lang_pref_v1';
+const LANG_REPLY_MODE_KEY = 'lang_reply_mode';
+const LANG_MISMATCH_HINT_MUTED_UNTIL_KEY = 'lang_mismatch_hint_muted_until';
 const CHAT_KEY = 'pivota_aurora_chat_state_v1';
 const VERSION = 1;
 
@@ -17,6 +19,7 @@ export type PersistedChatState = {
 };
 
 export type LangPref = 'en' | 'cn';
+export type LangReplyMode = 'ui_lock' | 'auto_follow_input';
 
 let memoryUid: string | null = null;
 let memoryLangPref: LangPref | null = null;
@@ -36,6 +39,16 @@ const safeStorageSet = (key: string, value: string): boolean => {
   if (!isBrowser()) return false;
   try {
     window.localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const safeStorageRemove = (key: string): boolean => {
+  if (!isBrowser()) return false;
+  try {
+    window.localStorage.removeItem(key);
     return true;
   } catch {
     return false;
@@ -130,6 +143,32 @@ export const setLangPref = (lang: LangPref) => {
       // ignore
     }
   }
+};
+
+export const getLangReplyMode = (): LangReplyMode => {
+  const stored = safeStorageGet(LANG_REPLY_MODE_KEY);
+  if (stored === 'ui_lock' || stored === 'auto_follow_input') return stored;
+  return 'ui_lock';
+};
+
+export const setLangReplyMode = (mode: LangReplyMode) => {
+  safeStorageSet(LANG_REPLY_MODE_KEY, mode);
+};
+
+export const getLangMismatchHintMutedUntil = (): number => {
+  const raw = safeStorageGet(LANG_MISMATCH_HINT_MUTED_UNTIL_KEY);
+  const ts = Number(raw);
+  if (!Number.isFinite(ts) || ts <= 0) return 0;
+  return Math.floor(ts);
+};
+
+export const setLangMismatchHintMutedUntil = (timestampMs: number) => {
+  const ts = Number(timestampMs);
+  if (!Number.isFinite(ts) || ts <= 0) {
+    safeStorageRemove(LANG_MISMATCH_HINT_MUTED_UNTIL_KEY);
+    return;
+  }
+  safeStorageSet(LANG_MISMATCH_HINT_MUTED_UNTIL_KEY, String(Math.floor(ts)));
 };
 
 const stripFiles = (_key: string, value: unknown) => {

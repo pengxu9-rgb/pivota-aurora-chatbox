@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { getLangPref, getOrCreateAuroraUid, setLangPref } from '@/lib/persistence';
+import {
+  getLangMismatchHintMutedUntil,
+  getLangPref,
+  getLangReplyMode,
+  getOrCreateAuroraUid,
+  setLangMismatchHintMutedUntil,
+  setLangPref,
+  setLangReplyMode,
+} from '@/lib/persistence';
 
 describe('persistence', () => {
   beforeEach(() => {
@@ -55,5 +63,21 @@ describe('persistence', () => {
     expect(() => setLangPref('en')).not.toThrow();
 
     spy.mockRestore();
+  });
+
+  it('lang reply mode defaults to ui_lock and can be persisted', () => {
+    expect(getLangReplyMode()).toBe('ui_lock');
+    setLangReplyMode('auto_follow_input');
+    expect(getLangReplyMode()).toBe('auto_follow_input');
+    expect(window.localStorage.getItem('lang_reply_mode')).toBe('auto_follow_input');
+  });
+
+  it('language mismatch hint muted-until can be set and cleared', () => {
+    expect(getLangMismatchHintMutedUntil()).toBe(0);
+    setLangMismatchHintMutedUntil(1700000000123);
+    expect(getLangMismatchHintMutedUntil()).toBe(1700000000123);
+    setLangMismatchHintMutedUntil(0);
+    expect(getLangMismatchHintMutedUntil()).toBe(0);
+    expect(window.localStorage.getItem('lang_mismatch_hint_muted_until')).toBeNull();
   });
 });

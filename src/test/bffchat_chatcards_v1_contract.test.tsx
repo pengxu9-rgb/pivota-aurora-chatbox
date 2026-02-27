@@ -68,6 +68,7 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    window.localStorage.setItem('lang_pref', 'en');
     if (!HTMLElement.prototype.scrollIntoView) {
       Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
         value: vi.fn(),
@@ -116,7 +117,7 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
   });
 
-  it('shows language mismatch hint when telemetry reports mismatch', async () => {
+  it('shows mixed-language strategy chips when telemetry reports mismatch', async () => {
     window.localStorage.setItem('lang_pref', 'en');
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
@@ -157,7 +158,104 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     fireEvent.submit(form as HTMLFormElement);
 
     await screen.findByText('v1 mismatch telemetry');
-    await screen.findByText(/Detected input language CN/i);
+    await screen.findByText(/Mixed-language chat is supported/i);
+    expect(screen.getByRole('button', { name: 'Keep English replies' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Switch to Chinese replies' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Auto-follow my input language' })).toBeInTheDocument();
+  });
+
+  it('switches UI language from mismatch strategy chip and persists lang_pref', async () => {
+    window.localStorage.setItem('lang_pref', 'en');
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope());
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'v1 mismatch telemetry',
+            telemetry: {
+              intent: 'reco_products',
+              intent_confidence: 0.9,
+              entities: [],
+              ui_language: 'EN',
+              matching_language: 'CN',
+              language_mismatch: true,
+              language_resolution_source: 'mixed_override',
+            },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: '我想买防晒' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const switchButton = await screen.findByRole('button', { name: 'Switch to Chinese replies' });
+    fireEvent.click(switchButton);
+
+    await screen.findByText('Switched to Chinese replies.');
+    expect(window.localStorage.getItem('lang_pref')).toBe('cn');
+  });
+
+  it('enables auto-follow mode from mismatch strategy chip', async () => {
+    window.localStorage.setItem('lang_pref', 'en');
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope());
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'v1 mismatch telemetry',
+            telemetry: {
+              intent: 'reco_products',
+              intent_confidence: 0.9,
+              entities: [],
+              ui_language: 'EN',
+              matching_language: 'CN',
+              language_mismatch: true,
+              language_resolution_source: 'mixed_override',
+            },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: '我想买防晒' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const autoFollowButton = await screen.findByRole('button', { name: 'Auto-follow my input language' });
+    fireEvent.click(autoFollowButton);
+
+    await screen.findByText(/Auto-follow is enabled/i);
+    expect(window.localStorage.getItem('lang_reply_mode')).toBe('auto_follow_input');
   });
 
   it('uses routine adapter when v1 routine card contains routine_structured section', async () => {

@@ -85,7 +85,16 @@ import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/gl
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
-import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
+import {
+  getLangMismatchHintMutedUntil,
+  getLangPref,
+  getLangReplyMode,
+  setLangMismatchHintMutedUntil,
+  setLangPref,
+  setLangReplyMode,
+  type LangPref,
+  type LangReplyMode,
+} from '@/lib/persistence';
 import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
 import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
 import { parseChatResponseV1 } from '@/lib/chatCardsParser';
@@ -278,6 +287,53 @@ const FF_PHOTO_MODULES_CARD = (() => {
 const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
 
 const getInitialLanguage = (): UiLanguage => (getLangPref() === 'cn' ? 'CN' : 'EN');
+const LANGUAGE_MISMATCH_HINT_SNOOZE_MS = 6 * 60 * 60 * 1000;
+
+const parseUiLanguageToken = (raw: unknown): UiLanguage | null => {
+  const token = String(raw || '').trim().toUpperCase();
+  if (token === 'CN' || token === 'EN') return token;
+  return null;
+};
+
+const toUiLanguageName = (lang: UiLanguage, copyLanguage: UiLanguage): string => {
+  if (copyLanguage === 'CN') return lang === 'CN' ? '中文' : '英文';
+  return lang === 'CN' ? 'Chinese' : 'English';
+};
+
+const buildLanguageMismatchStrategyChips = ({
+  copyLanguage,
+  currentUiLanguage,
+  targetUiLanguage,
+  telemetryUiLanguage,
+  telemetryMatchingLanguage,
+}: {
+  copyLanguage: UiLanguage;
+  currentUiLanguage: UiLanguage;
+  targetUiLanguage: UiLanguage;
+  telemetryUiLanguage: UiLanguage;
+  telemetryMatchingLanguage: UiLanguage;
+}): SuggestedChip[] => {
+  const keepLabel =
+    copyLanguage === 'CN'
+      ? `继续${toUiLanguageName(currentUiLanguage, 'CN')}回复`
+      : `Keep ${toUiLanguageName(currentUiLanguage, 'EN')} replies`;
+  const switchLabel =
+    copyLanguage === 'CN'
+      ? `切换为${toUiLanguageName(targetUiLanguage, 'CN')}回复`
+      : `Switch to ${toUiLanguageName(targetUiLanguage, 'EN')} replies`;
+  const autoLabel = copyLanguage === 'CN' ? '自动跟随我的输入语言' : 'Auto-follow my input language';
+  const sharedData = {
+    trigger_source: 'language_mismatch',
+    target_ui_lang: targetUiLanguage,
+    ui_language: telemetryUiLanguage,
+    matching_language: telemetryMatchingLanguage,
+  };
+  return [
+    { chip_id: 'chip.lang.keep_ui', label: keepLabel, kind: 'quick_reply', data: sharedData },
+    { chip_id: 'chip.lang.switch_ui', label: switchLabel, kind: 'quick_reply', data: sharedData },
+    { chip_id: 'chip.lang.auto_follow', label: autoLabel, kind: 'quick_reply', data: sharedData },
+  ];
+};
 
 const buildReturnWelcomeChips = (language: UiLanguage): SuggestedChip[] => {
   const isCN = language === 'CN';
@@ -5454,6 +5510,8 @@ export default function BffChat() {
   }, [location.search]);
 
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
+  const [langReplyMode, setLangReplyModeState] = useState<LangReplyMode>(() => getLangReplyMode());
+  const langMismatchHintMutedUntilRef = useRef<number>(getLangMismatchHintMutedUntil());
   const [headers, setHeaders] = useState(() => {
     const base = makeDefaultHeaders(initialLanguage);
     const briefId = searchParams.brief_id;
@@ -5804,13 +5862,63 @@ export default function BffChat() {
 
       const assistantTextRaw = String(response.assistant_text || '');
       const assistantText = debug ? assistantTextRaw : stripInternalKbRefsFromText(assistantTextRaw);
-      const telemetryUiLang = response.telemetry.ui_language;
-      const telemetryMatchLang = response.telemetry.matching_language;
-      const showLanguageMismatchHint =
+      const telemetryUiLang = parseUiLanguageToken(response.telemetry.ui_language);
+      const telemetryMatchLang = parseUiLanguageToken(response.telemetry.matching_language);
+      const hasLanguageMismatch =
         response.telemetry.language_mismatch === true &&
-        telemetryUiLang &&
-        telemetryMatchLang &&
+        Boolean(telemetryUiLang) &&
+        Boolean(telemetryMatchLang) &&
         telemetryUiLang !== telemetryMatchLang;
+      const nowMs = Date.now();
+      const shouldShowLanguageMismatchHint =
+        hasLanguageMismatch &&
+        langReplyMode !== 'auto_follow_input' &&
+        nowMs >= langMismatchHintMutedUntilRef.current;
+      const mismatchTargetUiLanguage = telemetryMatchLang || null;
+
+      let autoFollowNotice = '';
+      if (
+        hasLanguageMismatch &&
+        langReplyMode === 'auto_follow_input' &&
+        mismatchTargetUiLanguage &&
+        mismatchTargetUiLanguage !== language
+      ) {
+        const ctx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: agentStateRef.current,
+        };
+        emitUiLanguageSwitched(ctx, {
+          from_lang: toLangPref(language),
+          to_lang: toLangPref(mismatchTargetUiLanguage),
+        });
+        setLanguage(mismatchTargetUiLanguage);
+        autoFollowNotice =
+          language === 'CN'
+            ? `已按你的输入切换为${toUiLanguageName(mismatchTargetUiLanguage, 'CN')}回复。`
+            : `Reply language switched to ${toUiLanguageName(mismatchTargetUiLanguage, 'EN')} to match your input.`;
+      }
+
+      let languageMismatchHintText = '';
+      let languageMismatchHintChips: SuggestedChip[] = [];
+      if (shouldShowLanguageMismatchHint && telemetryUiLang && telemetryMatchLang && mismatchTargetUiLanguage) {
+        const nextMutedUntil = nowMs + LANGUAGE_MISMATCH_HINT_SNOOZE_MS;
+        langMismatchHintMutedUntilRef.current = nextMutedUntil;
+        setLangMismatchHintMutedUntil(nextMutedUntil);
+        languageMismatchHintText =
+          language === 'CN'
+            ? `支持中英文混合对话。检测到本轮输入为${toUiLanguageName(telemetryMatchLang, 'CN')}，当前界面为${toUiLanguageName(telemetryUiLang, 'CN')}。请选择回复方式：`
+            : `Mixed-language chat is supported. This turn looks ${toUiLanguageName(telemetryMatchLang, 'EN')} while UI is ${toUiLanguageName(telemetryUiLang, 'EN')}. Choose reply behavior:`;
+        languageMismatchHintChips = buildLanguageMismatchStrategyChips({
+          copyLanguage: language,
+          currentUiLanguage: language,
+          targetUiLanguage: mismatchTargetUiLanguage,
+          telemetryUiLanguage: telemetryUiLang,
+          telemetryMatchingLanguage: telemetryMatchLang,
+        });
+      }
 
       const toLegacyCard = (card: ChatCardV1): Card => ({
         card_id: card.id,
@@ -5865,12 +5973,14 @@ export default function BffChat() {
       if (assistantText.trim()) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: assistantText });
       }
-      if (showLanguageMismatchHint) {
-        const mismatchText =
-          language === 'CN'
-            ? `检测到你的输入语言为 ${telemetryMatchLang}，当前界面语言为 ${telemetryUiLang}。如需更一致的体验，可切换界面语言。`
-            : `Detected input language ${telemetryMatchLang} while UI language is ${telemetryUiLang}. Switch UI language for a more consistent experience.`;
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: mismatchText });
+      if (autoFollowNotice) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: autoFollowNotice });
+      }
+      if (languageMismatchHintText) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: languageMismatchHintText });
+      }
+      if (languageMismatchHintChips.length) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: languageMismatchHintChips });
       }
 
       const rawCards = response.cards.map(toLegacyCard);
@@ -5928,7 +6038,7 @@ export default function BffChat() {
         });
       }
     },
-    [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+    [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, langReplyMode, language],
   );
 
   const tryApplyEnvelopeFromBffError = useCallback(
@@ -7954,6 +8064,60 @@ export default function BffChat() {
       }
 
       const userItem: ChatItem = { id: nextId(), role: 'user', kind: 'text', content: chip.label };
+
+      if (id === 'chip.lang.keep_ui' || id === 'chip.lang.switch_ui' || id === 'chip.lang.auto_follow') {
+        const targetUiLang = parseUiLanguageToken((chip.data as any)?.target_ui_lang);
+        const muteUntil = Date.now() + LANGUAGE_MISMATCH_HINT_SNOOZE_MS;
+        langMismatchHintMutedUntilRef.current = muteUntil;
+        setLangMismatchHintMutedUntil(muteUntil);
+
+        let assistantAck =
+          language === 'CN'
+            ? `已保持${toUiLanguageName(language, 'CN')}回复。`
+            : `Staying with ${toUiLanguageName(language, 'EN')} replies.`;
+
+        if (id === 'chip.lang.keep_ui') {
+          setLangReplyMode('ui_lock');
+          setLangReplyModeState('ui_lock');
+        } else if (id === 'chip.lang.switch_ui') {
+          setLangReplyMode('ui_lock');
+          setLangReplyModeState('ui_lock');
+          if (targetUiLang && targetUiLang !== language) {
+            emitUiLanguageSwitched(ctx, {
+              from_lang: toLangPref(language),
+              to_lang: toLangPref(targetUiLang),
+            });
+            setLanguage(targetUiLang);
+          }
+          if (targetUiLang) {
+            assistantAck =
+              language === 'CN'
+                ? `已切换为${toUiLanguageName(targetUiLang, 'CN')}回复。`
+                : `Switched to ${toUiLanguageName(targetUiLang, 'EN')} replies.`;
+          }
+        } else {
+          setLangReplyMode('auto_follow_input');
+          setLangReplyModeState('auto_follow_input');
+          if (targetUiLang && targetUiLang !== language) {
+            emitUiLanguageSwitched(ctx, {
+              from_lang: toLangPref(language),
+              to_lang: toLangPref(targetUiLang),
+            });
+            setLanguage(targetUiLang);
+          }
+          assistantAck =
+            language === 'CN'
+              ? '已开启自动跟随输入语言。后续会按你每轮输入自动切换回复语言。'
+              : 'Auto-follow is enabled. Reply language will follow your input each turn.';
+        }
+
+        setItems((prev) => [
+          ...stripReturnWelcome(prev),
+          userItem,
+          { id: nextId(), role: 'assistant', kind: 'text', content: assistantAck },
+        ]);
+        return;
+      }
 
       if (id === 'chip_keep_chatting') {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
