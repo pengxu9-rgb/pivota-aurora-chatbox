@@ -3601,10 +3601,10 @@ function BffCardView({
               <div className="space-y-2">
                 <AuroraAnchorCard product={product} offers={productOffers} language={language} hidePriceWhenUnknown />
                 {anchorSoftBlocked ? (
-                  <div className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="px-1 text-[11px] text-muted-foreground">
                     {language === 'CN'
-                      ? '已阻止不可靠锚点用于 ID 绑定，系统将继续走 URL 实时分析。'
-                      : 'An unreliable anchor was blocked from ID binding; URL realtime analysis will continue.'}
+                      ? '提示：已阻止不可靠锚点绑定 ID，分析仍会继续（URL realtime）。'
+                      : 'Note: an unreliable anchor was blocked from ID binding; URL realtime analysis continues.'}
                   </div>
                 ) : null}
               </div>
@@ -3614,8 +3614,8 @@ function BffCardView({
                   {anchorSoftBlocked
                     ? (
                       language === 'CN'
-                        ? '已阻止不可靠锚点，系统会继续走 URL 实时分析链路。'
-                        : 'An unreliable anchor was blocked; URL realtime analysis will continue.'
+                        ? '已阻止不可靠锚点，分析已自动切到 URL 实时链路继续。'
+                        : 'An unreliable anchor was blocked; analysis automatically continues on the URL realtime path.'
                     )
                     : (
                       language === 'CN'
@@ -3817,11 +3817,23 @@ function BffCardView({
           if (v.includes('suitable') || v.includes('good') || v.includes('yes')) return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
           return 'bg-muted/60 text-muted-foreground border-border/60';
         })();
+        const isLikelyInvalidIngredientToken = (raw: string) => {
+          const token = String(raw || '').trim();
+          if (!token) return true;
+          if (token.length < 2 || token.length > 90) return true;
+          if (/as we wrote in our lengthy retinol description/i.test(token)) return true;
+          if (/read more|learn more|discover|shop now|add to cart|selected because|strong category\/use-case/i.test(token)) return true;
+          if (/\b(how to use|faq|privacy policy|terms of use|copyright)\b/i.test(token)) return true;
+          if (/[?!]/.test(token)) return true;
+          return false;
+        };
         const allDetectedIngredients = uniqueStrings([
           ...detectedIngredientsFromReasons,
           ...evidenceKeyIngredients,
           ...(heroName ? [heroName] : []),
-        ].map((name) => normalizeIngredientName(name))).slice(0, 12);
+        ]
+          .map((name) => normalizeIngredientName(name))
+          .filter((name) => !isLikelyInvalidIngredientToken(name))).slice(0, 12);
         const ingredientGroupDefs: Array<{
           key: string;
           title: string;
@@ -3907,13 +3919,29 @@ function BffCardView({
           rows.filter((line) => !refs.some((ref) => lineSimilarity(line, ref) >= threshold));
         const isProfileEchoLine = (line: string) =>
           /^(your profile|profile priorities|你的情况|你的画像|匹配点|fit signal)[:：]/i.test(String(line || '').trim());
+        const isProfileTupleLine = (line: string) => {
+          const text = String(line || '').trim();
+          if (!text) return false;
+          const lower = text.toLowerCase();
+          const profileTokenCount = [
+            /\b(oily|dry|combo|combination|normal)\b/.test(lower),
+            /\b(sensitivity|sensitive|low|medium|high)\b/.test(lower),
+            /\b(barrier|healthy|impaired)\b/.test(lower),
+            /肤质|敏感|屏障|油皮|干皮|混合皮|低敏|中敏|高敏/.test(text),
+            /skintype=|sensitivity=|barrier=/.test(lower),
+          ].filter(Boolean).length;
+          const productSignal = /\b(ingredient|formula|efficacy|mechanis|retino|acid|niacinamide|ceramide|peptide|spf|sunscreen|cleanser|moisturizer|serum|防晒|保湿|修护|控痘|去角质)\b/i
+            .test(text);
+          return !productSignal && profileTokenCount >= 2 && text.length <= 120;
+        };
+        const shouldDropProfileLine = (line: string) => isProfileEchoLine(line) || isProfileTupleLine(line);
 
         const formulaIntentCandidates = uniqueStrings([
           ...assessmentFormulaIntent,
           ...formulaIntentFromReasons,
           ...evidenceMechanisms,
         ])
-          .filter((line) => !isProfileEchoLine(line))
+          .filter((line) => !shouldDropProfileLine(line))
           .slice(0, 6);
         const bestForSignalsRaw = uniqueStrings([
           ...assessmentBestFor,
@@ -3921,7 +3949,7 @@ function BffCardView({
           ...evidenceFitNotes,
           ...socialPositive,
         ])
-          .filter((line) => !isProfileEchoLine(line))
+          .filter((line) => !shouldDropProfileLine(line))
           .slice(0, 6);
         const cautionSignalsRaw = uniqueStrings([
           ...assessmentNotFor,
