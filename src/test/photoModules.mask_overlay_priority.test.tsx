@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
@@ -7,7 +7,7 @@ import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
 
 const HEATMAP_VALUES = Array.from({ length: 64 * 64 }, () => 0.2);
 
-const buildPayload = (withMask: boolean) => ({
+const buildPayload = (withMask: boolean, withIssues = true) => ({
   used_photos: true,
   quality_grade: 'pass',
   photo_notice: '',
@@ -54,22 +54,24 @@ const buildPayload = (withMask: boolean) => ({
   modules: [
     {
       module_id: 'left_cheek',
-      issues: [
-        {
-          issue_type: 'redness',
-          severity_0_4: 3,
-          confidence_0_1: 0.9,
-          evidence_region_ids: ['bbox_1'],
-          explanation_short: 'Mild redness',
-        },
-        {
-          issue_type: 'shine',
-          severity_0_4: 2,
-          confidence_0_1: 0.7,
-          evidence_region_ids: ['hm_1'],
-          explanation_short: 'Mild shine',
-        },
-      ],
+      issues: withIssues
+        ? [
+            {
+              issue_type: 'redness',
+              severity_0_4: 3,
+              confidence_0_1: 0.9,
+              evidence_region_ids: ['bbox_1'],
+              explanation_short: 'Mild redness',
+            },
+            {
+              issue_type: 'shine',
+              severity_0_4: 2,
+              confidence_0_1: 0.7,
+              evidence_region_ids: ['hm_1'],
+              explanation_short: 'Mild shine',
+            },
+          ]
+        : [],
       actions: [],
       products: [],
       ...(withMask
@@ -185,31 +187,24 @@ afterAll(() => {
 });
 
 describe('photo modules mask overlay priority', () => {
-  it('uses module mask as highlight when mask is available', () => {
+  it('defaults to issue evidence highlight when issue exists, even if mask is available', () => {
     const normalized = normalizePhotoModulesUiModelV1(buildPayload(true));
     expect(normalized.model).not.toBeNull();
 
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);
-    fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
-
     const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');
-    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'mask');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
   });
 
-  it('prioritizes issue evidence overlay over module mask after issue selection', () => {
-    const normalized = normalizePhotoModulesUiModelV1(buildPayload(true));
+  it('falls back to module mask when no issue evidence is available', () => {
+    const normalized = normalizePhotoModulesUiModelV1(buildPayload(true, false));
     expect(normalized.model).not.toBeNull();
 
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);
-    fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
 
     const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');
     expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'mask');
-
-    fireEvent.click(screen.getByTestId('photo-modules-issue-shine'));
-    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
-    expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
   });
 
   it('falls back to region highlight when mask is missing', () => {
@@ -217,7 +212,6 @@ describe('photo modules mask overlay priority', () => {
     expect(normalized.model).not.toBeNull();
 
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);
-    fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
 
     const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');
     expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');

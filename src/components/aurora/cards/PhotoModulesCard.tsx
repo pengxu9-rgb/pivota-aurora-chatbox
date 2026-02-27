@@ -40,6 +40,17 @@ const MORE_PANEL_ENABLED = (() => {
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 })();
+const CONFIDENCE_LOWVALUE_HIDE_NUMERIC = (() => {
+  const raw = String(import.meta.env.VITE_PHOTO_CONFIDENCE_LOWVALUE_HIDE_NUMERIC ?? 'true')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+})();
+const CONFIDENCE_LOW_THRESHOLD = (() => {
+  const raw = Number(import.meta.env.VITE_PHOTO_CONFIDENCE_LOW_THRESHOLD ?? 0.15);
+  if (!Number.isFinite(raw)) return 0.15;
+  return Math.max(0.01, Math.min(0.6, raw));
+})();
 
 type IssueType = 'redness' | 'acne' | 'tone' | 'shine' | 'texture';
 type Rgb = { r: number; g: number; b: number };
@@ -165,13 +176,17 @@ const drawHeatmap = (
   if (!bufferContext) return;
 
   const imageData = bufferContext.createImageData(HEATMAP_GRID, HEATMAP_GRID);
+  const signalSource = String(region.signal_stats?.source || '').trim().toLowerCase();
+  const alphaFloor = signalSource === 'proxy' ? 0.2 : 0.1;
   for (let index = 0; index < values.length; index += 1) {
     const v = clamp01(values[index]);
     const pixelIndex = index * 4;
     imageData.data[pixelIndex] = color.r;
     imageData.data[pixelIndex + 1] = color.g;
     imageData.data[pixelIndex + 2] = color.b;
-    imageData.data[pixelIndex + 3] = Math.round(clamp01(v * intensity * alphaScale) * 255);
+    const alphaRaw = clamp01(v * intensity * alphaScale);
+    const alphaWithFloor = v > 0 ? Math.max(alphaRaw, alphaFloor * Math.min(1, v / 0.25)) : 0;
+    imageData.data[pixelIndex + 3] = Math.round(clamp01(alphaWithFloor) * 255);
   }
   bufferContext.putImageData(imageData, 0, 0);
 
@@ -340,6 +355,29 @@ const getModuleLabel = (moduleId: string, language: Language): string => {
 
 const toPercent = (value: number) => `${Math.round(clamp01(value) * 100)}%`;
 
+const scoreIssue = (issue: PhotoModulesModule['issues'][number]): number => {
+  const rank = Number(issue.issue_rank_score);
+  if (Number.isFinite(rank)) return rank;
+  return issue.severity_0_4 * 0.7 + issue.confidence_0_1 * 0.3;
+};
+
+const scoreModule = (module: PhotoModulesModule): number => {
+  const rank = Number(module.module_rank_score);
+  if (Number.isFinite(rank)) return rank;
+  const topIssue = [...(module.issues || [])].sort((left, right) => scoreIssue(right) - scoreIssue(left))[0];
+  return topIssue ? scoreIssue(topIssue) : 0;
+};
+
+const pickTopIssueType = (module: PhotoModulesModule | null): string | null => {
+  if (!module || !Array.isArray(module.issues) || !module.issues.length) return null;
+  const sorted = [...module.issues].sort((left, right) => {
+    const scoreDiff = scoreIssue(right) - scoreIssue(left);
+    if (Math.abs(scoreDiff) > 1e-6) return scoreDiff;
+    return right.confidence_0_1 - left.confidence_0_1;
+  });
+  return sorted[0]?.issue_type || null;
+};
+
 const explainProductsEmptyReason = (reason: string | null, language: Language): string => {
   const token = String(reason || '').trim().toLowerCase();
   if (!token) {
@@ -463,11 +501,44 @@ export function PhotoModulesCard({
   const originalImageUrl = model.face_crop.original_image_url;
   const hasRenderableImage = Boolean(cropImageUrl || originalImageUrl);
 
+  const defaultFocus = useMemo(() => {
+    const modules = Array.isArray(model.modules) ? model.modules : [];
+    if (!modules.length) return { moduleId: null as string | null, issueType: null as string | null };
+
+    const summaryModuleId = String(model.summary_v1?.top_module_id || '').trim();
+    const summaryIssueType = String(model.summary_v1?.top_issue_type || '').trim();
+    const summaryModule = modules.find((module) => module.module_id === summaryModuleId) || null;
+    const fallbackModule = [...modules].sort((left, right) => scoreModule(right) - scoreModule(left))[0] || null;
+    const targetModule = summaryModule || fallbackModule;
+    const summaryIssueExists = Boolean(
+      targetModule && summaryIssueType && targetModule.issues.some((issue) => issue.issue_type === summaryIssueType),
+    );
+    const issueType = summaryIssueExists ? summaryIssueType : pickTopIssueType(targetModule);
+    return {
+      moduleId: targetModule?.module_id || null,
+      issueType,
+    };
+  }, [model.modules, model.summary_v1]);
+
   useEffect(() => {
-    if (!selectedModuleId || model.modules.some((module) => module.module_id === selectedModuleId)) return;
-    setSelectedModuleId(null);
-    setSelectedIssueType(null);
-  }, [model.modules, selectedModuleId]);
+    const modules = Array.isArray(model.modules) ? model.modules : [];
+    if (!modules.length) {
+      if (selectedModuleId != null) setSelectedModuleId(null);
+      if (selectedIssueType != null) setSelectedIssueType(null);
+      return;
+    }
+    const activeModule =
+      (selectedModuleId ? modules.find((module) => module.module_id === selectedModuleId) : null)
+      || null;
+    const resolvedModule = activeModule || modules.find((module) => module.module_id === defaultFocus.moduleId) || modules[0];
+    if (!resolvedModule) return;
+    if (selectedModuleId !== resolvedModule.module_id) setSelectedModuleId(resolvedModule.module_id);
+    const issueExists = Boolean(
+      selectedIssueType && resolvedModule.issues.some((issue) => issue.issue_type === selectedIssueType),
+    );
+    const desiredIssueType = issueExists ? selectedIssueType : pickTopIssueType(resolvedModule);
+    if (desiredIssueType !== selectedIssueType) setSelectedIssueType(desiredIssueType);
+  }, [defaultFocus.moduleId, model.modules, selectedIssueType, selectedModuleId]);
 
   useEffect(() => {
     if (!hasRenderableImage) {
@@ -503,10 +574,14 @@ export function PhotoModulesCard({
 
   const regions = model.regions;
   const allRegionIds = useMemo(() => new Set(regions.map((region) => region.region_id)), [regions]);
-  const hasModuleSelection = Boolean(selectedModuleId);
+  const preferredModuleId = defaultFocus.moduleId;
   const selectedModule = useMemo(
-    () => model.modules.find((module) => module.module_id === selectedModuleId) ?? model.modules[0] ?? null,
-    [model.modules, selectedModuleId],
+    () =>
+      model.modules.find((module) => module.module_id === selectedModuleId)
+      ?? model.modules.find((module) => module.module_id === preferredModuleId)
+      ?? model.modules[0]
+      ?? null,
+    [model.modules, preferredModuleId, selectedModuleId],
   );
   const morePanelModule = useMemo(
     () => model.modules.find((module) => module.module_id === morePanelModuleId) ?? null,
@@ -530,7 +605,7 @@ export function PhotoModulesCard({
   }, [morePanelAction, morePanelModule, morePanelOpen]);
 
   const moduleEvidenceRegionIds = useMemo(() => {
-    if (!hasModuleSelection || !selectedModule) return allRegionIds;
+    if (!selectedModule) return allRegionIds;
     if (Array.isArray(selectedModule.evidence_region_ids) && selectedModule.evidence_region_ids.length) {
       return new Set(selectedModule.evidence_region_ids);
     }
@@ -540,16 +615,23 @@ export function PhotoModulesCard({
     });
     if (!ids.size) return allRegionIds;
     return ids;
-  }, [allRegionIds, hasModuleSelection, selectedModule]);
+  }, [allRegionIds, selectedModule]);
 
   const issueEvidenceRegionIds = useMemo(() => {
-    if (!hasModuleSelection || !selectedModule || !selectedIssueType) return null;
+    if (!selectedModule || !selectedIssueType) return null;
     const issue = selectedModule.issues.find((current) => current.issue_type === selectedIssueType);
     if (!issue || !issue.evidence_region_ids.length) return null;
     return new Set(issue.evidence_region_ids);
-  }, [hasModuleSelection, selectedIssueType, selectedModule]);
+  }, [selectedIssueType, selectedModule]);
 
   const issueSelectionActive = Boolean(selectedIssueType && issueEvidenceRegionIds && issueEvidenceRegionIds.size > 0);
+  const issueSelectionUsesProxy = useMemo(() => {
+    if (!issueSelectionActive || !issueEvidenceRegionIds) return false;
+    return Array.from(issueEvidenceRegionIds).some((regionId) => {
+      const region = regions.find((candidate) => candidate.region_id === regionId);
+      return String(region?.signal_stats?.source || '').trim().toLowerCase() === 'proxy';
+    });
+  }, [issueEvidenceRegionIds, issueSelectionActive, regions]);
 
   const visibleRegionIds = issueEvidenceRegionIds ?? moduleEvidenceRegionIds;
 
@@ -565,12 +647,7 @@ export function PhotoModulesCard({
   }, [selectedModule]);
 
   const selectedTopIssueType = useMemo(() => {
-    if (!selectedModule || !Array.isArray(selectedModule.issues) || !selectedModule.issues.length) return null;
-    const sorted = [...selectedModule.issues].sort((left, right) => {
-      if (right.severity_0_4 !== left.severity_0_4) return right.severity_0_4 - left.severity_0_4;
-      return right.confidence_0_1 - left.confidence_0_1;
-    });
-    return sorted[0]?.issue_type || null;
+    return pickTopIssueType(selectedModule);
   }, [selectedModule]);
 
   const hasFocusedSelection = highlightedRegionIds.size > 0 && highlightedRegionIds.size < allRegionIds.size;
@@ -644,39 +721,35 @@ export function PhotoModulesCard({
   }, [model.face_crop.bbox_px, model.face_crop.orig_size_px]);
 
   const handleModuleSelect = (moduleId: string) => {
-    setSelectedIssueType(null);
     setHoveredRegionId(null);
-    setSelectedModuleId((previous) => {
-      const next = previous === moduleId ? null : moduleId;
-      if (analyticsCtx) {
-        emitAuroraPhotoModulesModuleTap(analyticsCtx, {
-          card_id: cardId ?? null,
-          module_id: moduleId,
-          selected: next === moduleId,
-          quality_grade: model.quality_grade,
-          sanitizer_drop_count: sanitizerDrops?.length ?? 0,
-        });
-      }
-      return next;
-    });
+    const module = model.modules.find((row) => row.module_id === moduleId) || null;
+    const nextIssueType = pickTopIssueType(module);
+    setSelectedModuleId(moduleId);
+    setSelectedIssueType(nextIssueType);
+    if (analyticsCtx) {
+      emitAuroraPhotoModulesModuleTap(analyticsCtx, {
+        card_id: cardId ?? null,
+        module_id: moduleId,
+        selected: true,
+        quality_grade: model.quality_grade,
+        sanitizer_drop_count: sanitizerDrops?.length ?? 0,
+      });
+    }
   };
 
   const handleIssueSelect = (moduleId: string, issueType: string) => {
     setSelectedModuleId(moduleId);
     setHoveredRegionId(null);
-    setSelectedIssueType((previous) => {
-      const next = previous === issueType ? null : issueType;
-      if (analyticsCtx) {
-        emitAuroraPhotoModulesIssueTap(analyticsCtx, {
-          card_id: cardId ?? null,
-          module_id: moduleId,
-          issue_type: issueType,
-          selected: next === issueType,
-          quality_grade: model.quality_grade,
-        });
-      }
-      return next;
-    });
+    setSelectedIssueType(issueType);
+    if (analyticsCtx) {
+      emitAuroraPhotoModulesIssueTap(analyticsCtx, {
+        card_id: cardId ?? null,
+        module_id: moduleId,
+        issue_type: issueType,
+        selected: true,
+        quality_grade: model.quality_grade,
+      });
+    }
   };
 
   const openMorePanel = (module: PhotoModulesModule, action: PhotoModulesAction) => {
@@ -1016,6 +1089,11 @@ export function PhotoModulesCard({
                 data-highlight-mode={issueSelectionActive ? 'region' : selectedModuleHasMask ? 'mask' : hasFocusedSelection ? 'region' : 'none'}
                 className="pointer-events-none absolute inset-0 h-full w-full"
               />
+              {issueSelectionActive && issueSelectionUsesProxy ? (
+                <div className="pointer-events-none absolute right-2 top-2 rounded-full border border-border/70 bg-background/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {language === 'CN' ? '代理高亮' : 'Proxy highlight'}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1036,7 +1114,7 @@ export function PhotoModulesCard({
           <div className="flex flex-wrap gap-2">
             {model.modules.map((module) => {
               const maxSeverity = module.issues.reduce((max, issue) => Math.max(max, issue.severity_0_4), 0);
-              const isActive = selectedModuleId === module.module_id;
+              const isActive = selectedModule?.module_id === module.module_id;
               return (
                 <button
                   key={module.module_id}
@@ -1066,6 +1144,13 @@ export function PhotoModulesCard({
                   {selectedModule.issues.map((issue) => {
                     const active = selectedIssueType === issue.issue_type;
                     const topConcern = selectedTopIssueType === issue.issue_type;
+                    const confidenceBucket = (() => {
+                      const token = String(issue.confidence_bucket || '').trim().toLowerCase();
+                      if (token === 'low' || token === 'medium' || token === 'high') return token;
+                      if (issue.confidence_0_1 < CONFIDENCE_LOW_THRESHOLD) return 'low';
+                      return issue.confidence_0_1 < 0.5 ? 'medium' : 'high';
+                    })();
+                    const hideConfidenceNumeric = CONFIDENCE_LOWVALUE_HIDE_NUMERIC && confidenceBucket === 'low';
                     return (
                       <button
                         key={`${selectedModule.module_id}_${issue.issue_type}`}
@@ -1093,11 +1178,20 @@ export function PhotoModulesCard({
                               S{issue.severity_0_4}
                             </span>
                             <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
-                              {toPercent(issue.confidence_0_1)}
+                              {hideConfidenceNumeric
+                                ? (language === 'CN' ? '低置信' : 'Low confidence')
+                                : toPercent(issue.confidence_0_1)}
                             </span>
                           </div>
                         </div>
                         <div className="mt-1 text-xs font-medium text-foreground/90">{issue.explanation_short}</div>
+                        {hideConfidenceNumeric ? (
+                          <div className="mt-1 text-[11px] text-muted-foreground">
+                            {language === 'CN'
+                              ? '建议在均匀光线下复拍以提升圈选稳定性。'
+                              : 'Retake in even lighting for a more stable highlight.'}
+                          </div>
+                        ) : null}
                         {issue.evidence_region_ids.length ? (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {issue.evidence_region_ids.slice(0, 3).map((regionId) => (
@@ -1295,6 +1389,8 @@ export function PhotoModulesCard({
                             why: '',
                             how_to_use: { time: 'AM_PM', frequency: '2-3x_week', notes: '' },
                             cautions: [],
+                            action_rank_score: null,
+                            group: null,
                             evidence_issue_types: [],
                             timeline: '',
                             do_not_mix: [],
