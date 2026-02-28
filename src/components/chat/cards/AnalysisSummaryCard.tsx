@@ -345,7 +345,7 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
       language === 'CN' ? '若刺痛/泛红持续，先停强活性。' : 'Pause strong actives if stinging/redness persists.',
       language === 'CN' ? '连续观察 7 天再升级。' : 'Observe for 7 days before escalating.',
     ];
-  }, [payload.analysis?.strategy, routineExpert]);
+  }, [language, payload.analysis?.strategy, routineExpert]);
 
   const phase2Plan = useMemo(() => {
     if (routineExpert?.phase_plan?.phase_2_3_6w?.length) {
