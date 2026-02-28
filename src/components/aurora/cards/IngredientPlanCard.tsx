@@ -60,7 +60,6 @@ const safeUrl = (value: unknown): string => {
   if (!text) return '';
   if (!/^https?:\/\//i.test(text)) return '';
   try {
-    // eslint-disable-next-line no-new
     new URL(text);
     return text;
   } catch {

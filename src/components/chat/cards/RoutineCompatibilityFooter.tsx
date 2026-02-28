@@ -183,7 +183,7 @@ const tokenizeUrlForCompatibility = (value: string) => {
     const parsed = new URL(text);
     const hostTokens = parsed.hostname.split('.').filter(Boolean);
     const pathTokens = parsed.pathname
-      .split(/[\/_-]+/g)
+      .split(/[/_-]+/g)
       .map((part) => part.trim())
       .filter(Boolean);
     return dedupeStrings(

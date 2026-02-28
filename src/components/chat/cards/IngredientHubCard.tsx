@@ -49,7 +49,7 @@ export function IngredientHubCard({
   onAction: (actionId: string, data?: Record<string, any>) => void;
 }) {
   const isCN = language === 'CN';
-  const root = asObject(payload) || {};
+  const root = useMemo(() => asObject(payload) || {}, [payload]);
   const title = asString(root.title) || (isCN ? '成分查询入口' : 'Ingredient Hub');
   const subtitle =
     asString(root.subtitle) ||
