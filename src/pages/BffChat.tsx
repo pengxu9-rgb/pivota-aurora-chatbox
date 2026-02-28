@@ -7731,7 +7731,7 @@ export default function BffChat() {
 
       await sendChat(undefined, { action_id: actionId, kind: 'action', data });
     },
-    [agentState, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
+    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
   );
 
   const onProductPicksPrimary = useCallback(async () => {

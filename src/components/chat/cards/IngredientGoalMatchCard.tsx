@@ -49,7 +49,7 @@ export function IngredientGoalMatchCard({
     .slice(0, 6);
 
   return (
-    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/80 p-4">
+    <div className="space-y-2.5 rounded-2xl border border-border/60 bg-background/80 p-3.5">
       <div className="space-y-1">
         <div className="text-sm font-semibold text-foreground">
           {isCN ? `按功效匹配：${goalLabel}` : `Goal match: ${goalLabel}`}
@@ -59,30 +59,30 @@ export function IngredientGoalMatchCard({
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {candidates.length ? (
           candidates.slice(0, 5).map((row) => (
-            <div key={`${row.ingredient}_${row.reason}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
+            <div key={`${row.ingredient}_${row.reason}`} className="rounded-xl border border-border/60 bg-background/60 p-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-medium text-foreground">{row.ingredient}</div>
-                <div className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                <div className="rounded-full border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   {isCN ? `证据 ${row.evidence_grade}` : `Evidence ${row.evidence_grade}`}
                 </div>
               </div>
-              {row.reason ? <div className="mt-1 text-xs text-muted-foreground">{row.reason}</div> : null}
+              {row.reason ? <div className="mt-1 text-[11px] text-muted-foreground">{row.reason}</div> : null}
             </div>
           ))
         ) : (
-          <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
+          <div className="rounded-xl border border-border/60 bg-background/60 p-2.5 text-xs text-muted-foreground">
             {isCN ? '暂未识别到可匹配目标，请换一个功效目标。' : 'No matched goal yet. Try another target.'}
           </div>
         )}
       </div>
 
       {avoidPairs.length ? (
-        <div className="rounded-xl border border-amber-300/60 bg-amber-50/50 p-3">
+        <div className="rounded-xl border border-amber-300/60 bg-amber-50/50 p-2.5">
           <div className="text-xs font-semibold text-amber-800">{isCN ? '避坑组合' : 'Avoid pairs'}</div>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-amber-900">
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-amber-900">
             {avoidPairs.map((line) => (
               <li key={line}>{line}</li>
             ))}
@@ -90,10 +90,10 @@ export function IngredientGoalMatchCard({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <button
           type="button"
-          className="action-button action-button-primary"
+          className="action-button action-button-primary action-button-compact"
           onClick={() =>
             onAction('chip.start.reco_products', {
               trigger_source: 'ingredient_goal_match',
@@ -105,7 +105,7 @@ export function IngredientGoalMatchCard({
         </button>
         <button
           type="button"
-          className="action-button action-button-ghost"
+          className="action-button action-button-ghost action-button-compact"
           onClick={() =>
             onAction('ingredient.lookup', {
               entry_source: 'ingredient_goal_match',

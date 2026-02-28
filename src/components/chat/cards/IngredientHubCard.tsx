@@ -49,7 +49,7 @@ export function IngredientHubCard({
   onAction: (actionId: string, data?: Record<string, any>) => void;
 }) {
   const isCN = language === 'CN';
-  const root = asObject(payload) || {};
+  const root = useMemo(() => asObject(payload) || {}, [payload]);
   const title = asString(root.title) || (isCN ? '成分查询入口' : 'Ingredient Hub');
   const subtitle =
     asString(root.subtitle) ||
@@ -110,18 +110,19 @@ export function IngredientHubCard({
   };
 
   return (
-    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/80 p-4">
+    <div className="space-y-2.5 rounded-2xl border border-border/60 bg-background/80 p-3.5">
       <div className="space-y-1">
         <div className="text-sm font-semibold text-foreground">{title}</div>
         <div className="text-xs text-muted-foreground">{subtitle}</div>
       </div>
 
-      <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+      <div className="rounded-xl border border-border/60 bg-background/60 p-2.5">
         <div className="text-xs font-semibold text-muted-foreground">{isCN ? '查具体成分' : 'Lookup ingredient'}</div>
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <input
-            className="min-w-0 flex-1 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+            className="ingredient-input"
             placeholder={isCN ? '例如：niacinamide / 烟酰胺' : 'e.g. niacinamide / azelaic acid'}
+            aria-label={isCN ? '输入成分名称' : 'Ingredient name'}
             value={lookupQuery}
             onChange={(event) => setLookupQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -133,7 +134,7 @@ export function IngredientHubCard({
           />
           <button
             type="button"
-            className="action-button action-button-primary"
+            className="action-button action-button-primary action-button-inline action-button-compact min-w-[104px]"
             disabled={!lookupQuery.trim()}
             onClick={submitLookup}
           >
@@ -142,16 +143,16 @@ export function IngredientHubCard({
         </div>
       </div>
 
-      <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+      <div className="rounded-xl border border-border/60 bg-background/60 p-2.5">
         <div className="text-xs font-semibold text-muted-foreground">{isCN ? '按功效找成分' : 'Find by goal'}</div>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {goals.map((goal) => {
             const active = goal.id === selectedGoal;
             return (
               <button
                 key={goal.id}
                 type="button"
-                className={`chip-button ${active ? 'chip-button-primary' : ''}`}
+                className={`chip-button chip-button-compact ${active ? 'chip-button-primary' : ''}`}
                 onClick={() => setSelectedGoal(goal.id)}
               >
                 {isCN ? goal.label_cn : goal.label_en}
@@ -160,15 +161,15 @@ export function IngredientHubCard({
           })}
         </div>
 
-        <div className="mt-3 text-xs text-muted-foreground">{isCN ? '敏感度' : 'Sensitivity'}</div>
-        <div className="mt-1 flex flex-wrap gap-2">
+        <div className="mt-2.5 text-xs text-muted-foreground">{isCN ? '敏感度' : 'Sensitivity'}</div>
+        <div className="mt-1 flex flex-wrap gap-1.5">
           {SENSITIVITY_OPTIONS.map((opt) => {
             const active = opt.id === selectedSensitivity;
             return (
               <button
                 key={opt.id}
                 type="button"
-                className={`chip-button ${active ? 'chip-button-primary' : ''}`}
+                className={`chip-button chip-button-compact ${active ? 'chip-button-primary' : ''}`}
                 onClick={() => setSelectedSensitivity(opt.id)}
               >
                 {isCN ? opt.label_cn : opt.label_en}
@@ -177,7 +178,7 @@ export function IngredientHubCard({
           })}
         </div>
 
-        <button type="button" className="action-button action-button-primary mt-3" onClick={submitByGoal}>
+        <button type="button" className="action-button action-button-primary action-button-compact mt-2.5" onClick={submitByGoal}>
           {isCN ? '生成候选成分' : 'Match ingredients'}
         </button>
       </div>
