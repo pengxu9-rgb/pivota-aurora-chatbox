@@ -37,19 +37,18 @@ describe('analysis_story_v2 ui', () => {
       />,
     );
 
-    expect(screen.getByText('Analysis Story')).toBeInTheDocument();
-    expect(screen.getByText('Skin profile')).toBeInTheDocument();
+    expect(screen.getByText('Personalized skin analysis')).toBeInTheDocument();
+    expect(screen.getByText('Current profile')).toBeInTheDocument();
     expect(screen.getByText('Priority findings')).toBeInTheDocument();
     expect(screen.getByText('AM plan')).toBeInTheDocument();
     expect(screen.getByText('PM plan')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('analysis-story-routine-cta'));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete AM/PM routine' }));
     expect(onAction).toHaveBeenCalledWith(
       'chip.start.routine',
       expect.objectContaining({
-        source_card_type: 'analysis_story_v2',
+        trigger_source: 'analysis_story_v2',
       }),
     );
   });
 });
-

@@ -89,4 +89,5 @@ export type ChatResponseV1 = {
   ops: ChatOpsV1;
   safety: ChatSafetyV1;
   telemetry: ChatTelemetryV1;
+  legacy_session_patch?: Record<string, unknown>;
 };

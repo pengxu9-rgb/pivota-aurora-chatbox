@@ -40,6 +40,19 @@ const CARD_TYPES = new Set([
   'gate_notice',
 ]);
 
+const fallbackTitleForType = (type: string): string => {
+  const token = asString(type).toLowerCase();
+  if (token === 'ingredient_hub') return 'Ingredient hub';
+  if (token === 'ingredient_goal_match') return 'Ingredient goal match';
+  if (token === 'aurora_ingredient_report') return 'Ingredient report';
+  if (token === 'diagnosis_gate') return 'Quick skin profile first';
+  if (token === 'analysis_story_v2') return 'Analysis story';
+  if (token === 'confidence_notice') return 'Confidence notice';
+  if (token === 'budget_gate') return 'Budget';
+  if (token === 'gate_notice') return 'Gate notice';
+  return 'Card';
+};
+
 const normalizeQuickReply = (raw: unknown, fallbackId: string): QuickReplyV1 | null => {
   const row = asRecord(raw);
   if (!row) return null;
@@ -93,8 +106,8 @@ const normalizeCard = (raw: unknown, fallbackId: string): ChatCardV1 | null => {
   if (!row) return null;
   const id = asString(row.id) || fallbackId;
   const type = asString(row.type).toLowerCase() as ChatCardV1['type'];
-  const title = asString(row.title);
-  if (!id || !type || !title || !CARD_TYPES.has(type)) return null;
+  const title = asString(row.title) || fallbackTitleForType(type);
+  if (!id || !type || !CARD_TYPES.has(type)) return null;
 
   const priorityRaw = Number(row.priority);
   const priority = Number.isFinite(priorityRaw) ? Math.max(1, Math.min(3, Math.trunc(priorityRaw))) : 2;
@@ -145,6 +158,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
   const opsRaw = asRecord(root.ops) || {};
   const safetyRaw = asRecord(root.safety) || {};
   const telemetryRaw = asRecord(root.telemetry) || {};
+  const legacySessionPatch = asRecord(root.session_patch) || undefined;
 
   const riskLevelRaw = asString(safetyRaw.risk_level).toLowerCase();
   const riskLevel: ChatResponseV1['safety']['risk_level'] =
@@ -227,6 +241,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
         : {}),
       ...(telemetryResolutionSource ? { language_resolution_source: telemetryResolutionSource } : {}),
     },
+    ...(legacySessionPatch ? { legacy_session_patch: legacySessionPatch } : {}),
   };
 };
 
@@ -288,7 +303,9 @@ export const chatResponseV1ToEnvelope = (response: ChatResponseV1): V1Envelope =
     ...response.follow_up_questions.flatMap(followUpQuestionToChips),
   ].slice(0, 12);
 
+  const legacyPatch = asRecord(response.legacy_session_patch) || {};
   const sessionPatch: Record<string, unknown> = {
+    ...legacyPatch,
     chat_v1: {
       safety: response.safety,
       telemetry: response.telemetry,

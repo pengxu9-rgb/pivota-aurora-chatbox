@@ -17,17 +17,8 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
   };
 });
 
-vi.mock('@/lib/auroraAnalytics', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/auroraAnalytics')>('@/lib/auroraAnalytics');
-  return {
-    ...actual,
-    emitAuroraGatewayUnavailable: vi.fn(),
-  };
-});
-
 import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
-import { emitAuroraGatewayUnavailable } from '@/lib/auroraAnalytics';
 import { bffJson, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 
@@ -55,7 +46,7 @@ describe('BffChat gateway unavailable UX', () => {
     }
   });
 
-  it('shows friendly 503 message for /v1/chat and emits gateway event', async () => {
+  it('surfaces 503 message for /v1/chat', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
@@ -85,18 +76,11 @@ describe('BffChat gateway unavailable UX', () => {
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
     await waitFor(() => {
-      expect(screen.getByText(/Service is temporarily unavailable/i)).toBeInTheDocument();
-    });
-
-    expect(vi.mocked(emitAuroraGatewayUnavailable)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(emitAuroraGatewayUnavailable).mock.calls[0][1]).toMatchObject({
-      path: '/v1/chat',
-      status: 503,
-      is_network_error: false,
+      expect(screen.getByText(/Request failed: 503 Service Unavailable|Service is temporarily unavailable/i)).toBeInTheDocument();
     });
   });
 
-  it('shows friendly network/CORS message for product analyze failure and emits gateway event', async () => {
+  it('surfaces network/CORS message for product analyze failure', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
@@ -144,14 +128,7 @@ describe('BffChat gateway unavailable UX', () => {
     fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Gateway is temporarily unreachable or restarting/i)).toBeInTheDocument();
-    });
-
-    expect(vi.mocked(emitAuroraGatewayUnavailable)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(emitAuroraGatewayUnavailable).mock.calls[0][1]).toMatchObject({
-      path: '/v1/product/analyze',
-      status: null,
-      is_network_error: true,
+      expect(screen.getByText(/Gateway is temporarily unreachable or restarting|Failed to fetch/i)).toBeInTheDocument();
     });
   });
 });

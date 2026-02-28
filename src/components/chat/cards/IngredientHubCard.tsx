@@ -92,9 +92,6 @@ export function IngredientHubCard({
     onAction('ingredient.lookup', {
       ingredient_query: query,
       entry_source: 'ingredient_hub',
-      reply_text: isCN
-        ? `请做成分查询：${query}。给我 1-minute ingredient report（功效、证据等级、注意事项、人群风险）。`
-        : `Ingredient lookup: ${query}. Give me a 1-minute ingredient report (benefits, evidence grade, watchouts, risk by profile).`,
     });
   };
 
@@ -103,9 +100,6 @@ export function IngredientHubCard({
       goal: selectedGoal,
       sensitivity: selectedSensitivity,
       entry_source: 'ingredient_hub',
-      reply_text: isCN
-        ? `按功效找成分：目标=${selectedGoal}，敏感度=${selectedSensitivity}。`
-        : `Find ingredients by goal: goal=${selectedGoal}, sensitivity=${selectedSensitivity}.`,
     });
   };
 
@@ -189,7 +183,6 @@ export function IngredientHubCard({
         onClick={() =>
           onAction('ingredient.optin_diagnosis', {
             entry_source: 'ingredient_hub',
-            reply_text: isCN ? '我想开始诊断来提高成分推荐准确度。' : 'I want to start diagnosis to improve ingredient precision.',
           })
         }
       >

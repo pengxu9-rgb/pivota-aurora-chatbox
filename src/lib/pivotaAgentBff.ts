@@ -33,7 +33,7 @@ export type AnalysisMeta = {
 };
 
 export type RecommendationMeta = {
-  source_mode: 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
+  source_mode: 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;

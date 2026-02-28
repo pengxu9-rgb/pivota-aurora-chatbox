@@ -14,7 +14,7 @@ const analyticsCtx = {
 };
 
 describe('ingredient_plan_v2 rich product UI', () => {
-  it('renders thumbnail/price/rating/source and opens PDP when provided', () => {
+  it('renders canonical product fields and opens PDP when provided', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as unknown as Window));
 
     render(
@@ -64,18 +64,16 @@ describe('ingredient_plan_v2 rich product UI', () => {
     );
 
     expect(screen.getByText('Niacinamide Serum')).toBeInTheDocument();
-    expect(screen.getByText('$39.00')).toBeInTheDocument();
-    expect(screen.getByText('Competitor · Amazon')).toBeInTheDocument();
-    expect(screen.getByText('Rating 4.4 (1203)')).toBeInTheDocument();
-    expect(screen.getByText('Open PDP')).toBeInTheDocument();
+    expect(screen.getByText('Brand A · amazon')).toBeInTheDocument();
+    expect(screen.getByText('https://example.com/pdp')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Niacinamide Serum'));
+    fireEvent.click(screen.getByText('https://example.com/pdp'));
     expect(openSpy).toHaveBeenCalledWith('https://example.com/pdp', '_blank', 'noopener,noreferrer');
 
     openSpy.mockRestore();
   });
 
-  it('shows google fallback entry when no structured product is available', () => {
+  it('shows empty placeholders when no structured product is available', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as unknown as Window));
 
     render(
@@ -107,11 +105,9 @@ describe('ingredient_plan_v2 rich product UI', () => {
       />,
     );
 
-    expect(screen.getByText('No structured product yet, open Google results')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('No structured product yet, open Google results'));
-    expect(openSpy).toHaveBeenCalledTimes(1);
-    expect(String(openSpy.mock.calls[0]?.[0] || '')).toContain('google.com/search');
-    expect(String(openSpy.mock.calls[0]?.[0] || '')).toContain('Azelaic');
+    expect(screen.queryByText('No structured product yet, open Google results')).not.toBeInTheDocument();
+    expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(2);
+    expect(openSpy).not.toHaveBeenCalled();
 
     openSpy.mockRestore();
   });

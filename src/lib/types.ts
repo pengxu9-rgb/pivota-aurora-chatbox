@@ -24,7 +24,7 @@ export type Market = 'US' | 'EU' | 'UK' | 'Canada' | 'Singapore' | 'Global';
 export type BudgetTier = '$' | '$$' | '$$$';
 export type CheckoutOutcome = 'success' | 'failure_payment' | 'failure_expired';
 
-export type RecommendationSourceMode = 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
+export type RecommendationSourceMode = 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
 
 export interface AuroraAnalysisMeta {
   detector_source: string;

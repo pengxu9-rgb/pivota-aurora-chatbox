@@ -10,8 +10,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test:preflight": "bash scripts/test_preflight.sh",
+    "test": "npm run test:preflight && vitest run",
+    "test:watch": "npm run test:preflight && vitest",
+    "test:file": "bash scripts/test_file.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

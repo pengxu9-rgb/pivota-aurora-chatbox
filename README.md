@@ -13,6 +13,15 @@ npm run dev
 
 Default dev server: `http://localhost:8080`
 
+## Test Stability Guardrails
+
+- Use Node 20 (`nvm use` reads `.nvmrc`).
+- Run tests only from this project root. Do not run tests from any `_deploy_tmp_*` directory.
+- Prefer a local non-cloud path (for example `~/dev/...`) instead of Desktop-managed sync folders.
+- Run `npm run test:preflight` before troubleshooting any test issue.
+- Run all tests: `npm test`
+- Run a targeted test file: `npm run test:file -- src/test/example.test.ts`
+
 ## Environment variables
 
 Set these in Vercel (or locally via `.env.local`):

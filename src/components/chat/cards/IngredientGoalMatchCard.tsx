@@ -33,6 +33,8 @@ export function IngredientGoalMatchCard({
   const root = asObject(payload) || {};
   const goalLabel = asString(root.goal_label) || (isCN ? '目标成分匹配' : 'Ingredient goal match');
   const sensitivityLabel = asString(root.sensitivity_label) || (isCN ? '未知' : 'Unknown');
+  const goalToken = asString(root.goal) || 'barrier';
+  const sensitivityToken = asString(root.sensitivity) || 'unknown';
 
   const candidates = asArray(root.candidate_ingredients)
     .map((item) => asObject(item))
@@ -96,8 +98,11 @@ export function IngredientGoalMatchCard({
           className="action-button action-button-primary action-button-compact"
           onClick={() =>
             onAction('chip.start.reco_products', {
+              entry_source: 'ingredient_goal_match',
               trigger_source: 'ingredient_goal_match',
-              reply_text: isCN ? '基于这些成分给我看产品。' : 'Show products based on these ingredients.',
+              ingredient_goal: goalToken,
+              ingredient_sensitivity: sensitivityToken,
+              ingredient_candidates: candidates.slice(0, 5).map((item) => item.ingredient),
             })
           }
         >
@@ -109,7 +114,6 @@ export function IngredientGoalMatchCard({
           onClick={() =>
             onAction('ingredient.lookup', {
               entry_source: 'ingredient_goal_match',
-              reply_text: isCN ? '我还想查一个具体成分。' : 'I want to lookup a specific ingredient next.',
             })
           }
         >

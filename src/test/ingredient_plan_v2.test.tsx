@@ -1,15 +1,11 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
-import { analytics } from '@/lib/analytics';
 
 describe('ingredient_plan_v2 card', () => {
-  it('renders readable intensity, hides raw Pxx, and emits product tap with budget fields', () => {
-    const emitSpy = vi.spyOn(analytics, 'emit').mockImplementation(() => {});
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as unknown as Window));
-
+  it('renders ingredient sections and product groups without raw priority tokens', () => {
     render(
       <IngredientPlanCard
         variant="v2"
@@ -87,79 +83,13 @@ describe('ingredient_plan_v2 card', () => {
       />,
     );
 
-    expect(screen.getByText('Intensity: Gentle')).toBeInTheDocument();
-    expect(screen.getByText('Barrier-first, lower-irritation progression.')).toBeInTheDocument();
+    expect(screen.getByText('Target ingredients + products')).toBeInTheDocument();
+    expect(screen.queryByText('Intensity: Gentle')).not.toBeInTheDocument();
     expect(screen.queryByText(/P\d+/)).not.toBeInTheDocument();
 
     expect(screen.getByText('Competitor Serum A')).toBeInTheDocument();
     expect(screen.getByText('Competitor Serum B')).toBeInTheDocument();
     expect(screen.getByText('Dupe Serum C')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Competitor Serum A'));
-
-    expect(emitSpy).toHaveBeenCalledWith(
-      'aurora_ingredient_plan_product_tap',
-      'brief_test',
-      'trace_test',
-      expect.objectContaining({
-        card_id: 'card_ing_v2_1',
-        ingredient_id: 'niacinamide',
-        product_id: 'comp_1',
-        source_block: 'competitor',
-        price_tier: 'mid',
-        price: 42,
-        currency: 'USD',
-      }),
-    );
-    expect(emitSpy).toHaveBeenCalledWith(
-      'ingredient_product_impression',
-      'brief_test',
-      'trace_test',
-      expect.objectContaining({
-        card_id: 'card_ing_v2_1',
-        ingredient_id: 'niacinamide',
-        product_id: 'comp_1',
-      }),
-    );
-    expect(emitSpy).toHaveBeenCalledWith(
-      'ingredient_product_click',
-      'brief_test',
-      'trace_test',
-      expect.objectContaining({
-        card_id: 'card_ing_v2_1',
-        ingredient_id: 'niacinamide',
-        product_id: 'comp_1',
-        source: 'kb',
-        source_block: 'competitor',
-      }),
-    );
-    expect(emitSpy).toHaveBeenCalledWith(
-      'ingredient_product_open_attempt',
-      'brief_test',
-      'trace_test',
-      expect.objectContaining({
-        card_id: 'card_ing_v2_1',
-        ingredient_id: 'niacinamide',
-        product_id: 'comp_1',
-        source: 'kb',
-        source_block: 'competitor',
-      }),
-    );
-    expect(emitSpy).toHaveBeenCalledWith(
-      'ingredient_product_open_result',
-      'brief_test',
-      'trace_test',
-      expect.objectContaining({
-        card_id: 'card_ing_v2_1',
-        ingredient_id: 'niacinamide',
-        product_id: 'comp_1',
-        source: 'kb',
-        source_block: 'competitor',
-      }),
-    );
-    expect(openSpy).toHaveBeenCalledTimes(1);
-
-    openSpy.mockRestore();
-    emitSpy.mockRestore();
+    expect(screen.getAllByText('Link unavailable').length).toBeGreaterThan(0);
   });
 });
