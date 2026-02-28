@@ -30,6 +30,14 @@ const CARD_TYPES = new Set([
   'effect_review',
   'travel',
   'nudge',
+  'ingredient_hub',
+  'ingredient_goal_match',
+  'aurora_ingredient_report',
+  'diagnosis_gate',
+  'analysis_story_v2',
+  'confidence_notice',
+  'budget_gate',
+  'gate_notice',
 ]);
 
 const normalizeQuickReply = (raw: unknown, fallbackId: string): QuickReplyV1 | null => {
@@ -99,6 +107,7 @@ const normalizeCard = (raw: unknown, fallbackId: string): ChatCardV1 | null => {
     .map((action, idx) => normalizeCardAction(action, `${id}_action_${idx + 1}`))
     .filter(Boolean)
     .map(({ _id: _ignored, ...action }) => action) as ChatCardV1['actions'];
+  const payload = asRecord(row.payload) || undefined;
 
   return {
     id: id.slice(0, 120),
@@ -109,6 +118,7 @@ const normalizeCard = (raw: unknown, fallbackId: string): ChatCardV1 | null => {
     tags,
     sections,
     actions,
+    ...(payload ? { payload } : {}),
   };
 };
 
@@ -251,7 +261,9 @@ const followUpQuestionToChips = (question: FollowUpQuestionV1): SuggestedChip[] 
 };
 
 const cardToLegacy = (card: ChatCardV1, response: ChatResponseV1): Card => {
+  const payloadRoot = asRecord(card.payload) || {};
   const payload: Record<string, unknown> = {
+    ...payloadRoot,
     title: card.title,
     ...(card.subtitle ? { subtitle: card.subtitle } : {}),
     priority: card.priority,

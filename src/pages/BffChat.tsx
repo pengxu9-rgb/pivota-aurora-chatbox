@@ -5972,6 +5972,7 @@ export default function BffChat() {
         type: card.type,
         title: card.title,
         payload: {
+          ...(asObject((card as any).payload) || {}),
           title: card.title,
           ...(card.subtitle ? { subtitle: card.subtitle } : {}),
           priority: card.priority,

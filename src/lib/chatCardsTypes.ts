@@ -6,7 +6,15 @@ export type ChatCardV1Type =
   | 'skin_status'
   | 'effect_review'
   | 'travel'
-  | 'nudge';
+  | 'nudge'
+  | 'ingredient_hub'
+  | 'ingredient_goal_match'
+  | 'aurora_ingredient_report'
+  | 'diagnosis_gate'
+  | 'analysis_story_v2'
+  | 'confidence_notice'
+  | 'budget_gate'
+  | 'gate_notice';
 
 export type ChatCardActionV1 = {
   type: string;
@@ -23,6 +31,7 @@ export type ChatCardV1 = {
   tags: string[];
   sections: Array<Record<string, unknown>>;
   actions: ChatCardActionV1[];
+  payload?: Record<string, unknown>;
 };
 
 export type QuickReplyV1 = {
