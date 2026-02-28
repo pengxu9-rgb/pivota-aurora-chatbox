@@ -638,6 +638,11 @@
     color: hsl(var(--aurora-home-primary-foreground));
   }
 
+  .chip-button-compact {
+    @apply px-3 py-1.5 text-[12px];
+    min-height: 33px;
+  }
+
   .profile-sheet-compact .profile-chip {
     min-height: 32px;
     padding: 0.28rem 0.7rem;
@@ -686,6 +691,16 @@
     transform: translateY(-1px);
   }
 
+  .action-button-inline {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  .action-button-compact {
+    @apply px-3 py-2 text-sm;
+    min-height: 38px;
+  }
+
   .action-button-secondary {
     background-color: hsl(var(--aurora-home-muted));
     color: hsl(var(--aurora-home-foreground));
@@ -707,6 +722,21 @@
     background-color: hsl(var(--aurora-home-muted) / 0.7);
     color: hsl(var(--aurora-home-foreground));
     border-color: hsl(var(--aurora-home-border) / 0.9);
+  }
+
+  .ingredient-input {
+    @apply min-w-0 w-full rounded-lg border bg-background px-3 text-sm text-foreground outline-none transition-colors;
+    min-height: 44px;
+    border-color: hsl(var(--aurora-home-border) / 0.95);
+  }
+
+  .ingredient-input::placeholder {
+    color: hsl(var(--aurora-home-muted-foreground) / 0.92);
+  }
+
+  .ingredient-input:focus {
+    border-color: hsl(var(--aurora-home-primary) / 0.75);
+    box-shadow: 0 0 0 2px hsl(var(--aurora-home-primary) / 0.14);
   }
 
   /* Question Prompt system */
