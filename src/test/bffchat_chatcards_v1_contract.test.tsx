@@ -117,6 +117,60 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
   });
 
+  it('renders ingredient hub card from v1 payload without nudge downgrade', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope());
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'ingredient v1 path',
+            cards: [
+              {
+                id: 'ingredient_hub_test',
+                type: 'ingredient_hub',
+                priority: 1,
+                title: 'Ingredient Hub',
+                subtitle: 'Start with lookup or goal match',
+                tags: [],
+                sections: [],
+                actions: [],
+                payload: {
+                  title: 'Ingredient Hub',
+                  subtitle: 'Start with lookup or goal match',
+                  suggested_goals: ['Acne', 'Brightening'],
+                },
+              },
+            ],
+            telemetry: { intent: 'ingredient_science', intent_confidence: 0.96, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'ingredients' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByText('ingredient v1 path');
+    expect(screen.getByText('Ingredient Hub')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lookup' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Match ingredients' })).toBeInTheDocument();
+  });
+
   it('shows mixed-language strategy chips when telemetry reports mismatch', async () => {
     window.localStorage.setItem('lang_pref', 'en');
     const mock = vi.mocked(bffJson);
