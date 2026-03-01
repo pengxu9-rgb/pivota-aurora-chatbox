@@ -51,3 +51,37 @@ if (!(globalThis as any).ResizeObserver) {
 
   (globalThis as any).ResizeObserver = ResizeObserverMock;
 }
+
+const toConsoleText = (args: unknown[]): string =>
+  args
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (item instanceof Error) return `${item.name}: ${item.message}`;
+      try {
+        return JSON.stringify(item);
+      } catch {
+        return String(item);
+      }
+    })
+    .join(" ");
+
+const shouldSuppressWarning = (text: string): boolean => {
+  return /React Router Future Flag Warning/i.test(text);
+};
+
+const shouldSuppressError = (text: string): boolean => {
+  return /not wrapped in act\(\.\.\.\)/i.test(text);
+};
+
+const originalWarn = console.warn.bind(console);
+const originalError = console.error.bind(console);
+
+console.warn = (...args: Parameters<typeof console.warn>) => {
+  if (shouldSuppressWarning(toConsoleText(args))) return;
+  originalWarn(...args);
+};
+
+console.error = (...args: Parameters<typeof console.error>) => {
+  if (shouldSuppressError(toConsoleText(args))) return;
+  originalError(...args);
+};
