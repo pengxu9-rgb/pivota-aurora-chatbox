@@ -3241,6 +3241,21 @@ function BffCardView({
         nextQuestionBusy={Boolean(ingredientQuestionBusy)}
         onSelectNextQuestion={onIngredientQuestionSelect}
         onOpenProfile={onOpenProfile}
+        onPollResearch={(query) =>
+          onAction('ingredient.research.poll', {
+            action_id: 'ingredient.research.poll',
+            ingredient_query: query,
+            normalized_query: query,
+            entry_source: 'ingredient_report_card',
+          })
+        }
+        onRetryResearch={(query) =>
+          onAction('ingredient.lookup', {
+            action_id: 'ingredient.lookup',
+            ingredient_query: query,
+            entry_source: 'ingredient_report_card_retry',
+          })
+        }
       />
     );
   }
@@ -7497,6 +7512,38 @@ export default function BffChat() {
           data: {
             ...(data || {}),
             ingredient_query: ingredientQuery,
+          },
+        });
+        return;
+      }
+
+      if (actionId === 'ingredient.research.poll') {
+        const ingredientQuery =
+          typeof data?.ingredient_query === 'string'
+            ? data.ingredient_query.trim()
+            : typeof data?.normalized_query === 'string'
+              ? data.normalized_query.trim()
+              : '';
+        if (!ingredientQuery) {
+          setError(language === 'CN' ? '请先输入要查询的成分。' : 'Please enter an ingredient first.');
+          return;
+        }
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? `刷新增强结果：${ingredientQuery}` : `Refresh enhanced result: ${ingredientQuery}`,
+          },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'ingredient.research.poll',
+          kind: 'action',
+          data: {
+            ...(data || {}),
+            ingredient_query: ingredientQuery,
+            normalized_query: ingredientQuery,
           },
         });
         return;

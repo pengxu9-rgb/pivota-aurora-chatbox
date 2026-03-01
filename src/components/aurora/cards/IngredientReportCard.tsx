@@ -33,20 +33,48 @@ function asStringArray(value: unknown, max = 12): string[] {
 function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
   const obj = isPlainObject(raw) ? raw : null;
   if (!obj) return null;
-  if (asString(obj.schema_version) !== 'aurora.ingredient_report.v1') return null;
+  const schemaVersion = asString(obj.schema_version);
+  if (schemaVersion !== 'aurora.ingredient_report.v1' && schemaVersion !== 'aurora.ingredient_report.v2-lite') return null;
 
   const ingredient = isPlainObject(obj.ingredient) ? obj.ingredient : {};
   const verdict = isPlainObject(obj.verdict) ? obj.verdict : {};
   const howToUse = isPlainObject((obj as any).how_to_use) ? (obj as any).how_to_use : {};
   const evidence = isPlainObject(obj.evidence) ? obj.evidence : {};
+  const topProducts = isPlainObject((obj as any).top_products) ? (obj as any).top_products : {};
+  const researchStatus = asString((obj as any).research_status).toLowerCase();
+  const usage = isPlainObject((obj as any).usage) ? (obj as any).usage : {};
+  const routeDecisionReasons = asStringArray((obj as any).route_decision_reasons, 12);
+  const researchAttempts = asArray((obj as any).research_attempts)
+    .map((item) => (isPlainObject(item) ? item : null))
+    .filter(Boolean)
+    .map((item) => ({
+      provider: asString((item as any).provider) || 'gemini',
+      outcome: asString((item as any).outcome) || 'unknown',
+      ...(asString((item as any).reason_code) ? { reason_code: asString((item as any).reason_code) } : {}),
+    }))
+    .slice(0, 3);
 
   const payload: IngredientReportPayloadV1 = {
-    schema_version: 'aurora.ingredient_report.v1',
+    schema_version: schemaVersion as IngredientReportPayloadV1['schema_version'],
     locale: asString(obj.locale).toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US',
+    ...(researchStatus === 'none' || researchStatus === 'queued' || researchStatus === 'ready' || researchStatus === 'error' || researchStatus === 'skipped' || researchStatus === 'fallback'
+      ? { research_status: researchStatus as IngredientReportPayloadV1['research_status'] }
+      : {}),
+    ...(asString((obj as any).research_provider) ? { research_provider: asString((obj as any).research_provider) } : {}),
+    ...(asString((obj as any).research_error_code) ? { research_error_code: asString((obj as any).research_error_code) } : {}),
+    ...(asString((obj as any).normalized_query) ? { normalized_query: asString((obj as any).normalized_query) } : {}),
+    ...(routeDecisionReasons.length ? { route_decision_reasons: routeDecisionReasons } : {}),
+    ...(asString((obj as any).route_rule_version) ? { route_rule_version: asString((obj as any).route_rule_version) } : {}),
+    ...(asString((obj as any).kb_revision) ? { kb_revision: asString((obj as any).kb_revision) } : {}),
+    ...(asString((obj as any).provider_model_tier) ? { provider_model_tier: asString((obj as any).provider_model_tier) } : {}),
+    ...(asString((obj as any).provider_circuit_state) ? { provider_circuit_state: asString((obj as any).provider_circuit_state) } : {}),
+    ...(researchAttempts.length ? { research_attempts: researchAttempts } : {}),
+    ...(asString((obj as any).confidence) ? { confidence: asString((obj as any).confidence) as IngredientReportPayloadV1['confidence'] } : {}),
     ingredient: {
-      inci: asString(ingredient.inci) || 'unknown',
-      display_name: asString(ingredient.display_name) || asString(ingredient.inci) || 'unknown',
+      inci: asString(ingredient.inci) || 'N/A',
+      display_name: asString(ingredient.display_name) || asString(ingredient.inci) || 'N/A',
       aliases: asStringArray(ingredient.aliases, 8),
+      ...(asString((ingredient as any).what_it_is) ? { what_it_is: asString((ingredient as any).what_it_is) } : {}),
       category: asString(ingredient.category) || 'unknown',
     },
     verdict: {
@@ -65,6 +93,14 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
         typeof verdict.confidence === 'number' && Number.isFinite(verdict.confidence)
           ? Math.max(0, Math.min(1, verdict.confidence))
           : 0,
+      ...(asString((verdict as any).confidence_level)
+        ? { confidence_level: asString((verdict as any).confidence_level) as IngredientReportPayloadV1['verdict']['confidence_level'] }
+        : {}),
+    },
+    usage: {
+      time: asString((usage as any).time) || 'Both',
+      frequency: asString((usage as any).frequency) || null,
+      avoid: asStringArray((usage as any).avoid, 8),
     },
     benefits: asArray(obj.benefits)
       .map((item) => (isPlainObject(item) ? item : null))
@@ -79,7 +115,7 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
       frequency: (['daily', '3-4x/week', 'unknown'].includes(asString(howToUse.frequency))
         ? asString(howToUse.frequency)
         : 'unknown') as IngredientReportPayloadV1['how_to_use']['frequency'],
-      routine_step: (['serum', 'cream', 'unknown'].includes(asString(howToUse.routine_step))
+      routine_step: (['serum', 'cream', 'cleanser', 'toner', 'sunscreen', 'unknown'].includes(asString(howToUse.routine_step))
         ? asString(howToUse.routine_step)
         : 'unknown') as IngredientReportPayloadV1['how_to_use']['routine_step'],
       pair_well: asStringArray(howToUse.pair_well, 8),
@@ -107,6 +143,11 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
         products_from_kb: asStringArray((item as any).products_from_kb, 8),
       }))
       .slice(0, 4),
+    top_products: {
+      budget: asStringArray(topProducts.budget, 10),
+      mid: asStringArray(topProducts.mid, 10),
+      premium: asStringArray(topProducts.premium, 10),
+    },
     evidence: {
       summary: asString(evidence.summary),
       citations: asArray(evidence.citations)
@@ -122,7 +163,7 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
             : 'weak') as IngredientReportPayloadV1['evidence']['citations'][number]['relevance'],
         }))
         .slice(0, 8),
-      show_citations_by_default: false,
+      show_citations_by_default: Boolean(evidence.show_citations_by_default),
     },
     next_questions: asArray((obj as any).next_questions)
       .map((item) => (isPlainObject(item) ? item : null))
@@ -172,6 +213,15 @@ function chipTone(relevance: string): string {
   return 'border-border/60 bg-muted/60 text-muted-foreground';
 }
 
+function researchStatusLabel(status: IngredientReportPayloadV1['research_status'], language: UiLanguage): string {
+  if (status === 'ready') return zh(language) ? '深研已命中' : 'Deep research ready';
+  if (status === 'queued') return zh(language) ? '深研排队中' : 'Deep research queued';
+  if (status === 'fallback') return zh(language) ? '已降级为快速结果' : 'Fallback quick result';
+  if (status === 'error') return zh(language) ? '深研暂不可用' : 'Deep research unavailable';
+  if (status === 'skipped') return zh(language) ? '深研已跳过' : 'Deep research skipped';
+  return zh(language) ? '快速简报' : 'Quick brief';
+}
+
 export type IngredientReportQuestionSelection = {
   questionId: string;
   chip: string;
@@ -185,6 +235,8 @@ type IngredientReportCardProps = {
   nextQuestionBusy?: boolean;
   onSelectNextQuestion?: (selection: IngredientReportQuestionSelection) => void;
   onOpenProfile?: () => void;
+  onPollResearch?: (query: string) => void;
+  onRetryResearch?: (query: string) => void;
 };
 
 export function IngredientReportCard({
@@ -195,6 +247,8 @@ export function IngredientReportCard({
   nextQuestionBusy = false,
   onSelectNextQuestion,
   onOpenProfile,
+  onPollResearch,
+  onRetryResearch,
 }: IngredientReportCardProps) {
   const payload = normalizePayload(rawPayload);
 
@@ -207,6 +261,7 @@ export function IngredientReportCard({
   }
 
   const confidencePct = `${Math.round(Math.max(0, Math.min(1, payload.verdict.confidence)) * 100)}%`;
+  const effectiveQuery = asString(payload.normalized_query) || asString(payload.ingredient.inci) || asString(payload.ingredient.display_name);
   const hiddenSet = new Set(hiddenQuestionIds.map((id) => asString(id)).filter(Boolean));
   const visibleQuestions = payload.next_questions.filter((q) => !hiddenSet.has(q.id));
 
@@ -229,9 +284,49 @@ export function IngredientReportCard({
           <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
             {zh(language) ? `置信度 ${confidencePct}` : `Confidence ${confidencePct}`}
           </span>
+          {payload.research_status ? (
+            <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+              {researchStatusLabel(payload.research_status, language)}
+            </span>
+          ) : null}
         </div>
 
         <div className="text-sm font-semibold text-foreground">{payload.verdict.one_liner}</div>
+        {payload.research_status === 'queued' ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {zh(language) ? '当前为快速结果，增强证据生成中。' : 'This is a quick result. Enhanced evidence is generating.'}
+          </div>
+        ) : null}
+        {payload.research_status === 'fallback' || payload.research_status === 'error' ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {zh(language)
+              ? `增强研究暂不可用（${asString(payload.research_error_code) || 'fallback'}）。`
+              : `Enhanced research is unavailable (${asString(payload.research_error_code) || 'fallback'}).`}
+          </div>
+        ) : null}
+
+        {(payload.research_status === 'queued' || payload.research_status === 'fallback' || payload.research_status === 'error') && effectiveQuery ? (
+          <div className="flex flex-wrap gap-2">
+            {payload.research_status === 'queued' && onPollResearch ? (
+              <button
+                type="button"
+                className="chip-button chip-button-compact"
+                onClick={() => onPollResearch(effectiveQuery)}
+              >
+                {zh(language) ? '刷新增强结果' : 'Refresh enhanced result'}
+              </button>
+            ) : null}
+            {(payload.research_status === 'fallback' || payload.research_status === 'error') && onRetryResearch ? (
+              <button
+                type="button"
+                className="chip-button chip-button-compact"
+                onClick={() => onRetryResearch(effectiveQuery)}
+              >
+                {zh(language) ? '重试研究' : 'Retry research'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {payload.ingredient.aliases.length ? (
           <div className="text-xs text-muted-foreground">
@@ -239,20 +334,29 @@ export function IngredientReportCard({
             {payload.ingredient.aliases.join(' · ')}
           </div>
         ) : null}
+        {asString(payload.ingredient.what_it_is) ? (
+          <div className="text-xs text-muted-foreground">{payload.ingredient.what_it_is}</div>
+        ) : null}
       </div>
 
       <div className="space-y-2">
         <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Benefits' : 'Benefits'}</div>
         <div className="space-y-2">
-          {payload.benefits.slice(0, 4).map((item) => (
-            <div key={`${item.concern}_${item.what_it_means}`} className="rounded-xl border border-border/60 bg-background/60 p-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-foreground">{humanizeConcern(item.concern, language)}</span>
-                <span className="text-xs text-muted-foreground">{`S${item.strength}`}</span>
+          {payload.benefits.slice(0, 4).length ? (
+            payload.benefits.slice(0, 4).map((item) => (
+              <div key={`${item.concern}_${item.what_it_means}`} className="rounded-xl border border-border/60 bg-background/60 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-foreground">{humanizeConcern(item.concern, language)}</span>
+                  <span className="text-xs text-muted-foreground">{`S${item.strength}`}</span>
+                </div>
+                {item.what_it_means ? <div className="mt-1 text-xs text-muted-foreground">{item.what_it_means}</div> : null}
               </div>
-              {item.what_it_means ? <div className="mt-1 text-xs text-muted-foreground">{item.what_it_means}</div> : null}
+            ))
+          ) : (
+            <div className="rounded-xl border border-border/60 bg-background/60 p-2 text-xs text-muted-foreground">
+              {zh(language) ? '暂无足够证据，建议稍后刷新增强结果。' : 'Insufficient evidence for now. Refresh later for enhanced details.'}
             </div>
-          ))}
+          )}
         </div>
       </div>
 
@@ -280,15 +384,21 @@ export function IngredientReportCard({
 
         <div className="rounded-xl border border-border/60 bg-background/60 p-3">
           <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Watchouts' : 'Watchouts'}</div>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {payload.watchouts.slice(0, 4).map((watch) => (
-              <li key={`${watch.issue}_${watch.what_to_do}`}>
-                <span className="font-medium">{watch.issue}</span>
-                <span className="text-xs text-muted-foreground">{` (${watch.likelihood})`}</span>
-                {watch.what_to_do ? <div className="text-xs text-muted-foreground">{watch.what_to_do}</div> : null}
-              </li>
-            ))}
-          </ul>
+          {payload.watchouts.slice(0, 4).length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {payload.watchouts.slice(0, 4).map((watch) => (
+                <li key={`${watch.issue}_${watch.what_to_do}`}>
+                  <span className="font-medium">{watch.issue}</span>
+                  <span className="text-xs text-muted-foreground">{` (${watch.likelihood})`}</span>
+                  {watch.what_to_do ? <div className="text-xs text-muted-foreground">{watch.what_to_do}</div> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {zh(language) ? '当前暂无额外注意点。' : 'No additional watchouts yet.'}
+            </div>
+          )}
         </div>
       </div>
 
@@ -312,6 +422,52 @@ export function IngredientReportCard({
                 ) : null}
               </div>
             ))}
+          </div>
+        </div>
+      ) : null}
+
+      {payload.top_products && (payload.top_products.budget.length || payload.top_products.mid.length || payload.top_products.premium.length) ? (
+        <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+          <div className="text-xs font-semibold text-muted-foreground">
+            {zh(language) ? 'Top 产品（按价位）' : 'Top products by budget tier'}
+          </div>
+          <div className="mt-2 space-y-2 text-sm text-foreground">
+            {payload.top_products.budget.length ? (
+              <div>
+                <div className="text-xs text-muted-foreground">{zh(language) ? 'Budget' : 'Budget'}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {payload.top_products.budget.slice(0, 4).map((name) => (
+                    <span key={`budget_${name}`} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {payload.top_products.mid.length ? (
+              <div>
+                <div className="text-xs text-muted-foreground">{zh(language) ? 'Mid' : 'Mid'}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {payload.top_products.mid.slice(0, 4).map((name) => (
+                    <span key={`mid_${name}`} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {payload.top_products.premium.length ? (
+              <div>
+                <div className="text-xs text-muted-foreground">{zh(language) ? 'Premium' : 'Premium'}</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {payload.top_products.premium.slice(0, 4).map((name) => (
+                    <span key={`premium_${name}`} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
