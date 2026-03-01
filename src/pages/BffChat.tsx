@@ -2843,20 +2843,39 @@ export function RecommendationsCard({
     'recent_logs_missing',
     'itinerary_unknown',
     'analysis_missing',
+    'upstream_analysis_missing',
     'evidence_missing',
     'upstream_missing_or_unstructured',
     'upstream_missing_or_empty',
     'alternatives_partial',
   ]);
+  const internalOnlyWarningCodes = new Set([
+    'analysis_missing',
+    'upstream_analysis_missing',
+    'recent_logs_missing',
+    'itinerary_unknown',
+    'evidence_missing',
+    'upstream_missing_or_unstructured',
+    'upstream_missing_or_empty',
+  ]);
 
   const rawMissing = uniqueStrings(
     Array.isArray(payload.missing_info) && payload.missing_info.length ? (payload.missing_info as unknown[]) : [],
   );
-  const rawWarnings = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
+  const rawWarningsLegacy = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
+  const rawWarningsUserVisible = uniqueStrings((payload as any)?.warning_codes_user_visible);
+  const rawWarningsInternal = uniqueStrings((payload as any)?.warning_codes_internal);
+  const resolvedWarnings = rawWarningsUserVisible.length
+    ? rawWarningsUserVisible
+    : uniqueStrings(rawWarningsLegacy.filter((code) => !internalOnlyWarningCodes.has(String(code || '').trim())));
 
   const warningCandidates = debug
-    ? uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))])
-    : uniqueStrings(rawWarnings);
+    ? uniqueStrings([
+      ...resolvedWarnings,
+      ...rawWarningsInternal,
+      ...rawMissing.filter((c) => warningLike.has(String(c))),
+    ])
+    : resolvedWarnings;
   const showWarnings = warningCandidates.slice(0, 6);
   const suppressWhenRecoPresent = new Set([
     'analysis_missing',
