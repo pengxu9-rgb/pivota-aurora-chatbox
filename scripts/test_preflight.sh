@@ -50,8 +50,8 @@ if [[ "$(basename "$cwd")" != "$PROJECT_DIR_NAME" ]]; then
   fail "run tests from project root '$PROJECT_DIR_NAME'. current: $cwd"
 fi
 
-if [[ "$cwd" == *"/Desktop/"* && "${ALLOW_DESKTOP_WORKSPACE:-0}" != "1" ]]; then
-  fail "workspace under Desktop is not allowed by default. move to ~/dev or set ALLOW_DESKTOP_WORKSPACE=1 temporarily."
+if [[ "$cwd" == *"/Desktop/"* ]]; then
+  fail "workspace under Desktop is blocked. move to ~/dev and run tests there."
 fi
 
 if [[ ! -f package.json ]]; then

@@ -1,17 +1,17 @@
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
-export type IngredientEvidenceGrade = 'A' | 'B' | 'C' | 'unknown';
+export type IngredientEvidenceGrade = 'A' | 'B' | 'C' | null;
 
-export type IngredientRiskLevel = 'low' | 'medium' | 'high' | 'unknown';
+export type IngredientRiskLevel = 'low' | 'medium' | 'high' | null;
 
-export type IngredientTimeToResults = '2-4w' | '4-8w' | '8-12w' | 'unknown';
+export type IngredientTimeToResults = '2-4w' | '4-8w' | '8-12w' | null;
 
 export type CitationRelevance = 'strong' | 'category' | 'weak';
 
 export type IngredientReportLocale = 'en-US' | 'zh-CN';
 
 export type IngredientReportPayloadV1 = {
-  schema_version: 'aurora.ingredient_report.v1';
+  schema_version: 'aurora.ingredient_report.v1' | 'aurora.ingredient_report.v2-lite';
   locale: IngredientReportLocale;
   ingredient: {
     inci: string;
@@ -26,19 +26,20 @@ export type IngredientReportPayloadV1 = {
     evidence_grade: IngredientEvidenceGrade;
     irritation_risk: IngredientRiskLevel;
     time_to_results: IngredientTimeToResults;
-    confidence: number;
+    confidence: number | null;
+    confidence_level?: 'low' | 'medium' | 'high';
   };
   benefits: Array<{ concern: string; strength: 0 | 1 | 2 | 3; what_it_means: string }>;
   how_to_use: {
-    frequency: 'daily' | '3-4x/week' | 'unknown';
-    routine_step: 'serum' | 'cream' | 'unknown';
+    frequency: string | null;
+    routine_step: string | null;
     pair_well: string[];
     consider_separating: string[];
     notes: string[];
   };
   watchouts: Array<{
     issue: string;
-    likelihood: 'uncommon' | 'common' | 'rare' | 'unknown';
+    likelihood: 'uncommon' | 'common' | 'rare' | null;
     what_to_do: string;
   }>;
   use_cases: Array<{
@@ -54,12 +55,12 @@ export type IngredientReportPayloadV1 = {
       url: string;
       year: number | null;
       source: string | null;
-      relevance: CitationRelevance;
+      relevance: CitationRelevance | null;
     }>;
-    show_citations_by_default: false;
+    show_citations_by_default: boolean;
   };
   next_questions: Array<{ id: string; label: string; chips: string[] }>;
-  research_status?: 'ready' | 'fallback' | 'disabled' | 'provider_unavailable' | 'queued';
+  research_status?: 'ready' | 'fallback' | 'disabled' | 'provider_unavailable' | 'queued' | 'error' | 'none';
   research_provider?: 'gemini' | 'openai' | null;
   research_attempts?: Array<{ provider: string; outcome: string; reason_code: string }>;
   research_error_code?: string;
@@ -72,6 +73,12 @@ export type IngredientReportPayloadV1 = {
     pdp_url?: string;
   }>;
   updated_at_ms?: number;
+  normalized_query?: string | null;
+  route_decision_reasons?: string[];
+  route_rule_version?: string | null;
+  kb_revision?: string | null;
+  provider_model_tier?: string | null;
+  provider_circuit_state?: 'open' | 'half_open' | 'closed' | string | null;
   personalized_fit?: {
     summary?: string;
     adjustments?: string[];

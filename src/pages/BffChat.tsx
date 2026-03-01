@@ -3247,6 +3247,7 @@ function BffCardView({
         nextQuestionBusy={Boolean(ingredientQuestionBusy)}
         onSelectNextQuestion={onIngredientQuestionSelect}
         onOpenProfile={onOpenProfile}
+        onAction={onAction}
       />
     );
   }
@@ -7526,6 +7527,33 @@ export default function BffChat() {
             ...(data || {}),
             goal: goal || 'barrier',
             sensitivity: sensitivity || 'unknown',
+          },
+        });
+        return;
+      }
+
+      if (actionId === 'ingredient.research.poll') {
+        const ingredientQuery =
+          typeof data?.ingredient_query === 'string'
+            ? data.ingredient_query.trim()
+            : typeof data?.query === 'string'
+              ? data.query.trim()
+              : '';
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? '刷新增强结果' : 'Refresh enhanced result',
+          },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'ingredient.research.poll',
+          kind: 'action',
+          data: {
+            ...(data || {}),
+            ...(ingredientQuery ? { ingredient_query: ingredientQuery } : {}),
           },
         });
         return;
