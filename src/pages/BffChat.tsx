@@ -5787,6 +5787,8 @@ export default function BffChat() {
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
+  const [photoSheetAutoOpenSlot, setPhotoSheetAutoOpenSlot] = useState<'daylight' | 'indoor_white' | null>(null);
+  const [photoSheetAutoOpenNonce, setPhotoSheetAutoOpenNonce] = useState(0);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
   const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
   const [authSheetOpen, setAuthSheetOpen] = useState(false);
@@ -6948,6 +6950,7 @@ export default function BffChat() {
 
   const handlePickPhoto = useCallback(() => {
     setPromptRoutineAfterPhoto(false);
+    setPhotoSheetAutoOpenSlot(null);
     setPhotoSheetOpen(true);
   }, [setPhotoSheetOpen]);
 
@@ -8206,6 +8209,10 @@ export default function BffChat() {
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
       const id = String(chip.chip_id || '').trim();
+      const chipData = asObject(chip.data) || {};
+      const actionIdOverride = asString((chipData as any).action_id);
+      const clientAction = asString((chipData as any).client_action).toLowerCase();
+      const effectiveActionId = actionIdOverride || id;
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
       const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
@@ -8489,8 +8496,14 @@ export default function BffChat() {
         return;
       }
 
-      if (id === 'chip.intake.upload_photos') {
+      const isCameraClientAction =
+        clientAction === 'open_camera' ||
+        effectiveActionId === 'diag.upload_photo' ||
+        id === 'chip.intake.upload_photos';
+      if (isCameraClientAction) {
         setPromptRoutineAfterPhoto(true);
+        setPhotoSheetAutoOpenSlot('daylight');
+        setPhotoSheetAutoOpenNonce((prev) => prev + 1);
         setPhotoSheetOpen(true);
         return;
       }
@@ -8516,8 +8529,6 @@ export default function BffChat() {
         return;
       }
 
-      const chipData = asObject(chip.data) || {};
-      const actionIdOverride = asString(chipData.action_id);
       const actionPayloadData =
         actionIdOverride && actionIdOverride !== chip.chip_id
           ? { ...chipData, chip_id: chip.chip_id }
@@ -8620,6 +8631,7 @@ export default function BffChat() {
     setProfileSheetOpen(false);
     setCheckinSheetOpen(false);
     setPhotoSheetOpen(false);
+    setPhotoSheetAutoOpenSlot(null);
     setRoutineSheetOpen(false);
     setProductSheetOpen(false);
     setDupeSheetOpen(false);
@@ -8646,6 +8658,7 @@ export default function BffChat() {
 
     if (searchParams.open === 'photo') {
       setPromptRoutineAfterPhoto(false);
+      setPhotoSheetAutoOpenSlot(null);
       setPhotoSheetOpen(true);
     }
     if (searchParams.open === 'routine') {
@@ -9139,16 +9152,24 @@ export default function BffChat() {
             onClose={() => {
               if (isLoading || photoUploading) return;
               setPhotoSheetOpen(false);
+              setPhotoSheetAutoOpenSlot(null);
               setPromptRoutineAfterPhoto(false);
             }}
             onOpenMenu={() => {
               if (isLoading || photoUploading) return;
               setPhotoSheetOpen(false);
+              setPhotoSheetAutoOpenSlot(null);
               setPromptRoutineAfterPhoto(false);
               setSidebarOpen(true);
             }}
           >
-            <PhotoUploadCard language={language} onAction={onPhotoAction} uploading={photoUploading} />
+            <PhotoUploadCard
+              language={language}
+              onAction={onPhotoAction}
+              uploading={photoUploading}
+              autoOpenSlot={photoSheetAutoOpenSlot}
+              autoOpenNonce={photoSheetAutoOpenNonce}
+            />
           </Sheet>
           <Sheet
             open={routineSheetOpen}

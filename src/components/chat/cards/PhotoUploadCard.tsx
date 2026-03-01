@@ -17,9 +17,17 @@ interface PhotoUploadCardProps {
   onAction: (actionId: string, data?: Record<string, any>) => void;
   language: Language;
   uploading?: boolean;
+  autoOpenSlot?: 'daylight' | 'indoor_white' | null;
+  autoOpenNonce?: number;
 }
 
-export function PhotoUploadCard({ onAction, language, uploading = false }: PhotoUploadCardProps) {
+export function PhotoUploadCard({
+  onAction,
+  language,
+  uploading = false,
+  autoOpenSlot = null,
+  autoOpenNonce = 0,
+}: PhotoUploadCardProps) {
   type SlotId = 'daylight' | 'indoor_white';
   type FrameCheck = NonNullable<PhotoSlot['frameCheck']>;
   type FrameIssue = FrameCheck['issues'][number];
@@ -50,6 +58,7 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
 
   const [guardNeedsConfirm, setGuardNeedsConfirm] = useState(false);
   const [guardSlots, setGuardSlots] = useState<SlotId[]>([]);
+  const autoOpenHandledNonceRef = useRef<number>(0);
 
   const copy = useMemo(
     () =>
@@ -313,6 +322,15 @@ export function PhotoUploadCard({ onAction, language, uploading = false }: Photo
     },
     [uploading]
   );
+
+  useEffect(() => {
+    const slot = autoOpenSlot;
+    if (!slot || uploading) return;
+    if (autoOpenNonce <= 0) return;
+    if (autoOpenHandledNonceRef.current === autoOpenNonce) return;
+    autoOpenHandledNonceRef.current = autoOpenNonce;
+    openCamera(slot);
+  }, [autoOpenNonce, autoOpenSlot, openCamera, uploading]);
 
   const closeCamera = useCallback(() => {
     setCameraSlot(null);
