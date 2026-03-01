@@ -133,6 +133,51 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
         chips: asStringArray((item as any).chips, 8),
       }))
       .slice(0, 3),
+    research_status: normalizeResearchStatus((obj as any).research_status),
+    research_provider: (() => {
+      const provider = asString((obj as any).research_provider).toLowerCase();
+      if (provider === 'gemini' || provider === 'openai') return provider as 'gemini' | 'openai';
+      return null;
+    })(),
+    research_attempts: asArray((obj as any).research_attempts)
+      .map((item) => (isPlainObject(item) ? item : null))
+      .filter(Boolean)
+      .map((item) => ({
+        provider: asString((item as any).provider) || 'unknown',
+        outcome: asString((item as any).outcome) || 'unknown',
+        reason_code: asString((item as any).reason_code) || 'unknown',
+      }))
+      .slice(0, 3),
+    research_error_code: asString((obj as any).research_error_code) || undefined,
+    top_products: asArray((obj as any).top_products)
+      .map((item) => (isPlainObject(item) ? item : null))
+      .filter(Boolean)
+      .map((item) => ({
+        name: asString((item as any).name) || 'unknown',
+        brand: asString((item as any).brand) || undefined,
+        category: asString((item as any).category) || undefined,
+        price_tier: asString((item as any).price_tier) || undefined,
+        why: asString((item as any).why) || undefined,
+        pdp_url: asString((item as any).pdp_url) || undefined,
+      }))
+      .slice(0, 6),
+    updated_at_ms: (() => {
+      const n = Number((obj as any).updated_at_ms);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
+    personalized_fit: (() => {
+      const fit = isPlainObject((obj as any).personalized_fit) ? (obj as any).personalized_fit : null;
+      if (!fit) return undefined;
+      const summary = asString((fit as any).summary);
+      const adjustments = asStringArray((fit as any).adjustments, 8);
+      const warnings = asStringArray((fit as any).warnings, 8);
+      if (!summary && adjustments.length === 0 && warnings.length === 0) return undefined;
+      return {
+        ...(summary ? { summary } : {}),
+        ...(adjustments.length ? { adjustments } : {}),
+        ...(warnings.length ? { warnings } : {}),
+      };
+    })(),
   };
 
   return payload;
@@ -172,6 +217,30 @@ function chipTone(relevance: string): string {
   return 'border-border/60 bg-muted/60 text-muted-foreground';
 }
 
+function normalizeResearchStatus(value: unknown): 'ready' | 'fallback' | 'disabled' | 'provider_unavailable' | 'queued' {
+  const token = asString(value).toLowerCase();
+  if (token === 'ready' || token === 'fallback' || token === 'disabled' || token === 'provider_unavailable' || token === 'queued') {
+    return token;
+  }
+  return 'ready';
+}
+
+function formatUpdatedAt(value: number | null, language: UiLanguage): string {
+  if (!Number.isFinite(value || NaN) || !value || value <= 0) return '';
+  try {
+    const locale = language === 'CN' ? 'zh-CN' : 'en-US';
+    return new Intl.DateTimeFormat(locale, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value));
+  } catch {
+    return '';
+  }
+}
+
 export type IngredientReportQuestionSelection = {
   questionId: string;
   chip: string;
@@ -209,6 +278,14 @@ export function IngredientReportCard({
   const confidencePct = `${Math.round(Math.max(0, Math.min(1, payload.verdict.confidence)) * 100)}%`;
   const hiddenSet = new Set(hiddenQuestionIds.map((id) => asString(id)).filter(Boolean));
   const visibleQuestions = payload.next_questions.filter((q) => !hiddenSet.has(q.id));
+  const updatedAtText = formatUpdatedAt(payload.updated_at_ms ?? null, language);
+  const researchStatusLabel = (() => {
+    if (payload.research_status === 'ready') return zh(language) ? '研究完成' : 'Research ready';
+    if (payload.research_status === 'queued') return zh(language) ? '研究排队中' : 'Research queued';
+    if (payload.research_status === 'fallback') return zh(language) ? '基础结果' : 'Fallback result';
+    if (payload.research_status === 'provider_unavailable') return zh(language) ? '研究服务不可用' : 'Provider unavailable';
+    return zh(language) ? '研究关闭' : 'Research disabled';
+  })();
 
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/80 p-4">
@@ -229,9 +306,23 @@ export function IngredientReportCard({
           <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
             {zh(language) ? `置信度 ${confidencePct}` : `Confidence ${confidencePct}`}
           </span>
+          <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+            {researchStatusLabel}
+          </span>
+          {payload.research_provider ? (
+            <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+              {zh(language) ? `提供方 ${payload.research_provider}` : `Provider ${payload.research_provider}`}
+            </span>
+          ) : null}
         </div>
 
         <div className="text-sm font-semibold text-foreground">{payload.verdict.one_liner}</div>
+
+        {updatedAtText ? (
+          <div className="text-xs text-muted-foreground">
+            {zh(language) ? `更新于：${updatedAtText}` : `Updated: ${updatedAtText}`}
+          </div>
+        ) : null}
 
         {payload.ingredient.aliases.length ? (
           <div className="text-xs text-muted-foreground">
@@ -313,6 +404,51 @@ export function IngredientReportCard({
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {Array.isArray(payload.top_products) && payload.top_products.length ? (
+        <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+          <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? '相关产品（Top）' : 'Top related products'}</div>
+          <div className="mt-2 space-y-2">
+            {payload.top_products.slice(0, 5).map((item, idx) => (
+              <div key={`${item.name}_${idx}`} className="rounded-lg border border-border/50 bg-background/70 p-2">
+                <div className="text-sm font-medium text-foreground">{item.name}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {[item.brand, item.category, item.price_tier].filter(Boolean).join(' · ')}
+                </div>
+                {item.why ? <div className="mt-1 text-xs text-muted-foreground">{item.why}</div> : null}
+                {item.pdp_url ? (
+                  <a className="mt-1 inline-block break-all text-[11px] text-sky-600 underline" href={item.pdp_url} target="_blank" rel="noreferrer">
+                    {item.pdp_url}
+                  </a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {payload.personalized_fit ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+          <div className="text-xs font-semibold text-emerald-800">{zh(language) ? '个性化匹配' : 'Personalized fit'}</div>
+          {payload.personalized_fit.summary ? (
+            <div className="mt-1 text-sm text-emerald-900">{payload.personalized_fit.summary}</div>
+          ) : null}
+          {Array.isArray(payload.personalized_fit.adjustments) && payload.personalized_fit.adjustments.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-emerald-900">
+              {payload.personalized_fit.adjustments.slice(0, 4).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
+          {Array.isArray(payload.personalized_fit.warnings) && payload.personalized_fit.warnings.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-900">
+              {payload.personalized_fit.warnings.slice(0, 3).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
