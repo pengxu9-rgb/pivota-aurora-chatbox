@@ -158,6 +158,16 @@ export const emitPdpLatencyMs = (
   } & Record<string, unknown>,
 ) => emitWithContext('pdp_latency_ms', ctx, props);
 
+export const emitRecommendationDetailsSheetOpened = (
+  ctx: AnalyticsContext,
+  props: {
+    track_count: number;
+    item_count: number;
+    source?: string | null;
+    anchor_key?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('recommendation_details_sheet_opened', ctx, props);
+
 export const emitAgentStateEntered = (
   ctx: AnalyticsContext,
   props: {

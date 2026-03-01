@@ -24,7 +24,7 @@ export type Market = 'US' | 'EU' | 'UK' | 'Canada' | 'Singapore' | 'Global';
 export type BudgetTier = '$' | '$$' | '$$$';
 export type CheckoutOutcome = 'success' | 'failure_payment' | 'failure_expired';
 
-export type RecommendationSourceMode = 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
+export type RecommendationSourceMode = 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
 
 export interface AuroraAnalysisMeta {
   detector_source: string;
@@ -39,6 +39,19 @@ export interface AuroraRecommendationMeta {
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
+  trigger_source?: string | null;
+  recompute_from_profile_update?: boolean;
+  llm_trace?: {
+    template_id?: string;
+    prompt_hash?: string;
+    prompt_chars?: number;
+    token_est?: number;
+    latency_ms?: number | null;
+    cache_hit?: boolean;
+    provider?: string | null;
+    model?: string | null;
+    [k: string]: unknown;
+  } | null;
   env_source?: string | null;
   epi?: number | null;
   active_trip_id?: string | null;

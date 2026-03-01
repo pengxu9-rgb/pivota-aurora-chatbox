@@ -33,10 +33,23 @@ export type AnalysisMeta = {
 };
 
 export type RecommendationMeta = {
-  source_mode: 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
+  source_mode: 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
+  trigger_source?: string | null;
+  recompute_from_profile_update?: boolean;
+  llm_trace?: {
+    template_id?: string;
+    prompt_hash?: string;
+    prompt_chars?: number;
+    token_est?: number;
+    latency_ms?: number | null;
+    cache_hit?: boolean;
+    provider?: string | null;
+    model?: string | null;
+    [k: string]: unknown;
+  } | null;
   env_source?: string | null;
   epi?: number | null;
   active_trip_id?: string | null;
@@ -209,5 +222,35 @@ export const sendRecoEmployeeFeedback = async (
   return bffJson('/v1/reco/employee-feedback', headers, {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+};
+
+export type RecoAlternativesRequest = {
+  product_input?: string;
+  product?: Record<string, unknown>;
+  anchor_product_id?: string;
+  max_total?: number;
+  include_debug?: boolean;
+};
+
+export type RecoAlternativesResponse = {
+  request_id: string;
+  trace_id: string;
+  ok: boolean;
+  alternatives: Array<Record<string, unknown>>;
+  field_missing?: Array<Record<string, unknown>>;
+  llm_trace?: Record<string, unknown> | null;
+  debug?: Record<string, unknown>;
+};
+
+export const fetchRecoAlternatives = async (
+  headers: BffHeaders,
+  body: RecoAlternativesRequest,
+  options: { timeoutMs?: number } = {},
+): Promise<RecoAlternativesResponse> => {
+  return bffJson('/v1/reco/alternatives', headers, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    ...(Number.isFinite(Number(options.timeoutMs)) ? { timeoutMs: Number(options.timeoutMs) } : {}),
   });
 };

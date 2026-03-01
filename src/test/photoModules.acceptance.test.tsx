@@ -254,15 +254,16 @@ describe('photo_modules_v1 acceptance', () => {
     expect(baseCanvas).toBeInTheDocument();
     expect(highlightCanvas).toBeInTheDocument();
 
-    expect(baseCanvas).toHaveAttribute('data-focused', '0');
-    expect(highlightCanvas).toHaveAttribute('data-highlight-count', '3');
-    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'none');
-
-    fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
     expect(baseCanvas).toHaveAttribute('data-focused', '1');
-    expect(highlightCanvas).toHaveAttribute('data-highlight-count', '2');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
 
+    fireEvent.click(screen.getByTestId('photo-modules-module-right_cheek'));
+    expect(baseCanvas).toHaveAttribute('data-focused', '1');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
+    expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
+
+    fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
     fireEvent.click(screen.getByTestId('photo-modules-issue-shine'));
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-visible-count', '1');

@@ -56,6 +56,14 @@ const regionStyleSchema = z.object({
   label_hint: z.string().trim().min(1).max(64),
 });
 
+const signalStatsSchema = z
+  .object({
+    max: z.number(),
+    p90: z.number(),
+    source: z.enum(['raw', 'proxy']),
+  })
+  .passthrough();
+
 const regionSchema = z
   .object({
     region_id: asNonEmptyString,
@@ -72,6 +80,7 @@ const regionSchema = z
     heatmap: heatmapSchema.optional(),
     style: regionStyleSchema,
     quality_flags: z.array(z.enum(QUALITY_FLAGS)).optional(),
+    signal_stats: signalStatsSchema.optional(),
   })
   .passthrough();
 
@@ -80,6 +89,8 @@ const issueSchema = z
     issue_type: z.enum(ISSUE_TYPES),
     severity_0_4: z.number(),
     confidence_0_1: z.number(),
+    issue_rank_score: z.number().optional(),
+    confidence_bucket: z.enum(['low', 'medium', 'high']).optional(),
     evidence_region_ids: z.array(asNonEmptyString).default([]),
     explanation_short: z.string().trim().min(1).max(220),
   })
@@ -100,6 +111,8 @@ const actionSchema = z
       })
       .default({ time: 'AM_PM', frequency: '2-3x_week', notes: '' }),
     cautions: z.array(z.string().trim().min(1).max(200)).default([]),
+    action_rank_score: z.number().optional(),
+    group: z.enum(['top', 'more']).optional(),
     evidence_issue_types: z.array(z.enum(ISSUE_TYPES)).default([]),
     timeline: z.string().trim().max(200).optional(),
     do_not_mix: z.array(z.string().trim().min(1).max(140)).optional(),
@@ -159,6 +172,7 @@ const moduleSchema = z
     module_id: z.enum(MODULE_IDS),
     issues: z.array(issueSchema).default([]),
     actions: z.array(actionSchema).default([]),
+    module_rank_score: z.number().optional(),
     products: z.array(productSchema).optional(),
     box: bboxSchema.optional(),
     mask_rle_norm: z.union([moduleMaskRleSchema, z.string().trim().min(1)]).optional(),
@@ -209,6 +223,17 @@ const photoModulesPayloadSchema = z
     face_crop: faceCropSchema,
     regions: z.array(regionSchema),
     modules: z.array(moduleSchema),
+    summary_v1: z
+      .object({
+        top_module_id: z.enum(MODULE_IDS).optional(),
+        top_issue_type: z.enum(ISSUE_TYPES).nullable().optional(),
+        top_issue_severity: z.number().nullable().optional(),
+        top_issue_confidence: z.number().nullable().optional(),
+        top_action_ingredient_id: z.string().trim().nullable().optional(),
+        top_product_id: z.string().trim().nullable().optional(),
+      })
+      .passthrough()
+      .optional(),
     disclaimers: z
       .object({
         non_medical: z.boolean().optional(),
@@ -264,12 +289,19 @@ export type PhotoModulesRegion = {
   };
   quality_flags: Array<(typeof QUALITY_FLAGS)[number]>;
   notes?: string[];
+  signal_stats?: {
+    max: number;
+    p90: number;
+    source: 'raw' | 'proxy';
+  };
 };
 
 export type PhotoModulesIssue = {
   issue_type: (typeof ISSUE_TYPES)[number];
   severity_0_4: number;
   confidence_0_1: number;
+  issue_rank_score: number | null;
+  confidence_bucket: 'low' | 'medium' | 'high' | null;
   evidence_region_ids: string[];
   explanation_short: string;
 };
@@ -286,6 +318,8 @@ export type PhotoModulesAction = {
     notes: string;
   };
   cautions: string[];
+  action_rank_score: number | null;
+  group: 'top' | 'more' | null;
   evidence_issue_types: Array<(typeof ISSUE_TYPES)[number]>;
   timeline: string;
   do_not_mix: string[];
@@ -332,6 +366,7 @@ export type PhotoModulesModule = {
   module_id: (typeof MODULE_IDS)[number];
   issues: PhotoModulesIssue[];
   actions: PhotoModulesAction[];
+  module_rank_score: number | null;
   products: PhotoModulesProduct[];
   box?: Bbox | null;
   mask_rle_norm?:
@@ -365,6 +400,14 @@ export type PhotoModulesUiModelV1 = {
   };
   regions: PhotoModulesRegion[];
   modules: PhotoModulesModule[];
+  summary_v1: {
+    top_module_id: (typeof MODULE_IDS)[number] | null;
+    top_issue_type: (typeof ISSUE_TYPES)[number] | null;
+    top_issue_severity: number | null;
+    top_issue_confidence: number | null;
+    top_action_ingredient_id: string | null;
+    top_product_id: string | null;
+  } | null;
   disclaimers: {
     non_medical: boolean;
     seek_care_triggers: string[];
@@ -592,6 +635,19 @@ const sanitizeHeatmapRegion = (region: RawRegion): { region: PhotoModulesRegion 
   }
 
   const normalizedValues = values.map((value) => clamp01(Number.isFinite(value) ? value : 0));
+  const signalStatsRaw = (region as any).signal_stats && typeof (region as any).signal_stats === 'object'
+    ? (region as any).signal_stats
+    : null;
+  const signalSourceRaw = String(signalStatsRaw?.source || '').trim().toLowerCase();
+  const signalSource = signalSourceRaw === 'proxy' ? 'proxy' : signalSourceRaw === 'raw' ? 'raw' : null;
+  const signalStats =
+    signalSource && Number.isFinite(Number(signalStatsRaw?.max)) && Number.isFinite(Number(signalStatsRaw?.p90))
+      ? {
+          max: clamp01(Number(signalStatsRaw.max)),
+          p90: clamp01(Number(signalStatsRaw.p90)),
+          source: signalSource,
+        }
+      : undefined;
   return {
     region: {
       region_id: region.region_id,
@@ -611,6 +667,7 @@ const sanitizeHeatmapRegion = (region: RawRegion): { region: PhotoModulesRegion 
         label_hint: normalizeLabelHint(region.style.label_hint),
       },
       quality_flags: Array.isArray(region.quality_flags) ? region.quality_flags : [],
+      ...(signalStats ? { signal_stats: signalStats } : {}),
     },
   };
 };
@@ -625,6 +682,14 @@ const normalizeIssue = (issue: RawIssue, validRegionIds: Set<string>): PhotoModu
   issue_type: issue.issue_type,
   severity_0_4: clampSeverity(issue.severity_0_4),
   confidence_0_1: clampConfidence(issue.confidence_0_1),
+  issue_rank_score: Number.isFinite(Number((issue as any).issue_rank_score))
+    ? Number((issue as any).issue_rank_score)
+    : null,
+  confidence_bucket: (() => {
+    const bucket = String((issue as any).confidence_bucket || '').trim().toLowerCase();
+    if (bucket === 'low' || bucket === 'medium' || bucket === 'high') return bucket;
+    return null;
+  })(),
   evidence_region_ids: toUniqueList(issue.evidence_region_ids).filter((id) => validRegionIds.has(id)),
   explanation_short: issue.explanation_short.trim(),
 });
@@ -661,6 +726,14 @@ const normalizeAction = (action: RawAction): PhotoModulesAction => ({
     notes: action.how_to_use.notes,
   },
   cautions: toUniqueList(action.cautions, 6),
+  action_rank_score: Number.isFinite(Number((action as any).action_rank_score))
+    ? Number((action as any).action_rank_score)
+    : null,
+  group: (() => {
+    const token = String((action as any).group || '').trim().toLowerCase();
+    if (token === 'top' || token === 'more') return token;
+    return null;
+  })(),
   evidence_issue_types: action.evidence_issue_types,
   timeline: action.timeline?.trim() || defaultTimeline(action),
   do_not_mix: toUniqueList(action.do_not_mix ?? [], 6).length
@@ -804,6 +877,9 @@ const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoM
     module_id: module.module_id,
     issues,
     actions: module.actions.map((action) => normalizeAction(action)),
+    module_rank_score: Number.isFinite(Number((module as any).module_rank_score))
+      ? Number((module as any).module_rank_score)
+      : null,
     products: (Array.isArray(module.products) ? module.products : []).map((product) => normalizeProduct(product)).slice(0, 3),
     ...(normalizedBox ? { box: normalizedBox } : {}),
     ...(maskGrid ? { mask_grid: maskGrid } : {}),
@@ -818,6 +894,33 @@ const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoM
       : {}),
     ...(module.degraded_reason ? { degraded_reason: String(module.degraded_reason).trim() || null } : {}),
     ...(moduleEvidenceRegionIds.length ? { evidence_region_ids: moduleEvidenceRegionIds } : {}),
+  };
+};
+
+const normalizeSummaryV1 = (payload: RawPayload): PhotoModulesUiModelV1['summary_v1'] => {
+  const rawSummary = (payload as any).summary_v1;
+  if (!rawSummary || typeof rawSummary !== 'object' || Array.isArray(rawSummary)) return null;
+
+  const topModuleToken = String(rawSummary.top_module_id || '').trim();
+  const topIssueToken = String(rawSummary.top_issue_type || '').trim();
+  const topModuleId = MODULE_IDS.includes(topModuleToken as any)
+    ? (topModuleToken as (typeof MODULE_IDS)[number])
+    : null;
+  const topIssueType = ISSUE_TYPES.includes(topIssueToken as any)
+    ? (topIssueToken as (typeof ISSUE_TYPES)[number])
+    : null;
+
+  return {
+    top_module_id: topModuleId,
+    top_issue_type: topIssueType,
+    top_issue_severity: Number.isFinite(Number(rawSummary.top_issue_severity))
+      ? Number(rawSummary.top_issue_severity)
+      : null,
+    top_issue_confidence: Number.isFinite(Number(rawSummary.top_issue_confidence))
+      ? clampConfidence(Number(rawSummary.top_issue_confidence))
+      : null,
+    top_action_ingredient_id: firstNonEmpty(String(rawSummary.top_action_ingredient_id || '').trim() || undefined),
+    top_product_id: firstNonEmpty(String(rawSummary.top_product_id || '').trim() || undefined),
   };
 };
 
@@ -911,6 +1014,7 @@ export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoMo
     face_crop: normalizeFaceCrop(payload),
     regions: normalizedRegions,
     modules,
+    summary_v1: normalizeSummaryV1(payload),
     disclaimers: {
       non_medical: payload.disclaimers.non_medical !== false,
       seek_care_triggers: toUniqueList(payload.disclaimers.seek_care_triggers ?? [], 8),
