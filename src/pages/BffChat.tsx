@@ -53,6 +53,7 @@ import {
   emitPdpLatencyMs,
   emitPdpOpenPath,
   emitRecommendationDetailsSheetOpened,
+  emitAlternativesFailed,
   emitAuroraProductAnalysisDegraded,
   emitAuroraProductAlternativesFiltered,
   emitAuroraHowToLayerInlineOpened,
@@ -1630,7 +1631,10 @@ function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unkno
 }
 
 type LazyRecoAlternativesLoadResult = {
+  ok?: boolean;
   alternatives: Array<Record<string, unknown>>;
+  requestId?: string | null;
+  traceId?: string | null;
   llmTrace?: Record<string, unknown> | null;
   sourceMode?: string | null;
   failureClass?: string | null;
@@ -2424,6 +2428,17 @@ export function RecommendationsCard({
                     };
                     void loadAlternativesForItem(lazyArgs)
                       .then((resp) => {
+                        if (resp && resp.ok === false) {
+                          const failureClass = asString(resp.failureClass);
+                          toast({
+                            title: language === 'CN' ? '暂无可用替代结果' : 'Alternatives are unavailable right now',
+                            description:
+                              language === 'CN'
+                                ? `模型本轮未返回可用 alternatives（${failureClass || 'unknown'}）。请稍后重试。`
+                                : `Model did not return usable alternatives in this attempt (${failureClass || 'unknown'}). Please retry shortly.`,
+                          });
+                          return;
+                        }
                         const remoteAlternatives = asArray(resp && resp.alternatives)
                           .map((row) => asObject(row))
                           .filter(Boolean) as Array<Record<string, unknown>>;
@@ -5960,6 +5975,13 @@ export default function BffChat() {
       product?: Record<string, unknown> | null;
     }): Promise<LazyRecoAlternativesLoadResult | null> => {
       const requestHeaders = { ...headers, lang: language };
+      const analyticsCtx: AnalyticsContext = {
+        brief_id: headers.brief_id,
+        trace_id: headers.trace_id,
+        aurora_uid: headers.aurora_uid,
+        lang: toLangPref(language),
+        state: agentState,
+      };
       const body = {
         ...(String(productInput || '').trim() ? { product_input: String(productInput || '').trim().slice(0, 240) } : {}),
         ...(String(anchorProductId || '').trim() ? { anchor_product_id: String(anchorProductId || '').trim().slice(0, 180) } : {}),
@@ -5978,8 +6000,24 @@ export default function BffChat() {
         const refreshPending = resp?.refresh_pending === true;
         const refreshAfterMs = Number.isFinite(Number(resp?.refresh_after_ms)) ? Number(resp?.refresh_after_ms) : 0;
         const attemptCount = Number.isFinite(Number(resp?.attempt_count)) ? Number(resp?.attempt_count) : 0;
+        const ok = resp?.ok !== false;
+        const requestId = typeof resp?.request_id === 'string' ? resp.request_id : null;
+        const traceId = typeof resp?.trace_id === 'string' ? resp.trace_id : null;
+        if (!ok) {
+          emitAlternativesFailed(analyticsCtx, {
+            failure_class: failureClass || 'unknown',
+            source_mode: sourceMode || null,
+            request_id: requestId,
+            trace_id: traceId,
+            attempt_count: attemptCount || null,
+            anchor_product_id: String(anchorProductId || '').trim() || null,
+          });
+        }
         return {
+          ok,
           alternatives,
+          ...(requestId ? { requestId } : {}),
+          ...(traceId ? { traceId } : {}),
           ...(llmTrace ? { llmTrace } : {}),
           ...(sourceMode ? { sourceMode } : {}),
           ...(failureClass ? { failureClass } : {}),
@@ -5989,13 +6027,21 @@ export default function BffChat() {
           ...(attemptCount > 0 ? { attemptCount } : {}),
         };
       } catch (err) {
+        emitAlternativesFailed(analyticsCtx, {
+          failure_class: 'network_error',
+          source_mode: 'transport_error',
+          request_id: null,
+          trace_id: headers.trace_id,
+          attempt_count: null,
+          anchor_product_id: String(anchorProductId || '').trim() || null,
+        });
         if (debug) {
           console.warn('[RecoAlternatives] lazy load failed', err);
         }
         return null;
       }
     },
-    [debug, headers, language],
+    [agentState, debug, headers, language],
   );
 
   const applyEnvelope = useCallback((env: V1Envelope) => {

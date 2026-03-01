@@ -168,6 +168,18 @@ export const emitRecommendationDetailsSheetOpened = (
   } & Record<string, unknown>,
 ) => emitWithContext('recommendation_details_sheet_opened', ctx, props);
 
+export const emitAlternativesFailed = (
+  ctx: AnalyticsContext,
+  props: {
+    failure_class?: string | null;
+    request_id?: string | null;
+    trace_id?: string | null;
+    source_mode?: string | null;
+    attempt_count?: number | null;
+    anchor_product_id?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('alternatives_failed', ctx, props);
+
 export const emitAgentStateEntered = (
   ctx: AnalyticsContext,
   props: {
