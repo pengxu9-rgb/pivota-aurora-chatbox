@@ -34,11 +34,11 @@ export type AnalysisMeta = {
 
 export type RecommendationMeta = {
   source_mode: 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
-  trigger_source?: 'goal_driven' | 'ingredient_driven' | 'profile_refine_rerun' | null;
-  recompute_from_profile_update?: boolean;
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
+  trigger_source?: string | null;
+  recompute_from_profile_update?: boolean;
   llm_trace?: {
     template_id?: string;
     prompt_hash?: string;

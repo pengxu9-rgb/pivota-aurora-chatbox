@@ -25,7 +25,6 @@ export type BudgetTier = '$' | '$$' | '$$$';
 export type CheckoutOutcome = 'success' | 'failure_payment' | 'failure_expired';
 
 export type RecommendationSourceMode = 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
-export type RecommendationTriggerSource = 'goal_driven' | 'ingredient_driven' | 'profile_refine_rerun';
 
 export interface AuroraAnalysisMeta {
   detector_source: string;
@@ -42,6 +41,8 @@ export interface AuroraRecommendationMeta {
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
+  trigger_source?: string | null;
+  recompute_from_profile_update?: boolean;
   llm_trace?: {
     template_id?: string;
     prompt_hash?: string;

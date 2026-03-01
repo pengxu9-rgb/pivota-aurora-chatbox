@@ -9,14 +9,27 @@ export type IngredientTimeToResults = '2-4w' | '4-8w' | '8-12w' | 'unknown';
 export type CitationRelevance = 'strong' | 'category' | 'weak';
 
 export type IngredientReportLocale = 'en-US' | 'zh-CN';
+export type IngredientConfidenceLevel = 'low' | 'medium' | 'high';
 
 export type IngredientReportPayloadV1 = {
-  schema_version: 'aurora.ingredient_report.v1';
+  schema_version: 'aurora.ingredient_report.v1' | 'aurora.ingredient_report.v2-lite';
   locale: IngredientReportLocale;
+  research_status?: 'none' | 'queued' | 'ready' | 'error' | 'skipped' | 'fallback';
+  research_provider?: string | null;
+  research_error_code?: string | null;
+  normalized_query?: string | null;
+  route_decision_reasons?: string[];
+  route_rule_version?: string | null;
+  kb_revision?: string | null;
+  provider_model_tier?: string | null;
+  provider_circuit_state?: 'open' | 'half_open' | 'closed' | string | null;
+  research_attempts?: Array<{ provider: string; outcome: string; reason_code?: string | null }>;
+  confidence?: IngredientConfidenceLevel;
   ingredient: {
     inci: string;
     display_name: string;
     aliases: string[];
+    what_it_is?: string | null;
     alias_source?: 'curated';
     category: string;
   };
@@ -27,11 +40,17 @@ export type IngredientReportPayloadV1 = {
     irritation_risk: IngredientRiskLevel;
     time_to_results: IngredientTimeToResults;
     confidence: number;
+    confidence_level?: IngredientConfidenceLevel;
+  };
+  usage?: {
+    time?: 'AM' | 'PM' | 'Both' | string;
+    frequency?: string | null;
+    avoid?: string[];
   };
   benefits: Array<{ concern: string; strength: 0 | 1 | 2 | 3; what_it_means: string }>;
   how_to_use: {
     frequency: 'daily' | '3-4x/week' | 'unknown';
-    routine_step: 'serum' | 'cream' | 'unknown';
+    routine_step: 'serum' | 'cream' | 'cleanser' | 'toner' | 'sunscreen' | 'unknown';
     pair_well: string[];
     consider_separating: string[];
     notes: string[];
@@ -47,6 +66,11 @@ export type IngredientReportPayloadV1 = {
     routine_tip: string;
     products_from_kb: string[];
   }>;
+  top_products?: {
+    budget: string[];
+    mid: string[];
+    premium: string[];
+  };
   evidence: {
     summary: string;
     citations: Array<{
