@@ -6430,7 +6430,7 @@ export default function BffChat() {
           kind: 'quick_reply',
           data: {
             reply_text: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
-            include_alternatives: true,
+            include_alternatives: false,
           },
         },
         {
@@ -6727,7 +6727,7 @@ export default function BffChat() {
                 ? '根据我最新打卡刷新推荐，并说明你参考了哪些变化。'
                 : 'Refresh recommendations based on my latest check-in and show what changed.',
             reco_refresh_reason: refreshReason,
-            include_alternatives: true,
+            include_alternatives: false,
           },
         };
         setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'chips', chips: [refreshChip] }]);
@@ -8020,7 +8020,7 @@ export default function BffChat() {
       {
         action_id: 'chip.start.reco_products',
         kind: 'chip',
-        data: { reply_text: replyText, include_alternatives: true },
+        data: { reply_text: replyText, include_alternatives: false },
       },
       {
         client_state: fromState,
