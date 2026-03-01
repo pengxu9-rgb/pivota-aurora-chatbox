@@ -1352,22 +1352,6 @@ const mapQuickProfileToAuroraProfilePatch = (patch: QuickProfileProfilePatch): R
   return Object.keys(out).length ? out : null;
 };
 
-const profileRecoCompleteness = (profile: Record<string, unknown> | null | undefined) => {
-  const p = profile ?? {};
-  const goals = (p as any).goals;
-  const dims = {
-    skinType: Boolean(asString((p as any).skinType)),
-    barrierStatus: Boolean(asString((p as any).barrierStatus)),
-    sensitivity: Boolean(asString((p as any).sensitivity)),
-    goals: Array.isArray(goals) ? goals.length > 0 : Boolean(asString(goals)),
-  };
-  const score = Object.values(dims).filter(Boolean).length;
-  const missing = Object.entries(dims)
-    .filter(([, ok]) => !ok)
-    .map(([k]) => k);
-  return { score, missing };
-};
-
 const getIngredientFitProfileStatus = (profile: Record<string, unknown> | null | undefined) => {
   const p = profile ?? {};
   const goals = (p as any).goals;
@@ -2837,6 +2821,10 @@ export function RecommendationsCard({
     .filter(Boolean)
     .join(' · ');
   const recommendationMeta = asObject((payload as any).recommendation_meta);
+  const recommendationTriggerSource = (asString((recommendationMeta as any)?.trigger_source) || '').toLowerCase();
+  const recommendationRecomputeFromProfileUpdate =
+    (recommendationMeta as any)?.recompute_from_profile_update === true ||
+    (recommendationMeta as any)?.recomputeFromProfileUpdate === true;
   const recommendationBasis = (() => {
     if (!recommendationMeta) return null;
     const source = (asString((recommendationMeta as any).source_mode) || '').toLowerCase();
@@ -2898,6 +2886,19 @@ export function RecommendationsCard({
       ? `本次依据：${contextText} · 路径：${sourceLabel}${extrasText}`
       : `Based on: ${contextText} · Path: ${sourceLabel}${extrasText}`;
   })();
+  const recommendationTailHint = recommendationMeta
+    ? recommendationRecomputeFromProfileUpdate
+      ? language === 'CN'
+        ? '已按你最新补充的信息自动重算本轮推荐。'
+        : 'Recommendations were automatically re-computed from your latest profile update.'
+      : recommendationTriggerSource === 'ingredient_driven'
+        ? language === 'CN'
+          ? '你可以继续补充肤质/敏感度/当前 routine，我会自动优化下一轮推荐。'
+          : 'Add skin type/sensitivity/current routine to automatically improve the next recommendation round.'
+        : language === 'CN'
+          ? '可继续补充 profile/routine，系统会自动优化下一轮推荐。'
+          : 'You can add profile/routine details and the system will auto-optimize the next recommendation round.'
+    : null;
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
     if (!list.length) return null;
@@ -2950,6 +2951,11 @@ export function RecommendationsCard({
       {recommendationBasis ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           {recommendationBasis}
+        </div>
+      ) : null}
+      {recommendationTailHint ? (
+        <div className="rounded-2xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+          {recommendationTailHint}
         </div>
       ) : null}
 
@@ -5701,7 +5707,6 @@ export default function BffChat() {
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
-  const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
 
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
@@ -6353,7 +6358,6 @@ export default function BffChat() {
     setSessionPhotos({});
     setBootstrapInfo(null);
     setIngredientQuestionBusy(false);
-    pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;
@@ -7260,7 +7264,6 @@ export default function BffChat() {
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
       if (actionId === 'diagnosis_skip') {
-        pendingActionAfterDiagnosisRef.current = null;
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
@@ -7280,22 +7283,13 @@ export default function BffChat() {
           return;
         }
 
-        const pending = pendingActionAfterDiagnosisRef.current;
-        pendingActionAfterDiagnosisRef.current = null;
-
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
             role: 'user',
             kind: 'text',
-            content: pending
-              ? language === 'CN'
-                ? '已填写肤况信息（继续推荐）'
-                : 'Saved skin profile (continue recommendations)'
-              : language === 'CN'
-                ? '分析我的皮肤'
-                : 'Analyze my skin',
+            content: language === 'CN' ? '分析我的皮肤' : 'Analyze my skin',
           },
         ]);
 
@@ -7312,9 +7306,6 @@ export default function BffChat() {
           },
         });
 
-        if (pending) {
-          await sendChat(undefined, pending);
-        }
         return;
       }
 
@@ -8273,22 +8264,6 @@ export default function BffChat() {
 
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
 
-      // If the user explicitly requests product recommendations but lacks a minimal profile,
-      // the backend will gate. Remember this intent so we can resume recommendations
-      // immediately after the user completes the diagnosis card.
-      if (id === 'chip.start.reco_products' || id === 'chip_get_recos') {
-        const { score } = profileRecoCompleteness(profileSnapshot ?? bootstrapInfo?.profile ?? null);
-        if (score < 3) {
-          pendingActionAfterDiagnosisRef.current = {
-            action_id: chip.chip_id,
-            kind: 'chip',
-            data: chip.data,
-          };
-        } else {
-          pendingActionAfterDiagnosisRef.current = null;
-        }
-      }
-
       if (id === 'chip_update_products') {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
@@ -8360,10 +8335,8 @@ export default function BffChat() {
     },
     [
       agentState,
-      bootstrapInfo?.profile,
       headers,
       language,
-      profileSnapshot,
       quickProfileBusy,
       quickProfileDraft,
       runLowConfidenceSkinAnalysis,
@@ -8436,7 +8409,6 @@ export default function BffChat() {
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setBootstrapInfo(null);
-    pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;
