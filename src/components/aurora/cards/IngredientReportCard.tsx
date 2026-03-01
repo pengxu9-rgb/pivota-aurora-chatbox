@@ -476,15 +476,21 @@ export function IngredientReportCard({
       <div className="space-y-2">
         <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Benefits' : 'Benefits'}</div>
         <div className="space-y-2">
-          {payload.benefits.slice(0, 4).map((item) => (
-            <div key={`${item.concern}_${item.what_it_means}`} className="rounded-xl border border-border/60 bg-background/60 p-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-foreground">{humanizeConcern(item.concern, language)}</span>
-                <span className="text-xs text-muted-foreground">{`S${item.strength}`}</span>
+          {payload.benefits.length ? (
+            payload.benefits.slice(0, 4).map((item) => (
+              <div key={`${item.concern}_${item.what_it_means}`} className="rounded-xl border border-border/60 bg-background/60 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-foreground">{humanizeConcern(item.concern, language)}</span>
+                  <span className="text-xs text-muted-foreground">{`S${item.strength}`}</span>
+                </div>
+                {item.what_it_means ? <div className="mt-1 text-xs text-muted-foreground">{item.what_it_means}</div> : null}
               </div>
-              {item.what_it_means ? <div className="mt-1 text-xs text-muted-foreground">{item.what_it_means}</div> : null}
+            ))
+          ) : (
+            <div className="rounded-xl border border-border/60 bg-background/60 p-2 text-xs text-muted-foreground">
+              {zh(language) ? '暂无足够收益信息，已返回可读基础结果。' : 'Benefit details are limited for now; showing a readable baseline.'}
             </div>
-          ))}
+          )}
         </div>
       </div>
 
@@ -512,15 +518,21 @@ export function IngredientReportCard({
 
         <div className="rounded-xl border border-border/60 bg-background/60 p-3">
           <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Watchouts' : 'Watchouts'}</div>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {payload.watchouts.slice(0, 4).map((watch) => (
-              <li key={`${watch.issue}_${watch.what_to_do}`}>
-                <span className="font-medium">{watch.issue}</span>
-                {watch.likelihood ? <span className="text-xs text-muted-foreground">{` (${watch.likelihood})`}</span> : null}
-                {watch.what_to_do ? <div className="text-xs text-muted-foreground">{watch.what_to_do}</div> : null}
-              </li>
-            ))}
-          </ul>
+          {payload.watchouts.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {payload.watchouts.slice(0, 4).map((watch) => (
+                <li key={`${watch.issue}_${watch.what_to_do}`}>
+                  <span className="font-medium">{watch.issue}</span>
+                  {watch.likelihood ? <span className="text-xs text-muted-foreground">{` (${watch.likelihood})`}</span> : null}
+                  {watch.what_to_do ? <div className="text-xs text-muted-foreground">{watch.what_to_do}</div> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {zh(language) ? '暂无明确风险提示，建议先小范围测试并观察耐受。' : 'No specific watchouts yet; start low and monitor tolerance.'}
+            </div>
+          )}
         </div>
       </div>
 
