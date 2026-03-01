@@ -59,6 +59,24 @@ export type IngredientReportPayloadV1 = {
     show_citations_by_default: false;
   };
   next_questions: Array<{ id: string; label: string; chips: string[] }>;
+  research_status?: 'ready' | 'fallback' | 'disabled' | 'provider_unavailable' | 'queued';
+  research_provider?: 'gemini' | 'openai' | null;
+  research_attempts?: Array<{ provider: string; outcome: string; reason_code: string }>;
+  research_error_code?: string;
+  top_products?: Array<{
+    name: string;
+    brand?: string;
+    category?: string;
+    price_tier?: string;
+    why?: string;
+    pdp_url?: string;
+  }>;
+  updated_at_ms?: number;
+  personalized_fit?: {
+    summary?: string;
+    adjustments?: string[];
+    warnings?: string[];
+  };
 };
 
 export type IngredientReportCard = Card & {
