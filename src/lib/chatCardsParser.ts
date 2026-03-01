@@ -22,6 +22,7 @@ const asStringArray = (value: unknown, limit = 8): string[] => {
 };
 
 const CARD_TYPES = new Set([
+  'recommendations',
   'product_verdict',
   'compatibility',
   'routine',
@@ -42,6 +43,7 @@ const CARD_TYPES = new Set([
 
 const fallbackTitleForType = (type: string): string => {
   const token = asString(type).toLowerCase();
+  if (token === 'recommendations') return 'Recommendations';
   if (token === 'ingredient_hub') return 'Ingredient hub';
   if (token === 'ingredient_goal_match') return 'Ingredient goal match';
   if (token === 'aurora_ingredient_report') return 'Ingredient report';
