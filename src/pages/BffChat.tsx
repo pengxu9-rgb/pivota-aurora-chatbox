@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
-import { bffJson, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
+import { bffJson, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
@@ -52,6 +52,7 @@ import {
   emitPdpFailReason,
   emitPdpLatencyMs,
   emitPdpOpenPath,
+  emitRecommendationDetailsSheetOpened,
   emitAuroraProductAnalysisDegraded,
   emitAuroraProductAlternativesFiltered,
   emitAuroraHowToLayerInlineOpened,
@@ -1102,6 +1103,7 @@ const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 15000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
+const RECO_ALTERNATIVES_LAZY_TIMEOUT_MS = 8000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
@@ -1638,6 +1640,7 @@ export function RecommendationsCard({
   onOpenPdp,
   analyticsCtx,
   onOpenAlternativesSheet,
+  loadAlternativesForItem,
 }: {
   card: Card;
   language: 'EN' | 'CN';
@@ -1661,6 +1664,11 @@ export function RecommendationsCard({
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
   onOpenAlternativesSheet?: (tracks: ProductAlternativeTrack[]) => void;
+  loadAlternativesForItem?: (args: {
+    anchorProductId?: string | null;
+    productInput?: string | null;
+    product?: Record<string, unknown> | null;
+  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
 }) {
   type PdpOpenState = 'idle' | 'resolving' | 'opening_internal' | 'opening_external' | 'done' | 'error';
   type PdpOpenPath = 'group' | 'ref' | 'resolve' | 'external';
@@ -1688,6 +1696,7 @@ export function RecommendationsCard({
     } | null;
   };
   const [detailsFlow, setDetailsFlow] = useState<{ key: string | null; state: PdpOpenState }>({ key: null, state: 'idle' });
+  const [lazyAlternativesBusyKey, setLazyAlternativesBusyKey] = useState<string | null>(null);
   const inflightByKeyRef = useRef<Map<string, { controller: AbortController; promise: Promise<void> }>>(new Map());
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
@@ -2307,10 +2316,14 @@ export function RecommendationsCard({
       return language === 'CN' ? '相似' : 'Similar';
     };
 
-    const buildStepAlternativesSheetTracks = (): ProductAlternativeTrack[] => {
-      const replaceItems: ProductAlternativeTrackItem[] = alternativesRaw
+    const buildStepAlternativesSheetTracks = (
+      alternativesSource: Array<Record<string, unknown>>,
+      pairingSource: string[],
+      comparisonSource: string[],
+    ): ProductAlternativeTrack[] => {
+      const replaceItems: ProductAlternativeTrackItem[] = alternativesSource
         .map((alt, rank) => {
-          const kind = (asString((alt as any).kind) || '').toLowerCase();
+          const kind = asString((alt as any).kind).toLowerCase();
           const block: RecoBlockType =
             kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
           return {
@@ -2322,7 +2335,7 @@ export function RecommendationsCard({
         })
         .slice(0, 8);
 
-      const pairNotes = uniqueStrings([...pairingRules, ...comparisonNotes]).slice(0, 8);
+      const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
       const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
         candidate: {
           name: text,
@@ -2357,8 +2370,12 @@ export function RecommendationsCard({
       return tracks;
     };
 
-    const detailsTracks = buildStepAlternativesSheetTracks();
-    const canOpenSheet = Boolean(onOpenAlternativesSheet) && detailsTracks.length > 0;
+    const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
+    const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
+    const alternativesBusyKey = anchorId || `q:${(resolveQuery || q || '').slice(0, 180)}`;
+    const isLazyAlternativesBusy = lazyAlternativesBusyKey === alternativesBusyKey;
+    const canLoadAlternatives = Boolean(loadAlternativesForItem) && Boolean(anchorId || resolveQuery || q);
+    const canOpenSheet = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
     const canOpenPdp = Boolean(anchorId);
     const canOpenDetails = canOpenPdp || canOpenSheet;
 
@@ -2382,10 +2399,48 @@ export function RecommendationsCard({
             <button
               type="button"
               className="chip-button text-[11px]"
-              disabled={isResolving || !canOpenDetails}
+              disabled={isResolving || isLazyAlternativesBusy || !canOpenDetails}
               onClick={() => {
                 if (canOpenSheet && onOpenAlternativesSheet) {
-                  onOpenAlternativesSheet(detailsTracks);
+                  if (detailsTracks.length > 0) {
+                    onOpenAlternativesSheet(detailsTracks);
+                  } else if (loadAlternativesForItem && canLoadAlternatives) {
+                    setLazyAlternativesBusyKey(alternativesBusyKey);
+                    void loadAlternativesForItem({
+                      anchorProductId: anchorProductIdForAlternatives,
+                      productInput: resolveQuery || q || null,
+                      product: asObject(item),
+                    })
+                      .then((resp) => {
+                        const remoteAlternatives = asArray(resp && resp.alternatives)
+                          .map((row) => asObject(row))
+                          .filter(Boolean) as Array<Record<string, unknown>>;
+                        const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
+                        if (tracks.length) {
+                          onOpenAlternativesSheet(tracks);
+                        } else {
+                          toast({
+                            title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
+                            description:
+                              language === 'CN'
+                                ? '已保留当前推荐结果，稍后可重试查看更多对比和搭配建议。'
+                                : 'Current recommendations are kept. Retry later for more alternatives and pairing ideas.',
+                          });
+                        }
+                      })
+                      .catch(() => {
+                        toast({
+                          title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
+                          description:
+                            language === 'CN'
+                              ? '请稍后重试，当前推荐卡已可继续使用。'
+                              : 'Please retry shortly. Current recommendation cards are still usable.',
+                        });
+                      })
+                      .finally(() => {
+                        setLazyAlternativesBusyKey((prev) => (prev === alternativesBusyKey ? null : prev));
+                      });
+                  }
                 }
                 if (canOpenPdp && anchorId) {
                   void openPdpFromCard({
@@ -2403,7 +2458,9 @@ export function RecommendationsCard({
               }}
             >
               {language === 'CN' ? '查看详情' : 'View details'}
-              {isResolving ? <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span> : null}
+              {isResolving || isLazyAlternativesBusy ? (
+                <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span>
+              ) : null}
             </button>
           </div>
         </div>
@@ -3043,6 +3100,7 @@ function BffCardView({
   ingredientQuestionBusy,
   onOpenPdp,
   onOpenRecommendationAlternatives,
+  loadRecommendationAlternatives,
   analyticsCtx,
   analysisPhotoRefs,
   sessionPhotos,
@@ -3078,6 +3136,11 @@ function BffCardView({
   ingredientQuestionBusy?: boolean;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   onOpenRecommendationAlternatives?: (tracks: ProductAlternativeTrack[]) => void;
+  loadRecommendationAlternatives?: (args: {
+    anchorProductId?: string | null;
+    productInput?: string | null;
+    product?: Record<string, unknown> | null;
+  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
   analyticsCtx?: AnalyticsContext;
   analysisPhotoRefs?: AnalysisPhotoRef[];
   sessionPhotos?: Session['photos'];
@@ -3994,6 +4057,7 @@ function BffCardView({
           onDeepScanProduct={onDeepScanProduct}
           onOpenPdp={onOpenPdp}
           onOpenAlternativesSheet={onOpenRecommendationAlternatives}
+          loadAlternativesForItem={loadRecommendationAlternatives}
           analyticsCtx={analyticsCtx}
         />
       ) : null}
@@ -5083,8 +5147,7 @@ function BffCardView({
                               type="button"
                               className="chip-button text-[11px]"
                               onClick={() => {
-                                setAlternativesSheetTracks(alternativeTracks);
-                                setAlternativesSheetOpen(true);
+                                onOpenRecommendationAlternatives?.(alternativeTracks);
                               }}
                             >
                               {language === 'CN' ? '更多' : 'More'}
@@ -5801,6 +5864,71 @@ export default function BffChat() {
       shop.openShop({ url: parsed.toString(), title: args.title });
     },
     [debug, shop],
+  );
+
+  const openRecommendationAlternativesSheet = useCallback(
+    (
+      tracks: ProductAlternativeTrack[],
+      opts?: {
+        source?: string;
+        anchorKey?: string | null;
+      },
+    ) => {
+      const normalizedTracks = Array.isArray(tracks) ? tracks.filter((track) => Array.isArray(track.items) && track.items.length > 0) : [];
+      if (!normalizedTracks.length) return;
+      setAlternativesSheetTracks(normalizedTracks);
+      setAlternativesSheetOpen(true);
+      emitRecommendationDetailsSheetOpened(
+        {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: agentState,
+        },
+        {
+          source: String(opts?.source || 'recommendation_card'),
+          anchor_key: opts?.anchorKey || null,
+          track_count: normalizedTracks.length,
+          item_count: normalizedTracks.reduce((sum, track) => sum + (Array.isArray(track.items) ? track.items.length : 0), 0),
+        },
+      );
+    },
+    [agentState, headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+  );
+
+  const loadRecommendationAlternatives = useCallback(
+    async ({
+      anchorProductId,
+      productInput,
+      product,
+    }: {
+      anchorProductId?: string | null;
+      productInput?: string | null;
+      product?: Record<string, unknown> | null;
+    }): Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null> => {
+      const requestHeaders = { ...headers, lang: language };
+      const body = {
+        ...(String(productInput || '').trim() ? { product_input: String(productInput || '').trim().slice(0, 240) } : {}),
+        ...(String(anchorProductId || '').trim() ? { anchor_product_id: String(anchorProductId || '').trim().slice(0, 180) } : {}),
+        ...(product && typeof product === 'object' ? { product } : {}),
+        max_total: 6,
+        include_debug: Boolean(debug),
+      };
+      if (!body.product_input && !body.anchor_product_id && !body.product) return null;
+      try {
+        const resp = await fetchRecoAlternatives(requestHeaders, body, { timeoutMs: RECO_ALTERNATIVES_LAZY_TIMEOUT_MS });
+        const alternatives = asArray(resp && resp.alternatives).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+        const llmTrace = asObject(resp && resp.llm_trace) || null;
+        return { alternatives, ...(llmTrace ? { llmTrace } : {}) };
+      } catch (err) {
+        if (debug) {
+          console.warn('[RecoAlternatives] lazy load failed', err);
+        }
+        return null;
+      }
+    },
+    [debug, headers, language],
   );
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
@@ -9670,10 +9798,9 @@ export default function BffChat() {
                             onIngredientQuestionSelect={onIngredientQuestionSelect}
                             ingredientQuestionBusy={ingredientQuestionBusy}
                             onOpenPdp={openPdpDrawer}
-                            onOpenRecommendationAlternatives={(tracks) => {
-                              setAlternativesSheetTracks(tracks);
-                              setAlternativesSheetOpen(true);
-                            }}
+                            onOpenRecommendationAlternatives={(tracks) =>
+                              openRecommendationAlternativesSheet(tracks, { source: 'card_button' })}
+                            loadRecommendationAlternatives={loadRecommendationAlternatives}
                             analysisPhotoRefs={analysisPhotoRefs}
                             sessionPhotos={sessionPhotos}
                             analyticsCtx={{
