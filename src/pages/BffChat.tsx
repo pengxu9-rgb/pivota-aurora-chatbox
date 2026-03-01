@@ -1629,6 +1629,17 @@ function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unkno
   return NON_SKINCARE_ALTERNATIVE_RE.test(signal);
 }
 
+type LazyRecoAlternativesLoadResult = {
+  alternatives: Array<Record<string, unknown>>;
+  llmTrace?: Record<string, unknown> | null;
+  sourceMode?: string | null;
+  failureClass?: string | null;
+  fallbackSource?: string | null;
+  refreshPending?: boolean;
+  refreshAfterMs?: number;
+  attemptCount?: number;
+};
+
 export function RecommendationsCard({
   card,
   language,
@@ -1668,7 +1679,7 @@ export function RecommendationsCard({
     anchorProductId?: string | null;
     productInput?: string | null;
     product?: Record<string, unknown> | null;
-  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
+  }) => Promise<LazyRecoAlternativesLoadResult | null>;
 }) {
   type PdpOpenState = 'idle' | 'resolving' | 'opening_internal' | 'opening_external' | 'done' | 'error';
   type PdpOpenPath = 'group' | 'ref' | 'resolve' | 'external';
@@ -2406,11 +2417,12 @@ export function RecommendationsCard({
                     onOpenAlternativesSheet(detailsTracks);
                   } else if (loadAlternativesForItem && canLoadAlternatives) {
                     setLazyAlternativesBusyKey(alternativesBusyKey);
-                    void loadAlternativesForItem({
+                    const lazyArgs = {
                       anchorProductId: anchorProductIdForAlternatives,
                       productInput: resolveQuery || q || null,
                       product: asObject(item),
-                    })
+                    };
+                    void loadAlternativesForItem(lazyArgs)
                       .then((resp) => {
                         const remoteAlternatives = asArray(resp && resp.alternatives)
                           .map((row) => asObject(row))
@@ -2418,6 +2430,26 @@ export function RecommendationsCard({
                         const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
                         if (tracks.length) {
                           onOpenAlternativesSheet(tracks);
+                          if (resp?.refreshPending && loadAlternativesForItem) {
+                            const delayMs = Number.isFinite(Number(resp?.refreshAfterMs))
+                              ? Math.max(300, Math.min(6000, Number(resp?.refreshAfterMs)))
+                              : 1200;
+                            window.setTimeout(() => {
+                              void loadAlternativesForItem(lazyArgs).then((refreshResp) => {
+                                const refreshedAlternatives = asArray(refreshResp && refreshResp.alternatives)
+                                  .map((row) => asObject(row))
+                                  .filter(Boolean) as Array<Record<string, unknown>>;
+                                const refreshedTracks = buildStepAlternativesSheetTracks(
+                                  refreshedAlternatives,
+                                  pairingRules,
+                                  comparisonNotes,
+                                );
+                                if (refreshedTracks.length) {
+                                  onOpenAlternativesSheet(refreshedTracks);
+                                }
+                              });
+                            }, delayMs);
+                          }
                         } else {
                           toast({
                             title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
@@ -3159,7 +3191,7 @@ function BffCardView({
     anchorProductId?: string | null;
     productInput?: string | null;
     product?: Record<string, unknown> | null;
-  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
+  }) => Promise<LazyRecoAlternativesLoadResult | null>;
   analyticsCtx?: AnalyticsContext;
   analysisPhotoRefs?: AnalysisPhotoRef[];
   sessionPhotos?: Session['photos'];
@@ -5926,7 +5958,7 @@ export default function BffChat() {
       anchorProductId?: string | null;
       productInput?: string | null;
       product?: Record<string, unknown> | null;
-    }): Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null> => {
+    }): Promise<LazyRecoAlternativesLoadResult | null> => {
       const requestHeaders = { ...headers, lang: language };
       const body = {
         ...(String(productInput || '').trim() ? { product_input: String(productInput || '').trim().slice(0, 240) } : {}),
@@ -5940,7 +5972,22 @@ export default function BffChat() {
         const resp = await fetchRecoAlternatives(requestHeaders, body, { timeoutMs: RECO_ALTERNATIVES_LAZY_TIMEOUT_MS });
         const alternatives = asArray(resp && resp.alternatives).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
         const llmTrace = asObject(resp && resp.llm_trace) || null;
-        return { alternatives, ...(llmTrace ? { llmTrace } : {}) };
+        const sourceMode = typeof resp?.source_mode === 'string' ? resp.source_mode : null;
+        const failureClass = typeof resp?.failure_class === 'string' ? resp.failure_class : null;
+        const fallbackSource = typeof resp?.fallback_source === 'string' ? resp.fallback_source : null;
+        const refreshPending = resp?.refresh_pending === true;
+        const refreshAfterMs = Number.isFinite(Number(resp?.refresh_after_ms)) ? Number(resp?.refresh_after_ms) : 0;
+        const attemptCount = Number.isFinite(Number(resp?.attempt_count)) ? Number(resp?.attempt_count) : 0;
+        return {
+          alternatives,
+          ...(llmTrace ? { llmTrace } : {}),
+          ...(sourceMode ? { sourceMode } : {}),
+          ...(failureClass ? { failureClass } : {}),
+          ...(fallbackSource ? { fallbackSource } : {}),
+          ...(refreshPending ? { refreshPending: true } : {}),
+          ...(refreshAfterMs > 0 ? { refreshAfterMs } : {}),
+          ...(attemptCount > 0 ? { attemptCount } : {}),
+        };
       } catch (err) {
         if (debug) {
           console.warn('[RecoAlternatives] lazy load failed', err);

@@ -240,6 +240,12 @@ export type RecoAlternativesResponse = {
   alternatives: Array<Record<string, unknown>>;
   field_missing?: Array<Record<string, unknown>>;
   llm_trace?: Record<string, unknown> | null;
+  source_mode?: 'llm' | 'local_fallback' | null;
+  failure_class?: string | null;
+  fallback_source?: string | null;
+  refresh_pending?: boolean;
+  refresh_after_ms?: number;
+  attempt_count?: number;
   debug?: Record<string, unknown>;
 };
 
