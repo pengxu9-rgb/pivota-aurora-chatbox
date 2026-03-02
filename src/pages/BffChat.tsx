@@ -523,6 +523,10 @@ const nextAgentStateForChip = (chipId: string): AgentState | null => {
       return 'RECO_GATE';
     case 'chip.action.reco_routine':
       return 'RECO_GATE';
+    case 'chip.intake.upload_photos':
+      return 'DIAG_PHOTO_OPTIN';
+    case 'chip.intake.skip_analysis':
+      return 'DIAG_ANALYSIS_SUMMARY';
     default:
       return null;
   }
@@ -6197,7 +6201,11 @@ export default function BffChat() {
     const suppressChips = cards.length
       ? cards.some((c) => {
           const t = String((c as any)?.type || '').toLowerCase();
-          return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
+          if (t === 'diagnosis_gate') {
+            const reason = String((c as any)?.payload?.reason || '');
+            return reason !== 'diagnosis_photo_choice';
+          }
+          return t === 'analysis_summary' || t === 'profile';
         })
       : false;
 
@@ -8665,6 +8673,7 @@ export default function BffChat() {
         effectiveActionId === 'diag.upload_photo' ||
         id === 'chip.intake.upload_photos';
       if (isCameraClientAction) {
+        setAgentStateSafe('DIAG_PHOTO_OPTIN');
         setPromptRoutineAfterPhoto(true);
         setPhotoSheetAutoOpenSlot('daylight');
         setPhotoSheetAutoOpenNonce((prev) => prev + 1);
@@ -8675,11 +8684,6 @@ export default function BffChat() {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
         setRoutineSheetOpen(true);
-        return;
-      }
-      if (id === 'chip.intake.skip_analysis') {
-        setRoutineSheetOpen(false);
-        await runLowConfidenceSkinAnalysis();
         return;
       }
       if (id === 'chip.start.evaluate') {
