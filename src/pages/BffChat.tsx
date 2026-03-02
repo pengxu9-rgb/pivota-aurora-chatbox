@@ -8718,7 +8718,6 @@ export default function BffChat() {
       language,
       quickProfileBusy,
       quickProfileDraft,
-      runLowConfidenceSkinAnalysis,
       sendChat,
       authSession,
       persistQuickProfilePatch,
