@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
+import { retryWithBackoff } from '@/utils/retryWithBackoff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
@@ -1719,6 +1720,10 @@ export function RecommendationsCard({
 
   const payload = asObject(card.payload) || {};
   const items = asArray(payload.recommendations) as RecoItem[];
+  const externalDiscoveryCtas = asArray((payload as any).external_search_ctas).filter(
+    (cta): cta is { title: string; url: string; source?: string; reason?: string } =>
+      Boolean(cta && typeof cta === 'object' && (cta as any).url && (cta as any).title),
+  ).slice(0, 6);
   const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
   const hasMissingAlternatives =
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
@@ -3144,6 +3149,42 @@ export function RecommendationsCard({
             .map((v) => labelMissing(String(v), language))
             .filter(Boolean)
             .join('、')}
+        </div>
+      ) : null}
+
+      {externalDiscoveryCtas.length > 0 ? (
+        <div className="rounded-2xl border border-border/60 bg-muted/30 p-3 space-y-2">
+          <div className="text-xs font-semibold text-muted-foreground">
+            {language === 'CN'
+              ? items.length > 0
+                ? '以下产品可在品牌官网或搜索中查看（非 Pivota 直购）'
+                : '已根据成分分析找到相关产品，可前往品牌官网或搜索了解'
+              : items.length > 0
+                ? 'Also available directly from brand or search (not via Pivota)'
+                : 'Products matched by ingredient analysis — visit brand site or search to explore'}
+          </div>
+          <div className="flex flex-col gap-2">
+            {externalDiscoveryCtas.map((cta, idx) => (
+              <button
+                key={`discovery_cta_${idx}`}
+                type="button"
+                className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/80 px-3 py-2 text-sm text-left hover:bg-muted/60 transition-colors"
+                onClick={() => {
+                  try {
+                    window.open(cta.url, '_blank', 'noopener,noreferrer');
+                  } catch {}
+                }}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block font-medium truncate">{cta.title}</span>
+                  {cta.source && cta.source !== 'external' ? (
+                    <span className="block text-xs text-muted-foreground truncate">{cta.source}</span>
+                  ) : null}
+                </span>
+                <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -7094,11 +7135,13 @@ export default function BffChat() {
       setPhotoUploading(true);
       let result: AnalysisPhotoRef | null = null;
       try {
+        const { compressImage } = await import('@/utils/compressImage');
+        const compressed = await compressImage(file, { maxEdge: 1024, quality: 0.8 });
         const requestHeaders = { ...headers, lang: language };
         const form = new FormData();
         form.append('slot_id', slotId);
         form.append('consent', consent ? 'true' : 'false');
-        form.append('photo', file, file.name || `photo_${slotId}.jpg`);
+        form.append('photo', compressed, compressed.name || `photo_${slotId}.jpg`);
 
         const confirmEnv = await bffJson<V1Envelope>('/v1/photos/upload', requestHeaders, {
           method: 'POST',
@@ -7235,10 +7278,14 @@ export default function BffChat() {
             photos: photosForAnalysis,
             ...(hasCurrentRoutine ? { currentRoutine: profileCurrentRoutine } : {}),
           };
-          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(body),
-          });
+          const env = await retryWithBackoff(
+            () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+              method: 'POST',
+              body: JSON.stringify(body),
+              timeoutMs: 20000,
+            }),
+            { maxRetries: 1, baseDelayMs: 1500 },
+          );
           applyEnvelope(env);
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
@@ -7320,11 +7367,16 @@ export default function BffChat() {
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
 
-        const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+        const actionId = typeof action === 'string' ? action : action?.action_id;
+        const isIngredientAction = typeof actionId === 'string' && actionId.startsWith('ingredient.');
+        const chatCall = () => bffJson<unknown>('/v1/chat', requestHeaders, {
           method: 'POST',
           body: JSON.stringify(body),
           timeoutMs,
         });
+        const bodyRaw = isIngredientAction
+          ? await retryWithBackoff(chatCall, { maxRetries: 1, baseDelayMs: 1000 })
+          : await chatCall();
         const parsedV1 = parseChatResponseV1(bodyRaw);
         if (!parsedV1) {
           throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
@@ -8177,10 +8229,14 @@ export default function BffChat() {
     try {
       setSessionState('S4_ANALYSIS_LOADING');
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({ use_photo: false }),
-      });
+      const env = await retryWithBackoff(
+        () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({ use_photo: false }),
+          timeoutMs: 20000,
+        }),
+        { maxRetries: 1, baseDelayMs: 1500 },
+      );
       applyEnvelope(env);
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
@@ -8218,10 +8274,14 @@ export default function BffChat() {
           currentRoutine: routine,
           ...(usePhoto ? { photos } : {}),
         };
-        const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
+        const envAnalysis = await retryWithBackoff(
+          () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            timeoutMs: 20000,
+          }),
+          { maxRetries: 1, baseDelayMs: 1500 },
+        );
         applyEnvelope(envAnalysis);
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
