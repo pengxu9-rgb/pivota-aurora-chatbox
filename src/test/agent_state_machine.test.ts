@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { inferTextExplicitTransition, validateRequestedTransition } from '@/lib/agentStateMachine';
+import { canonicalizeChipId, inferTextExplicitTransition, validateRequestedTransition } from '@/lib/agentStateMachine';
 
 describe('agentStateMachine: inferTextExplicitTransition', () => {
   it('does not treat generic CN "诊断" as diagnosis start', () => {
@@ -41,5 +41,54 @@ describe('agentStateMachine: validateRequestedTransition', () => {
     if (validation.ok) {
       expect(validation.next_state).toBe('RECO_GATE');
     }
+  });
+
+  it('allows chip.intake.upload_photos from DIAG_PROFILE -> DIAG_PHOTO_OPTIN', () => {
+    const validation = validateRequestedTransition({
+      from_state: 'DIAG_PROFILE',
+      trigger_source: 'chip',
+      trigger_id: 'chip.intake.upload_photos',
+      requested_next_state: 'DIAG_PHOTO_OPTIN',
+    });
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.next_state).toBe('DIAG_PHOTO_OPTIN');
+    }
+  });
+
+  it('allows chip.intake.skip_analysis from DIAG_PROFILE -> DIAG_ANALYSIS_SUMMARY', () => {
+    const validation = validateRequestedTransition({
+      from_state: 'DIAG_PROFILE',
+      trigger_source: 'chip',
+      trigger_id: 'chip.intake.skip_analysis',
+      requested_next_state: 'DIAG_ANALYSIS_SUMMARY',
+    });
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.next_state).toBe('DIAG_ANALYSIS_SUMMARY');
+    }
+  });
+
+  it('allows chip.intake.skip_analysis from DIAG_PHOTO_OPTIN -> DIAG_ANALYSIS_SUMMARY', () => {
+    const validation = validateRequestedTransition({
+      from_state: 'DIAG_PHOTO_OPTIN',
+      trigger_source: 'chip',
+      trigger_id: 'chip.intake.skip_analysis',
+      requested_next_state: 'DIAG_ANALYSIS_SUMMARY',
+    });
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.next_state).toBe('DIAG_ANALYSIS_SUMMARY');
+    }
+  });
+});
+
+describe('agentStateMachine: chip.intake.* aliases', () => {
+  it('canonicalizes chip.intake.upload_photos to chip_intake_upload_photos', () => {
+    expect(canonicalizeChipId('chip.intake.upload_photos')).toBe('chip_intake_upload_photos');
+  });
+
+  it('canonicalizes chip.intake.skip_analysis to chip_intake_skip_analysis', () => {
+    expect(canonicalizeChipId('chip.intake.skip_analysis')).toBe('chip_intake_skip_analysis');
   });
 });

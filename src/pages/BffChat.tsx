@@ -6202,7 +6202,7 @@ export default function BffChat() {
       ? cards.some((c) => {
           const t = String((c as any)?.type || '').toLowerCase();
           if (t === 'diagnosis_gate') {
-            const reason = String((c as any)?.payload?.reason || '');
+            const reason = String((c as any)?.payload?.reason || '').toLowerCase().trim();
             return reason !== 'diagnosis_photo_choice';
           }
           return t === 'analysis_summary' || t === 'profile';
