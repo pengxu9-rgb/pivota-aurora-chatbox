@@ -6088,6 +6088,10 @@ export default function BffChat() {
     const passiveFilteredCards = filterPassiveAdvisoryCards(gatedCards, FF_SHOW_PASSIVE_GATES);
     const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards));
     const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+    const hasRecommendationsCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'recommendations');
+    const routeTelemetry = asObject((enhancedEnv as unknown as Record<string, unknown>)?.telemetry);
+    const routeFailureClass = typeof routeTelemetry?.route_failure_class === 'string' ? routeTelemetry.route_failure_class : '';
+    const routeDecision = typeof routeTelemetry?.route_decision === 'string' ? routeTelemetry.route_decision : '';
     const cardTypes = new Set(cards.map((card) => String(card?.type || '').trim().toLowerCase()).filter(Boolean));
     if (cardTypes.has('ingredient_goal_match') || cardTypes.has('aurora_ingredient_report') || cardTypes.has('ingredient_hub')) {
       const analyticsCtx: AnalyticsContext = {
@@ -6113,6 +6117,16 @@ export default function BffChat() {
         cards,
         meta: { request_id: enhancedEnv.request_id, trace_id: enhancedEnv.trace_id, events: enhancedEnv.events },
       });
+    }
+    if (!hasRecommendationsCard && routeFailureClass) {
+      const retryHint =
+        language === 'CN'
+          ? `推荐链路本轮降级（${routeFailureClass}）。你可以直接重试“给我产品推荐”。`
+          : `Recommendation route degraded this turn (${routeFailureClass}). You can retry with "recommend products".`;
+      const shouldShowRetryHint = routeDecision === 'travel_then_reco' || routeDecision === 'travel_only';
+      if (shouldShowRetryHint) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: retryHint });
+      }
     }
 
     const suppressChips = cards.length

@@ -72,6 +72,13 @@ export interface AuroraRecoRefreshHint {
   effective_window_days: number;
 }
 
+export interface AuroraEnvelopeTelemetry {
+  route_decision?: string;
+  route_failure_class?: string | null;
+  mixed_reco_requested?: boolean;
+  [k: string]: unknown;
+}
+
 export type SkinType = 'oily' | 'dry' | 'combination' | 'normal' | 'sensitive';
 export type SkinConcern = 'acne' | 'dark_spots' | 'wrinkles' | 'dullness' | 'redness' | 'pores' | 'dehydration';
 

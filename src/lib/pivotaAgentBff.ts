@@ -61,6 +61,13 @@ export type RecoRefreshHint = {
   effective_window_days: number;
 };
 
+export type EnvelopeTelemetry = {
+  route_decision?: string;
+  route_failure_class?: string | null;
+  mixed_reco_requested?: boolean;
+  [k: string]: unknown;
+};
+
 export type V1Envelope = {
   request_id: string;
   trace_id: string;
@@ -72,6 +79,7 @@ export type V1Envelope = {
   analysis_meta?: AnalysisMeta;
   recommendation_meta?: RecommendationMeta;
   reco_refresh_hint?: RecoRefreshHint;
+  telemetry?: EnvelopeTelemetry;
   meta?: Record<string, unknown>;
 };
 
