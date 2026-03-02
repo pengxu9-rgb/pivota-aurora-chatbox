@@ -49,6 +49,7 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
       display_name: asString(ingredient.display_name) || asString(ingredient.inci) || asString((obj as any).normalized_query) || '-',
       aliases: asStringArray(ingredient.aliases, 8),
       category: asString(ingredient.category) || '-',
+      what_it_is: asString(ingredient.what_it_is) || null,
     },
     verdict: {
       one_liner: asString(verdict.one_liner),
@@ -107,6 +108,10 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
         products_from_kb: asStringArray((item as any).products_from_kb, 8),
       }))
       .slice(0, 4),
+    formulation_notes: asString((obj as any).formulation_notes) || null,
+    regulatory_notes: asString((obj as any).regulatory_notes) || null,
+    best_for: asStringArray((obj as any).best_for, 3),
+    caution_for: asStringArray((obj as any).caution_for, 3),
     evidence: {
       summary: asString(evidence.summary),
       citations: asArray(evidence.citations)
@@ -557,6 +562,53 @@ export function IngredientReportCard({
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {(payload.formulation_notes || payload.regulatory_notes || (payload.best_for && payload.best_for.length) || (payload.caution_for && payload.caution_for.length)) ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {(payload.formulation_notes || payload.regulatory_notes) ? (
+            <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+              <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? '配方与法规' : 'Formulation & Regulatory'}</div>
+              {payload.formulation_notes ? (
+                <div className="mt-2 text-sm text-foreground">
+                  <span className="font-medium text-muted-foreground">{zh(language) ? '配方注意：' : 'Formulation: '}</span>
+                  {payload.formulation_notes}
+                </div>
+              ) : null}
+              {payload.regulatory_notes ? (
+                <div className="mt-1 text-sm text-foreground">
+                  <span className="font-medium text-muted-foreground">{zh(language) ? '法规限制：' : 'Regulatory: '}</span>
+                  {payload.regulatory_notes}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {((payload.best_for && payload.best_for.length) || (payload.caution_for && payload.caution_for.length)) ? (
+            <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+              <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? '适合与慎用' : 'Best for & Caution'}</div>
+              {payload.best_for && payload.best_for.length ? (
+                <div className="mt-2">
+                  <span className="text-xs font-medium text-emerald-700">{zh(language) ? '适合：' : 'Best for: '}</span>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+                    {payload.best_for.slice(0, 3).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {payload.caution_for && payload.caution_for.length ? (
+                <div className="mt-2">
+                  <span className="text-xs font-medium text-amber-700">{zh(language) ? '慎用：' : 'Caution for: '}</span>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+                    {payload.caution_for.slice(0, 3).map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

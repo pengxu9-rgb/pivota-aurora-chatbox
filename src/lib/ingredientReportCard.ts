@@ -19,6 +19,7 @@ export type IngredientReportPayloadV1 = {
     aliases: string[];
     alias_source?: 'curated';
     category: string;
+    what_it_is?: string | null;
   };
   verdict: {
     one_liner: string;
@@ -48,6 +49,10 @@ export type IngredientReportPayloadV1 = {
     routine_tip: string;
     products_from_kb: string[];
   }>;
+  formulation_notes?: string | null;
+  regulatory_notes?: string | null;
+  best_for?: string[];
+  caution_for?: string[];
   evidence: {
     summary: string;
     citations: Array<{
