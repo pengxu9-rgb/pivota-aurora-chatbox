@@ -51,6 +51,13 @@ export interface AuroraRecommendationMeta {
     cache_hit?: boolean;
     provider?: string | null;
     model?: string | null;
+    provider_status?: number | string | null;
+    provider_error_code?: string | null;
+    retry_after_ms?: number | null;
+    queue_wait_ms?: number | null;
+    provider_latency_ms?: number | null;
+    upstream_request_id?: string | null;
+    circuit_state?: string | null;
     [k: string]: unknown;
   } | null;
   env_source?: string | null;

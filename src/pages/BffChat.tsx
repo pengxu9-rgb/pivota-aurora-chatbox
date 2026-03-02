@@ -1642,6 +1642,8 @@ type LazyRecoAlternativesLoadResult = {
   refreshPending?: boolean;
   refreshAfterMs?: number;
   attemptCount?: number;
+  circuitState?: string | null;
+  upstreamRequestId?: string | null;
 };
 
 export function RecommendationsCard({
@@ -2445,6 +2447,15 @@ export function RecommendationsCard({
                         const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
                         if (tracks.length) {
                           onOpenAlternativesSheet(tracks);
+                          if (resp?.sourceMode === 'local_fallback' && resp?.refreshPending) {
+                            toast({
+                              title: language === 'CN' ? '先展示快速候选，正在增强结果' : 'Showing quick candidates, refining in background',
+                              description:
+                                language === 'CN'
+                                  ? '当前先返回可用对比项，系统会在后台刷新更完整的 alternatives。'
+                                  : 'Fast fallback alternatives are shown first. A richer LLM result is being refreshed.',
+                            });
+                          }
                           if (resp?.refreshPending && loadAlternativesForItem) {
                             const delayMs = Number.isFinite(Number(resp?.refreshAfterMs))
                               ? Math.max(300, Math.min(6000, Number(resp?.refreshAfterMs)))
@@ -6000,6 +6011,13 @@ export default function BffChat() {
         const refreshPending = resp?.refresh_pending === true;
         const refreshAfterMs = Number.isFinite(Number(resp?.refresh_after_ms)) ? Number(resp?.refresh_after_ms) : 0;
         const attemptCount = Number.isFinite(Number(resp?.attempt_count)) ? Number(resp?.attempt_count) : 0;
+        const circuitState = typeof resp?.circuit_state === 'string' ? resp.circuit_state : null;
+        const upstreamRequestId =
+          typeof resp?.upstream_request_id === 'string'
+            ? resp.upstream_request_id
+            : typeof (llmTrace as any)?.upstream_request_id === 'string'
+              ? String((llmTrace as any).upstream_request_id)
+              : null;
         const ok = resp?.ok !== false;
         const requestId = typeof resp?.request_id === 'string' ? resp.request_id : null;
         const traceId = typeof resp?.trace_id === 'string' ? resp.trace_id : null;
@@ -6011,6 +6029,8 @@ export default function BffChat() {
             trace_id: traceId,
             attempt_count: attemptCount || null,
             anchor_product_id: String(anchorProductId || '').trim() || null,
+            circuit_state: circuitState,
+            upstream_request_id: upstreamRequestId,
           });
         }
         return {
@@ -6025,6 +6045,8 @@ export default function BffChat() {
           ...(refreshPending ? { refreshPending: true } : {}),
           ...(refreshAfterMs > 0 ? { refreshAfterMs } : {}),
           ...(attemptCount > 0 ? { attemptCount } : {}),
+          ...(circuitState ? { circuitState } : {}),
+          ...(upstreamRequestId ? { upstreamRequestId } : {}),
         };
       } catch (err) {
         emitAlternativesFailed(analyticsCtx, {

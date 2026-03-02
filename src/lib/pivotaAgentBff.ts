@@ -48,6 +48,13 @@ export type RecommendationMeta = {
     cache_hit?: boolean;
     provider?: string | null;
     model?: string | null;
+    provider_status?: number | string | null;
+    provider_error_code?: string | null;
+    retry_after_ms?: number | null;
+    queue_wait_ms?: number | null;
+    provider_latency_ms?: number | null;
+    upstream_request_id?: string | null;
+    circuit_state?: string | null;
     [k: string]: unknown;
   } | null;
   env_source?: string | null;
@@ -248,12 +255,14 @@ export type RecoAlternativesResponse = {
   alternatives: Array<Record<string, unknown>>;
   field_missing?: Array<Record<string, unknown>>;
   llm_trace?: Record<string, unknown> | null;
-  source_mode?: 'llm' | 'local_fallback' | null;
+  source_mode?: 'llm' | 'local_fallback' | 'budget_skip' | null;
   failure_class?: string | null;
   fallback_source?: string | null;
   refresh_pending?: boolean;
   refresh_after_ms?: number;
   attempt_count?: number;
+  circuit_state?: 'closed' | 'open' | 'half_open' | string | null;
+  upstream_request_id?: string | null;
   debug?: Record<string, unknown>;
 };
 
