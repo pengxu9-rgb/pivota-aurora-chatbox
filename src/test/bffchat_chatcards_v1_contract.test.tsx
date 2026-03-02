@@ -785,4 +785,57 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
       }),
     );
   });
+
+  it('opens photo camera locally for quick reply with client_action=open_camera without sending another /v1/chat turn', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Choose how you want to continue.',
+            suggested_quick_replies: [
+              {
+                id: 'diag_upload',
+                label: 'Upload photo now',
+                metadata: {
+                  action_id: 'diag.upload_photo',
+                  client_action: 'open_camera',
+                  trigger_source: 'action',
+                },
+              },
+            ],
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.93, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'start diagnosis' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const uploadChip = await screen.findByRole('button', { name: 'Upload photo now' });
+    const chatCallsBeforeClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+    expect(chatCallsBeforeClick).toBe(1);
+
+    fireEvent.click(uploadChip);
+
+    await screen.findByText('Align your face inside the oval frame');
+    await waitFor(() => {
+      const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+      expect(chatCallsAfterClick).toBe(1);
+    });
+  });
 });

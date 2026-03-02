@@ -8391,7 +8391,7 @@ export default function BffChat() {
       const id = String(chip.chip_id || '').trim();
       const chipData = asObject(chip.data) || {};
       const actionIdOverride = asString((chipData as any).action_id);
-      const clientAction = asString((chipData as any).client_action).toLowerCase();
+      const clientAction = (asString((chipData as any).client_action) || '').toLowerCase();
       const effectiveActionId = actionIdOverride || id;
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
