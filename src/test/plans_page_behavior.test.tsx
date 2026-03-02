@@ -138,4 +138,36 @@ describe('Plans page behavior', () => {
       }),
     );
   });
+
+  it('keeps plan details collapsed until user expands', async () => {
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({
+      plans: [
+        makePlan({
+          trip_id: 'trip_fold',
+          destination: 'Seoul',
+          itinerary: 'Mostly outdoor daytime with one red-eye flight.',
+          prep_checklist: ['Pack sunscreen', 'Bring barrier cream'],
+        }),
+      ],
+      summary: {
+        active_trip_id: 'trip_fold',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+      },
+    });
+
+    render(<Plans />);
+    await screen.findByText('Seoul');
+
+    expect(screen.queryByText('Mostly outdoor daytime with one red-eye flight.')).toBeNull();
+    expect(screen.queryByText('Bring barrier cream')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View details' }));
+    expect(await screen.findByText('Mostly outdoor daytime with one red-eye flight.')).toBeTruthy();
+    expect(screen.getByText('Bring barrier cream')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide details' }));
+    await waitFor(() => {
+      expect(screen.queryByText('Mostly outdoor daytime with one red-eye flight.')).toBeNull();
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, CalendarDays, Loader2, MapPin, Menu, MessageCircle, Pencil, Plus } from 'lucide-react';
+import { Archive, CalendarDays, ChevronDown, ChevronUp, Loader2, MapPin, Menu, MessageCircle, Pencil, Plus } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
@@ -108,6 +108,7 @@ export default function Plans() {
   const [workingTripId, setWorkingTripId] = useState<string | null>(null);
   const [editingTripId, setEditingTripId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PlanDraft>(makeEmptyDraft());
+  const [expandedTripIds, setExpandedTripIds] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const language: Language = useMemo(() => (getLangPref() === 'cn' ? 'CN' : 'EN'), []);
 
@@ -183,6 +184,7 @@ export default function Plans() {
 
   const beginEdit = (plan: TravelPlanCardModel) => {
     setEditingTripId(plan.trip_id);
+    setExpandedTripIds((prev) => ({ ...prev, [plan.trip_id]: true }));
     setEditDraft({
       destination: plan.destination || '',
       start_date: plan.start_date || '',
@@ -254,6 +256,10 @@ export default function Plans() {
     });
   };
 
+  const togglePlanDetails = (tripId: string) => {
+    setExpandedTripIds((prev) => ({ ...prev, [tripId]: !prev[tripId] }));
+  };
+
   return (
     <div className="ios-page">
       <div className="ios-page-header">
@@ -267,6 +273,99 @@ export default function Plans() {
         </button>
         <div className="ios-page-title">Plans</div>
         <div className="ios-header-spacer" />
+      </div>
+
+      <div className="ios-panel mt-4">
+        <div className="flex items-start gap-3">
+          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
+            <Plus className="h-[18px] w-[18px]" />
+          </div>
+          <div>
+            <div className="ios-section-title">{language === 'CN' ? 'Create new plan' : 'Create new plan'}</div>
+            <div className="ios-caption mt-1">
+              {language === 'CN'
+                ? '保存后会自动进入对话分析，同时保留可追踪卡片。'
+                : 'After saving, chat analysis opens automatically and a trackable card is kept here.'}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <label className="block">
+            <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '目的地' : 'Destination'}</div>
+            <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={draft.destination}
+                onChange={(e) => setDraft((prev) => ({ ...prev, destination: e.target.value }))}
+                placeholder={language === 'CN' ? '例如：Tokyo / Paris' : 'e.g. Tokyo / Paris'}
+                className="h-6 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+              />
+            </div>
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '开始日期' : 'Start date'}</div>
+              <input
+                type="date"
+                value={draft.start_date}
+                onChange={(e) => setDraft((prev) => ({ ...prev, start_date: e.target.value }))}
+                className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+              />
+            </label>
+            <label className="block">
+              <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '结束日期' : 'End date'}</div>
+              <input
+                type="date"
+                value={draft.end_date}
+                onChange={(e) => setDraft((prev) => ({ ...prev, end_date: e.target.value }))}
+                className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '户外比例（0-1，可选）' : 'Outdoor ratio (0-1, optional)'}</div>
+            <input
+              type="number"
+              min="0"
+              max="1"
+              step="0.1"
+              value={draft.indoor_outdoor_ratio}
+              onChange={(e) => setDraft((prev) => ({ ...prev, indoor_outdoor_ratio: e.target.value }))}
+              className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+              placeholder="0.5"
+            />
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '可选行程备注' : 'Optional itinerary'}</div>
+            <textarea
+              value={draft.itinerary}
+              onChange={(e) => setDraft((prev) => ({ ...prev, itinerary: e.target.value }))}
+              className="min-h-[86px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+              placeholder={
+                language === 'CN'
+                  ? '如：白天户外较多、飞行、滑雪、跑步、暴晒等'
+                  : 'e.g. mostly outdoor daytime, flights, ski, workouts, heavy sun exposure'
+              }
+            />
+          </label>
+        </div>
+
+        {error ? <div className="mt-3 text-xs text-red-500">{error}</div> : null}
+
+        <button
+          type="button"
+          className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99] disabled:opacity-70"
+          onClick={submitCreate}
+          disabled={savingCreate}
+        >
+          <Plus className="h-4 w-4" />
+          {savingCreate ? (language === 'CN' ? '保存中...' : 'Saving...') : language === 'CN' ? '保存计划' : 'Save plan'}
+        </button>
       </div>
 
       <div className="ios-panel mt-4">
@@ -317,6 +416,8 @@ export default function Plans() {
             plans.map((plan) => {
               const isWorking = workingTripId === plan.trip_id;
               const isEditing = editingTripId === plan.trip_id;
+              const hasDetails = Boolean(plan.itinerary) || (Array.isArray(plan.prep_checklist) && plan.prep_checklist.length > 0);
+              const isExpanded = Boolean(expandedTripIds[plan.trip_id]);
               return (
                 <div key={plan.trip_id} className="rounded-2xl border border-border/60 bg-background/60 p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -330,24 +431,46 @@ export default function Plans() {
                     </span>
                   </div>
 
-                  {plan.itinerary ? (
-                    <div className="mt-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-2 text-xs text-muted-foreground">
-                      {plan.itinerary}
-                    </div>
+                  {hasDetails ? (
+                    <button
+                      type="button"
+                      aria-expanded={isExpanded}
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"
+                      onClick={() => togglePlanDetails(plan.trip_id)}
+                    >
+                      {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      {isExpanded
+                        ? language === 'CN'
+                          ? '收起详情'
+                          : 'Hide details'
+                        : language === 'CN'
+                          ? '展开详情'
+                          : 'View details'}
+                    </button>
                   ) : null}
 
-                  {Array.isArray(plan.prep_checklist) && plan.prep_checklist.length > 0 ? (
-                    <div className="mt-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-2">
-                      <div className="mb-1 text-[11px] font-semibold text-muted-foreground">
-                        {language === 'CN' ? '准备清单' : 'Prep checklist'}
-                      </div>
-                      <ul className="space-y-1 text-xs text-muted-foreground">
-                        {plan.prep_checklist.slice(0, 6).map((item, index) => (
-                          <li key={`${plan.trip_id}_${index}`} className="leading-relaxed">
-                            {item}
-                          </li>
-                        ))}
-                      </ul>
+                  {hasDetails && isExpanded ? (
+                    <div className="mt-2 space-y-2">
+                      {plan.itinerary ? (
+                        <div className="rounded-xl border border-border/60 bg-background/60 px-2.5 py-2 text-xs text-muted-foreground">
+                          {plan.itinerary}
+                        </div>
+                      ) : null}
+
+                      {Array.isArray(plan.prep_checklist) && plan.prep_checklist.length > 0 ? (
+                        <div className="rounded-xl border border-border/60 bg-background/60 px-2.5 py-2">
+                          <div className="mb-1 text-[11px] font-semibold text-muted-foreground">
+                            {language === 'CN' ? '准备清单' : 'Prep checklist'}
+                          </div>
+                          <ul className="space-y-1 text-xs text-muted-foreground">
+                            {plan.prep_checklist.slice(0, 6).map((item, index) => (
+                              <li key={`${plan.trip_id}_${index}`} className="leading-relaxed">
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -449,99 +572,6 @@ export default function Plans() {
             })
           )}
         </div>
-      </div>
-
-      <div className="ios-panel mt-4">
-        <div className="flex items-start gap-3">
-          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
-            <Plus className="h-[18px] w-[18px]" />
-          </div>
-          <div>
-            <div className="ios-section-title">{language === 'CN' ? 'Create new plan' : 'Create new plan'}</div>
-            <div className="ios-caption mt-1">
-              {language === 'CN'
-                ? '保存后会自动进入对话分析，同时保留可追踪卡片。'
-                : 'After saving, chat analysis opens automatically and a trackable card is kept here.'}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          <label className="block">
-            <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '目的地' : 'Destination'}</div>
-            <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                value={draft.destination}
-                onChange={(e) => setDraft((prev) => ({ ...prev, destination: e.target.value }))}
-                placeholder={language === 'CN' ? '例如：Tokyo / Paris' : 'e.g. Tokyo / Paris'}
-                className="h-6 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
-              />
-            </div>
-          </label>
-
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '开始日期' : 'Start date'}</div>
-              <input
-                type="date"
-                value={draft.start_date}
-                onChange={(e) => setDraft((prev) => ({ ...prev, start_date: e.target.value }))}
-                className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
-              />
-            </label>
-            <label className="block">
-              <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '结束日期' : 'End date'}</div>
-              <input
-                type="date"
-                value={draft.end_date}
-                onChange={(e) => setDraft((prev) => ({ ...prev, end_date: e.target.value }))}
-                className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
-              />
-            </label>
-          </div>
-
-          <label className="block">
-            <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '户外比例（0-1，可选）' : 'Outdoor ratio (0-1, optional)'}</div>
-            <input
-              type="number"
-              min="0"
-              max="1"
-              step="0.1"
-              value={draft.indoor_outdoor_ratio}
-              onChange={(e) => setDraft((prev) => ({ ...prev, indoor_outdoor_ratio: e.target.value }))}
-              className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
-              placeholder="0.5"
-            />
-          </label>
-
-          <label className="block">
-            <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '可选行程备注' : 'Optional itinerary'}</div>
-            <textarea
-              value={draft.itinerary}
-              onChange={(e) => setDraft((prev) => ({ ...prev, itinerary: e.target.value }))}
-              className="min-h-[86px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
-              placeholder={
-                language === 'CN'
-                  ? '如：白天户外较多、飞行、滑雪、跑步、暴晒等'
-                  : 'e.g. mostly outdoor daytime, flights, ski, workouts, heavy sun exposure'
-              }
-            />
-          </label>
-        </div>
-
-        {error ? <div className="mt-3 text-xs text-red-500">{error}</div> : null}
-
-        <button
-          type="button"
-          className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99] disabled:opacity-70"
-          onClick={submitCreate}
-          disabled={savingCreate}
-        >
-          <Plus className="h-4 w-4" />
-          {savingCreate ? (language === 'CN' ? '保存中...' : 'Saving...') : language === 'CN' ? '保存计划' : 'Save plan'}
-        </button>
       </div>
     </div>
   );
