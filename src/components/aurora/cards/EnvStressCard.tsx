@@ -266,6 +266,30 @@ export function EnvStressCard({
                 ) : null}
               </div>
 
+              {travelReadiness.forecast_window?.length ? (
+                <details className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+                  <summary className="cursor-pointer select-none font-semibold text-foreground/90">
+                    {language === 'CN' ? '逐日天气预报（展开）' : 'Daily forecast (expand)'}
+                  </summary>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {travelReadiness.forecast_window.slice(0, 7).map((day, idx) => (
+                      <li key={`fc_${idx}_${day.date}`} className="flex gap-1.5">
+                        <span className="font-medium text-foreground/90 shrink-0">{day.date}</span>
+                        <span>
+                          {typeof day.temp_low_c === 'number' || typeof day.temp_high_c === 'number'
+                            ? `${day.temp_low_c ?? '-'}° ~ ${day.temp_high_c ?? '-'}°C`
+                            : ''}
+                          {day.condition_text ? ` · ${day.condition_text}` : ''}
+                          {typeof day.precip_mm === 'number' && day.precip_mm > 0
+                            ? ` · ${day.precip_mm}mm`
+                            : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+
               {travelReadiness.personal_focus?.length ? (
                 <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                   <div className="font-semibold text-foreground/90">
@@ -304,6 +328,23 @@ export function EnvStressCard({
                   {travelReadiness.jetlag_sleep?.mask_tips?.length ? (
                     <div className="mt-1">• {travelReadiness.jetlag_sleep.mask_tips[0]}</div>
                   ) : null}
+                </div>
+              ) : null}
+
+              {travelReadiness.alerts?.length ? (
+                <div className="rounded-xl border border-amber-400/50 bg-amber-50/30 p-2.5 text-[11px] text-muted-foreground">
+                  <div className="font-semibold text-amber-700">
+                    {language === 'CN' ? '天气预警' : 'Weather alerts'}
+                  </div>
+                  <ul className="mt-1.5 space-y-1">
+                    {travelReadiness.alerts.slice(0, 2).map((alert, idx) => (
+                      <li key={`alert_${idx}`}>
+                        {alert.severity ? <span className="font-medium text-amber-700">{alert.severity} </span> : null}
+                        {alert.title || alert.summary || ''}
+                        {alert.action_hint ? <div className="mt-0.5">{alert.action_hint}</div> : null}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
 
@@ -355,6 +396,22 @@ export function EnvStressCard({
                     {travelReadiness.shopping_preview.buying_channels.join(' · ')}
                     {travelReadiness.shopping_preview.city_hint ? ` (${travelReadiness.shopping_preview.city_hint})` : ''}
                   </div>
+                ) : null}
+                {travelReadiness.store_examples?.length ? (
+                  <details className="mt-1.5">
+                    <summary className="cursor-pointer select-none font-semibold text-foreground/90">
+                      {language === 'CN' ? '示例门店' : 'Example stores'}
+                    </summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {travelReadiness.store_examples.slice(0, 3).map((store, idx) => (
+                        <li key={`store_${idx}_${store.name}`}>
+                          <span className="text-foreground/90">{store.name}</span>
+                          {store.type ? ` · ${store.type}` : ''}
+                          {store.district ? ` (${store.district})` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 ) : null}
                 {travelReadiness.shopping_preview?.note ? (
                   <div className="mt-1">{travelReadiness.shopping_preview.note}</div>

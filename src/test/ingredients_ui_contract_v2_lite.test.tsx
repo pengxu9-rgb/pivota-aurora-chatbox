@@ -50,9 +50,9 @@ describe('ingredients v2-lite ui contract', () => {
       />,
     );
 
-    expect(screen.getByText(/Quick result now; enhanced evidence is generating\./i)).toBeInTheDocument();
-    expect(screen.getByText(/Benefit details are limited for now; showing a readable baseline\./i)).toBeInTheDocument();
-    expect(screen.getByText(/No specific watchouts yet; start low and monitor tolerance\./i)).toBeInTheDocument();
+    expect(screen.getByText(/personalized baseline/i)).toBeInTheDocument();
+    expect(screen.getByText(/Benefit details are enriching/i)).toBeInTheDocument();
+    expect(screen.getByText(/Watchouts are being enriched/i)).toBeInTheDocument();
     expect(screen.queryByText(/Ingredient report payload is unavailable\./i)).not.toBeInTheDocument();
   });
 
@@ -84,4 +84,3 @@ describe('ingredients v2-lite ui contract', () => {
     expect(screen.queryByText(/analysis_missing/i)).not.toBeInTheDocument();
   });
 });
-

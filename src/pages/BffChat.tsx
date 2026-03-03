@@ -5945,6 +5945,8 @@ export default function BffChat() {
   const actionIntentConsumedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastIngredientCtxRef = useRef<Record<string, unknown> | null>(null);
+  const ingredientAutoPollSeenRef = useRef<Set<string>>(new Set());
+  const ingredientAutoPollTimersRef = useRef<number[]>([]);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
@@ -6020,6 +6022,16 @@ export default function BffChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [items, isLoading]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of ingredientAutoPollTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+      ingredientAutoPollTimersRef.current = [];
+      ingredientAutoPollSeenRef.current.clear();
+    };
+  }, []);
 
   const openPdpDrawer = useCallback(
     (args: { url: string; title?: string }) => {
@@ -7534,6 +7546,53 @@ export default function BffChat() {
     return null;
   }, []);
 
+  useEffect(() => {
+    if (chatBusy) return;
+    const latestCardsItem = [...items]
+      .reverse()
+      .find((item) => item.kind === 'cards' && Array.isArray((item as any).cards));
+    if (!latestCardsItem || latestCardsItem.kind !== 'cards') return;
+    const latestIngredientCard = [...latestCardsItem.cards]
+      .reverse()
+      .find((card) => String((card as any)?.type || '').trim().toLowerCase() === 'aurora_ingredient_report');
+    if (!latestIngredientCard) return;
+    const payload = asObject((latestIngredientCard as any).payload);
+    if (!payload) return;
+    const reportState = asObject(payload.report_state);
+    const reportStatus = asString((reportState as any)?.status || '').toLowerCase();
+    const researchStatus = asString(payload.research_status || '').toLowerCase();
+    if (reportStatus !== 'pending' && researchStatus !== 'queued') return;
+    const ingredient = asObject(payload.ingredient);
+    const ingredientQuery =
+      asString((ingredient as any)?.display_name || '').trim() ||
+      asString((ingredient as any)?.inci || '').trim() ||
+      asString(payload.normalized_query || '').trim();
+    if (!ingredientQuery) return;
+    const normalizedQuery = asString(payload.normalized_query || '').trim();
+    const updatedAtMs = Number(payload.updated_at_ms);
+    const pollKey = [
+      normalizedQuery || ingredientQuery.toLowerCase(),
+      Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? String(Math.trunc(updatedAtMs)) : 'na',
+      reportStatus || researchStatus || 'pending',
+    ].join('|');
+    if (ingredientAutoPollSeenRef.current.has(pollKey)) return;
+    ingredientAutoPollSeenRef.current.add(pollKey);
+    const timer = window.setTimeout(() => {
+      ingredientAutoPollTimersRef.current = ingredientAutoPollTimersRef.current.filter((id) => id !== timer);
+      void sendChat(undefined, {
+        action_id: 'ingredient.research.poll',
+        kind: 'action',
+        data: {
+          ingredient_query: ingredientQuery,
+          ...(normalizedQuery ? { normalized_query: normalizedQuery } : {}),
+          entry_source: 'ingredient_report_auto_poll',
+          trigger_source: 'ingredient_report_auto_poll',
+        },
+      });
+    }, 1600);
+    ingredientAutoPollTimersRef.current.push(timer);
+  }, [chatBusy, items, sendChat]);
+
   const runProductDeepScan = useCallback(
     async (rawInput: string) => {
       const inputText = String(rawInput || '').trim();
@@ -7862,7 +7921,7 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'ingredient.research.poll') {
+      if (actionId === 'ingredient.research.poll' || actionId === 'ingredient.report.refresh') {
         const ingredientQuery =
           typeof data?.ingredient_query === 'string'
             ? data.ingredient_query.trim()

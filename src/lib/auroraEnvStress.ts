@@ -70,6 +70,33 @@ export type TravelReadinessBrandCandidateItem = {
   reason?: string | null;
 };
 
+export type TravelForecastDayV1 = {
+  date: string;
+  temp_low_c?: number | null;
+  temp_high_c?: number | null;
+  humidity_mean?: number | null;
+  uv_max?: number | null;
+  precip_mm?: number | null;
+  wind_kph?: number | null;
+  condition_text?: string | null;
+};
+
+export type TravelRecoBundleItem = {
+  trigger?: string | null;
+  action?: string | null;
+  ingredient_logic?: string | null;
+  product_types?: string[];
+  reapply_rule?: string | null;
+};
+
+export type TravelStoreExample = {
+  name: string;
+  type?: string | null;
+  address?: string | null;
+  district?: string | null;
+  source?: string | null;
+};
+
 export type TravelReadinessV1 = {
   destination_context?: {
     destination?: string | null;
@@ -87,6 +114,17 @@ export type TravelReadinessV1 = {
     summary_tags?: string[];
     baseline_status?: string | null;
   };
+  forecast_window?: TravelForecastDayV1[];
+  alerts?: Array<{
+    provider?: string | null;
+    severity?: string | null;
+    title?: string | null;
+    summary?: string | null;
+    start_at?: string | null;
+    end_at?: string | null;
+    region?: string | null;
+    action_hint?: string | null;
+  }>;
   adaptive_actions?: TravelReadinessItem[];
   personal_focus?: TravelReadinessPersonalFocusItem[];
   jetlag_sleep?: {
@@ -97,6 +135,8 @@ export type TravelReadinessV1 = {
     sleep_tips?: string[];
     mask_tips?: string[];
   };
+  reco_bundle?: TravelRecoBundleItem[];
+  store_examples?: TravelStoreExample[];
   shopping_preview?: {
     products?: TravelReadinessProductPreviewItem[];
     brand_candidates?: TravelReadinessBrandCandidateItem[];

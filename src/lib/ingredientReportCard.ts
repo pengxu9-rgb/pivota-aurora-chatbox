@@ -14,6 +14,7 @@ export type IngredientReportPayloadV1 = {
   schema_version: 'aurora.ingredient_report.v1' | 'aurora.ingredient_report.v2-lite';
   locale: IngredientReportLocale;
   ingredient: {
+    key?: string;
     inci: string;
     display_name: string;
     aliases: string[];
@@ -29,6 +30,7 @@ export type IngredientReportPayloadV1 = {
     time_to_results: IngredientTimeToResults;
     confidence: number | null;
     confidence_level?: 'low' | 'medium' | 'high';
+    personalization_basis?: 'ingredient' | 'ingredient_family' | 'mixed';
   };
   benefits: Array<{ concern: string; strength: 0 | 1 | 2 | 3; what_it_means: string }>;
   how_to_use: {
@@ -84,6 +86,20 @@ export type IngredientReportPayloadV1 = {
   kb_revision?: string | null;
   provider_model_tier?: string | null;
   provider_circuit_state?: 'open' | 'half_open' | 'closed' | string | null;
+  report_state?: {
+    mode: 'deterministic' | 'hybrid' | 'llm_enriched';
+    status: 'ready' | 'partial' | 'pending' | 'failed';
+    completion_score: number;
+    missing_sections: string[];
+    reason_code: 'provider_unavailable' | 'timeout' | 'insufficient_evidence' | 'kb_only' | 'none' | string;
+    family_key?: string | null;
+  };
+  sections?: Array<{
+    id: string;
+    title: string;
+    status?: 'ready' | 'pending' | 'insufficient';
+    source?: 'kb' | 'llm' | 'hybrid';
+  }>;
   personalized_fit?: {
     summary?: string;
     adjustments?: string[];

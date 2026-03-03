@@ -45,6 +45,7 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
     schema_version: schemaVersion as IngredientReportPayloadV1['schema_version'],
     locale: asString(obj.locale).toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US',
     ingredient: {
+      key: asString((ingredient as any).key) || undefined,
       inci: asString(ingredient.inci) || asString((obj as any).normalized_query) || '-',
       display_name: asString(ingredient.display_name) || asString(ingredient.inci) || asString((obj as any).normalized_query) || '-',
       aliases: asStringArray(ingredient.aliases, 8),
@@ -70,6 +71,9 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
       confidence_level: (['low', 'medium', 'high'].includes(asString((verdict as any).confidence_level))
         ? asString((verdict as any).confidence_level)
         : undefined) as IngredientReportPayloadV1['verdict']['confidence_level'],
+      personalization_basis: (['ingredient', 'ingredient_family', 'mixed'].includes(asString((verdict as any).personalization_basis))
+        ? asString((verdict as any).personalization_basis)
+        : undefined) as IngredientReportPayloadV1['verdict']['personalization_basis'],
     },
     benefits: asArray(obj.benefits)
       .map((item) => (isPlainObject(item) ? item : null))
@@ -198,6 +202,44 @@ function normalizePayload(raw: unknown): IngredientReportPayloadV1 | null {
     kb_revision: asString((obj as any).kb_revision) || null,
     provider_model_tier: asString((obj as any).provider_model_tier) || null,
     provider_circuit_state: asString((obj as any).provider_circuit_state) || null,
+    report_state: (() => {
+      const state = isPlainObject((obj as any).report_state) ? (obj as any).report_state : null;
+      if (!state) return undefined;
+      const mode = asString((state as any).mode).toLowerCase();
+      const status = asString((state as any).status).toLowerCase();
+      const completionScoreRaw = Number((state as any).completion_score);
+      const completion_score = Number.isFinite(completionScoreRaw)
+        ? Math.max(0, Math.min(1, completionScoreRaw))
+        : 0;
+      const normalizedMode = (mode === 'deterministic' || mode === 'hybrid' || mode === 'llm_enriched')
+        ? mode
+        : 'deterministic';
+      const normalizedStatus = (status === 'ready' || status === 'partial' || status === 'pending' || status === 'failed')
+        ? status
+        : 'partial';
+      return {
+        mode: normalizedMode as IngredientReportPayloadV1['report_state']['mode'],
+        status: normalizedStatus as IngredientReportPayloadV1['report_state']['status'],
+        completion_score,
+        missing_sections: asStringArray((state as any).missing_sections, 8),
+        reason_code: asString((state as any).reason_code) || 'none',
+        family_key: asString((state as any).family_key) || null,
+      };
+    })(),
+    sections: asArray((obj as any).sections)
+      .map((item) => (isPlainObject(item) ? item : null))
+      .filter(Boolean)
+      .map((item) => ({
+        id: asString((item as any).id) || 'section',
+        title: asString((item as any).title) || asString((item as any).id) || 'Section',
+        status: (['ready', 'pending', 'insufficient'].includes(asString((item as any).status))
+          ? asString((item as any).status)
+          : undefined) as IngredientReportPayloadV1['sections'][number]['status'],
+        source: (['kb', 'llm', 'hybrid'].includes(asString((item as any).source))
+          ? asString((item as any).source)
+          : undefined) as IngredientReportPayloadV1['sections'][number]['source'],
+      }))
+      .slice(0, 8),
     personalized_fit: (() => {
       const fit = isPlainObject((obj as any).personalized_fit) ? (obj as any).personalized_fit : null;
       if (!fit) return undefined;
@@ -326,16 +368,35 @@ export function IngredientReportCard({
         : 'Insufficient';
   const hiddenSet = new Set(hiddenQuestionIds.map((id) => asString(id)).filter(Boolean));
   const visibleQuestions = payload.next_questions.filter((q) => !hiddenSet.has(q.id));
-  const isFallback = payload.research_status === 'fallback' || payload.research_status === 'error' || payload.research_status === 'provider_unavailable';
+  const reportState = payload.report_state;
+  const reportIsPending = reportState?.status === 'pending' || payload.research_status === 'queued';
+  const sectionStatusMap = new Map(
+    asArray(payload.sections).map((section) => [asString((section as any).id).toLowerCase(), section as any]),
+  );
+  const getSectionStatus = (sectionId: string): 'ready' | 'pending' | 'insufficient' => {
+    const item = sectionStatusMap.get(asString(sectionId).toLowerCase()) as any;
+    const status = asString(item?.status).toLowerCase();
+    if (status === 'ready' || status === 'pending' || status === 'insufficient') return status;
+    return reportIsPending ? 'pending' : 'ready';
+  };
   const updatedAtText = formatUpdatedAt(payload.updated_at_ms ?? null, language);
   const researchStatusLabel = (() => {
-    if (payload.research_status === 'ready') return zh(language) ? '研究完成' : 'Research ready';
-    if (payload.research_status === 'queued') return zh(language) ? '研究排队中' : 'Research queued';
+    if (reportState?.status === 'ready' || payload.research_status === 'ready') return zh(language) ? '研究完成' : 'Research ready';
+    if (reportState?.status === 'pending' || payload.research_status === 'queued') return zh(language) ? '研究补全中' : 'Research enriching';
+    if (reportState?.status === 'partial') return zh(language) ? '部分完成' : 'Partially complete';
+    if (reportState?.status === 'failed') return zh(language) ? '研究失败' : 'Research failed';
     if (payload.research_status === 'fallback') return zh(language) ? '基础结果' : 'Fallback result';
     if (payload.research_status === 'provider_unavailable') return zh(language) ? '研究服务不可用' : 'Provider unavailable';
     if (payload.research_status === 'error') return zh(language) ? '研究失败' : 'Research failed';
     if (payload.research_status === 'disabled') return zh(language) ? '研究关闭' : 'Research disabled';
     return zh(language) ? '快速结果' : 'Quick result';
+  })();
+  const reportModeLabel = (() => {
+    const mode = asString(reportState?.mode).toLowerCase();
+    if (mode === 'llm_enriched') return zh(language) ? '模式 llm_enriched' : 'Mode llm_enriched';
+    if (mode === 'hybrid') return zh(language) ? '模式 hybrid' : 'Mode hybrid';
+    if (mode === 'deterministic') return zh(language) ? '模式 deterministic' : 'Mode deterministic';
+    return '';
   })();
   const fallbackErrorLabel = (() => {
     const code = asString(payload.research_error_code).toLowerCase();
@@ -394,6 +455,18 @@ export function IngredientReportCard({
           <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
             {researchStatusLabel}
           </span>
+          {reportModeLabel ? (
+            <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+              {reportModeLabel}
+            </span>
+          ) : null}
+          {reportState && Number.isFinite(reportState.completion_score) ? (
+            <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+              {zh(language)
+                ? `完成度 ${Math.round(Math.max(0, Math.min(1, reportState.completion_score)) * 100)}%`
+                : `Completion ${Math.round(Math.max(0, Math.min(1, reportState.completion_score)) * 100)}%`}
+            </span>
+          ) : null}
           {payload.research_provider ? (
             <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
               {zh(language) ? `提供方 ${payload.research_provider}` : `Provider ${payload.research_provider}`}
@@ -416,15 +489,15 @@ export function IngredientReportCard({
           </div>
         ) : null}
 
-        {payload.research_status === 'queued' ? (
+        {reportIsPending ? (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
-            <span>{zh(language) ? '当前为快速结果，增强证据生成中。' : 'Quick result now; enhanced evidence is generating.'}</span>
+            <span>{zh(language) ? '当前显示个性化底稿，增强证据补全中。' : 'Showing a personalized baseline now; evidence enrichment is in progress.'}</span>
             {onAction ? (
               <button
                 type="button"
                 className="rounded-full border border-sky-300 bg-white px-2 py-1 text-[11px] text-sky-700"
                 onClick={() =>
-                  onAction('ingredient.research.poll', {
+                  onAction('ingredient.report.refresh', {
                     ingredient_query: ingredientQueryForActions,
                     normalized_query: payload.normalized_query || undefined,
                     entry_source: 'ingredient_report_card',
@@ -437,7 +510,7 @@ export function IngredientReportCard({
           </div>
         ) : null}
 
-        {(payload.research_status === 'fallback' || payload.research_status === 'error' || payload.research_status === 'provider_unavailable') ? (
+        {(payload.research_status === 'fallback' || payload.research_status === 'error' || payload.research_status === 'provider_unavailable') && !reportIsPending ? (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
             <span>
               {zh(language) ? '当前返回基础结果：' : 'Fallback result: '}
@@ -448,12 +521,12 @@ export function IngredientReportCard({
                 type="button"
                 className="rounded-full border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-700"
                 onClick={() =>
-                  onAction('ingredient.research.poll', {
-                    ingredient_query: ingredientQueryForActions,
-                    normalized_query: payload.normalized_query || undefined,
-                    entry_source: 'ingredient_report_card',
-                  })
-                }
+                    onAction('ingredient.report.refresh', {
+                      ingredient_query: ingredientQueryForActions,
+                      normalized_query: payload.normalized_query || undefined,
+                      entry_source: 'ingredient_report_card',
+                    })
+                  }
               >
                 {zh(language) ? '重试' : 'Retry'}
               </button>
@@ -463,11 +536,11 @@ export function IngredientReportCard({
                 type="button"
                 className="rounded-full border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-700"
                 onClick={() =>
-                  onAction('ingredient.research.poll', {
-                    ingredient_query: ingredientQueryForActions,
-                    normalized_query: payload.normalized_query || undefined,
-                    entry_source: 'ingredient_report_feedback',
-                    feedback_type: 'ingredient_report_issue',
+                    onAction('ingredient.report.refresh', {
+                      ingredient_query: ingredientQueryForActions,
+                      normalized_query: payload.normalized_query || undefined,
+                      entry_source: 'ingredient_report_feedback',
+                      feedback_type: 'ingredient_report_issue',
                     reason_code: payload.research_error_code || 'unknown',
                   })
                 }
@@ -479,8 +552,6 @@ export function IngredientReportCard({
         ) : null}
       </div>
 
-      {!isFallback ? (
-      <>
       <div className="space-y-2">
         <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Benefits' : 'Benefits'}</div>
         <div className="space-y-2">
@@ -496,7 +567,9 @@ export function IngredientReportCard({
             ))
           ) : (
             <div className="rounded-xl border border-border/60 bg-background/60 p-2 text-xs text-muted-foreground">
-              {zh(language) ? '暂无足够收益信息，已返回可读基础结果。' : 'Benefit details are limited for now; showing a readable baseline.'}
+              {getSectionStatus('benefits') === 'pending'
+                ? (zh(language) ? '功效细节补全中，先展示已确认的底稿信息。' : 'Benefit details are enriching; showing confirmed baseline details first.')
+                : (zh(language) ? '暂无足够收益信息，已返回可读基础结果。' : 'Benefit details are limited for now; showing a readable baseline.')}
             </div>
           )}
         </div>
@@ -538,7 +611,9 @@ export function IngredientReportCard({
             </ul>
           ) : (
             <div className="mt-2 text-xs text-muted-foreground">
-              {zh(language) ? '暂无明确风险提示，建议先小范围测试并观察耐受。' : 'No specific watchouts yet; start low and monitor tolerance.'}
+              {getSectionStatus('watchouts') === 'pending'
+                ? (zh(language) ? '风险提示补全中，建议先小范围测试并观察耐受。' : 'Watchouts are being enriched; patch-test first and monitor tolerance.')
+                : (zh(language) ? '暂无明确风险提示，建议先小范围测试并观察耐受。' : 'No specific watchouts yet; start low and monitor tolerance.')}
             </div>
           )}
         </div>
@@ -566,8 +641,6 @@ export function IngredientReportCard({
             ))}
           </div>
         </div>
-      ) : null}
-      </>
       ) : null}
 
       {(payload.formulation_notes || payload.regulatory_notes || (payload.best_for && payload.best_for.length) || (payload.caution_for && payload.caution_for.length)) ? (
@@ -695,7 +768,9 @@ export function IngredientReportCard({
             </ul>
           ) : (
             <div className="text-xs text-muted-foreground">
-              {zh(language) ? '当前没有可默认展示的高相关来源。' : 'No high-relevance citations available for default display.'}
+              {reportIsPending || getSectionStatus('evidence') === 'pending'
+                ? (zh(language) ? '证据补全中，完成后会自动刷新引用。' : 'Evidence enrichment is in progress; citations will refresh automatically.')
+                : (zh(language) ? '当前没有可默认展示的高相关来源。' : 'No high-relevance citations available for default display.')}
             </div>
           )}
         </div>
