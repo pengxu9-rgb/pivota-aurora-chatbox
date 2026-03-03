@@ -240,6 +240,51 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
     };
   }
 
+  const forecastWindow = Array.isArray(value.forecast_window) ? value.forecast_window : [];
+  if (forecastWindow.length) {
+    out.forecast_window = forecastWindow
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const date = normalizeOptionalText(row.date, 24);
+        if (!date) return null;
+        return {
+          date,
+          temp_low_c: coerceNumber(row.temp_low_c),
+          temp_high_c: coerceNumber(row.temp_high_c),
+          humidity_mean: coerceNumber(row.humidity_mean),
+          uv_max: coerceNumber(row.uv_max),
+          precip_mm: coerceNumber(row.precip_mm),
+          wind_kph: coerceNumber(row.wind_kph),
+          condition_text: normalizeOptionalText(row.condition_text, 120),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 7) as any;
+  }
+
+  const alertsRaw = Array.isArray(value.alerts) ? value.alerts : [];
+  if (alertsRaw.length) {
+    out.alerts = alertsRaw
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const title = normalizeOptionalText(row.title, 160);
+        const severity = normalizeOptionalText(row.severity, 24);
+        if (!title && !severity) return null;
+        return {
+          provider: normalizeOptionalText(row.provider, 80),
+          severity,
+          title,
+          summary: normalizeOptionalText(row.summary, 260),
+          start_at: normalizeOptionalText(row.start_at, 64),
+          end_at: normalizeOptionalText(row.end_at, 64),
+          region: normalizeOptionalText(row.region, 120),
+          action_hint: normalizeOptionalText(row.action_hint, 220),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 4) as any;
+  }
+
   const adaptiveActions = Array.isArray(value.adaptive_actions) ? value.adaptive_actions : [];
   if (adaptiveActions.length) {
     out.adaptive_actions = adaptiveActions
@@ -283,6 +328,45 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       sleep_tips: normalizeStringArray(jetlagSleep.sleep_tips, 4, 220),
       mask_tips: normalizeStringArray(jetlagSleep.mask_tips, 4, 220),
     };
+  }
+
+  const recoBundle = Array.isArray(value.reco_bundle) ? value.reco_bundle : [];
+  if (recoBundle.length) {
+    out.reco_bundle = recoBundle
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const trigger = normalizeOptionalText(row.trigger, 80);
+        const action = normalizeOptionalText(row.action, 240);
+        if (!trigger && !action) return null;
+        return {
+          trigger,
+          action,
+          ingredient_logic: normalizeOptionalText(row.ingredient_logic, 180),
+          product_types: normalizeStringArray(row.product_types, 4, 80),
+          reapply_rule: normalizeOptionalText(row.reapply_rule, 200),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 4) as any;
+  }
+
+  const storeExamples = Array.isArray(value.store_examples) ? value.store_examples : [];
+  if (storeExamples.length) {
+    out.store_examples = storeExamples
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const name = normalizeOptionalText(row.name, 80);
+        if (!name) return null;
+        return {
+          name,
+          type: normalizeOptionalText(row.type, 40),
+          address: normalizeOptionalText(row.address, 160),
+          district: normalizeOptionalText(row.district, 80),
+          source: normalizeOptionalText(row.source, 40),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 3) as any;
   }
 
   const shoppingPreview = isPlainObject(value.shopping_preview) ? value.shopping_preview : null;

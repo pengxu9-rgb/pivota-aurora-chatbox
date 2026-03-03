@@ -30,6 +30,22 @@ describe('EnvStressCard travel readiness', () => {
               humidity: { home: 58, destination: 76, delta: 18, unit: '%' },
               summary_tags: ['colder', 'more_humid'],
             },
+            forecast_window: [
+              {
+                date: '2026-03-01',
+                temp_low_c: 7,
+                temp_high_c: 13,
+                precip_mm: 2.1,
+                condition_text: 'Rain',
+              },
+            ],
+            alerts: [
+              {
+                severity: 'orange',
+                title: 'Wind advisory',
+                action_hint: 'Reduce prolonged outdoor exposure.',
+              },
+            ],
             adaptive_actions: [{ why: 'UV pressure is higher', what_to_do: 'Reapply SPF during daytime.' }],
             personal_focus: [{ focus: 'Barrier', why: 'Sensitive skin', what_to_do: 'Use richer moisturizer.' }],
             jetlag_sleep: {
@@ -47,6 +63,7 @@ describe('EnvStressCard travel readiness', () => {
               buying_channels: ['beauty_retail', 'ecommerce'],
               city_hint: 'Paris',
             },
+            store_examples: [{ name: 'Matsukiyo', type: 'Drugstore', district: 'Shibuya' }],
             confidence: {
               level: 'medium',
               missing_inputs: ['recent_logs'],
@@ -64,12 +81,17 @@ describe('EnvStressCard travel readiness', () => {
     expect(screen.getByText('Destination delta')).toBeInTheDocument();
     expect(screen.getByText('Personal focus')).toBeInTheDocument();
     expect(screen.getByText('Jet lag and sleep')).toBeInTheDocument();
+    expect(screen.getByText('Daily forecast (expand)')).toBeInTheDocument();
+    expect(screen.getByText('Weather alerts')).toBeInTheDocument();
+    expect(screen.getByText(/Wind advisory/i)).toBeInTheDocument();
     expect(screen.getByText('Shopping preview')).toBeInTheDocument();
     expect(screen.getByText('Why this score (expand)')).toBeInTheDocument();
     expect(screen.getByText('Local brand candidates')).toBeInTheDocument();
     expect(screen.getByText(/Bioderma/i)).toBeInTheDocument();
     expect(screen.getByText(/KB verified/i)).toBeInTheDocument();
     expect(screen.getByText('Where to buy')).toBeInTheDocument();
+    expect(screen.getByText('Example stores')).toBeInTheDocument();
+    expect(screen.getByText(/Matsukiyo/i)).toBeInTheDocument();
     expect(screen.getByText('Want a more accurate signal? Add a quick check-in.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'See full recommendations' }));

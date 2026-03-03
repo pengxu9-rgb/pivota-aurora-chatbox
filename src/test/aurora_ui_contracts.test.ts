@@ -57,9 +57,27 @@ describe("aurora ui contracts", () => {
           temperature: { home: 18, destination: 10, delta: -8, unit: "C" },
           summary_tags: ["colder", "higher_uv"],
         },
+        forecast_window: [
+          { date: "2026-03-01", temp_low_c: 7, temp_high_c: 13, precip_mm: 2.1, condition_text: "Rain" },
+          { date: "", temp_low_c: 5, temp_high_c: 9 },
+        ],
+        alerts: [
+          { severity: "orange", title: "Wind advisory", action_hint: "Reduce prolonged outdoor exposure." },
+          { severity: "", title: "" },
+        ],
         adaptive_actions: [{ why: "UV is higher", what_to_do: "Reapply sunscreen" }],
         personal_focus: [{ focus: "Barrier", why: "Sensitive", what_to_do: "Use richer moisturizer" }],
         jetlag_sleep: { hours_diff: 9, risk_level: "high", sleep_tips: ["Shift sleep 2 days earlier"] },
+        reco_bundle: [
+          {
+            trigger: "Elevated UV",
+            action: "Use SPF50+",
+            ingredient_logic: "Photostable filters",
+            product_types: ["Sunscreen fluid"],
+            reapply_rule: "Every 2 hours outdoors",
+          },
+        ],
+        store_examples: [{ name: "Matsukiyo", type: "Drugstore", district: "Shibuya", source: "curated_reference" }],
         shopping_preview: {
           products: [{ product_id: "p1", name: "Barrier Cream", brand: "Aurora Lab", reasons: ["repair"] }],
           brand_candidates: [
@@ -80,6 +98,10 @@ describe("aurora ui contracts", () => {
     expect(didWarn).toBe(false);
     expect(model?.travel_readiness?.destination_context?.destination).toBe("Paris");
     expect(model?.travel_readiness?.delta_vs_home?.summary_tags).toEqual(["colder", "higher_uv"]);
+    expect(model?.travel_readiness?.forecast_window?.[0]?.date).toBe("2026-03-01");
+    expect(model?.travel_readiness?.alerts?.[0]?.severity).toBe("orange");
+    expect(model?.travel_readiness?.reco_bundle?.[0]?.trigger).toBe("Elevated UV");
+    expect(model?.travel_readiness?.store_examples?.[0]?.name).toBe("Matsukiyo");
     expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.name).toBe("Barrier Cream");
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[0]?.match_status).toBe("kb_verified");
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[1]?.match_status).toBe("llm_only");
