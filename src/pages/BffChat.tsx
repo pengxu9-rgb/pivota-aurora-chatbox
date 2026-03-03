@@ -888,6 +888,12 @@ const filterPassiveAdvisoryChips = (chips: SuggestedChip[], showPassive: boolean
   });
 };
 const normalizeChipDedupToken = (value: unknown): string => String(value ?? '').trim().toLowerCase();
+const isActionLikeIdentifier = (value: unknown): boolean => /^(?:chip|diag)(?:[._][a-z0-9_]+)+$/i.test(String(value ?? '').trim());
+const canonicalizeQuickChipId = (chipId: unknown): string => {
+  const token = String(chipId ?? '').trim();
+  if (!token) return '';
+  return token.toLowerCase().startsWith('quick_') ? token.slice(6).trim() : token;
+};
 const buildChipDedupKey = (chip: SuggestedChip): string => {
   const data = asObject((chip as any)?.data) ?? {};
   const actionId = normalizeChipDedupToken((data as any).action_id);
@@ -6551,33 +6557,45 @@ export default function BffChat() {
         },
       });
 
-      const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => ({
-        chip_id: `quick_${reply.id}`,
-        label: reply.label,
-        kind: 'quick_reply',
-        data: {
-          ...(reply.metadata || {}),
-          reply_text: reply.value || reply.label,
-          trigger_source: 'chip',
-        },
-      });
+      const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => {
+        const metadata = asObject(reply.metadata) || {};
+        const metadataActionId = asString((metadata as any).action_id);
+        const inferredActionId = !metadataActionId && isActionLikeIdentifier(reply.id) ? reply.id : '';
+        return {
+          chip_id: `quick_${reply.id}`,
+          label: reply.label,
+          kind: 'quick_reply',
+          data: {
+            ...metadata,
+            ...(metadataActionId || !inferredActionId ? {} : { action_id: inferredActionId }),
+            reply_text: reply.value || reply.label,
+            trigger_source: 'chip',
+          },
+        };
+      };
 
       const followUpToChips = (followUp: ChatResponseV1['follow_up_questions'][number]): SuggestedChip[] => {
         if (!Array.isArray(followUp.options) || followUp.options.length === 0) return [];
-        return followUp.options.slice(0, 3).map((option) => ({
-          chip_id: `fup_${followUp.id}_${option.id}`,
-          label: option.label,
-          kind: 'quick_reply',
-          data: {
-            ...(option.metadata || {}),
-            follow_up_id: followUp.id,
-            follow_up_option_id: option.id,
-            follow_up_question: followUp.question,
-            follow_up_required: followUp.required,
-            reply_text: option.value || option.label,
-            trigger_source: 'chip',
-          },
-        }));
+        return followUp.options.slice(0, 3).map((option) => {
+          const metadata = asObject(option.metadata) || {};
+          const metadataActionId = asString((metadata as any).action_id);
+          const inferredActionId = !metadataActionId && isActionLikeIdentifier(option.id) ? option.id : '';
+          return {
+            chip_id: `fup_${followUp.id}_${option.id}`,
+            label: option.label,
+            kind: 'quick_reply',
+            data: {
+              ...metadata,
+              ...(metadataActionId || !inferredActionId ? {} : { action_id: inferredActionId }),
+              follow_up_id: followUp.id,
+              follow_up_option_id: option.id,
+              follow_up_question: followUp.question,
+              follow_up_required: followUp.required,
+              reply_text: option.value || option.label,
+              trigger_source: 'chip',
+            },
+          };
+        });
       };
 
       const suggestedChips = dedupeSuggestedChips(
@@ -8652,7 +8670,8 @@ export default function BffChat() {
       const chipData = asObject(chip.data) || {};
       const actionIdOverride = asString((chipData as any).action_id);
       const clientAction = (asString((chipData as any).client_action) || '').toLowerCase();
-      const effectiveActionId = actionIdOverride || id;
+      const canonicalChipActionId = canonicalizeQuickChipId(id);
+      const effectiveActionId = actionIdOverride || canonicalChipActionId || id;
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
       const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
@@ -8663,7 +8682,7 @@ export default function BffChat() {
         if (qpQuestionId === 'skip') return 'IDLE_CHAT';
         if (qpQuestionId === 'opt_in_more' && qpAnswer === 'no') return 'IDLE_CHAT';
         if (qpQuestionId === 'rx_flag') return 'IDLE_CHAT';
-        return nextAgentStateForChip(id) ?? fromState;
+        return nextAgentStateForChip(effectiveActionId) ?? fromState;
       })();
       const toState = requestedToState;
 
@@ -8676,10 +8695,10 @@ export default function BffChat() {
       };
 
       emitUiChipClicked(ctx, { chip_id: id, from_state: fromState, to_state: toState });
-      if (id === 'chip.start.ingredients.entry' || id === 'chip.start.ingredients') {
+      if (effectiveActionId === 'chip.start.ingredients.entry' || effectiveActionId === 'chip.start.ingredients') {
         emitIngredientsEntryOpened(ctx, {
           entry_source: ((chip.data as any)?.trigger_source === 'deeplink' ? 'deeplink' : 'chip'),
-          action_id: id,
+          action_id: effectiveActionId,
         });
       }
 
@@ -8779,20 +8798,21 @@ export default function BffChat() {
 
       let requestedTransition: RequestedTransition | null = null;
       if (toState !== fromState) {
+        const transitionTriggerId = effectiveActionId || id;
         const validation = validateRequestedTransition({
           from_state: fromState,
           trigger_source: 'chip',
-          trigger_id: id,
+          trigger_id: transitionTriggerId,
           requested_next_state: toState,
         });
         const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
         if (!validation.ok) {
-          console.warn('[StateMachine] soft fallback on chip transition', { chipId: id, fromState, reason: validation.reason });
+          console.warn('[StateMachine] soft fallback on chip transition', { chipId: transitionTriggerId, fromState, reason: validation.reason });
         }
-        requestedTransition = { trigger_source: 'chip', trigger_id: id, requested_next_state: resolvedNextState };
+        requestedTransition = { trigger_source: 'chip', trigger_id: transitionTriggerId, requested_next_state: resolvedNextState };
         emitAgentStateEntered(
           { ...ctx, state: resolvedNextState },
-          { state_name: resolvedNextState, from_state: fromState, trigger_source: 'chip', trigger_id: id },
+          { state_name: resolvedNextState, from_state: fromState, trigger_source: 'chip', trigger_id: transitionTriggerId },
         );
         if (resolvedNextState === 'RECO_GATE') {
           emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'chip', prior_value_moment: null });
@@ -8802,7 +8822,7 @@ export default function BffChat() {
 
       const userItem: ChatItem = { id: nextId(), role: 'user', kind: 'text', content: chip.label };
 
-      if (id === 'chip.lang.keep_ui' || id === 'chip.lang.switch_ui' || id === 'chip.lang.auto_follow') {
+      if (effectiveActionId === 'chip.lang.keep_ui' || effectiveActionId === 'chip.lang.switch_ui' || effectiveActionId === 'chip.lang.auto_follow') {
         const targetUiLang = parseUiLanguageToken((chip.data as any)?.target_ui_lang);
         const muteUntil = Date.now() + LANGUAGE_MISMATCH_HINT_SNOOZE_MS;
         langMismatchHintMutedUntilRef.current = muteUntil;
@@ -8813,10 +8833,10 @@ export default function BffChat() {
             ? `已保持${toUiLanguageName(language, 'CN')}回复。`
             : `Staying with ${toUiLanguageName(language, 'EN')} replies.`;
 
-        if (id === 'chip.lang.keep_ui') {
+        if (effectiveActionId === 'chip.lang.keep_ui') {
           setLangReplyMode('ui_lock');
           setLangReplyModeState('ui_lock');
-        } else if (id === 'chip.lang.switch_ui') {
+        } else if (effectiveActionId === 'chip.lang.switch_ui') {
           setLangReplyMode('ui_lock');
           setLangReplyModeState('ui_lock');
           if (targetUiLang && targetUiLang !== language) {
@@ -8856,12 +8876,12 @@ export default function BffChat() {
         return;
       }
 
-      if (id === 'chip_keep_chatting') {
+      if (effectiveActionId === 'chip_keep_chatting') {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
         return;
       }
 
-      if (id === 'chip_login_sync_profile') {
+      if (effectiveActionId === 'chip_login_sync_profile') {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
         setAuthError(null);
         setAuthNotice(null);
@@ -8871,14 +8891,14 @@ export default function BffChat() {
         return;
       }
 
-      if (id === 'chip_quick_profile') {
+      if (effectiveActionId === 'chip_quick_profile') {
         setQuickProfileStep('skin_feel');
         setQuickProfileDraft({});
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
         return;
       }
 
-      if (id === 'chip_start_diagnosis' || id === 'chip.start.diagnosis') {
+      if (effectiveActionId === 'chip_start_diagnosis' || effectiveActionId === 'chip.start.diagnosis') {
         setSessionState('S2_DIAGNOSIS');
         setItems((prev) => [
           ...stripReturnWelcome(prev),
@@ -8895,26 +8915,26 @@ export default function BffChat() {
 
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
 
-      if (id === 'chip_update_products') {
+      if (effectiveActionId === 'chip_update_products') {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
         setRoutineSheetOpen(true);
         return;
       }
 
-      if (id === 'chip_eval_routine') {
+      if (effectiveActionId === 'chip_eval_routine') {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
         setRoutineSheetOpen(true);
         return;
       }
 
-      if (id === 'chip_checkin_now') {
+      if (effectiveActionId === 'chip_checkin_now') {
         setCheckinSheetOpen(true);
         return;
       }
 
-      if (id === 'chip_eval_single_product') {
+      if (effectiveActionId === 'chip_eval_single_product') {
         setProductDraft('');
         setProductSheetOpen(true);
         return;
@@ -8923,8 +8943,7 @@ export default function BffChat() {
       const isCameraClientAction =
         clientAction === 'open_camera' ||
         effectiveActionId === 'diag.upload_photo' ||
-        effectiveActionId === 'chip.intake.upload_photos' ||
-        id === 'chip.intake.upload_photos';
+        effectiveActionId === 'chip.intake.upload_photos';
       if (isCameraClientAction) {
         setAgentStateSafe('DIAG_PHOTO_OPTIN');
         setPromptRoutineAfterPhoto(true);
@@ -8933,33 +8952,33 @@ export default function BffChat() {
         setPhotoSheetOpen(true);
         return;
       }
-      if (id === 'chip.intake.skip_analysis' || id === 'chip_intake_skip_analysis') {
+      if (effectiveActionId === 'chip.intake.skip_analysis' || effectiveActionId === 'chip_intake_skip_analysis') {
         setPromptRoutineAfterPhoto(false);
         await runLowConfidenceSkinAnalysis();
         return;
       }
-      if (id === 'chip.intake.paste_routine') {
+      if (effectiveActionId === 'chip.intake.paste_routine') {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
         setRoutineSheetOpen(true);
         return;
       }
-      if (id === 'chip.start.evaluate') {
+      if (effectiveActionId === 'chip.start.evaluate') {
         setProductDraft('');
         setProductSheetOpen(true);
         return;
       }
-      if (id === 'chip.start.dupes') {
+      if (effectiveActionId === 'chip.start.dupes') {
         setDupeDraft({ original: '' });
         setDupeSheetOpen(true);
         return;
       }
 
       const baseActionPayloadData =
-        actionIdOverride && actionIdOverride !== chip.chip_id
+        effectiveActionId && effectiveActionId !== chip.chip_id
           ? { ...chipData, chip_id: chip.chip_id }
           : chip.data;
-      const effectiveChipId = actionIdOverride || chip.chip_id;
+      const effectiveChipId = effectiveActionId || chip.chip_id;
       const isRecoChip = effectiveChipId === 'chip.start.reco_products' || effectiveChipId === 'chip_get_recos';
       const actionPayloadData =
         isRecoChip && lastIngredientCtxRef.current

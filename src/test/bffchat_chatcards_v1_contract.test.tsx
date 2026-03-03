@@ -939,4 +939,138 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
       expect(chatCallsAfterClick).toBe(1);
     });
   });
+
+  it('dedupes diagnosis CTAs and opens camera when metadata action IDs are missing', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Choose your next step.',
+            suggested_quick_replies: [
+              {
+                id: 'chip.intake.upload_photos',
+                label: 'Upload a photo (more accurate)',
+                value: 'Upload a photo (more accurate)',
+                metadata: {},
+              },
+              {
+                id: 'chip.intake.skip_analysis',
+                label: 'Skip photo (low confidence)',
+                value: 'Skip photo (low confidence)',
+                metadata: {},
+              },
+              {
+                id: 'chip_keep_chatting',
+                label: 'Just keep chatting',
+                value: 'Just keep chatting',
+                metadata: {},
+              },
+            ],
+            follow_up_questions: [
+              {
+                id: 'diag_follow_up',
+                question: 'How should I continue for the next step?',
+                required: false,
+                options: [
+                  {
+                    id: 'chip.intake.upload_photos',
+                    label: 'Upload a photo (more accurate)',
+                    value: 'Upload a photo (more accurate)',
+                    metadata: {},
+                  },
+                  {
+                    id: 'chip.intake.skip_analysis',
+                    label: 'Skip photo (low confidence)',
+                    value: 'Skip photo (low confidence)',
+                    metadata: {},
+                  },
+                ],
+              },
+            ],
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.93, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'start diagnosis' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByText('Choose your next step.');
+    expect(screen.getAllByRole('button', { name: 'Upload a photo (more accurate)' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Skip photo (low confidence)' })).toHaveLength(1);
+
+    const chatCallsBeforeClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+    expect(chatCallsBeforeClick).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload a photo (more accurate)' }));
+
+    await screen.findByText('Align your face inside the oval frame');
+    await waitFor(() => {
+      const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+      expect(chatCallsAfterClick).toBe(1);
+    });
+  });
+
+  it('opens camera locally for quick reply upload action ID even without metadata', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Choose your next step.',
+            suggested_quick_replies: [
+              {
+                id: 'chip.intake.upload_photos',
+                label: 'Upload a photo (more accurate)',
+                value: 'Upload a photo (more accurate)',
+                metadata: {},
+              },
+            ],
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.93, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'start diagnosis' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const chatCallsBeforeClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+    expect(chatCallsBeforeClick).toBe(1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload a photo (more accurate)' }));
+    await screen.findByText('Align your face inside the oval frame');
+    await waitFor(() => {
+      const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+      expect(chatCallsAfterClick).toBe(1);
+    });
+  });
 });
