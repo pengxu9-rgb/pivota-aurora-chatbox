@@ -326,6 +326,7 @@ export function IngredientReportCard({
         : 'Insufficient';
   const hiddenSet = new Set(hiddenQuestionIds.map((id) => asString(id)).filter(Boolean));
   const visibleQuestions = payload.next_questions.filter((q) => !hiddenSet.has(q.id));
+  const isFallback = payload.research_status === 'fallback' || payload.research_status === 'error' || payload.research_status === 'provider_unavailable';
   const updatedAtText = formatUpdatedAt(payload.updated_at_ms ?? null, language);
   const researchStatusLabel = (() => {
     if (payload.research_status === 'ready') return zh(language) ? '研究完成' : 'Research ready';
@@ -478,6 +479,8 @@ export function IngredientReportCard({
         ) : null}
       </div>
 
+      {!isFallback ? (
+      <>
       <div className="space-y-2">
         <div className="text-xs font-semibold text-muted-foreground">{zh(language) ? 'Benefits' : 'Benefits'}</div>
         <div className="space-y-2">
@@ -563,6 +566,8 @@ export function IngredientReportCard({
             ))}
           </div>
         </div>
+      ) : null}
+      </>
       ) : null}
 
       {(payload.formulation_notes || payload.regulatory_notes || (payload.best_for && payload.best_for.length) || (payload.caution_for && payload.caution_for.length)) ? (
