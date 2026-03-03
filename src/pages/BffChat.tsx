@@ -5944,6 +5944,7 @@ export default function BffChat() {
   const openIntentConsumedRef = useRef<string | null>(null);
   const actionIntentConsumedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const lastIngredientCtxRef = useRef<Record<string, unknown> | null>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
@@ -7780,6 +7781,12 @@ export default function BffChat() {
           return;
         }
 
+        lastIngredientCtxRef.current = {
+          query: ingredientQuery,
+          ingredient_query: ingredientQuery,
+          entry_source: 'ingredient_report',
+          trigger_source: 'ingredient_report',
+        };
         setItems((prev) => [
           ...prev,
           {
@@ -7826,6 +7833,13 @@ export default function BffChat() {
                 : `Find ingredients by goal: ${goal || 'barrier'} (sensitivity: ${sensitivity || 'unknown'})`,
           },
         ]);
+        lastIngredientCtxRef.current = {
+          goal: goal || 'barrier',
+          sensitivity: sensitivity || 'unknown',
+          entry_source: 'ingredient_hub',
+          trigger_source: 'ingredient_hub',
+          ...(Array.isArray(data?.ingredient_candidates) ? { candidates: data.ingredient_candidates } : {}),
+        };
         await sendChat(undefined, {
           action_id: 'ingredient.by_goal',
           kind: 'action',
@@ -8334,13 +8348,20 @@ export default function BffChat() {
 
     const replyText =
       language === 'CN' ? '推荐一些产品（并给出可购买的链接/入口）。' : 'Recommend a few products (with purchasable links/CTAs).';
+    const ingredientCtxData = lastIngredientCtxRef.current && typeof lastIngredientCtxRef.current === 'object'
+      ? lastIngredientCtxRef.current
+      : null;
 
     await sendChat(
       undefined,
       {
         action_id: 'chip.start.reco_products',
         kind: 'chip',
-        data: { reply_text: replyText, include_alternatives: false },
+        data: {
+          reply_text: replyText,
+          include_alternatives: false,
+          ...(ingredientCtxData || {}),
+        },
       },
       {
         client_state: fromState,
@@ -8830,15 +8851,21 @@ export default function BffChat() {
         return;
       }
 
-      const actionPayloadData =
+      const baseActionPayloadData =
         actionIdOverride && actionIdOverride !== chip.chip_id
           ? { ...chipData, chip_id: chip.chip_id }
           : chip.data;
+      const effectiveChipId = actionIdOverride || chip.chip_id;
+      const isRecoChip = effectiveChipId === 'chip.start.reco_products' || effectiveChipId === 'chip_get_recos';
+      const actionPayloadData =
+        isRecoChip && lastIngredientCtxRef.current
+          ? { ...baseActionPayloadData, ...lastIngredientCtxRef.current }
+          : baseActionPayloadData;
 
       await sendChat(
         undefined,
         {
-          action_id: actionIdOverride || chip.chip_id,
+          action_id: effectiveChipId,
           kind: 'chip',
           data: actionPayloadData,
         },
