@@ -35,6 +35,7 @@ const CARD_TYPES = new Set([
   'ingredient_goal_match',
   'aurora_ingredient_report',
   'diagnosis_gate',
+  'analysis_summary',
   'analysis_story_v2',
   'confidence_notice',
   'budget_gate',
@@ -48,6 +49,7 @@ const fallbackTitleForType = (type: string): string => {
   if (token === 'ingredient_goal_match') return 'Ingredient goal match';
   if (token === 'aurora_ingredient_report') return 'Ingredient report';
   if (token === 'diagnosis_gate') return 'Quick skin profile first';
+  if (token === 'analysis_summary') return 'Skin summary';
   if (token === 'analysis_story_v2') return 'Analysis story';
   if (token === 'confidence_notice') return 'Confidence notice';
   if (token === 'budget_gate') return 'Budget';
@@ -160,7 +162,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
   const opsRaw = asRecord(root.ops) || {};
   const safetyRaw = asRecord(root.safety) || {};
   const telemetryRaw = asRecord(root.telemetry) || {};
-  const legacySessionPatch = asRecord(root.session_patch) || undefined;
+  const sessionPatch = asRecord(root.session_patch) || undefined;
 
   const riskLevelRaw = asString(safetyRaw.risk_level).toLowerCase();
   const riskLevel: ChatResponseV1['safety']['risk_level'] =
@@ -243,7 +245,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
         : {}),
       ...(telemetryResolutionSource ? { language_resolution_source: telemetryResolutionSource } : {}),
     },
-    ...(legacySessionPatch ? { legacy_session_patch: legacySessionPatch } : {}),
+    ...(sessionPatch ? { session_patch: sessionPatch } : {}),
   };
 };
 
@@ -305,9 +307,9 @@ export const chatResponseV1ToEnvelope = (response: ChatResponseV1): V1Envelope =
     ...response.follow_up_questions.flatMap(followUpQuestionToChips),
   ].slice(0, 12);
 
-  const legacyPatch = asRecord(response.legacy_session_patch) || {};
+  const responsePatch = asRecord(response.session_patch) || {};
   const sessionPatch: Record<string, unknown> = {
-    ...legacyPatch,
+    ...responsePatch,
     chat_v1: {
       safety: response.safety,
       telemetry: response.telemetry,

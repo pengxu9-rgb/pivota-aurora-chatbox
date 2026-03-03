@@ -12,6 +12,7 @@ export type ChatCardV1Type =
   | 'ingredient_goal_match'
   | 'aurora_ingredient_report'
   | 'diagnosis_gate'
+  | 'analysis_summary'
   | 'analysis_story_v2'
   | 'confidence_notice'
   | 'budget_gate'
@@ -90,5 +91,5 @@ export type ChatResponseV1 = {
   ops: ChatOpsV1;
   safety: ChatSafetyV1;
   telemetry: ChatTelemetryV1;
-  legacy_session_patch?: Record<string, unknown>;
+  session_patch?: Record<string, unknown>;
 };

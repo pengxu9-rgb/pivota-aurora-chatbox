@@ -3870,6 +3870,7 @@ function BffCardView({
     const photoQc = asArray((payload as any).photo_qc).map((v) => asString(v)).filter(Boolean) as string[];
     const lowConfidence = resolveAnalysisSummaryLowConfidence(payload as Record<string, unknown>, Array.isArray(card.field_missing) ? card.field_missing : []);
     const photosProvided = (payload as any).photos_provided === true;
+    const usedPhotos = (payload as any).used_photos === true;
 
     return (
       <AnalysisSummaryCard
@@ -3880,6 +3881,7 @@ function BffCardView({
           photos_provided: photosProvided,
           photo_qc: photoQc,
           analysis_source: analysisSource,
+          used_photos: usedPhotos,
         }}
         onAction={(id, data) => onAction(id, data)}
         language={language}

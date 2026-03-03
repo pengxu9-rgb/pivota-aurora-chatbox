@@ -193,12 +193,32 @@ export interface AnalysisResult {
   needs_risk_check: boolean;
   risk_answered?: boolean;
   using_actives?: boolean;
+  primary_question?: string;
+  conditional_followups?: string[];
+  ask_3_questions?: string[];
+  reasoning?: string[];
+  deepening?: AnalysisDeepening;
+  evidence_refs?: AnalysisEvidenceRef[];
   routine_expert?: RoutineExpertV1;
 }
 
 export interface AnalysisFeature {
   observation: string;
   confidence: 'pretty_sure' | 'somewhat_sure' | 'not_sure';
+}
+
+export interface AnalysisDeepening {
+  phase: 'photo_optin' | 'products' | 'reactions' | 'refined';
+  next_phase?: 'photo_optin' | 'products' | 'reactions' | 'refined';
+  question?: string;
+  options?: string[];
+}
+
+export interface AnalysisEvidenceRef {
+  id: string;
+  title: string;
+  url: string;
+  why_relevant?: string;
 }
 
 export type RoutineIssueSeverity = 'high' | 'medium' | 'low';
