@@ -154,10 +154,12 @@ type ProductAlternativeTrackItem = {
 };
 
 type ProductAlternativeTrack = {
-  key: 'replace' | 'pair';
+  key: 'replace' | 'pair' | 'empty';
   title: string;
   subtitle: string;
   items: ProductAlternativeTrackItem[];
+  notes?: string[];
+  noResultReason?: string | null;
   filteredCount: number;
 };
 
@@ -289,6 +291,13 @@ const FF_PHOTO_MODULES_CARD = (() => {
 
 const FF_SHOW_PASSIVE_GATES = (() => {
   const raw = String(import.meta.env.VITE_SHOW_PASSIVE_GATES ?? 'false')
+    .trim()
+    .toLowerCase();
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+})();
+
+const FF_CARD_FIRST_DEDUPE = (() => {
+  const raw = String(import.meta.env.VITE_AURORA_CARD_FIRST_DEDUPE_V1 ?? 'true')
     .trim()
     .toLowerCase();
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
@@ -770,6 +779,22 @@ const removeAnalysisSummaryCardsFromHistory = (items: ChatItem[]): ChatItem[] =>
     out.push({ ...item, cards: filteredCards });
   }
   return out;
+};
+
+const CARD_FIRST_DEDUPE_TYPES = new Set([
+  'analysis_summary',
+  'skin_status',
+  'routine',
+  'analysis_story_v2',
+  'confidence_notice',
+  'diagnosis_gate',
+  'profile',
+]);
+
+const hasCardFirstDedupeCard = (cards: Card[]): boolean => {
+  if (!FF_CARD_FIRST_DEDUPE) return false;
+  if (!Array.isArray(cards) || cards.length === 0) return false;
+  return cards.some((card) => CARD_FIRST_DEDUPE_TYPES.has(String(card?.type || '').trim().toLowerCase()));
 };
 
 type RecoItem = Record<string, unknown> & { slot?: string };
@@ -1638,6 +1663,9 @@ function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unkno
 type LazyRecoAlternativesLoadResult = {
   ok?: boolean;
   alternatives: Array<Record<string, unknown>>;
+  noResultReason?: string | null;
+  alternativesCandidateCount?: number;
+  alternativesSelectedCount?: number;
   requestId?: string | null;
   traceId?: string | null;
   llmTrace?: Record<string, unknown> | null;
@@ -1690,6 +1718,7 @@ export function RecommendationsCard({
     anchorProductId?: string | null;
     productInput?: string | null;
     product?: Record<string, unknown> | null;
+    ingredientContext?: Record<string, unknown> | null;
   }) => Promise<LazyRecoAlternativesLoadResult | null>;
 }) {
   type PdpOpenState = 'idle' | 'resolving' | 'opening_internal' | 'opening_external' | 'done' | 'error';
@@ -1723,6 +1752,10 @@ export function RecommendationsCard({
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
   const payload = asObject(card.payload) || {};
+  const payloadIngredientContext =
+    asObject((payload as any).ingredient_context) ||
+    asObject((payload as any).recommendation_meta?.ingredient_context) ||
+    null;
   const items = asArray(payload.recommendations) as RecoItem[];
   const externalDiscoveryCtas = asArray((payload as any).external_search_ctas).filter(
     (cta): cta is { title: string; url: string; source?: string; reason?: string } =>
@@ -2016,7 +2049,18 @@ export function RecommendationsCard({
               const resp = await resolveProductRef({
                 query: resolveQuery,
                 lang: language === 'CN' ? 'cn' : 'en',
-                ...(card.hints ? { hints: card.hints } : {}),
+                ...(card.hints
+                  ? {
+                      hints: {
+                        ...card.hints,
+                        interaction_action: 'view_details',
+                      },
+                    }
+                  : {
+                      hints: {
+                        interaction_action: 'view_details',
+                      },
+                    }),
                 signal: controller.signal,
               });
               const strictTarget = extractStablePdpTargetFromProductsResolveResponse(resp);
@@ -2362,17 +2406,6 @@ export function RecommendationsCard({
         .slice(0, 8);
 
       const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
-      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
-        candidate: {
-          name: text,
-          display_name: text,
-          why_candidate: { summary: text },
-          tradeoff_notes: [text],
-        },
-        block: 'related_products',
-        rank: rank + 1,
-        intent: 'pair',
-      }));
 
       const tracks: ProductAlternativeTrack[] = [];
       if (replaceItems.length) {
@@ -2384,12 +2417,13 @@ export function RecommendationsCard({
           filteredCount: 0,
         });
       }
-      if (pairItems.length) {
+      if (pairNotes.length) {
         tracks.push({
           key: 'pair',
           title: language === 'CN' ? '搭配与组合建议' : 'Pairing suggestions',
           subtitle: language === 'CN' ? '可叠加或互补使用的建议' : 'Items/steps that pair or complement this choice',
-          items: pairItems,
+          items: [],
+          notes: pairNotes,
           filteredCount: 0,
         });
       }
@@ -2397,13 +2431,112 @@ export function RecommendationsCard({
     };
 
     const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
+    const buildAlternativesEmptyTrack = (reasonCode: string | null): ProductAlternativeTrack[] => {
+      const reasonText = reasonCode
+        ? (language === 'CN'
+            ? `当前没有可用候选（${reasonCode}）。`
+            : `No available alternatives right now (${reasonCode}).`)
+        : (language === 'CN' ? '当前暂无可用替代候选。' : 'No available alternatives right now.');
+      return [
+        {
+          key: 'empty',
+          title: language === 'CN' ? '暂无替代候选' : 'No alternatives yet',
+          subtitle: language === 'CN' ? '你仍可继续查看详情或稍后重试' : 'You can still view details or retry shortly',
+          items: [],
+          notes: [reasonText],
+          noResultReason: reasonCode || null,
+          filteredCount: 0,
+        },
+      ];
+    };
     const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
     const alternativesBusyKey = anchorId || `q:${(resolveQuery || q || '').slice(0, 180)}`;
     const isLazyAlternativesBusy = lazyAlternativesBusyKey === alternativesBusyKey;
     const canLoadAlternatives = Boolean(loadAlternativesForItem) && Boolean(anchorId || resolveQuery || q);
     const canOpenSheet = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
     const canOpenPdp = Boolean(anchorId);
-    const canOpenDetails = canOpenPdp || canOpenSheet;
+    const canOpenDetails = canOpenPdp;
+
+    const openAlternatives = () => {
+      if (!canOpenSheet || !onOpenAlternativesSheet) return;
+      if (detailsTracks.length > 0) {
+        onOpenAlternativesSheet(detailsTracks);
+        return;
+      }
+      if (!(loadAlternativesForItem && canLoadAlternatives)) return;
+      setLazyAlternativesBusyKey(alternativesBusyKey);
+      const lazyArgs = {
+        anchorProductId: anchorProductIdForAlternatives,
+        productInput: resolveQuery || q || null,
+        product: asObject(item),
+        ingredientContext: payloadIngredientContext,
+      };
+      void loadAlternativesForItem(lazyArgs)
+        .then((resp) => {
+          if (resp && resp.ok === false) {
+            const failureClass = asString(resp.failureClass);
+            toast({
+              title: language === 'CN' ? '暂无可用替代结果' : 'Alternatives are unavailable right now',
+              description:
+                language === 'CN'
+                  ? `模型本轮未返回可用 alternatives（${failureClass || 'unknown'}）。请稍后重试。`
+                  : `Model did not return usable alternatives in this attempt (${failureClass || 'unknown'}). Please retry shortly.`,
+            });
+            return;
+          }
+          const remoteAlternatives = asArray(resp && resp.alternatives)
+            .map((row) => asObject(row))
+            .filter(Boolean) as Array<Record<string, unknown>>;
+          const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
+          if (tracks.length) {
+            onOpenAlternativesSheet(tracks);
+            if (resp?.sourceMode === 'local_fallback' && resp?.refreshPending) {
+              toast({
+                title: language === 'CN' ? '先展示快速候选，正在增强结果' : 'Showing quick candidates, refining in background',
+                description:
+                  language === 'CN'
+                    ? '当前先返回可用对比项，系统会在后台刷新更完整的 alternatives。'
+                    : 'Fast fallback alternatives are shown first. A richer LLM result is being refreshed.',
+              });
+            }
+            if (resp?.refreshPending && loadAlternativesForItem) {
+              const delayMs = Number.isFinite(Number(resp?.refreshAfterMs))
+                ? Math.max(300, Math.min(6000, Number(resp?.refreshAfterMs)))
+                : 1200;
+              window.setTimeout(() => {
+                void loadAlternativesForItem(lazyArgs).then((refreshResp) => {
+                  const refreshedAlternatives = asArray(refreshResp && refreshResp.alternatives)
+                    .map((row) => asObject(row))
+                    .filter(Boolean) as Array<Record<string, unknown>>;
+                  const refreshedTracks = buildStepAlternativesSheetTracks(
+                    refreshedAlternatives,
+                    pairingRules,
+                    comparisonNotes,
+                  );
+                  if (refreshedTracks.length) {
+                    onOpenAlternativesSheet(refreshedTracks);
+                  }
+                });
+              }, delayMs);
+            }
+            return;
+          }
+          const emptyTracks = buildAlternativesEmptyTrack(asString(resp?.noResultReason));
+          onOpenAlternativesSheet(emptyTracks);
+        })
+        .catch(() => {
+          toast({
+            title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
+            description:
+              language === 'CN'
+                ? '请稍后重试，当前推荐卡已可继续使用。'
+                : 'Please retry shortly. Current recommendation cards are still usable.',
+          });
+        })
+        .finally(() => {
+          setLazyAlternativesBusyKey((prev) => (prev === alternativesBusyKey ? null : prev));
+        });
+    };
 
     return (
       <div key={`${step}_${idx}`} className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm">
@@ -2425,90 +2558,8 @@ export function RecommendationsCard({
             <button
               type="button"
               className="chip-button text-[11px]"
-              disabled={isResolving || isLazyAlternativesBusy || !canOpenDetails}
+              disabled={isResolving || !canOpenDetails}
               onClick={() => {
-                if (canOpenSheet && onOpenAlternativesSheet) {
-                  if (detailsTracks.length > 0) {
-                    onOpenAlternativesSheet(detailsTracks);
-                  } else if (loadAlternativesForItem && canLoadAlternatives) {
-                    setLazyAlternativesBusyKey(alternativesBusyKey);
-                    const lazyArgs = {
-                      anchorProductId: anchorProductIdForAlternatives,
-                      productInput: resolveQuery || q || null,
-                      product: asObject(item),
-                    };
-                    void loadAlternativesForItem(lazyArgs)
-                      .then((resp) => {
-                        if (resp && resp.ok === false) {
-                          const failureClass = asString(resp.failureClass);
-                          toast({
-                            title: language === 'CN' ? '暂无可用替代结果' : 'Alternatives are unavailable right now',
-                            description:
-                              language === 'CN'
-                                ? `模型本轮未返回可用 alternatives（${failureClass || 'unknown'}）。请稍后重试。`
-                                : `Model did not return usable alternatives in this attempt (${failureClass || 'unknown'}). Please retry shortly.`,
-                          });
-                          return;
-                        }
-                        const remoteAlternatives = asArray(resp && resp.alternatives)
-                          .map((row) => asObject(row))
-                          .filter(Boolean) as Array<Record<string, unknown>>;
-                        const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
-                        if (tracks.length) {
-                          onOpenAlternativesSheet(tracks);
-                          if (resp?.sourceMode === 'local_fallback' && resp?.refreshPending) {
-                            toast({
-                              title: language === 'CN' ? '先展示快速候选，正在增强结果' : 'Showing quick candidates, refining in background',
-                              description:
-                                language === 'CN'
-                                  ? '当前先返回可用对比项，系统会在后台刷新更完整的 alternatives。'
-                                  : 'Fast fallback alternatives are shown first. A richer LLM result is being refreshed.',
-                            });
-                          }
-                          if (resp?.refreshPending && loadAlternativesForItem) {
-                            const delayMs = Number.isFinite(Number(resp?.refreshAfterMs))
-                              ? Math.max(300, Math.min(6000, Number(resp?.refreshAfterMs)))
-                              : 1200;
-                            window.setTimeout(() => {
-                              void loadAlternativesForItem(lazyArgs).then((refreshResp) => {
-                                const refreshedAlternatives = asArray(refreshResp && refreshResp.alternatives)
-                                  .map((row) => asObject(row))
-                                  .filter(Boolean) as Array<Record<string, unknown>>;
-                                const refreshedTracks = buildStepAlternativesSheetTracks(
-                                  refreshedAlternatives,
-                                  pairingRules,
-                                  comparisonNotes,
-                                );
-                                if (refreshedTracks.length) {
-                                  onOpenAlternativesSheet(refreshedTracks);
-                                }
-                              });
-                            }, delayMs);
-                          }
-                        } else {
-                          toast({
-                            title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
-                            description:
-                              language === 'CN'
-                                ? '已保留当前推荐结果，稍后可重试查看更多对比和搭配建议。'
-                                : 'Current recommendations are kept. Retry later for more alternatives and pairing ideas.',
-                          });
-                        }
-                      })
-                      .catch(() => {
-                        toast({
-                          title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
-                          description:
-                            language === 'CN'
-                              ? '请稍后重试，当前推荐卡已可继续使用。'
-                              : 'Please retry shortly. Current recommendation cards are still usable.',
-                        });
-                      })
-                      .finally(() => {
-                        setLazyAlternativesBusyKey((prev) => (prev === alternativesBusyKey ? null : prev));
-                      });
-                  }
-                }
                 if (canOpenPdp && anchorId) {
                   void openPdpFromCard({
                     anchor_key: anchorId,
@@ -2526,6 +2577,17 @@ export function RecommendationsCard({
             >
               {language === 'CN' ? '查看详情' : 'View details'}
               {isResolving || isLazyAlternativesBusy ? (
+                <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              className="chip-button text-[11px]"
+              disabled={isLazyAlternativesBusy || !canOpenSheet}
+              onClick={openAlternatives}
+            >
+              {language === 'CN' ? '看替代项' : 'See alternatives'}
+              {isLazyAlternativesBusy ? (
                 <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span>
               ) : null}
             </button>
@@ -3802,19 +3864,7 @@ function BffCardView({
 
   if (cardType === 'analysis_summary') {
     const analysisObj = asObject((payload as any).analysis) || {};
-    const featuresRaw = asArray((analysisObj as any).features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-    const features = featuresRaw
-      .map((f) => ({
-        observation: asString(f.observation) || '',
-        confidence: (asString(f.confidence) || 'somewhat_sure') as 'pretty_sure' | 'somewhat_sure' | 'not_sure',
-      }))
-      .filter((f) => Boolean(f.observation))
-      .slice(0, 8);
-    const analysis = {
-      features,
-      strategy: asString((analysisObj as any).strategy) || '',
-      needs_risk_check: (analysisObj as any).needs_risk_check === true,
-    };
+    const analysis = analysisObj as any;
 
     const analysisSource = asString((payload as any).analysis_source) || '';
     const photoQc = asArray((payload as any).photo_qc).map((v) => asString(v)).filter(Boolean) as string[];
@@ -3824,7 +3874,7 @@ function BffCardView({
     return (
       <AnalysisSummaryCard
         payload={{
-          analysis: analysis as any,
+          analysis,
           session,
           low_confidence: lowConfidence,
           photos_provided: photosProvided,
@@ -6001,7 +6051,13 @@ export default function BffChat() {
         anchorKey?: string | null;
       },
     ) => {
-      const normalizedTracks = Array.isArray(tracks) ? tracks.filter((track) => Array.isArray(track.items) && track.items.length > 0) : [];
+      const normalizedTracks = Array.isArray(tracks)
+        ? tracks.filter((track) => {
+            const hasItems = Array.isArray(track.items) && track.items.length > 0;
+            const hasNotes = Array.isArray(track.notes) && track.notes.length > 0;
+            return hasItems || hasNotes;
+          })
+        : [];
       if (!normalizedTracks.length) return;
       setAlternativesSheetTracks(normalizedTracks);
       setAlternativesSheetOpen(true);
@@ -6029,10 +6085,12 @@ export default function BffChat() {
       anchorProductId,
       productInput,
       product,
+      ingredientContext,
     }: {
       anchorProductId?: string | null;
       productInput?: string | null;
       product?: Record<string, unknown> | null;
+      ingredientContext?: Record<string, unknown> | null;
     }): Promise<LazyRecoAlternativesLoadResult | null> => {
       const requestHeaders = { ...headers, lang: language };
       const analyticsCtx: AnalyticsContext = {
@@ -6046,6 +6104,7 @@ export default function BffChat() {
         ...(String(productInput || '').trim() ? { product_input: String(productInput || '').trim().slice(0, 240) } : {}),
         ...(String(anchorProductId || '').trim() ? { anchor_product_id: String(anchorProductId || '').trim().slice(0, 180) } : {}),
         ...(product && typeof product === 'object' ? { product } : {}),
+        ...(ingredientContext && typeof ingredientContext === 'object' ? { ingredient_context: ingredientContext } : {}),
         max_total: 6,
         include_debug: Boolean(debug),
       };
@@ -6061,6 +6120,13 @@ export default function BffChat() {
         const refreshAfterMs = Number.isFinite(Number(resp?.refresh_after_ms)) ? Number(resp?.refresh_after_ms) : 0;
         const attemptCount = Number.isFinite(Number(resp?.attempt_count)) ? Number(resp?.attempt_count) : 0;
         const circuitState = typeof resp?.circuit_state === 'string' ? resp.circuit_state : null;
+        const noResultReason = typeof resp?.no_result_reason === 'string' ? resp.no_result_reason : null;
+        const alternativesCandidateCount = Number.isFinite(Number(resp?.alternatives_candidate_count))
+          ? Math.max(0, Math.trunc(Number(resp?.alternatives_candidate_count)))
+          : 0;
+        const alternativesSelectedCount = Number.isFinite(Number(resp?.alternatives_selected_count))
+          ? Math.max(0, Math.trunc(Number(resp?.alternatives_selected_count)))
+          : 0;
         const upstreamRequestId =
           typeof resp?.upstream_request_id === 'string'
             ? resp.upstream_request_id
@@ -6091,6 +6157,9 @@ export default function BffChat() {
           ...(sourceMode ? { sourceMode } : {}),
           ...(failureClass ? { failureClass } : {}),
           ...(fallbackSource ? { fallbackSource } : {}),
+          ...(noResultReason ? { noResultReason } : {}),
+          ...(alternativesCandidateCount >= 0 ? { alternativesCandidateCount } : {}),
+          ...(alternativesSelectedCount >= 0 ? { alternativesSelectedCount } : {}),
           ...(refreshPending ? { refreshPending: true } : {}),
           ...(refreshAfterMs > 0 ? { refreshAfterMs } : {}),
           ...(attemptCount > 0 ? { attemptCount } : {}),
@@ -6124,10 +6193,20 @@ export default function BffChat() {
       const next = (enhancedEnv.session_patch as Record<string, unknown>)['next_state'];
       if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
       const nextMeta = asObject(patch.meta);
-      if (nextMeta) setSessionMeta(nextMeta);
+      if (nextMeta) {
+        setSessionMeta((prev) => {
+          const base = asObject(prev) || {};
+          return { ...base, ...nextMeta };
+        });
+      }
 
       const profilePatch = asObject(patch.profile);
-      if (profilePatch) setProfileSnapshot(profilePatch);
+      if (profilePatch) {
+        setProfileSnapshot((prev) => {
+          const base = asObject(prev) || {};
+          return { ...base, ...profilePatch };
+        });
+      }
 
       setBootstrapInfo((prev) => {
         const merged: BootstrapInfo = prev
@@ -6200,16 +6279,7 @@ export default function BffChat() {
       }
     }
 
-    const suppressChips = cards.length
-      ? cards.some((c) => {
-          const t = String((c as any)?.type || '').toLowerCase();
-          if (t === 'diagnosis_gate') {
-            const reason = String((c as any)?.payload?.reason || '').toLowerCase().trim();
-            return reason !== 'diagnosis_photo_choice';
-          }
-          return t === 'analysis_summary' || t === 'profile';
-        })
-      : false;
+    const suppressChips = hasCardFirstDedupeCard(cards);
 
     const visibleChips = filterPassiveAdvisoryChips(
       Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
@@ -6301,6 +6371,36 @@ export default function BffChat() {
       }
 
       setError(null);
+
+      const responseSessionPatch = asObject((response as any).session_patch);
+      if (responseSessionPatch) {
+        const next = asString(responseSessionPatch.next_state);
+        if (next) setSessionState(next);
+
+        const nextMeta = asObject(responseSessionPatch.meta);
+        if (nextMeta) {
+          setSessionMeta((prev) => {
+            const base = asObject(prev) || {};
+            return { ...base, ...nextMeta };
+          });
+        }
+
+        const profileFromPatch = asObject(responseSessionPatch.profile);
+        if (profileFromPatch) {
+          setProfileSnapshot((prev) => {
+            const base = asObject(prev) || {};
+            return { ...base, ...profileFromPatch };
+          });
+          setBootstrapInfo((prev) => {
+            const merged: BootstrapInfo = prev
+              ? { ...prev }
+              : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+            const baseProfile = asObject(merged.profile) || {};
+            merged.profile = { ...baseProfile, ...profileFromPatch };
+            return merged;
+          });
+        }
+      }
 
       const profilePatch = asObject(response.ops.profile_patch[0]) || null;
       const routinePatch = asObject(response.ops.routine_patch[0]) || null;
@@ -6488,12 +6588,7 @@ export default function BffChat() {
         });
       }
 
-      const suppressChips = cards.length
-        ? cards.some((c) => {
-            const t = String((c as any)?.type || '').toLowerCase();
-            return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
-          })
-        : false;
+      const suppressChips = hasCardFirstDedupeCard(cards);
 
       if (!suppressChips && suggestedChips.length) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: suggestedChips });
@@ -7881,9 +7976,42 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'profile_upload_selfie') {
+      if (actionId === 'profile_upload_selfie' || actionId === 'analysis_upload_selfie') {
         setPromptRoutineAfterPhoto(true);
         setPhotoSheetOpen(true);
+        return;
+      }
+
+      if (actionId === 'analysis_skip_photo' || actionId === 'analysis_continue_without_products') {
+        const userText =
+          actionId === 'analysis_skip_photo'
+            ? language === 'CN'
+              ? '先不上传照片，继续文本深挖'
+              : 'Skip selfie for now and continue text deepening'
+            : language === 'CN'
+              ? '先不补充产品，继续下一步'
+              : 'Continue without adding products for now';
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+        await sendChat(undefined, {
+          action_id: actionId,
+          kind: 'action',
+          data: { reply_text: userText },
+        });
+        return;
+      }
+
+      if (actionId === 'analysis_reaction_select') {
+        const reaction = typeof data?.reaction === 'string' ? data.reaction.trim() : '';
+        if (!reaction) return;
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: reaction }]);
+        await sendChat(undefined, {
+          action_id: 'analysis_reaction_select',
+          kind: 'action',
+          data: {
+            reaction,
+            reply_text: reaction,
+          },
+        });
         return;
       }
 
@@ -8678,6 +8806,11 @@ export default function BffChat() {
         setPhotoSheetOpen(true);
         return;
       }
+      if (id === 'chip.intake.skip_analysis' || id === 'chip_intake_skip_analysis') {
+        setPromptRoutineAfterPhoto(false);
+        await runLowConfidenceSkinAnalysis();
+        return;
+      }
       if (id === 'chip.intake.paste_routine') {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
@@ -8716,6 +8849,7 @@ export default function BffChat() {
       language,
       quickProfileBusy,
       quickProfileDraft,
+      runLowConfidenceSkinAnalysis,
       sendChat,
       authSession,
       persistQuickProfilePatch,
@@ -9010,6 +9144,7 @@ export default function BffChat() {
         aliases?: Array<string | null | undefined>;
         brand?: string | null;
         title?: string | null;
+        interaction_action?: string | null;
       };
       signal?: AbortSignal;
     }) => {
@@ -9882,35 +10017,49 @@ export default function BffChat() {
                 <div key={`sheet_${track.key}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
                   <div className="text-sm font-semibold text-foreground">{track.title}</div>
                   <div className="text-xs text-muted-foreground">{track.subtitle}</div>
-                  <div className="mt-2 space-y-2">
-                    {track.items.slice(0, 8).map((entry, idx) => {
-                      const candidate = entry.candidate;
-                      const brand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
-                      const name =
-                        asString(candidate.name) ||
-                        asString((candidate as any).display_name) ||
-                        asString((candidate as any).displayName) ||
-                        (language === 'CN' ? '未知产品' : 'Unknown product');
-                      const why = uniqueStrings([
-                        asString((candidate as any)?.why_candidate?.summary),
-                        ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
-                        ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
-                      ])[0];
-                      const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
-                      const tradeoff = uniqueStrings([
-                        ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
-                        ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
-                      ])[0];
-                      return (
-                        <div key={`${track.key}_${brand}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
-                          <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand} - ${name}`}</div>
-                          {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
-                          {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
-                          {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {track.key === 'pair' || track.key === 'empty' ? (
+                    <div className="mt-2 space-y-2">
+                      {asArray(track.notes).slice(0, 8).map((note, idx) => {
+                        const text = asString(note);
+                        if (!text) return null;
+                        return (
+                          <div key={`${track.key}_note_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2 text-xs text-muted-foreground">
+                            {text}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      {track.items.slice(0, 8).map((entry, idx) => {
+                        const candidate = entry.candidate;
+                        const brand = asString(candidate.brand);
+                        const name =
+                          asString(candidate.name) ||
+                          asString((candidate as any).display_name) ||
+                          asString((candidate as any).displayName);
+                        if (!name) return null;
+                        const why = uniqueStrings([
+                          asString((candidate as any)?.why_candidate?.summary),
+                          ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
+                          ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
+                        ])[0];
+                        const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
+                        const tradeoff = uniqueStrings([
+                          ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
+                          ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
+                        ])[0];
+                        return (
+                          <div key={`${track.key}_${brand || 'brandless'}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
+                            <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand ? `${brand} - ` : ''}${name}`}</div>
+                            {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
+                            {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
+                            {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

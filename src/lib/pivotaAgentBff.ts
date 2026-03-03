@@ -243,6 +243,7 @@ export const sendRecoEmployeeFeedback = async (
 export type RecoAlternativesRequest = {
   product_input?: string;
   product?: Record<string, unknown>;
+  ingredient_context?: Record<string, unknown>;
   anchor_product_id?: string;
   max_total?: number;
   include_debug?: boolean;
@@ -252,12 +253,17 @@ export type RecoAlternativesResponse = {
   request_id: string;
   trace_id: string;
   ok: boolean;
+  details_action_triggered?: boolean;
+  alternatives_action_triggered?: boolean;
   alternatives: Array<Record<string, unknown>>;
   field_missing?: Array<Record<string, unknown>>;
   llm_trace?: Record<string, unknown> | null;
   source_mode?: 'llm' | 'local_fallback' | 'budget_skip' | null;
   failure_class?: string | null;
   fallback_source?: string | null;
+  no_result_reason?: string | null;
+  alternatives_candidate_count?: number;
+  alternatives_selected_count?: number;
   refresh_pending?: boolean;
   refresh_after_ms?: number;
   attempt_count?: number;
