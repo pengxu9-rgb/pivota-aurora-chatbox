@@ -31,7 +31,7 @@ export type EnvStressOutputV1 = {
   generated_at: string; // ISO timestamp
 };
 
-export type RadarDatumV1 = { axis: string; value: number }; // value: 0..100
+export type RadarDatumV1 = { axis: string; value: number; drivers?: string[] }; // value: 0..100
 
 export type TravelMetricDelta = {
   home: number | null;
@@ -58,6 +58,8 @@ export type TravelReadinessProductPreviewItem = {
   brand?: string | null;
   category?: string | null;
   reasons?: string[];
+  product_source?: 'catalog' | 'rule_fallback' | 'llm_generated' | null;
+  match_status?: TravelReadinessBrandMatchStatus | null;
   price?: number | null;
   currency?: string | null;
 };
@@ -144,6 +146,17 @@ export type TravelReadinessV1 = {
     city_hint?: string | null;
     note?: string | null;
   };
+  structured_sections?: {
+    seasonal_context?: string[];
+    key_deltas?: string[];
+    routine_adjustments?: string[];
+    flight_day_plan?: string[];
+    active_handling?: string[];
+    phased_plan?: string[];
+    packing_list?: string[];
+    product_guidance?: string[];
+    troubleshooting?: string[];
+  };
   confidence?: {
     level?: string | null;
     missing_inputs?: string[];
@@ -155,6 +168,7 @@ export type EnvStressUiModelV1 = {
   schema_version: 'aurora.ui.env_stress.v1';
   ess: number | null;
   tier: string | null;
+  tier_description?: string | null;
   radar: RadarDatumV1[];
   notes: string[];
   travel_readiness?: TravelReadinessV1;

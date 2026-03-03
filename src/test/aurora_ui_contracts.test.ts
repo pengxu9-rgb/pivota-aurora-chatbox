@@ -43,7 +43,8 @@ describe("aurora ui contracts", () => {
       schema_version: "aurora.ui.env_stress.v1",
       ess: 62,
       tier: "Moderate",
-      radar: [{ axis: "Hydration", value: 52 }],
+      tier_description: "Moderate stress: maintain barrier support and daily SPF.",
+      radar: [{ axis: "Hydration", value: 52, drivers: ["Humidity: 76%", "Wind: 14 kph"] }],
       notes: [],
       travel_readiness: {
         destination_context: {
@@ -79,12 +80,25 @@ describe("aurora ui contracts", () => {
         ],
         store_examples: [{ name: "Matsukiyo", type: "Drugstore", district: "Shibuya", source: "curated_reference" }],
         shopping_preview: {
-          products: [{ product_id: "p1", name: "Barrier Cream", brand: "Aurora Lab", reasons: ["repair"] }],
+          products: [
+            {
+              product_id: "p1",
+              name: "Barrier Cream",
+              brand: "Aurora Lab",
+              reasons: ["repair"],
+              product_source: "llm_generated",
+              match_status: "catalog_verified",
+            },
+          ],
           brand_candidates: [
             { brand: "Bioderma", match_status: "kb_verified", reason: "Barrier support" },
             { brand: "UnknownX", match_status: "random_status", reason: "Fallback to llm_only" },
           ],
           buying_channels: ["beauty_retail", "ecommerce", "unknown_channel"],
+        },
+        structured_sections: {
+          routine_adjustments: ["Switch to lighter AM moisturizer"],
+          packing_list: ["SPF50+", "Barrier cream"],
         },
         confidence: {
           level: "medium",
@@ -96,6 +110,8 @@ describe("aurora ui contracts", () => {
 
     const { model, didWarn } = normalizeEnvStressUiModelV1(input);
     expect(didWarn).toBe(false);
+    expect(model?.tier_description).toBe("Moderate stress: maintain barrier support and daily SPF.");
+    expect(model?.radar?.[0]?.drivers).toEqual(["Humidity: 76%", "Wind: 14 kph"]);
     expect(model?.travel_readiness?.destination_context?.destination).toBe("Paris");
     expect(model?.travel_readiness?.delta_vs_home?.summary_tags).toEqual(["colder", "higher_uv"]);
     expect(model?.travel_readiness?.forecast_window?.[0]?.date).toBe("2026-03-01");
@@ -103,9 +119,13 @@ describe("aurora ui contracts", () => {
     expect(model?.travel_readiness?.reco_bundle?.[0]?.trigger).toBe("Elevated UV");
     expect(model?.travel_readiness?.store_examples?.[0]?.name).toBe("Matsukiyo");
     expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.name).toBe("Barrier Cream");
+    expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.product_source).toBe("llm_generated");
+    expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.match_status).toBe("catalog_verified");
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[0]?.match_status).toBe("kb_verified");
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[1]?.match_status).toBe("llm_only");
     expect(model?.travel_readiness?.shopping_preview?.buying_channels).toEqual(["beauty_retail", "ecommerce"]);
+    expect(model?.travel_readiness?.structured_sections?.routine_adjustments).toEqual(["Switch to lighter AM moisturizer"]);
+    expect(model?.travel_readiness?.structured_sections?.packing_list).toEqual(["SPF50+", "Barrier cream"]);
     expect(model?.travel_readiness?.confidence?.missing_inputs).toContain("currentRoutine");
   });
 
