@@ -151,7 +151,12 @@ export function normalizeRadarSeriesV1(value: unknown): { radar: RadarDatumV1[];
     const n = coerceNumber(rawValue);
     if (n == null) didWarn = true;
 
-    out.push({ axis: axis.slice(0, 40), value: clamp0to100(n ?? 0) });
+    const drivers = normalizeStringArray(item.drivers, 3, 120);
+    out.push({
+      axis: axis.slice(0, 40),
+      value: clamp0to100(n ?? 0),
+      ...(drivers.length ? { drivers } : {}),
+    });
     if (out.length >= UI_RENDERING_CONSTRAINTS_V1.max_axes) break;
   }
 
@@ -194,6 +199,13 @@ function normalizeBrandMatchStatus(value: unknown): 'kb_verified' | 'catalog_ver
   const token = normalizeOptionalText(value, 32)?.toLowerCase();
   if (token === 'kb_verified' || token === 'catalog_verified' || token === 'llm_only') return token;
   return 'llm_only';
+}
+
+function normalizeProductSource(value: unknown): 'catalog' | 'rule_fallback' | 'llm_generated' | undefined {
+  const token = normalizeOptionalText(value, 32)?.toLowerCase();
+  if (token === 'catalog' || token === 'rule_fallback' || token === 'llm_generated') return token;
+  if (token === 'llm_only') return 'llm_generated';
+  return undefined;
 }
 
 function normalizeTravelMetricDelta(value: unknown) {
@@ -386,6 +398,8 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
             brand: normalizeOptionalText(row.brand, 80),
             category: normalizeOptionalText(row.category, 80),
             reasons: normalizeStringArray(row.reasons, 4, 100),
+            product_source: normalizeProductSource(row.product_source),
+            match_status: normalizeBrandMatchStatus(row.match_status),
             price: coerceNumber(row.price),
             currency: normalizeOptionalText(row.currency, 12),
           };
@@ -413,6 +427,29 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
     };
   }
 
+  const structuredSections = isPlainObject(value.structured_sections) ? value.structured_sections : null;
+  if (structuredSections) {
+    const sectionKeys = [
+      'seasonal_context',
+      'key_deltas',
+      'routine_adjustments',
+      'flight_day_plan',
+      'active_handling',
+      'phased_plan',
+      'packing_list',
+      'product_guidance',
+      'troubleshooting',
+    ] as const;
+    const normalizedSections: Record<string, string[]> = {};
+    for (const key of sectionKeys) {
+      const rows = normalizeStringArray(structuredSections[key], key === 'packing_list' ? 8 : 6, 220);
+      if (rows.length) normalizedSections[key] = rows;
+    }
+    if (Object.keys(normalizedSections).length) {
+      out.structured_sections = normalizedSections as NonNullable<EnvStressUiModelV1['travel_readiness']>['structured_sections'];
+    }
+  }
+
   const confidence = isPlainObject(value.confidence) ? value.confidence : null;
   if (confidence) {
     out.confidence = {
@@ -433,6 +470,7 @@ export function normalizeEnvStressUiModelV1(value: unknown): { model: EnvStressU
   const ess = essRaw == null ? null : clamp0to100(essRaw);
 
   const tier = typeof value.tier === 'string' ? value.tier.trim().slice(0, 40) || null : null;
+  const tierDescription = normalizeOptionalText(value.tier_description, 220);
   const notes = normalizeNotesV1(value.notes);
 
   const { radar, didWarn } = normalizeRadarSeriesV1(value.radar);
@@ -443,6 +481,7 @@ export function normalizeEnvStressUiModelV1(value: unknown): { model: EnvStressU
       schema_version: 'aurora.ui.env_stress.v1',
       ess,
       tier,
+      ...(tierDescription ? { tier_description: tierDescription } : {}),
       radar,
       notes,
       ...(travelReadiness ? { travel_readiness: travelReadiness } : {}),

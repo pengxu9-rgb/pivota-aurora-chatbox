@@ -120,4 +120,43 @@ describe('EnvStressCard travel readiness', () => {
     expect(screen.getByText(/legacy_note_1/)).toBeInTheDocument();
     expect(screen.queryByText('Destination delta')).not.toBeInTheDocument();
   });
+
+  it('renders contributor bars/chips when drivers exist and shows match-status badge correctly', () => {
+    render(
+      <EnvStressCard
+        payload={{
+          schema_version: 'aurora.ui.env_stress.v1',
+          ess: 32,
+          tier: 'Medium',
+          tier_description: 'Medium stress: expect mild irritation/dryness.',
+          radar: [
+            { axis: 'Weather', value: 46, drivers: ['Temp: 19C', 'Humidity: 55.6%'] },
+            { axis: 'UV', value: 28, drivers: ['UV index: 4.1'] },
+            { axis: 'Barrier', value: 18, drivers: ['Drier than home'] },
+          ],
+          notes: [],
+          travel_readiness: {
+            destination_context: { destination: 'Paris' },
+            shopping_preview: {
+              products: [
+                {
+                  product_id: 'prod_2',
+                  name: 'Daily SPF Fluid',
+                  brand: 'Aurora Lab',
+                  product_source: 'catalog',
+                  match_status: 'catalog_verified',
+                  reasons: ['UV support'],
+                },
+              ],
+            },
+          },
+        }}
+        language="EN"
+      />,
+    );
+
+    expect(screen.queryByText('Why this score (expand)')).not.toBeInTheDocument();
+    expect(screen.getByText('Humidity: 55.6%')).toBeInTheDocument();
+    expect(screen.getByText('Catalog verified')).toBeInTheDocument();
+  });
 });
