@@ -887,6 +887,33 @@ const filterPassiveAdvisoryChips = (chips: SuggestedChip[], showPassive: boolean
     return !isPassiveProfileChipId(chipId);
   });
 };
+const normalizeChipDedupToken = (value: unknown): string => String(value ?? '').trim().toLowerCase();
+const buildChipDedupKey = (chip: SuggestedChip): string => {
+  const data = asObject((chip as any)?.data) ?? {};
+  const actionId = normalizeChipDedupToken((data as any).action_id);
+  if (actionId) return `action:${actionId}`;
+  const followUpOptionId = normalizeChipDedupToken((data as any).follow_up_option_id);
+  if (followUpOptionId) return `followup_option:${followUpOptionId}`;
+  const chipId = normalizeChipDedupToken((chip as any)?.chip_id);
+  if (chipId) return `chip:${chipId}`;
+  const label = normalizeChipDedupToken((chip as any)?.label);
+  const replyText = normalizeChipDedupToken((data as any).reply_text);
+  return `text:${label}::${replyText}`;
+};
+const dedupeSuggestedChips = (chips: SuggestedChip[], max = 12): SuggestedChip[] => {
+  const out: SuggestedChip[] = [];
+  const seen = new Set<string>();
+  const rows = Array.isArray(chips) ? chips : [];
+  for (const chip of rows) {
+    if (!chip || typeof chip !== 'object') continue;
+    const key = buildChipDedupKey(chip);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(chip);
+    if (out.length >= max) break;
+  }
+  return out;
+};
 const asNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
@@ -6296,9 +6323,12 @@ export default function BffChat() {
 
     const suppressChips = hasCardFirstDedupeCard(cards);
 
-    const visibleChips = filterPassiveAdvisoryChips(
-      Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
-      FF_SHOW_PASSIVE_GATES,
+    const visibleChips = dedupeSuggestedChips(
+      filterPassiveAdvisoryChips(
+        Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
+        FF_SHOW_PASSIVE_GATES,
+      ),
+      12,
     );
     if (!suppressChips && visibleChips.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: visibleChips });
@@ -6541,6 +6571,7 @@ export default function BffChat() {
           data: {
             ...(option.metadata || {}),
             follow_up_id: followUp.id,
+            follow_up_option_id: option.id,
             follow_up_question: followUp.question,
             follow_up_required: followUp.required,
             reply_text: option.value || option.label,
@@ -6549,10 +6580,13 @@ export default function BffChat() {
         }));
       };
 
-      const suggestedChips = [
-        ...response.suggested_quick_replies.map(quickReplyToChip),
-        ...response.follow_up_questions.flatMap(followUpToChips),
-      ].slice(0, 12);
+      const suggestedChips = dedupeSuggestedChips(
+        [
+          ...response.suggested_quick_replies.map(quickReplyToChip),
+          ...response.follow_up_questions.flatMap(followUpToChips),
+        ],
+        12,
+      );
 
       const nextItems: ChatItem[] = [];
       if (assistantText.trim()) {
@@ -8889,6 +8923,7 @@ export default function BffChat() {
       const isCameraClientAction =
         clientAction === 'open_camera' ||
         effectiveActionId === 'diag.upload_photo' ||
+        effectiveActionId === 'chip.intake.upload_photos' ||
         id === 'chip.intake.upload_photos';
       if (isCameraClientAction) {
         setAgentStateSafe('DIAG_PHOTO_OPTIN');
