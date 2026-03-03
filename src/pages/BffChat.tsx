@@ -7485,10 +7485,19 @@ export default function BffChat() {
         });
         const bodyRaw = await chatCall();
         const parsedV1 = parseChatResponseV1(bodyRaw);
-        if (!parsedV1) {
-          throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+        if (parsedV1) {
+          applyChatResponseV1(parsedV1);
+          return;
         }
-        applyChatResponseV1(parsedV1);
+
+        // Backward compatibility: some deployments may still return legacy envelope shape.
+        const env = asObject(bodyRaw);
+        if (env && typeof env.request_id === 'string' && Array.isArray(env.cards)) {
+          applyEnvelope(env as V1Envelope);
+          return;
+        }
+
+        throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema or legacy envelope.');
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -7501,6 +7510,7 @@ export default function BffChat() {
       anchorProductId,
       anchorProductUrl,
       applyChatResponseV1,
+      applyEnvelope,
       bootstrapInfo?.profile,
       debug,
       headers,
