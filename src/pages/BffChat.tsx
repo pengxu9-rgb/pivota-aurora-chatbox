@@ -3176,7 +3176,9 @@ export function RecommendationsCard({
                 onClick={() => {
                   try {
                     window.open(cta.url, '_blank', 'noopener,noreferrer');
-                  } catch {}
+                  } catch {
+                    // Ignore popup-blocked errors for external discovery CTA clicks.
+                  }
                 }}
               >
                 <span className="flex-1 min-w-0">
@@ -7378,16 +7380,12 @@ export default function BffChat() {
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
 
-        const actionId = typeof action === 'string' ? action : action?.action_id;
-        const isIngredientAction = typeof actionId === 'string' && actionId.startsWith('ingredient.');
         const chatCall = () => bffJson<unknown>('/v1/chat', requestHeaders, {
           method: 'POST',
           body: JSON.stringify(body),
           timeoutMs,
         });
-        const bodyRaw = isIngredientAction
-          ? await retryWithBackoff(chatCall, { maxRetries: 1, baseDelayMs: 1000 })
-          : await chatCall();
+        const bodyRaw = await chatCall();
         const parsedV1 = parseChatResponseV1(bodyRaw);
         if (!parsedV1) {
           throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
