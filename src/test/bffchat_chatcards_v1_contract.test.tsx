@@ -838,4 +838,105 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
       expect(chatCallsAfterClick).toBe(1);
     });
   });
+
+  it('dedupes repeated diagnosis CTAs from quick replies + follow-up options and keeps upload as local camera action', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Choose your next step.',
+            suggested_quick_replies: [
+              {
+                id: 'diag_upload',
+                label: 'Upload a photo (more accurate)',
+                value: 'Upload a photo (more accurate)',
+                metadata: {
+                  action_id: 'diag.upload_photo',
+                  trigger_source: 'action',
+                },
+              },
+              {
+                id: 'diag_skip',
+                label: 'Skip photo (low confidence)',
+                value: 'Skip photo (low confidence)',
+                metadata: {
+                  action_id: 'chip.intake.skip_analysis',
+                  trigger_source: 'action',
+                },
+              },
+              {
+                id: 'diag_keep_chat',
+                label: 'Just keep chatting',
+                value: 'Just keep chatting',
+                metadata: {
+                  action_id: 'chip_keep_chatting',
+                  trigger_source: 'action',
+                },
+              },
+            ],
+            follow_up_questions: [
+              {
+                id: 'diag_follow_up',
+                question: 'How should I continue for the next step?',
+                required: false,
+                options: [
+                  {
+                    id: 'upload_again',
+                    label: 'Upload a photo (more accurate)',
+                    value: 'Upload a photo (more accurate)',
+                    metadata: {
+                      action_id: 'diag.upload_photo',
+                      trigger_source: 'action',
+                    },
+                  },
+                  {
+                    id: 'skip_again',
+                    label: 'Skip photo (low confidence)',
+                    value: 'Skip photo (low confidence)',
+                    metadata: {
+                      action_id: 'chip.intake.skip_analysis',
+                      trigger_source: 'action',
+                    },
+                  },
+                ],
+              },
+            ],
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.93, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'start diagnosis' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByText('Choose your next step.');
+    expect(screen.getAllByRole('button', { name: 'Upload a photo (more accurate)' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Skip photo (low confidence)' })).toHaveLength(1);
+
+    const chatCallsBeforeClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+    expect(chatCallsBeforeClick).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload a photo (more accurate)' }));
+
+    await screen.findByText('Align your face inside the oval frame');
+    await waitFor(() => {
+      const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+      expect(chatCallsAfterClick).toBe(1);
+    });
+  });
 });
