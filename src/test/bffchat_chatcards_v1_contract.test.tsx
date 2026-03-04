@@ -1217,6 +1217,64 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     });
   });
 
+  it('opens routine intake locally when clicking analysis_story_v2 Add AM/PM routine CTA', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Story generated.',
+            cards: [
+              {
+                id: 'analysis_story_local_intake',
+                type: 'analysis_story_v2',
+                priority: 1,
+                title: 'Analysis story',
+                tags: [],
+                sections: [],
+                actions: [],
+                payload: {
+                  confidence_overall: { level: 'medium', score: 0.66 },
+                  skin_profile: { current_strengths: ['stable baseline'] },
+                  routine_bridge: {
+                    missing_fields: ['currentRoutine.am', 'currentRoutine.pm'],
+                    why_now: 'Need AM/PM routine to personalize recommendations.',
+                    cta_label: 'Add AM/PM routine',
+                    cta_action: 'open_routine_intake',
+                  },
+                },
+              },
+            ],
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.93, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'analyze my skin' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    await screen.findByText('Story generated.');
+    fireEvent.click(await screen.findByRole('button', { name: 'Add AM/PM routine' }));
+
+    await screen.findByText(/Add your AM\/PM products/i);
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls).toHaveLength(1);
+    });
+  });
+
   it('maps analysis_optimize_existing next-step action to local routine-review flow without extra chat turn', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {

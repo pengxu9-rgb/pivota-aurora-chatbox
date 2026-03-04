@@ -49,6 +49,7 @@ describe('analysis_story_v2 ui', () => {
     expect(onAction).toHaveBeenCalledWith(
       'chip.start.routine',
       expect.objectContaining({
+        cta_action: 'open_routine_intake',
         trigger_source: 'analysis_story_v2',
       }),
     );

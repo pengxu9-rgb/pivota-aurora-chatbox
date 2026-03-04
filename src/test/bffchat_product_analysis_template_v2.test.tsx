@@ -377,6 +377,224 @@ describe('BffChat product-analysis template v2', () => {
     expect(screen.queryByText(/2-3 nights/i)).toBeNull();
   });
 
+  it('V4 rendering isolates data-quality lines and filters heading tokens in ingredient chips', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_v4_clean', trace_id: 'trace_v4_clean' }));
+      }
+      if (path === '/v1/product/parse') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_parse_v4_clean',
+            trace_id: 'trace_parse_v4_clean',
+            cards: [
+              {
+                card_id: 'parse_v4_clean',
+                type: 'product_parse',
+                payload: {
+                  product: { brand: 'Lab Series', name: 'Defense Lotion SPF 35' },
+                  confidence: 0.9,
+                  missing_info: [],
+                  parse_source: 'answer_json',
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/product/analyze') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analyze_v4_clean',
+            trace_id: 'trace_analyze_v4_clean',
+            cards: [
+              {
+                card_id: 'analyze_v4_clean',
+                type: 'product_analysis',
+                payload: {
+                  ...makeV4ProductAnalysisPayload(),
+                  assessment: {
+                    ...makeV4ProductAnalysisPayload().assessment,
+                    formula_intent: [
+                      'Humectant blend suggests hydration support and moisture retention.',
+                      'Official-page INCI extraction was blocked; INCIDecoder was used as a supplemental source.',
+                    ],
+                  },
+                  evidence: {
+                    ...makeV4ProductAnalysisPayload().evidence,
+                    key_ingredients_by_function: [],
+                    science: {
+                      key_ingredients: ['Key Ingredients', 'Sodium Hyaluronate'],
+                      mechanisms: ['Humectant blend suggests hydration support and moisture retention.'],
+                      fit_notes: [],
+                      risk_notes: [],
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    fireEvent.click(entry);
+    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    fireEvent.change(productInput, { target: { value: 'Lab Series Defense Lotion SPF 35' } });
+    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+
+    await screen.findByText(/what the formula is trying to do/i);
+    expect(screen.getAllByText(/humectant blend suggests hydration support/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^official-page inci extraction was blocked/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /^key ingredients$/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /sodium hyaluronate/i })).toBeInTheDocument();
+  });
+
+  it('social snapshot avoids blanket caution when only generic risk-group bullets are present', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_social_tone', trace_id: 'trace_social_tone' }));
+      }
+      if (path === '/v1/product/parse') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_parse_social_tone',
+            trace_id: 'trace_parse_social_tone',
+            cards: [
+              {
+                card_id: 'parse_social_tone',
+                type: 'product_parse',
+                payload: {
+                  product: { brand: 'Demo', name: 'Hydrating Gel' },
+                  confidence: 0.85,
+                  missing_info: [],
+                  parse_source: 'answer_json',
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/product/analyze') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analyze_social_tone',
+            trace_id: 'trace_analyze_social_tone',
+            cards: [
+              {
+                card_id: 'analyze_social_tone',
+                type: 'product_analysis',
+                payload: {
+                  ...makeV4ProductAnalysisPayload(),
+                  evidence: {
+                    ...makeV4ProductAnalysisPayload().evidence,
+                    social_signals: {
+                      typical_positive: ['hydration'],
+                      typical_negative: [],
+                      risk_for_groups: [
+                        'Sensitive skin: start low and monitor for stinging/redness.',
+                        'Acne-prone skin: watch for clogging/breakout feedback.',
+                        'Impaired barrier: prioritize moisturizer and reduce active layering.',
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    fireEvent.click(entry);
+    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    fireEvent.change(productInput, { target: { value: 'Demo Hydrating Gel' } });
+    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+
+    await screen.findByText(/social feedback snapshot/i);
+    expect(screen.queryByText(/overall feedback suggests caution/i)).toBeNull();
+  });
+
+  it('dupe_compare limited mode shows compact guidance and supports price.amount', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_dupe', trace_id: 'trace_bootstrap_dupe' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_dupe_limited',
+            trace_id: 'trace_dupe_limited',
+            cards: [
+              {
+                card_id: 'dupe_limited',
+                type: 'dupe_compare',
+                payload: {
+                  original: {
+                    brand: 'Lab Series',
+                    name: 'All-In-One Defense Lotion',
+                    price: { amount: 52, currency: 'USD' },
+                  },
+                  dupe: {
+                    brand: 'Lab Series',
+                    name: 'Defense Moisturizer',
+                    price: { amount: 39, currency: 'USD' },
+                  },
+                  similarity: 0.73,
+                  compare_quality: 'limited',
+                  limited_reason: 'tradeoffs_detail_missing',
+                  tradeoffs: ['No tradeoff details were returned (comparison is limited).'],
+                },
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'compare tradeoffs' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    await screen.findByText(/tradeoff detail is missing/i);
+    expect(screen.queryByText(/more tradeoffs/i)).toBeNull();
+    expect(screen.queryAllByText(/price unavailable/i).length).toBe(0);
+    expect(screen.getByText(/\$52/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$39/i)).toBeInTheDocument();
+  });
+
   it('V3 payload backward compatibility: still renders verdict and key takeaway', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {

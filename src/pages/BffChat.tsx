@@ -1610,12 +1610,18 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
 
   const priceObj = asObject((r as any).price);
   if (price == null && priceObj) {
+    const amount = asNumber((priceObj as any).amount);
+    const amountCurrency = asString((priceObj as any).currency);
+    if (amount != null && Number.isFinite(amount) && amount > 0) {
+      price = amount;
+      currency = amountCurrency || currency;
+    }
     const usd = asNumber(priceObj.usd ?? priceObj.USD);
     const cny = asNumber(priceObj.cny ?? priceObj.CNY);
-    if (usd != null) {
+    if (price == null && usd != null) {
       price = usd;
       currency = 'USD';
-    } else if (cny != null) {
+    } else if (price == null && cny != null) {
       price = cny;
       currency = 'CNY';
     }
@@ -4539,8 +4545,13 @@ function BffCardView({
       };
     }
 
+    const severeRiskSignal = socialRisks.some((line) =>
+      /\b(severe|burn|swelling|allerg|anaphyl|rash|hives|breakout|barrier damage)\b|严重|灼烧|红肿|过敏|爆痘/i.test(String(line || '')),
+    );
+    const cautionByNegative = neg >= pos + 2;
+    const cautionByRisk = severeRiskSignal ? (risk >= 2 && neg >= 1) : (risk >= 4 && neg >= 2);
     const tone: 'positive' | 'mixed' | 'caution' =
-      pos >= neg + 2 ? 'positive' : neg >= pos + 2 || risk >= 2 ? 'caution' : 'mixed';
+      pos >= neg + 2 ? 'positive' : cautionByNegative || cautionByRisk ? 'caution' : 'mixed';
 
     const headline =
       language === 'CN'
@@ -4842,8 +4853,27 @@ function BffCardView({
         // ─── V4 payload fields ────────────────────────────────────────────────
         const verdictLevel = asString((assessment as any)?.verdict_level) || null;
         const isV4Payload = Boolean(verdictLevel);
+        const isDataQualityNarrativeLine = (line: string) =>
+          /official[-\s]?page inci extraction was blocked|incidecoder|regulatory source|retail pdp|cross-?check with package inci|version verification|ingredient-source consistency is limited|官网成分抓取受限|监管源|零售页补充|需与包装\s*inci\s*复核|版本核对|成分证据一致度偏低/i
+            .test(String(line || '').trim());
+        const isLikelyInvalidIngredientTokenV4 = (raw: string) => {
+          const token = String(raw || '').trim();
+          if (!token) return true;
+          if (/^key ingredients?[:\s]?/i.test(token)) return true;
+          if (/^active ingredients?[:\s]?/i.test(token)) return true;
+          if (/^other ingredients?[:\s]?/i.test(token)) return true;
+          if (/^ingredients?[:\s]?/i.test(token)) return true;
+          if (/^full ingredients?[:\s]?/i.test(token)) return true;
+          if (/^inactive ingredients?[:\s]?/i.test(token)) return true;
+          if (/[:：]$/.test(token)) return true;
+          return false;
+        };
         const dataQualityBanner = asString((assessment as any)?.data_quality_banner) || null;
-        const v4TopTakeaways = isV4Payload ? uniqueStrings(asArray((assessment as any)?.top_takeaways)).slice(0, 5) : [];
+        const v4TopTakeaways = isV4Payload
+          ? uniqueStrings(asArray((assessment as any)?.top_takeaways))
+              .filter((line) => !isDataQualityNarrativeLine(String(line || '')))
+              .slice(0, 5)
+          : [];
         const v4BestFor = isV4Payload ? uniqueStrings(asArray((assessment as any)?.best_for)).slice(0, 5) : [];
         const v4WatchoutsRaw = isV4Payload ? asArray((assessment as any)?.watchouts) : [];
         const v4Watchouts = v4WatchoutsRaw
@@ -4860,6 +4890,8 @@ function BffCardView({
               what_to_do: whatToDo,
             };
           })
+          .filter((item) => item && !/^(fit signal|匹配点|适配信号)[:：]?/i.test(String(item.issue || '').trim()))
+          .filter((item) => item && !isDataQualityNarrativeLine(String(item.issue || '')))
           .filter(Boolean) as Array<{ issue: string; status: string; what_to_do: string }>;
         const v4HowToUse = isV4Payload
           ? (() => {
@@ -4883,7 +4915,9 @@ function BffCardView({
                 const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
                 if (!o) return null;
                 const fn = asString(o.function);
-                const ingredients = uniqueStrings(asArray(o.ingredients)).filter(Boolean).slice(0, 8);
+                const ingredients = uniqueStrings(asArray(o.ingredients))
+                  .filter((name) => !isLikelyInvalidIngredientTokenV4(String(name || '')))
+                  .slice(0, 8);
                 const confidence = asString(o.confidence);
                 if (!fn || !ingredients.length) return null;
                 return { function: fn, ingredients, confidence };
@@ -5075,6 +5109,13 @@ function BffCardView({
           if (/as we wrote in our lengthy retinol description/i.test(token)) return true;
           if (/read more|learn more|discover|shop now|add to cart|selected because|strong category\/use-case/i.test(token)) return true;
           if (/\b(how to use|faq|privacy policy|terms of use|copyright)\b/i.test(token)) return true;
+          if (/^key ingredients?[:\s]?/i.test(token)) return true;
+          if (/^active ingredients?[:\s]?/i.test(token)) return true;
+          if (/^other ingredients?[:\s]?/i.test(token)) return true;
+          if (/^ingredients?[:\s]?/i.test(token)) return true;
+          if (/^full ingredients?[:\s]?/i.test(token)) return true;
+          if (/^inactive ingredients?[:\s]?/i.test(token)) return true;
+          if (/[:：]$/.test(token)) return true;
           if (/[?!]/.test(token)) return true;
           return false;
         };
@@ -5092,10 +5133,16 @@ function BffCardView({
           patterns: RegExp[];
         }> = [
           {
+            key: 'hydration',
+            title: language === 'CN' ? 'Hydration support' : 'Hydration support',
+            colorClass: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+            patterns: [/\b(glycerin|hyaluron|hyaluronic|sodium pca|urea|trehalose|betaine)\b/i],
+          },
+          {
             key: 'barrier',
             title: language === 'CN' ? 'Barrier support' : 'Barrier support',
             colorClass: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-            patterns: [/\b(ceramide|cholesterol|fatty acid|panthenol|beta[-\s]?glucan|allantoin|squalane|glycerin|hyaluron)\b/i],
+            patterns: [/\b(ceramide|cholesterol|fatty acid|panthenol|beta[-\s]?glucan|allantoin|squalane)\b/i],
           },
           {
             key: 'acne',
@@ -5193,6 +5240,8 @@ function BffCardView({
           ...evidenceMechanisms,
         ])
           .filter((line) => !shouldDropProfileLine(line))
+          .filter((line) => !isDataQualityNarrativeLine(line))
+          .filter((line) => !/^detected key ingredients[:：]/i.test(String(line || '').trim()))
           .slice(0, 6);
         const bestForSignalsRaw = uniqueStrings([
           ...assessmentBestFor,
@@ -5233,7 +5282,17 @@ function BffCardView({
               ? '如果重点是控痘，优先低刺激控油路线，避免同晚叠加强活性。'
               : 'If acne control is the priority, prefer low-irritation oil-control pairing and avoid same-night strong active stacking.']
             : []),
-        ]).slice(0, 3);
+        ])
+          .filter((line) => !/\bsingle-variable pm iteration\b|keep consistent daytime spf/i.test(String(line || '').toLowerCase()))
+          .filter((line) => !/\b(pair|layer|combine|use)\b.*\b(same product|this product itself|anchor product)\b/i.test(String(line || '').toLowerCase()))
+          .filter((line) => {
+            const anchorName = asString((anchorRaw as any)?.name) || asString((anchorRaw as any)?.display_name) || '';
+            if (!anchorName) return true;
+            const lineKey = normalizeProductNameKey(line);
+            const anchorKey = normalizeProductNameKey(anchorName);
+            return !(lineKey && anchorKey && lineKey.includes(anchorKey));
+          })
+          .slice(0, 3);
         const profilePromptNeeded = profilePromptRaw?.needed === true || rawMissing.includes('profile_not_provided');
         const followUpQuestion = assessmentFollowUpQuestion || (
           profilePromptNeeded
@@ -6358,6 +6417,19 @@ function BffCardView({
         const originalRaw = asObject((payload as any).original) || asObject((payload as any).original_product) || asObject((payload as any).originalProduct);
         const dupeRaw = asObject((payload as any).dupe) || asObject((payload as any).dupe_product) || asObject((payload as any).dupeProduct);
         const similarity = asNumber((payload as any).similarity);
+        const compareQuality = (asString((payload as any).compare_quality || (payload as any).compareQuality) || 'full').toLowerCase();
+        const limitedReasonToken = asString((payload as any).limited_reason || (payload as any).limitedReason) || null;
+        const isLimitedCompare = compareQuality === 'limited';
+        const limitedReason = (() => {
+          if (!limitedReasonToken) return null;
+          const token = String(limitedReasonToken).trim().toLowerCase();
+          if (token === 'tradeoffs_detail_missing') {
+            return language === 'CN'
+              ? '缺少可用的取舍细节。请提供更明确的平替链接或完整产品名后重试。'
+              : 'Tradeoff detail is missing. Provide a clearer dupe link or full product name and compare again.';
+          }
+          return limitedReasonToken;
+        })();
 
         const tradeoffs = uniqueStrings((payload as any).tradeoffs);
         const tradeoffsDetail = asObject((payload as any).tradeoffs_detail || (payload as any).tradeoffsDetail) || null;
@@ -6374,7 +6446,9 @@ function BffCardView({
           ...(priceDeltaUsd != null ? [`Price delta (USD): ${priceDeltaUsd}`] : []),
         ].filter(Boolean);
 
-        const tradeoffNote = tradeoffNoteParts.length ? tradeoffNoteParts.slice(0, 2).join(' · ') : tradeoffs[0] || undefined;
+        const tradeoffNote = isLimitedCompare
+          ? undefined
+          : (tradeoffNoteParts.length ? tradeoffNoteParts.slice(0, 2).join(' · ') : tradeoffs[0] || undefined);
 
         const original = toDupeProduct(originalRaw, language);
         const dupe = toDupeProduct(dupeRaw, language);
@@ -6409,9 +6483,11 @@ function BffCardView({
               missingActives={missingActives}
               addedBenefits={addedBenefits}
               labels={labels as any}
+              quality={isLimitedCompare ? 'limited' : 'full'}
+              limitedReason={limitedReason || undefined}
             />
 
-            {tradeoffs.length ? (
+            {tradeoffs.length && !isLimitedCompare ? (
               <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
                   <span>{language === 'CN' ? '更多取舍细节' : 'More tradeoffs'}</span>
@@ -8364,12 +8440,38 @@ export default function BffChat() {
     [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
   );
 
+  const openRoutineIntakeSheet = useCallback(() => {
+    setRoutineDraft(makeEmptyRoutineDraft());
+    setRoutineTab('am');
+    setRoutineSheetOpen(true);
+  }, []);
+
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
       const resolvedActionId =
         actionId === 'analysis_optimize_existing'
           ? 'analysis_review_products'
           : actionId;
+      const normalizedActionId = normalizeChipToken(actionId);
+      const normalizedResolvedActionId = normalizeChipToken(resolvedActionId);
+      const normalizedCtaAction = normalizeChipToken(asString((data as any)?.cta_action));
+      const shouldOpenRoutineIntakeLocally =
+        normalizedActionId === 'chip.start.routine' ||
+        normalizedResolvedActionId === 'chip.start.routine' ||
+        normalizedActionId === 'chip.intake.paste_routine' ||
+        normalizedResolvedActionId === 'chip.intake.paste_routine' ||
+        normalizedActionId === 'open_routine_intake' ||
+        normalizedResolvedActionId === 'open_routine_intake' ||
+        normalizedCtaAction === 'open_routine_intake';
+      if (shouldOpenRoutineIntakeLocally) {
+        const userText =
+          asString((data as any)?.reply_text) ||
+          asString((data as any)?.action_label) ||
+          (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+        openRoutineIntakeSheet();
+        return;
+      }
       const requestProductRecommendationsFromAnalysis = async (
         triggerActionId: 'analysis_continue' | 'analysis_get_recommendations',
         triggerData?: Record<string, any>,
@@ -8834,9 +8936,7 @@ export default function BffChat() {
       }
 
       if (resolvedActionId === 'analysis_review_products') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '评估我现在用的产品' : 'Review my current products' },
@@ -9001,7 +9101,7 @@ export default function BffChat() {
 
       await sendChat(undefined, { action_id: resolvedActionId, kind: 'action', data });
     },
-    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
+    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, headers, language, openRoutineIntakeSheet, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
   );
 
   const onProductPicksPrimary = useCallback(async () => {
@@ -9256,6 +9356,7 @@ export default function BffChat() {
       const effectiveActionId = actionIdOverride || inferredActionId || id;
       const normalizedChipId = normalizeChipToken(id);
       const normalizedEffectiveActionId = normalizeChipToken(effectiveActionId);
+      const normalizedCtaAction = normalizeChipToken(asString((chipData as any).cta_action));
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
       const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
@@ -9380,6 +9481,25 @@ export default function BffChat() {
         return;
       }
 
+      const shouldOpenRoutineIntakeLocally =
+        normalizedChipId === 'chip.start.routine' ||
+        normalizedChipId === 'chip.intake.paste_routine' ||
+        normalizedChipId === 'open_routine_intake' ||
+        normalizedEffectiveActionId === 'chip.start.routine' ||
+        normalizedEffectiveActionId === 'chip.intake.paste_routine' ||
+        normalizedEffectiveActionId === 'open_routine_intake' ||
+        normalizedCtaAction === 'open_routine_intake' ||
+        normalizedEffectiveActionId === 'routine_generate';
+      if (shouldOpenRoutineIntakeLocally) {
+        const userText =
+          asString((chipData as any).reply_text) ||
+          asString(chip.label) ||
+          (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
+        setItems((prev) => [...stripReturnWelcome(prev), { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+        openRoutineIntakeSheet();
+        return;
+      }
+
       let requestedTransition: RequestedTransition | null = null;
       if (toState !== fromState) {
         const validation = validateRequestedTransition({
@@ -9499,16 +9619,12 @@ export default function BffChat() {
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
 
       if (id === 'chip_update_products') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
 
       if (id === 'chip_eval_routine') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
 
@@ -9553,9 +9669,7 @@ export default function BffChat() {
         return;
       }
       if (id === 'chip.intake.paste_routine') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
       if (id === 'chip.start.evaluate') {
@@ -9603,6 +9717,7 @@ export default function BffChat() {
       language,
       quickProfileBusy,
       quickProfileDraft,
+      openRoutineIntakeSheet,
       runLowConfidenceSkinAnalysis,
       sendChat,
       authSession,
@@ -9712,9 +9827,7 @@ export default function BffChat() {
       setPhotoSheetOpen(true);
     }
     if (searchParams.open === 'routine') {
-      setRoutineDraft(makeEmptyRoutineDraft());
-      setRoutineTab('am');
-      setRoutineSheetOpen(true);
+      openRoutineIntakeSheet();
     }
     if (searchParams.open === 'profile') {
       setProfileSheetOpen(true);
@@ -9757,7 +9870,7 @@ export default function BffChat() {
     } catch {
       // ignore
     }
-  }, [headers.brief_id, headers.trace_id, navigate, searchParams]);
+  }, [headers.brief_id, headers.trace_id, navigate, openRoutineIntakeSheet, searchParams]);
 
   useEffect(() => {
     if (!hasBootstrapped) return;
@@ -10234,8 +10347,8 @@ export default function BffChat() {
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
                 {language === 'CN'
-                  ? '如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先给低置信度 7 天安全基线（不评分/不推推荐）。'
-                  : 'If you want, add your current AM/PM products for higher accuracy. You can also skip and I will give a low-confidence 7-day safe baseline first (no scoring, no recommendations).'}
+                  ? '如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先基于现有信息给你推荐结果。'
+                  : 'If you want, add your current AM/PM products for higher accuracy. You can also skip and I will generate recommendations from available information.'}
               </div>
 
               <div
@@ -10381,6 +10494,10 @@ export default function BffChat() {
                     type="button"
                     className="chip-button"
                     onClick={() => {
+                      const skipText =
+                        language === 'CN'
+                          ? '跳过填写，直接给我推荐结果'
+                          : 'Skip intake and give me recommendations now';
                       setRoutineSheetOpen(false);
                       setRoutineDraft(makeEmptyRoutineDraft());
                       setItems((prev) => [
@@ -10389,14 +10506,23 @@ export default function BffChat() {
                           id: nextId(),
                           role: 'user',
                           kind: 'text',
-                          content: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
+                          content: skipText,
                         },
                       ]);
-                      void runLowConfidenceSkinAnalysis({ fromRoutineForm: true });
+                      void sendChat(undefined, {
+                        action_id: 'chip.start.routine',
+                        kind: 'chip',
+                        data: {
+                          reply_text: skipText,
+                          include_alternatives: true,
+                          trigger_source: 'routine_sheet_skip',
+                          skip_routine_intake: true,
+                        },
+                      });
                     }}
                     disabled={routineFormBusy}
                   >
-                    {language === 'CN' ? '先给基线' : 'Baseline only'}
+                    {language === 'CN' ? '跳过填写，直接推荐' : 'Skip & recommend now'}
                   </button>
                   <button
                     type="button"

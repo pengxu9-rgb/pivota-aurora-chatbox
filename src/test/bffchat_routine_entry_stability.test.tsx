@@ -92,6 +92,85 @@ describe('Routine entry stability', () => {
     expect(chatCalls).toHaveLength(0);
   });
 
+  it('opens routine sheet locally when clicking Build an AM/PM routine and does not send /v1/chat', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_local_build',
+            trace_id: 'trace_bootstrap_local_build',
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_chat_should_not_happen' }));
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const buildRoutineButtons = await screen.findAllByRole('button', { name: 'Build an AM/PM routine' });
+    fireEvent.click(buildRoutineButtons[0] as HTMLButtonElement);
+
+    await screen.findByText(/Add your AM\/PM products/i);
+    const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+    expect(chatCalls).toHaveLength(0);
+  });
+
+  it('sends chip.start.routine via /v1/chat when skipping routine intake and does not call /v1/analysis/skin', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_skip_path',
+            trace_id: 'trace_bootstrap_skip_path',
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_chat_skip_path' }));
+      }
+      if (path === '/v1/analysis/skin') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_analysis_should_not_happen' }));
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat?open=routine']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText(/Add your AM\/PM products/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Skip & recommend now' }));
+
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls).toHaveLength(1);
+      const rawBody = String((chatCalls[0]?.[2] as any)?.body || '');
+      expect(rawBody).toContain('"action_id":"chip.start.routine"');
+      expect(rawBody).toContain('"trigger_source":"routine_sheet_skip"');
+      expect(rawBody).toContain('"skip_routine_intake":true');
+    });
+
+    const analysisCalls = mock.mock.calls.filter((call) => call[0] === '/v1/analysis/skin');
+    expect(analysisCalls).toHaveLength(0);
+  });
+
   it('keeps routine form editable while a normal chat request is timing out', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {

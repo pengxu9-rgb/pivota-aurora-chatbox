@@ -54,6 +54,8 @@ export interface DupeComparisonCardProps {
   tradeoffNote?: string;
   missingActives?: string[];
   addedBenefits?: string[];
+  quality?: 'full' | 'limited';
+  limitedReason?: string;
   selected?: 'original' | 'dupe';
   labels?: Partial<{
     similarity: string;
@@ -227,12 +229,15 @@ export function DupeComparisonCard({
   tradeoffNote,
   missingActives = [],
   addedBenefits = [],
+  quality = 'full',
+  limitedReason,
   selected,
   labels,
   onSwitchToDupe,
   onKeepOriginal,
 }: DupeComparisonCardProps) {
   const similarityPct = typeof similarity === 'number' && Number.isFinite(similarity) ? clampPercent(similarity) : undefined;
+  const isLimited = quality === 'limited';
   const copy = {
     similarity: labels?.similarity ?? 'Similarity',
     tradeoffsTitle: labels?.tradeoffsTitle ?? 'Trade-offs Analysis',
@@ -298,13 +303,21 @@ export function DupeComparisonCard({
           <Progress value={similarityPct ?? 0} className="h-2" indicatorClassName={similarityIndicatorClassName} />
         </div>
 
+        {isLimited ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+            <span className="font-semibold text-foreground">{copy.tradeoffNote}:</span>{' '}
+            {limitedReason?.trim() || 'Comparison details are limited for this pair. Provide a clearer dupe product link/full name to improve tradeoffs.'}
+          </div>
+        ) : null}
+
         {tradeoffNote && tradeoffNote.trim() ? (
           <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
             <span className="font-semibold text-foreground">{copy.tradeoffNote}:</span> {tradeoffNote.trim()}
           </div>
         ) : null}
 
-        <Accordion type="single" collapsible>
+        {!isLimited ? (
+          <Accordion type="single" collapsible>
           <AccordionItem value="tradeoffs" className="border-border/60">
             <AccordionTrigger className="text-sm font-semibold">{copy.tradeoffsTitle}</AccordionTrigger>
             <AccordionContent>
@@ -439,7 +452,8 @@ export function DupeComparisonCard({
               </div>
             </AccordionContent>
           </AccordionItem>
-        </Accordion>
+          </Accordion>
+        ) : null}
 
         {onSwitchToDupe || onKeepOriginal ? (
           <div className="flex gap-2 pt-1">

@@ -196,6 +196,7 @@ export function AnalysisStoryCard({
     asString(bridge?.cta_label) ||
     (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
   const actionId = asString(bridge?.action_id) || mapRoutineBridgeAction(asString(bridge?.cta_action)) || 'chip.start.routine';
+  const ctaAction = asString(bridge?.cta_action);
   const replyText =
     asString(bridge?.reply_text) ||
     (language === 'CN'
@@ -347,7 +348,13 @@ export function AnalysisStoryCard({
           <button
             type="button"
             className="mt-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15"
-            onClick={() => onAction?.(actionId, { reply_text: replyText, trigger_source: 'analysis_story_v2' })}
+            onClick={() =>
+              onAction?.(actionId, {
+                reply_text: replyText,
+                trigger_source: 'analysis_story_v2',
+                ...(ctaAction ? { cta_action: ctaAction } : {}),
+              })
+            }
           >
             {ctaText}
           </button>
