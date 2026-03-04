@@ -366,4 +366,102 @@ describe('BffChat env stress recommendation routing', () => {
     expect(screen.getByText('Routine adjustments')).toBeInTheDocument();
     expect(screen.queryByText('Why this score (expand)')).not.toBeInTheDocument();
   });
+
+  it('suppresses analysis cards when travel/env cards are present in the same turn', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_env_hide_analysis',
+            trace_id: 'trace_chat_env_hide_analysis',
+            assistant_text: 'Travel environment analysis ready.',
+            cards: [
+              {
+                id: 'analysis_summary_hidden',
+                type: 'analysis_summary',
+                priority: 1,
+                title: 'Skin summary should hide',
+                tags: [],
+                sections: [{ kind: 'markdown', text: 'SKIN_SUMMARY_SHOULD_NOT_RENDER' }],
+                actions: [],
+              },
+              {
+                id: 'analysis_story_hidden',
+                type: 'analysis_story_v2',
+                priority: 2,
+                title: 'Skin story should hide',
+                tags: [],
+                sections: [{ kind: 'markdown', text: 'SKIN_STORY_SHOULD_NOT_RENDER' }],
+                actions: [],
+              },
+              {
+                id: 'travel_card_keep',
+                type: 'travel',
+                priority: 3,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 38,
+                      tier: 'Medium',
+                      tier_description: 'Medium stress: travel-focused adjustments recommended.',
+                      radar: [{ axis: 'Weather', value: 42, drivers: ['UV index: 6.2'] }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Paris',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 52,
+                        },
+                        delta_vs_home: {
+                          temperature: { home: 12, destination: 18, delta: 6, unit: 'C' },
+                          humidity: { home: 40, destination: 61, delta: 21, unit: '%' },
+                          uv: { home: 3, destination: 6, delta: 3, unit: '' },
+                          summary_tags: ['warmer', 'more_humid', 'higher_uv'],
+                          baseline_status: 'ok',
+                        },
+                        shopping_preview: { products: [], buying_channels: ['ecommerce'] },
+                        confidence: { level: 'medium', missing_inputs: [], improve_by: [] },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    fireEvent.change(input, { target: { value: 'Plan my travel skincare for Paris.' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByText('Medium stress: travel-focused adjustments recommended.');
+    expect(screen.queryByText('SKIN_SUMMARY_SHOULD_NOT_RENDER')).not.toBeInTheDocument();
+    expect(screen.queryByText('SKIN_STORY_SHOULD_NOT_RENDER')).not.toBeInTheDocument();
+    expect(screen.queryByText('Skin assessment (7-day plan)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Analysis story')).not.toBeInTheDocument();
+  });
 });
