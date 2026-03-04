@@ -10,6 +10,22 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://pivota-agent-production.up.railway.app/v1/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://pivota-agent-production.up.railway.app/health"
+    },
+    {
+      "source": "/healthz",
+      "destination": "https://pivota-agent-production.up.railway.app/healthz"
+    },
+    {
+      "source": "/metrics",
+      "destination": "https://pivota-agent-production.up.railway.app/metrics"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
