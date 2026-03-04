@@ -112,6 +112,7 @@ import {
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { pickProductImageUrl } from '@/lib/productImage';
+import { filterContradictoryFragranceFlags } from '@/lib/sensitivityFlags';
 import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
@@ -2678,10 +2679,11 @@ export function RecommendationsCard({
     const comparisonNotes = asArray(evidencePack?.comparisonNotes ?? evidencePack?.comparison_notes)
       .map((v) => asString(v))
       .filter(Boolean) as string[];
-    const sensitivityFlags = asArray(evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags)
+    const sensitivityFlagsRaw = asArray(evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags)
       .map((v) => asString(v))
       .filter(Boolean)
       .filter((v) => !isInternalKbCitationId(v)) as string[];
+    const sensitivityFlags = filterContradictoryFragranceFlags(sensitivityFlagsRaw);
     const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
       .map((v) => asString(v))
       .filter(Boolean) as string[];

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { filterContradictoryFragranceFlags } from '@/lib/sensitivityFlags';
 import { ChevronDown } from 'lucide-react';
 
 type Profile = {
@@ -322,7 +323,7 @@ function parseProductPicks(input: string | Record<string, unknown>): ParsedProdu
         const keyActives = Array.isArray(keyActivesRaw) ? asStringArray(keyActivesRaw) : parseActives(String(keyActivesRaw ?? ''));
 
         const sensitivityFlagsRaw = evidencePack ? ((evidencePack as any).sensitivityFlags ?? (evidencePack as any).sensitivity_flags) : null;
-        const sensitivityFlags = asStringArray(sensitivityFlagsRaw);
+        const sensitivityFlags = filterContradictoryFragranceFlags(asStringArray(sensitivityFlagsRaw));
         const sensitivityNote = sensitivityFlags.length ? stripInternalKbRefs(sensitivityFlags.slice(0, 2).join(' · ')) || null : null;
 
         const availabilityRaw = Array.isArray((sku as any)?.availability) ? ((sku as any).availability as unknown[]) : (evidencePack as any)?.availability;
