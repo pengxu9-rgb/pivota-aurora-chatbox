@@ -4838,6 +4838,96 @@ function BffCardView({
           .filter(Boolean)
           .slice(0, 5);
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
+
+        // ─── V4 payload fields ────────────────────────────────────────────────
+        const verdictLevel = asString((assessment as any)?.verdict_level) || null;
+        const isV4Payload = Boolean(verdictLevel);
+        const dataQualityBanner = asString((assessment as any)?.data_quality_banner) || null;
+        const v4TopTakeaways = isV4Payload ? uniqueStrings(asArray((assessment as any)?.top_takeaways)).slice(0, 5) : [];
+        const v4BestFor = isV4Payload ? uniqueStrings(asArray((assessment as any)?.best_for)).slice(0, 5) : [];
+        const v4WatchoutsRaw = isV4Payload ? asArray((assessment as any)?.watchouts) : [];
+        const v4Watchouts = v4WatchoutsRaw
+          .map((item: unknown) => {
+            const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
+            if (!o) return null;
+            const issue = asString(o.issue);
+            const status = asString(o.status);
+            const whatToDo = asString(o.what_to_do);
+            if (!issue) return null;
+            return {
+              issue,
+              status: ['confirmed', 'possible', 'unknown'].includes(status) ? status : 'unknown',
+              what_to_do: whatToDo,
+            };
+          })
+          .filter(Boolean) as Array<{ issue: string; status: string; what_to_do: string }>;
+        const v4HowToUse = isV4Payload
+          ? (() => {
+              const htu = typeof howToUse === 'object' && howToUse !== null ? (howToUse as Record<string, unknown>) : null;
+              if (!htu) return null;
+              return {
+                when: asString(htu.when) || null,
+                frequency: asString(htu.frequency) || null,
+                order_in_routine: asString(htu.order_in_routine) || null,
+                pairing_rules: uniqueStrings(asArray(htu.pairing_rules)).slice(0, 4),
+                stop_signs: uniqueStrings(asArray(htu.stop_signs)).slice(0, 4),
+              };
+            })()
+          : null;
+        const evidence = typeof (payload as any).evidence === 'object' && (payload as any).evidence !== null
+          ? ((payload as any).evidence as Record<string, unknown>)
+          : null;
+        const v4KeyIngredientsByFunction = isV4Payload
+          ? asArray(evidence?.key_ingredients_by_function)
+              .map((item: unknown) => {
+                const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
+                if (!o) return null;
+                const fn = asString(o.function);
+                const ingredients = uniqueStrings(asArray(o.ingredients)).filter(Boolean).slice(0, 8);
+                const confidence = asString(o.confidence);
+                if (!fn || !ingredients.length) return null;
+                return { function: fn, ingredients, confidence };
+              })
+              .filter(Boolean) as Array<{ function: string; ingredients: string[]; confidence: string }>
+          : [];
+        const v4ProductTypeReasoning = isV4Payload ? asString(evidence?.product_type_reasoning) || null : null;
+        const inciStatus = (payload as any).inci_status && typeof (payload as any).inci_status === 'object'
+          ? ((payload as any).inci_status as Record<string, unknown>)
+          : null;
+        const inciConsensusTier = asString(inciStatus?.consensus_tier) || null;
+
+        const verdictLevelStyle = (() => {
+          if (!verdictLevel) return null;
+          const vl = verdictLevel.toLowerCase();
+          if (vl === 'recommended') return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
+          if (vl === 'cautiously_ok') return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
+          if (vl === 'needs_verification') return 'bg-orange-500/10 text-orange-700 border-orange-500/20';
+          if (vl === 'not_recommended') return 'bg-rose-500/10 text-rose-600 border-rose-500/20';
+          return null;
+        })();
+        const verdictLevelLabel = (() => {
+          if (!verdictLevel) return null;
+          const vl = verdictLevel.toLowerCase();
+          if (language === 'CN') {
+            if (vl === 'recommended') return '推荐';
+            if (vl === 'cautiously_ok') return '谨慎适合';
+            if (vl === 'needs_verification') return '待验证';
+            if (vl === 'not_recommended') return '不推荐';
+          } else {
+            if (vl === 'recommended') return 'Recommended';
+            if (vl === 'cautiously_ok') return 'Cautiously OK';
+            if (vl === 'needs_verification') return 'Needs Verification';
+            if (vl === 'not_recommended') return 'Not Recommended';
+          }
+          return null;
+        })();
+        const watchoutStatusIcon = (status: string) => {
+          if (status === 'confirmed') return '⚠️';
+          if (status === 'possible') return '❓';
+          return '○';
+        };
+        // ─────────────────────────────────────────────────────────────────────
+
         const profilePromptRaw = asObject((payload as any).profile_prompt || (payload as any).profilePrompt) || null;
         const competitorsObj = asObject((payload as any).competitors) || null;
         const relatedProductsObj = asObject((payload as any).related_products || (payload as any).relatedProducts) || null;
@@ -5320,13 +5410,46 @@ function BffCardView({
           <div className="space-y-3">
             {product ? <AuroraAnchorCard product={product} offers={anchorOffers} language={language} hidePriceWhenUnknown /> : null}
 
-            {verdict ? (
+            {dataQualityBanner ? (
+              <div className="rounded-2xl border border-orange-500/30 bg-orange-50/60 px-3 py-2 text-xs text-orange-800">
+                <span className="mr-1 font-semibold">{language === 'CN' ? '数据质量提示：' : 'Data quality note:'}</span>
+                {dataQualityBanner}
+              </div>
+            ) : null}
+
+            {isV4Payload && verdictLevelLabel ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictLevelStyle || verdictStyle}`}>
+                  {language === 'CN' ? '评估：' : 'Assessment: '} {verdictLevelLabel}
+                </div>
+                {inciConsensusTier ? (
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                    inciConsensusTier === 'high' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
+                    inciConsensusTier === 'medium' ? 'border-amber-300 bg-amber-50 text-amber-700' :
+                    'border-slate-300 bg-slate-50 text-slate-600'
+                  }`}>
+                    {language === 'CN'
+                      ? `成分可信度：${inciConsensusTier === 'high' ? '高' : inciConsensusTier === 'medium' ? '中' : '低'}`
+                      : `INCI confidence: ${inciConsensusTier}`}
+                  </span>
+                ) : null}
+              </div>
+            ) : verdict ? (
               <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}>
                 {language === 'CN' ? '结论：' : 'Verdict: '} {verdict}
               </div>
             ) : null}
 
-            {keyTakeawayLines.length ? (
+            {isV4Payload && v4TopTakeaways.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '核心结论' : 'Key takeaways'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {v4TopTakeaways.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : !isV4Payload && keyTakeawayLines.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '重点结论' : 'Key takeaway'}</div>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
@@ -5446,7 +5569,16 @@ function BffCardView({
               </div>
             ) : null}
 
-            {(bestForSignals.length || cautionSignals.length) ? (
+            {isV4Payload && v4BestFor.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {v4BestFor.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : !isV4Payload && (bestForSignals.length || cautionSignals.length) ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '是否适合你' : 'Is it a fit for you?'}</div>
                 <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -5500,7 +5632,91 @@ function BffCardView({
               </div>
             ) : null}
 
-            {howToUseBullets.length ? (
+            {isV4Payload && v4Watchouts.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {language === 'CN' ? '需要注意的地方' : 'Watchouts'}
+                </div>
+                <div className="mt-2 space-y-2">
+                  {v4Watchouts.map((w, i) => (
+                    <div key={`watchout_${i}_${w.issue}`} className="rounded-xl border border-border/40 bg-background/70 p-2">
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : w.status === 'possible' ? 'text-orange-500' : 'text-slate-400'}`}>
+                          {watchoutStatusIcon(w.status)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-foreground">{w.issue}</div>
+                          {w.what_to_do ? (
+                            <div className="mt-1 text-xs text-muted-foreground">{w.what_to_do}</div>
+                          ) : null}
+                        </div>
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                          w.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
+                          w.status === 'possible' ? 'bg-orange-100 text-orange-600' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>
+                          {w.status === 'confirmed'
+                            ? (language === 'CN' ? '已确认' : 'Confirmed')
+                            : w.status === 'possible'
+                              ? (language === 'CN' ? '可能' : 'Possible')
+                              : (language === 'CN' ? '未知' : 'Unknown')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {isV4Payload && v4HowToUse ? (
+              <details
+                open
+                className="rounded-2xl border border-border/60 bg-background/60 p-3"
+                onToggle={(event) => {
+                  const current = event.currentTarget;
+                  if (!current.open || !analyticsCtx) return;
+                  const eventKey = `${card.card_id || 'product_analysis'}::how_to_layer_inline_opened`;
+                  if (howToLayerEventKeysRef.current.has(eventKey)) return;
+                  howToLayerEventKeysRef.current.add(eventKey);
+                  emitAuroraHowToLayerInlineOpened(analyticsCtx, {
+                    request_id: asString((payload as any)?.request_id) || null,
+                    bff_trace_id: requestHeaders.trace_id || null,
+                  });
+                }}
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                  <span>{language === 'CN' ? '怎么用（使用指南）' : 'How to use'}</span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
+                <div className="mt-2 space-y-2 text-sm">
+                  {v4HowToUse.when ? (
+                    <div><span className="font-medium text-foreground">{language === 'CN' ? '使用时段：' : 'When: '}</span><span className="text-muted-foreground">{v4HowToUse.when}</span></div>
+                  ) : null}
+                  {v4HowToUse.frequency ? (
+                    <div><span className="font-medium text-foreground">{language === 'CN' ? '频率：' : 'Frequency: '}</span><span className="text-muted-foreground">{v4HowToUse.frequency}</span></div>
+                  ) : null}
+                  {v4HowToUse.order_in_routine ? (
+                    <div><span className="font-medium text-foreground">{language === 'CN' ? 'Routine 顺序：' : 'Order in routine: '}</span><span className="text-muted-foreground">{v4HowToUse.order_in_routine}</span></div>
+                  ) : null}
+                  {v4HowToUse.pairing_rules.length ? (
+                    <div>
+                      <div className="font-medium text-foreground">{language === 'CN' ? '搭配建议：' : 'Pairing rules:'}</div>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                        {v4HowToUse.pairing_rules.map((rule) => <li key={rule}>{rule}</li>)}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {v4HowToUse.stop_signs.length ? (
+                    <div>
+                      <div className="font-medium text-rose-700">{language === 'CN' ? '停用信号：' : 'Stop signs:'}</div>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-rose-700/80">
+                        {v4HowToUse.stop_signs.map((sign) => <li key={sign}>{sign}</li>)}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            ) : howToUseBullets.length ? (
               <details
                 open
                 className="rounded-2xl border border-border/60 bg-background/60 p-3"
@@ -5526,6 +5742,51 @@ function BffCardView({
                   ))}
                 </ul>
               </details>
+            ) : null}
+
+            {isV4Payload && v4KeyIngredientsByFunction.length ? (
+              <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                  <span>{language === 'CN' ? '关键成分（按功能分组）' : 'Key ingredients by function'}</span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {v4KeyIngredientsByFunction.map((group) => (
+                    <div key={group.function}>
+                      <div className="flex items-center gap-2">
+                        <div className="text-[11px] font-semibold text-muted-foreground">{group.function}</div>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                          group.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' :
+                          group.confidence === 'medium' ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>
+                          {group.confidence}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {group.ingredients.map((ingredient) => (
+                          <button
+                            key={`${group.function}_${ingredient}`}
+                            type="button"
+                            className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] transition hover:opacity-90"
+                            title={language === 'CN' ? '点击查看成分分析' : 'Click to view ingredient analysis'}
+                            onClick={() => onAction('ingredient_drilldown', { ingredient_name: ingredient })}
+                          >
+                            {ingredient}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+
+            {isV4Payload && v4ProductTypeReasoning ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{language === 'CN' ? '产品分类：' : 'Product type: '}</span>
+                {v4ProductTypeReasoning}
+              </div>
             ) : null}
 
             {followUpQuestion ? (
@@ -5674,6 +5935,12 @@ function BffCardView({
                     );
                   })}
                 </div>
+              </div>
+            ) : null}
+
+            {!hasAlternatives && (rawCompetitorCandidates.length > 0 || rawRelatedCandidates.length > 0 || rawDupeCandidates.length > 0) ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                {language === 'CN' ? '暂未找到合适的替代品或搭配建议。' : 'No alternatives found for this product.'}
               </div>
             ) : null}
 
