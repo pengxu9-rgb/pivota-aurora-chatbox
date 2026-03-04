@@ -888,11 +888,27 @@ const filterPassiveAdvisoryChips = (chips: SuggestedChip[], showPassive: boolean
   });
 };
 const normalizeChipDedupToken = (value: unknown): string => String(value ?? '').trim().toLowerCase();
-const isActionLikeIdentifier = (value: unknown): boolean => /^(?:chip|diag)(?:[._][a-z0-9_]+)+$/i.test(String(value ?? '').trim());
-const canonicalizeQuickChipId = (chipId: unknown): string => {
-  const token = String(chipId ?? '').trim();
-  if (!token) return '';
-  return token.toLowerCase().startsWith('quick_') ? token.slice(6).trim() : token;
+const canonicalizeQuickChipId = (value: unknown): string => {
+  const token = normalizeChipDedupToken(value);
+  if (token.startsWith('quick_') && token.length > 6) return token.slice(6);
+  return token;
+};
+const isActionLikeId = (value: unknown): boolean => {
+  const token = normalizeChipDedupToken(value);
+  if (!token) return false;
+  return (
+    token.startsWith('chip.') ||
+    token.startsWith('diag.') ||
+    token.startsWith('analysis_') ||
+    token.startsWith('analysis.') ||
+    token.startsWith('profile_') ||
+    token.startsWith('profile.') ||
+    token.startsWith('chat.')
+  );
+};
+const inferActionIdFromToken = (value: unknown): string => {
+  const token = canonicalizeQuickChipId(value);
+  return isActionLikeId(token) ? token : '';
 };
 const buildChipDedupKey = (chip: SuggestedChip): string => {
   const data = asObject((chip as any)?.data) ?? {};
@@ -6559,15 +6575,15 @@ export default function BffChat() {
 
       const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => {
         const metadata = asObject(reply.metadata) || {};
-        const metadataActionId = asString((metadata as any).action_id);
-        const inferredActionId = !metadataActionId && isActionLikeIdentifier(reply.id) ? reply.id : '';
+        const explicitActionId = asString((metadata as any).action_id) || '';
+        const inferredActionId = inferActionIdFromToken(reply.id);
         return {
           chip_id: `quick_${reply.id}`,
           label: reply.label,
           kind: 'quick_reply',
           data: {
             ...metadata,
-            ...(metadataActionId || !inferredActionId ? {} : { action_id: inferredActionId }),
+            ...(explicitActionId || inferredActionId ? { action_id: explicitActionId || inferredActionId } : {}),
             reply_text: reply.value || reply.label,
             trigger_source: 'chip',
           },
@@ -6578,15 +6594,15 @@ export default function BffChat() {
         if (!Array.isArray(followUp.options) || followUp.options.length === 0) return [];
         return followUp.options.slice(0, 3).map((option) => {
           const metadata = asObject(option.metadata) || {};
-          const metadataActionId = asString((metadata as any).action_id);
-          const inferredActionId = !metadataActionId && isActionLikeIdentifier(option.id) ? option.id : '';
+          const explicitActionId = asString((metadata as any).action_id) || '';
+          const inferredActionId = inferActionIdFromToken(explicitActionId || option.id);
           return {
             chip_id: `fup_${followUp.id}_${option.id}`,
             label: option.label,
             kind: 'quick_reply',
             data: {
               ...metadata,
-              ...(metadataActionId || !inferredActionId ? {} : { action_id: inferredActionId }),
+              ...(explicitActionId || inferredActionId ? { action_id: explicitActionId || inferredActionId } : {}),
               follow_up_id: followUp.id,
               follow_up_option_id: option.id,
               follow_up_question: followUp.question,
@@ -7866,6 +7882,37 @@ export default function BffChat() {
         return;
       }
 
+      if (actionId === 'analysis_both_reco_optimize') {
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? '两者都要：先优化现有产品，再给我推荐' : 'Both: optimize my current products, then recommend',
+          },
+          {
+            id: nextId(),
+            role: 'assistant',
+            kind: 'text',
+            content:
+              language === 'CN'
+                ? '先填写你现在在用的 AM/PM 产品，我会先做兼容性与刺激风险检查，然后继续给出推荐方案。'
+                : 'Start by filling your current AM/PM products. I will check compatibility and irritation risk first, then continue to recommendations.',
+          },
+        ]);
+        return;
+      }
+
+      if (actionId === 'analysis_get_recommendations') {
+        actionId = 'analysis_continue';
+      } else if (actionId === 'analysis_optimize_existing') {
+        actionId = 'analysis_review_products';
+      }
+
       if (actionId === 'ingredient.lookup') {
         const ingredientQuery =
           typeof data?.ingredient_query === 'string'
@@ -8670,8 +8717,15 @@ export default function BffChat() {
       const chipData = asObject(chip.data) || {};
       const actionIdOverride = asString((chipData as any).action_id);
       const clientAction = (asString((chipData as any).client_action) || '').toLowerCase();
-      const canonicalChipActionId = canonicalizeQuickChipId(id);
-      const effectiveActionId = actionIdOverride || canonicalChipActionId || id;
+      const canonicalChipId = canonicalizeQuickChipId(id);
+      const inferredActionId = inferActionIdFromToken(canonicalChipId);
+      const effectiveActionId = (actionIdOverride || inferredActionId || canonicalChipId || id).trim();
+      const isLocalCameraAction =
+        clientAction === 'open_camera' ||
+        effectiveActionId === 'diag.upload_photo' ||
+        effectiveActionId === 'chip.intake.upload_photos' ||
+        canonicalChipId === 'chip.intake.upload_photos' ||
+        id === 'chip.intake.upload_photos';
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
       const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
@@ -8682,7 +8736,8 @@ export default function BffChat() {
         if (qpQuestionId === 'skip') return 'IDLE_CHAT';
         if (qpQuestionId === 'opt_in_more' && qpAnswer === 'no') return 'IDLE_CHAT';
         if (qpQuestionId === 'rx_flag') return 'IDLE_CHAT';
-        return nextAgentStateForChip(effectiveActionId) ?? fromState;
+        if (isLocalCameraAction) return fromState;
+        return nextAgentStateForChip(effectiveActionId) ?? nextAgentStateForChip(id) ?? fromState;
       })();
       const toState = requestedToState;
 
@@ -8940,11 +8995,7 @@ export default function BffChat() {
         return;
       }
 
-      const isCameraClientAction =
-        clientAction === 'open_camera' ||
-        effectiveActionId === 'diag.upload_photo' ||
-        effectiveActionId === 'chip.intake.upload_photos';
-      if (isCameraClientAction) {
+      if (isLocalCameraAction) {
         setAgentStateSafe('DIAG_PHOTO_OPTIN');
         setPromptRoutineAfterPhoto(true);
         setPhotoSheetAutoOpenSlot('daylight');

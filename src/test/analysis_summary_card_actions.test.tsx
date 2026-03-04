@@ -17,7 +17,7 @@ const basePayload = {
 };
 
 describe('AnalysisSummaryCard actions', () => {
-  it('shows photo-optin actions under low confidence default phase', () => {
+  it('keeps recommendation as primary action under low confidence', () => {
     const onAction = vi.fn();
     render(
       <AnalysisSummaryCard
@@ -30,31 +30,26 @@ describe('AnalysisSummaryCard actions', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Upload selfie for deeper analysis' }));
-    expect(onAction).toHaveBeenCalledWith('analysis_upload_selfie');
+    fireEvent.click(screen.getByRole('button', { name: 'See product recommendations' }));
+    expect(onAction).toHaveBeenCalledWith('analysis_continue');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Skip photo and continue' }));
-    expect(onAction).toHaveBeenCalledWith('analysis_skip_photo');
+    fireEvent.click(screen.getByRole('button', { name: 'Add AM/PM products (more accurate)' }));
+    expect(onAction).toHaveBeenCalledWith('analysis_review_products');
   });
 
-  it('shows recommendation CTA in refined phase', () => {
+  it('hides routine-intake shortcut when confidence is not low', () => {
     const onAction = vi.fn();
     render(
       <AnalysisSummaryCard
         payload={{
           ...basePayload,
           low_confidence: false,
-          analysis: {
-            ...basePayload.analysis,
-            deepening: { phase: 'refined' },
-          },
         }}
         onAction={onAction}
         language="EN"
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'See product recommendations' }));
-    expect(onAction).toHaveBeenCalledWith('analysis_continue');
+    expect(screen.queryByRole('button', { name: 'Add AM/PM products (more accurate)' })).toBeNull();
   });
 });

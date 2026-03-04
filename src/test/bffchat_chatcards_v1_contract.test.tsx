@@ -1018,7 +1018,6 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(chatCallsBeforeClick).toBe(1);
 
     fireEvent.click(screen.getByRole('button', { name: 'Upload a photo (more accurate)' }));
-
     await screen.findByText('Align your face inside the oval frame');
     await waitFor(() => {
       const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
@@ -1068,6 +1067,141 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Upload a photo (more accurate)' }));
     await screen.findByText('Align your face inside the oval frame');
+    await waitFor(() => {
+      const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+      expect(chatCallsAfterClick).toBe(1);
+    });
+  });
+
+  it('maps analysis_get_recommendations next-step action to recommendation request', async () => {
+    const mock = vi.mocked(bffJson);
+    let chatTurns = 0;
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        chatTurns += 1;
+        if (chatTurns === 1) {
+          return Promise.resolve(
+            makeV1Response({
+              assistant_text: 'Analysis complete.',
+              cards: [
+                {
+                  id: 'analysis_summary_1',
+                  type: 'analysis_summary',
+                  priority: 1,
+                  title: 'Analysis summary',
+                  tags: [],
+                  sections: [],
+                  actions: [],
+                  payload: {
+                    analysis: {
+                      features: [{ observation: 'Mild redness on cheeks', confidence: 'somewhat_sure' }],
+                      strategy: 'Keep routine simple for 7 days.',
+                      needs_risk_check: false,
+                      deepening: { phase: 'refined' },
+                      next_step_options: [{ id: 'analysis_get_recommendations', label: 'Get recommendations now' }],
+                    },
+                    low_confidence: false,
+                  },
+                },
+              ],
+              telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.92, entities: [] },
+            }),
+          );
+        }
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Recommendations prepared.',
+            telemetry: { intent: 'reco_products', intent_confidence: 0.91, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'help me with my routine' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByRole('button', { name: 'Get recommendations now' });
+    fireEvent.click(screen.getByRole('button', { name: 'Get recommendations now' }));
+
+    await screen.findByText('Recommendations prepared.');
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls).toHaveLength(2);
+      const lastRawBody = String((chatCalls[1]?.[2] as any)?.body || '');
+      expect(lastRawBody).toContain('chip.action.reco_routine');
+    });
+  });
+
+  it('maps analysis_optimize_existing next-step action to local routine-review flow without extra chat turn', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Analysis complete.',
+            cards: [
+              {
+                id: 'analysis_summary_2',
+                type: 'analysis_summary',
+                priority: 1,
+                title: 'Analysis summary',
+                tags: [],
+                sections: [],
+                actions: [],
+                  payload: {
+                    analysis: {
+                      features: [{ observation: 'T-zone shine', confidence: 'somewhat_sure' }],
+                      strategy: 'Use gentle balancing care.',
+                      needs_risk_check: false,
+                      deepening: { phase: 'refined' },
+                      next_step_options: [{ id: 'analysis_optimize_existing', label: 'Optimize existing products' }],
+                    },
+                    low_confidence: false,
+                  },
+                },
+              ],
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.92, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'help me with my routine' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByRole('button', { name: 'Optimize existing products' });
+    const chatCallsBeforeClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
+    expect(chatCallsBeforeClick).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize existing products' }));
+
+    await screen.findByText(/Fill in your AM\/PM products/i);
     await waitFor(() => {
       const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
       expect(chatCallsAfterClick).toBe(1);

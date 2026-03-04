@@ -187,6 +187,27 @@ export interface Session {
   productAnalysis?: ProductAnalysisResult;
 }
 
+export interface QualityInfo {
+  grade: 'pass' | 'degraded' | 'fail';
+  message?: string;
+  issues?: string[];
+  confidence_penalty?: number;
+  factors?: {
+    blur: number | null;
+    exposure: number | null;
+    wb: number | null;
+    coverage: number | null;
+  };
+}
+
+export interface AnalysisFinding {
+  cue: string;
+  where: string;
+  severity: 'mild' | 'moderate' | 'high';
+  confidence: 'low' | 'med' | 'high';
+  evidence: string;
+}
+
 export interface AnalysisResult {
   features: AnalysisFeature[];
   strategy: string;
@@ -199,7 +220,13 @@ export interface AnalysisResult {
   reasoning?: string[];
   deepening?: AnalysisDeepening;
   evidence_refs?: AnalysisEvidenceRef[];
-  routine_expert?: RoutineExpertV1;
+  routine_expert?: RoutineExpertV1 | string | Record<string, unknown>;
+  quality?: QualityInfo;
+  findings?: AnalysisFinding[];
+  guidance_brief?: string[];
+  insufficient_visual_detail?: boolean;
+  next_step_options?: Array<{ id: string; label: string }>;
+  two_week_focus?: string[];
 }
 
 export interface AnalysisFeature {
