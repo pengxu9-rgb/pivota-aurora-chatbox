@@ -179,46 +179,59 @@ export function RoutineCard({ payload, onAction, language }: RoutineCardProps) {
       </div>
 
       {/* AM Routine */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 px-1">
-          <Sun className="w-4 h-4 text-warning" />
-          <span className="font-medium text-sm text-foreground">
-            {t('s6.am_label', language)}
-          </span>
-        </div>
+      {routine.am_steps.length > 0 ? (
         <div className="space-y-2">
-          {routine.am_steps.map((step) => (
-            <ProductStep
-              key={step.product.sku_id}
-              step={step}
-              selectedOfferId={selectedOffers[step.product.sku_id]}
-              onSelectOffer={handleSelectOffer}
-              language={language}
-            />
-          ))}
+          <div className="flex items-center gap-2 px-1">
+            <Sun className="w-4 h-4 text-warning" />
+            <span className="font-medium text-sm text-foreground">
+              {t('s6.am_label', language)}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {routine.am_steps.map((step) => (
+              <ProductStep
+                key={step.product.sku_id}
+                step={step}
+                selectedOfferId={selectedOffers[step.product.sku_id]}
+                onSelectOffer={handleSelectOffer}
+                language={language}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* PM Routine */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 px-1">
-          <Moon className="w-4 h-4 text-primary" />
-          <span className="font-medium text-sm text-foreground">
-            {t('s6.pm_label', language)}
-          </span>
-        </div>
+      {routine.pm_steps.length > 0 ? (
         <div className="space-y-2">
-          {routine.pm_steps.map((step) => (
-            <ProductStep
-              key={step.product.sku_id}
-              step={step}
-              selectedOfferId={selectedOffers[step.product.sku_id]}
-              onSelectOffer={handleSelectOffer}
-              language={language}
-            />
-          ))}
+          <div className="flex items-center gap-2 px-1">
+            <Moon className="w-4 h-4 text-primary" />
+            <span className="font-medium text-sm text-foreground">
+              {t('s6.pm_label', language)}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {routine.pm_steps.map((step) => (
+              <ProductStep
+                key={step.product.sku_id}
+                step={step}
+                selectedOfferId={selectedOffers[step.product.sku_id]}
+                onSelectOffer={handleSelectOffer}
+                language={language}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {/* Fallback when both AM and PM are empty */}
+      {routine.am_steps.length === 0 && routine.pm_steps.length === 0 ? (
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+          {language === 'CN'
+            ? '护肤步骤尚未生成，请查看上方文字建议。'
+            : 'Routine steps are not available yet. See the message above for guidance.'}
+        </div>
+      ) : null}
 
       {/* Total and actions */}
       <div className="chat-card-elevated space-y-3">

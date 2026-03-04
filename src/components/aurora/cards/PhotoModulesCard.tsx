@@ -392,6 +392,16 @@ const explainProductsEmptyReason = (reason: string | null, language: Language): 
   if (token === 'low_evidence') {
     return language === 'CN' ? '当前证据强度不足，暂不直推商品。' : 'Evidence strength is limited, so direct product output is withheld.';
   }
+  if (token === 'ingredient_constraint_no_match') {
+    return language === 'CN'
+      ? '未找到确认含有该成分的产品。'
+      : 'No confirmed products containing this ingredient found yet.';
+  }
+  if (token === 'ingredient_no_verified_candidates') {
+    return language === 'CN'
+      ? '暂无经过验证的含该成分产品候选。'
+      : 'No verified product candidates containing the queried ingredient.';
+  }
   return language === 'CN'
     ? `暂无直出商品（${token}）。`
     : `No direct product was returned (${token}).`;

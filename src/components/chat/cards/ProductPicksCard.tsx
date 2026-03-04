@@ -721,6 +721,60 @@ export function ProductPicksCard({
   const parsed = React.useMemo(() => parseProductPicks(rawContent), [rawContent]);
   const profile = parsed.profile;
 
+  const ingredientRenderMode = React.useMemo(() => {
+    if (typeof rawContent !== 'object' || !rawContent || Array.isArray(rawContent)) return 'show_products' as const;
+    const payload = rawContent as Record<string, unknown>;
+    const emptyReason = String((payload as any)?.products_empty_reason ?? '').trim();
+    const matched = (payload as any)?.constraint_match_summary?.matched;
+    const confidence = (payload as any)?.recommendation_confidence_score;
+    const taskMode = String((payload as any)?.recommendation_meta?.task_mode ?? (payload as any)?.task_mode ?? '').trim();
+    const matcherPending = (payload as any)?.metadata?.matcher_check_result?.pending;
+    if (
+      emptyReason === 'ingredient_constraint_no_match' ||
+      emptyReason === 'ingredient_no_verified_candidates' ||
+      taskMode === 'ingredient_lookup_no_candidates' ||
+      (matched === 0 && typeof matched === 'number') ||
+      (confidence === 0 && typeof confidence === 'number' && taskMode.startsWith('ingredient_'))
+    ) return 'empty_match' as const;
+    if (matcherPending === true && taskMode.startsWith('ingredient_')) return 'pending_match' as const;
+    return 'show_products' as const;
+  }, [rawContent]);
+
+  if (ingredientRenderMode === 'empty_match') {
+    const emptyActions = typeof rawContent === 'object' && rawContent && !Array.isArray(rawContent)
+      ? (Array.isArray((rawContent as any).empty_match_actions) ? (rawContent as any).empty_match_actions : [])
+      : [];
+    const ingredientQuery = typeof rawContent === 'object' && rawContent && !Array.isArray(rawContent)
+      ? String((rawContent as any)?.ingredient_evidence?.query ?? (rawContent as any)?.recommendation_meta?.ingredient_query ?? '').trim()
+      : '';
+    return (
+      <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-4">
+        <div className="text-sm font-medium text-foreground">
+          {ingredientQuery
+            ? `No confirmed products containing ${ingredientQuery} found yet.`
+            : 'No confirmed ingredient-matched products found yet.'}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Products are only shown when ingredient presence can be verified.
+        </div>
+        {emptyActions.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {emptyActions.map((action: any) => (
+              <button
+                key={String(action?.action_id ?? '')}
+                type="button"
+                className="rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60 transition-colors"
+                onClick={() => onPrimaryClick?.()}
+              >
+                {String(action?.label ?? action?.action_id ?? '')}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const barrierImpaired = String(profile?.barrierStatus || '').toLowerCase() === 'impaired' || parsed.riskBarrier;
   const region = normalizeAvailabilityLabel(parsed.region) || 'Global';
   const categories = parsed.categories.length ? parsed.categories : ['Serum', 'Treatment'];
