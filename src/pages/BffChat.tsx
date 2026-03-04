@@ -876,6 +876,57 @@ const isEnvStressCard = (card: Card): boolean => {
   return Boolean(schema && (schema.includes('env_stress') || schema.includes('environment_stress')));
 };
 
+const isTravelCard = (card: Card): boolean => {
+  const norm = (input: string) =>
+    String(input || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+  const type = norm(String(card?.type || ''));
+  if (!type) return false;
+  if (type === 'travel') return true;
+  if (type.includes('travel')) return true;
+
+  const payload =
+    card?.payload && typeof card.payload === 'object' && !Array.isArray(card.payload)
+      ? (card.payload as Record<string, unknown>)
+      : null;
+  const schema = payload && typeof payload.schema_version === 'string' ? norm(String(payload.schema_version || '')) : '';
+  if (schema.includes('travel')) return true;
+
+  const sections = Array.isArray(payload?.sections)
+    ? payload?.sections
+    : Array.isArray((card as Record<string, unknown>)?.sections)
+      ? ((card as Record<string, unknown>).sections as unknown[])
+      : [];
+  return sections.some((section) => {
+    const row = section && typeof section === 'object' && !Array.isArray(section) ? (section as Record<string, unknown>) : null;
+    if (!row) return false;
+    const kind = norm(String(row.kind || row.type || ''));
+    if (kind.includes('travel')) return true;
+    const envPayload =
+      row.env_payload && typeof row.env_payload === 'object' && !Array.isArray(row.env_payload)
+        ? (row.env_payload as Record<string, unknown>)
+        : null;
+    const envSchema = envPayload && typeof envPayload.schema_version === 'string'
+      ? norm(String(envPayload.schema_version || ''))
+      : '';
+    return envSchema.includes('travel') || envSchema.includes('env_stress') || envSchema.includes('environment_stress');
+  });
+};
+
+const suppressAnalysisCardsForTravelEnvTurn = (cards: Card[]): Card[] => {
+  if (!Array.isArray(cards) || cards.length === 0) return cards;
+  const hasTravelOrEnv = cards.some((card) => isTravelCard(card) || isEnvStressCard(card));
+  if (!hasTravelOrEnv) return cards;
+  return cards.filter((card) => {
+    const type = String(card?.type || '').trim().toLowerCase();
+    return type !== 'analysis_summary' && type !== 'analysis_story_v2';
+  });
+};
+
 const isConflictHeatmapCard = (card: Card): boolean => {
   const norm = (input: string) =>
     String(input || '')
@@ -6339,7 +6390,8 @@ export default function BffChat() {
     const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
     const passiveFilteredCards = filterPassiveAdvisoryCards(gatedCards, FF_SHOW_PASSIVE_GATES);
-    const cards = collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards)));
+    const normalizedCards = collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards)));
+    const cards = suppressAnalysisCardsForTravelEnvTurn(normalizedCards);
     const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
     const hasRecommendationsCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'recommendations');
     const routeTelemetry = asObject((enhancedEnv as unknown as Record<string, unknown>)?.telemetry);
@@ -6668,7 +6720,8 @@ export default function BffChat() {
 
       const rawCards = response.cards.map(toLegacyCard);
       const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
-      const cards = collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards)));
+      const normalizedCards = collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards)));
+      const cards = suppressAnalysisCardsForTravelEnvTurn(normalizedCards);
       const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
 
       if (cards.length) {
