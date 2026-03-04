@@ -740,6 +740,35 @@ export function ProductPicksCard({
     return 'show_products' as const;
   }, [rawContent]);
 
+  const barrierImpaired = String(profile?.barrierStatus || '').toLowerCase() === 'impaired' || parsed.riskBarrier;
+  const region = normalizeAvailabilityLabel(parsed.region) || 'Global';
+  const categories = parsed.categories.length ? parsed.categories : ['Serum', 'Treatment'];
+  const subtitle = `${categories.join(' / ')} · ${region}`;
+
+  const shortlist = parsed.shortlist.slice(0, 5);
+  const safest = React.useMemo(() => {
+    if (!shortlist.length) return [];
+    const scored = [...shortlist].map((p) => ({ p, s: scoreSafest(p, { barrierImpaired }) }));
+    scored.sort((a, b) => b.s - a.s);
+    const chosen = scored.slice(0, 2).map((x) => x.p);
+    if (chosen.length === 2) return chosen;
+    return shortlist.slice(0, 2);
+  }, [barrierImpaired, shortlist]);
+
+  const [fullOpen, setFullOpen] = React.useState(false);
+  const fullId = React.useId();
+
+  const skinChip = profile?.skinType ? `Skin: ${titleCaseWord(profile.skinType)}` : null;
+  const sensitivityChip = profile?.sensitivity ? `Sensitivity: ${titleCaseWord(profile.sensitivity)}` : null;
+  const barrierChip = profile?.barrierStatus
+    ? `Barrier: ${titleCaseWord(profile.barrierStatus)}`
+    : null;
+  const goals = (profile?.goals || []).map(humanizeSnake).filter(Boolean);
+  const goalsChip = goals.length ? `Goals: ${goals.join(' · ')}` : null;
+  const budgetChip = profile?.budgetTier ? `Budget: ${profile.budgetTier}` : null;
+
+  const profileChips = [skinChip, sensitivityChip, barrierChip, goalsChip, budgetChip].filter(Boolean) as string[];
+
   if (ingredientRenderMode === 'empty_match') {
     const emptyActions = typeof rawContent === 'object' && rawContent && !Array.isArray(rawContent)
       ? (Array.isArray((rawContent as any).empty_match_actions) ? (rawContent as any).empty_match_actions : [])
@@ -774,35 +803,6 @@ export function ProductPicksCard({
       </div>
     );
   }
-
-  const barrierImpaired = String(profile?.barrierStatus || '').toLowerCase() === 'impaired' || parsed.riskBarrier;
-  const region = normalizeAvailabilityLabel(parsed.region) || 'Global';
-  const categories = parsed.categories.length ? parsed.categories : ['Serum', 'Treatment'];
-  const subtitle = `${categories.join(' / ')} · ${region}`;
-
-  const shortlist = parsed.shortlist.slice(0, 5);
-  const safest = React.useMemo(() => {
-    if (!shortlist.length) return [];
-    const scored = [...shortlist].map((p) => ({ p, s: scoreSafest(p, { barrierImpaired }) }));
-    scored.sort((a, b) => b.s - a.s);
-    const chosen = scored.slice(0, 2).map((x) => x.p);
-    if (chosen.length === 2) return chosen;
-    return shortlist.slice(0, 2);
-  }, [barrierImpaired, shortlist]);
-
-  const [fullOpen, setFullOpen] = React.useState(false);
-  const fullId = React.useId();
-
-  const skinChip = profile?.skinType ? `Skin: ${titleCaseWord(profile.skinType)}` : null;
-  const sensitivityChip = profile?.sensitivity ? `Sensitivity: ${titleCaseWord(profile.sensitivity)}` : null;
-  const barrierChip = profile?.barrierStatus
-    ? `Barrier: ${titleCaseWord(profile.barrierStatus)}`
-    : null;
-  const goals = (profile?.goals || []).map(humanizeSnake).filter(Boolean);
-  const goalsChip = goals.length ? `Goals: ${goals.join(' · ')}` : null;
-  const budgetChip = profile?.budgetTier ? `Budget: ${profile.budgetTier}` : null;
-
-  const profileChips = [skinChip, sensitivityChip, barrierChip, goalsChip, budgetChip].filter(Boolean) as string[];
 
   return (
     <div className="space-y-4">
