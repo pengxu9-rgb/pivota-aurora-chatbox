@@ -1640,6 +1640,73 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
   };
 }
 
+const normalizeAlternativeCandidate = (raw: unknown): Record<string, unknown> | null => {
+  const candidate = asObject(raw);
+  if (!candidate) return null;
+  const product = asObject((candidate as any).product);
+  const source = product || candidate;
+
+  const brand = toTrimmedString(candidate.brand) || toTrimmedString((source as any).brand);
+  const name =
+    toTrimmedString(candidate.name) ||
+    toTrimmedString((candidate as any).display_name) ||
+    toTrimmedString((candidate as any).displayName) ||
+    toTrimmedString((source as any).name) ||
+    toTrimmedString((source as any).display_name) ||
+    toTrimmedString((source as any).displayName);
+  const displayName =
+    toTrimmedString((candidate as any).display_name) ||
+    toTrimmedString((candidate as any).displayName) ||
+    toTrimmedString((source as any).display_name) ||
+    toTrimmedString((source as any).displayName);
+
+  const out: Record<string, unknown> = {
+    ...(product || {}),
+    ...candidate,
+    ...(product ? { product } : {}),
+  };
+  if (brand) out.brand = brand;
+  if (name) out.name = name;
+  if (displayName && !toTrimmedString((out as any).display_name)) out.display_name = displayName;
+  if (displayName && !toTrimmedString((out as any).displayName)) out.displayName = displayName;
+  return out;
+};
+
+const formatAlternativePriceText = (raw: unknown): string | null => {
+  const normalized = normalizeAlternativeCandidate(raw);
+  if (!normalized) return null;
+  const product = asObject((normalized as any).product) || normalized;
+  const priceObj = asObject((product as any).price) || asObject((normalized as any).price);
+  if (priceObj && (priceObj as any).unknown === true) return null;
+
+  let amount: number | null = null;
+  let currency = toTrimmedString((product as any).currency) || toTrimmedString((normalized as any).currency) || '';
+  if (priceObj) {
+    const usd = asNumber((priceObj as any).usd ?? (priceObj as any).USD);
+    const cny = asNumber((priceObj as any).cny ?? (priceObj as any).CNY);
+    if (usd != null) {
+      amount = usd;
+      currency = 'USD';
+    } else if (cny != null) {
+      amount = cny;
+      currency = 'CNY';
+    } else {
+      amount = asNumber((priceObj as any).amount ?? (priceObj as any).value ?? (priceObj as any).price);
+      currency = toTrimmedString((priceObj as any).currency) || currency;
+    }
+  }
+  if (amount == null) amount = asNumber((product as any).price ?? (normalized as any).price);
+  if (amount == null || !Number.isFinite(amount)) return null;
+
+  const rounded = Math.round(amount * 100) / 100;
+  const curr = String(currency || '').trim().toUpperCase();
+  if (!curr || curr === 'USD') return `$${rounded}`;
+  if (curr === 'CNY' || curr === 'RMB') return `¥${rounded}`;
+  if (curr === 'EUR') return `€${rounded}`;
+  if (curr === 'GBP') return `£${rounded}`;
+  return `${curr} ${rounded}`;
+};
+
 type BootstrapInfo = {
   profile: Record<string, unknown> | null;
   recent_logs: Array<Record<string, unknown>>;
@@ -2697,16 +2764,19 @@ export function RecommendationsCard({
     ): ProductAlternativeTrack[] => {
       const replaceItems: ProductAlternativeTrackItem[] = alternativesSource
         .map((alt, rank) => {
-          const kind = asString((alt as any).kind).toLowerCase();
+          const normalizedAlt = normalizeAlternativeCandidate(alt);
+          if (!normalizedAlt) return null;
+          const kind = (asString((normalizedAlt as any).kind) || '').toLowerCase();
           const block: RecoBlockType =
             kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
           return {
-            candidate: alt,
+            candidate: normalizedAlt,
             block,
             rank: rank + 1,
             intent: 'replace',
           };
         })
+        .filter((row): row is ProductAlternativeTrackItem => Boolean(row))
         .slice(0, 8);
 
       const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
@@ -2760,11 +2830,14 @@ export function RecommendationsCard({
     const canOpenSheet = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
     const canOpenPdp = Boolean(anchorId);
     const canOpenDetails = canOpenPdp;
+    const hasLocalReplaceTracks = detailsTracks.some((track) => track.key === 'replace' && track.items.length > 0);
 
     const openAlternatives = () => {
       if (!canOpenSheet || !onOpenAlternativesSheet) return;
       if (detailsTracks.length > 0) {
         onOpenAlternativesSheet(detailsTracks);
+      }
+      if (hasLocalReplaceTracks) {
         return;
       }
       if (!(loadAlternativesForItem && canLoadAlternatives)) return;
@@ -2792,7 +2865,8 @@ export function RecommendationsCard({
             .map((row) => asObject(row))
             .filter(Boolean) as Array<Record<string, unknown>>;
           const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
-          if (tracks.length) {
+          const hasRemoteReplaceTracks = tracks.some((track) => track.key === 'replace' && track.items.length > 0);
+          if (hasRemoteReplaceTracks) {
             onOpenAlternativesSheet(tracks);
             if (resp?.sourceMode === 'local_fallback' && resp?.refreshPending) {
               toast({
@@ -2817,7 +2891,8 @@ export function RecommendationsCard({
                     pairingRules,
                     comparisonNotes,
                   );
-                  if (refreshedTracks.length) {
+                  const hasRefreshedReplaceTracks = refreshedTracks.some((track) => track.key === 'replace' && track.items.length > 0);
+                  if (hasRefreshedReplaceTracks) {
                     onOpenAlternativesSheet(refreshedTracks);
                   }
                 });
@@ -2826,7 +2901,45 @@ export function RecommendationsCard({
             return;
           }
           const emptyTracks = buildAlternativesEmptyTrack(asString(resp?.noResultReason));
-          onOpenAlternativesSheet(emptyTracks);
+          if (detailsTracks.length > 0) {
+            onOpenAlternativesSheet([...detailsTracks, ...emptyTracks.filter((track) => !detailsTracks.some((x) => x.key === track.key))]);
+          } else if (tracks.length > 0) {
+            onOpenAlternativesSheet(tracks);
+          } else {
+            onOpenAlternativesSheet(emptyTracks);
+          }
+          if (resp?.refreshPending && loadAlternativesForItem) {
+            const delayMs = Number.isFinite(Number(resp?.refreshAfterMs))
+              ? Math.max(300, Math.min(6000, Number(resp?.refreshAfterMs)))
+              : 1200;
+            window.setTimeout(() => {
+              void loadAlternativesForItem(lazyArgs).then((refreshResp) => {
+                const refreshedAlternatives = asArray(refreshResp && refreshResp.alternatives)
+                  .map((row) => asObject(row))
+                  .filter(Boolean) as Array<Record<string, unknown>>;
+                const refreshedTracks = buildStepAlternativesSheetTracks(
+                  refreshedAlternatives,
+                  pairingRules,
+                  comparisonNotes,
+                );
+                const hasRefreshedReplaceTracks = refreshedTracks.some((track) => track.key === 'replace' && track.items.length > 0);
+                if (hasRefreshedReplaceTracks) {
+                  onOpenAlternativesSheet(refreshedTracks);
+                  return;
+                }
+                const refreshEmptyTracks = buildAlternativesEmptyTrack(asString(refreshResp?.noResultReason));
+                if (detailsTracks.length > 0) {
+                  onOpenAlternativesSheet(
+                    [...detailsTracks, ...refreshEmptyTracks.filter((track) => !detailsTracks.some((x) => x.key === track.key))],
+                  );
+                } else if (refreshedTracks.length > 0) {
+                  onOpenAlternativesSheet(refreshedTracks);
+                } else {
+                  onOpenAlternativesSheet(refreshEmptyTracks);
+                }
+              });
+            }, delayMs);
+          }
         })
         .catch(() => {
           toast({
@@ -2845,7 +2958,7 @@ export function RecommendationsCard({
     return (
       <div key={`${step}_${idx}`} className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm">
         <div className="flex items-start justify-between gap-3">
-          <div className="space-y-0.5">
+          <div className="min-w-0 flex-1 space-y-0.5">
             <div className="text-xs font-medium text-muted-foreground">{step}</div>
             <div className="text-sm font-semibold text-foreground">
               {brand ? `${brand} ` : ''}
@@ -2857,11 +2970,11 @@ export function RecommendationsCard({
               </div>
             ) : null}
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="shrink-0 flex flex-col items-end gap-2">
             <div className="text-xs text-muted-foreground">#{idx + 1}</div>
             <button
               type="button"
-              className="chip-button text-[11px]"
+              className="chip-button chip-button-compact reco-step-action-button whitespace-nowrap"
               disabled={isResolving || !canOpenDetails}
               onClick={() => {
                 if (canOpenPdp && anchorId) {
@@ -2886,7 +2999,7 @@ export function RecommendationsCard({
             </button>
             <button
               type="button"
-              className="chip-button text-[11px]"
+              className="chip-button chip-button-compact reco-step-action-button whitespace-nowrap"
               disabled={isLazyAlternativesBusy || !canOpenSheet}
               onClick={openAlternatives}
             >
@@ -10519,26 +10632,40 @@ export default function BffChat() {
                   ) : (
                     <div className="mt-2 space-y-2">
                       {track.items.slice(0, 8).map((entry, idx) => {
-                        const candidate = entry.candidate;
-                        const brand = asString(candidate.brand);
+                        const candidate = normalizeAlternativeCandidate(entry.candidate) || asObject(entry.candidate);
+                        if (!candidate) return null;
+                        const candidateProduct = asObject((candidate as any).product) || candidate;
+                        const brand = asString(candidate.brand) || asString((candidateProduct as any).brand);
                         const name =
                           asString(candidate.name) ||
                           asString((candidate as any).display_name) ||
-                          asString((candidate as any).displayName);
+                          asString((candidate as any).displayName) ||
+                          asString((candidateProduct as any).name) ||
+                          asString((candidateProduct as any).display_name) ||
+                          asString((candidateProduct as any).displayName);
                         if (!name) return null;
                         const why = uniqueStrings([
                           asString((candidate as any)?.why_candidate?.summary),
                           ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
                           ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
+                          ...asArray((candidate as any).reasons).map((x) => asString(x)),
                         ])[0];
                         const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
                         const tradeoff = uniqueStrings([
                           ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
                           ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
+                          ...asArray((candidate as any).tradeoffs).map((x) => asString(x)),
                         ])[0];
+                        const priceText = formatAlternativePriceText(candidate);
                         return (
                           <div key={`${track.key}_${brand || 'brandless'}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
                             <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand ? `${brand} - ` : ''}${name}`}</div>
+                            {priceText ? (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                <span className="font-medium text-foreground">{language === 'CN' ? '价格: ' : 'Price: '}</span>
+                                {priceText}
+                              </div>
+                            ) : null}
                             {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
                             {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
                             {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}

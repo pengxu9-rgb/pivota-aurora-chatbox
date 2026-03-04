@@ -17,6 +17,8 @@ const buildRecoCard = (args: {
   subjectProductGroupId?: string | null;
   canonicalProductRef?: { product_id: string; merchant_id?: string } | null;
   pdpOpen?: { path?: string; resolve_reason_code?: string; external?: { query?: string; url?: string } } | null;
+  alternatives?: Array<Record<string, unknown>>;
+  evidencePack?: Record<string, unknown> | null;
 }): Card => ({
   card_id: 'reco_card_1',
   type: 'recommendations',
@@ -44,6 +46,8 @@ const buildRecoCard = (args: {
           brand: args.brand ?? 'The Ordinary',
           display_name: args.name ?? 'Niacinamide 10% + Zinc 1%',
         },
+        ...(Array.isArray(args.alternatives) ? { alternatives: args.alternatives } : {}),
+        ...(args.evidencePack ? { evidence_pack: args.evidencePack } : {}),
       },
     ],
   },
@@ -553,5 +557,106 @@ describe('RecommendationsCard View details routing', () => {
       expect(onOpenPdp).toHaveBeenCalledTimes(2);
     });
     expect(resolveProductRef).not.toHaveBeenCalled();
+  });
+
+  it('9) recommendation action buttons keep compact no-wrap style', () => {
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({ subjectProductGroupId: 'pg:merch_pg:prod_pg' })}
+        language="EN"
+        debug={false}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /view details/i })).toHaveClass('reco-step-action-button', 'whitespace-nowrap');
+    expect(screen.getByRole('button', { name: /see alternatives/i })).toHaveClass('reco-step-action-button', 'whitespace-nowrap');
+  });
+
+  it('10) pair-only local tracks open first, then refresh with remote alternatives payload', async () => {
+    const onOpenAlternativesSheet = vi.fn();
+    const loadAlternativesForItem = vi.fn().mockResolvedValue({
+      ok: true,
+      alternatives: [
+        {
+          kind: 'dupe',
+          reasons: ['Cheaper option'],
+          tradeoffs: ['Usually cheaper'],
+          product: {
+            brand: 'AltLab',
+            name: 'Budget Serum Alt',
+            price: { usd: 18.5 },
+          },
+        },
+      ],
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({
+          brand: 'The Ordinary',
+          name: 'Niacinamide 10% + Zinc 1%',
+          alternatives: [],
+          evidencePack: { pairingRules: ['Good budget option'] },
+        })}
+        language="EN"
+        debug={false}
+        onOpenAlternativesSheet={onOpenAlternativesSheet}
+        loadAlternativesForItem={loadAlternativesForItem}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /see alternatives/i }));
+
+    await waitFor(() => {
+      expect(onOpenAlternativesSheet).toHaveBeenCalledTimes(1);
+    });
+    const firstTracks = onOpenAlternativesSheet.mock.calls[0][0];
+    expect(firstTracks.some((track: any) => track.key === 'pair')).toBe(true);
+    expect(firstTracks.some((track: any) => track.key === 'replace')).toBe(false);
+
+    await waitFor(() => {
+      expect(loadAlternativesForItem).toHaveBeenCalledTimes(1);
+      expect(onOpenAlternativesSheet).toHaveBeenCalledTimes(2);
+    });
+    const secondTracks = onOpenAlternativesSheet.mock.calls[1][0];
+    const replaceTrack = secondTracks.find((track: any) => track.key === 'replace');
+    expect(replaceTrack).toBeTruthy();
+    expect(replaceTrack.items.length).toBe(1);
+    expect(replaceTrack.items[0].candidate.brand).toBe('AltLab');
+    expect(replaceTrack.items[0].candidate.name).toBe('Budget Serum Alt');
+    expect(replaceTrack.items[0].candidate.product.price.usd).toBe(18.5);
+  });
+
+  it('11) empty remote alternatives keep local pairing notes and append empty reason track', async () => {
+    const onOpenAlternativesSheet = vi.fn();
+    const loadAlternativesForItem = vi.fn().mockResolvedValue({
+      ok: true,
+      alternatives: [],
+      noResultReason: 'upstream_missing_or_empty',
+    });
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({
+          brand: 'The Ordinary',
+          name: 'Niacinamide 10% + Zinc 1%',
+          alternatives: [],
+          evidencePack: { pairingRules: ['Good budget option'] },
+        })}
+        language="EN"
+        debug={false}
+        onOpenAlternativesSheet={onOpenAlternativesSheet}
+        loadAlternativesForItem={loadAlternativesForItem}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /see alternatives/i }));
+
+    await waitFor(() => {
+      expect(onOpenAlternativesSheet).toHaveBeenCalledTimes(2);
+    });
+    const mergedTracks = onOpenAlternativesSheet.mock.calls[1][0];
+    expect(mergedTracks.some((track: any) => track.key === 'pair')).toBe(true);
+    expect(mergedTracks.some((track: any) => track.key === 'empty')).toBe(true);
   });
 });

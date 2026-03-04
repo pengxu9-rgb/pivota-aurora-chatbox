@@ -643,6 +643,13 @@
     min-height: 33px;
   }
 
+  .chat-card .reco-step-action-button,
+  .chat-card-elevated .reco-step-action-button {
+    @apply px-2.5 py-1.5 text-[11px] leading-tight;
+    min-height: 32px;
+    white-space: nowrap;
+  }
+
   .profile-sheet-compact .profile-chip {
     min-height: 32px;
     padding: 0.28rem 0.7rem;
