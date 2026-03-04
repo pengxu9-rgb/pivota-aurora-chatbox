@@ -3,6 +3,7 @@ import React from 'react';
 import type { Language } from '@/lib/types';
 
 type Dict = Record<string, unknown>;
+export type AnalysisStoryShortlistItem = Record<string, unknown>;
 
 const asObject = (value: unknown): Dict | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -45,6 +46,45 @@ const toPlanLines = (value: unknown, max = 8): string[] =>
 
 const renderSectionTitle = (language: Language, en: string, cn: string) => (language === 'CN' ? cn : en);
 
+const normalizeConfidenceLevelLabel = (rawLevel: string, language: Language): string => {
+  const token = String(rawLevel || '').trim().toLowerCase();
+  if (!token) return '';
+  if (language === 'CN') {
+    if (token === 'high') return '高';
+    if (token === 'medium') return '中';
+    if (token === 'low') return '低';
+    return rawLevel;
+  }
+  if (token === 'high') return 'High';
+  if (token === 'medium') return 'Medium';
+  if (token === 'low') return 'Low';
+  return rawLevel;
+};
+
+const formatConfidenceOverall = (value: unknown, language: Language): string => {
+  if (typeof value === 'string') return value.trim();
+  const obj = asObject(value);
+  if (!obj) return '';
+
+  const levelRaw = asString(obj.level);
+  const level = normalizeConfidenceLevelLabel(levelRaw, language);
+  const scoreRaw = Number(obj.score);
+  const scorePct = Number.isFinite(scoreRaw) && scoreRaw >= 0 && scoreRaw <= 1 ? Math.round(scoreRaw * 100) : null;
+
+  if (level && scorePct != null) return `${level} (${scorePct}%)`;
+  if (level) return level;
+  if (scorePct != null) return `${scorePct}%`;
+  return '';
+};
+
+const mapRoutineBridgeAction = (rawAction: string): string => {
+  const token = String(rawAction || '').trim().toLowerCase();
+  if (!token) return '';
+  if (token === 'open_routine_intake') return 'chip.start.routine';
+  if (token === 'routine_generate') return 'chip.start.routine';
+  return String(rawAction || '').trim();
+};
+
 function OptimizationList({
   language,
   titleEn,
@@ -73,13 +113,17 @@ export function AnalysisStoryCard({
   payload,
   language,
   onAction,
+  recoShortlist,
+  onOpenSimilarProducts,
 }: {
   payload: unknown;
   language: Language;
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+  recoShortlist?: AnalysisStoryShortlistItem[];
+  onOpenSimilarProducts?: (item: AnalysisStoryShortlistItem) => void;
 }) {
   const root = asObject(payload) || {};
-  const confidenceOverall = asString(root.confidence_overall);
+  const confidenceOverall = formatConfidenceOverall(root.confidence_overall, language);
   const skinProfile = asObject(root.skin_profile);
   const profileBullets = toStringList(
     skinProfile
@@ -102,7 +146,7 @@ export function AnalysisStoryCard({
   const pmPlan = toPlanLines(root.pm_plan, 8);
   const timeline = toStringList(root.timeline, 6);
   const safetyNotes = toStringList(root.safety_notes, 6);
-  const disclaimer = asString(root.disclaimer_non_medical);
+  const disclaimer = typeof root.disclaimer_non_medical === 'string' ? root.disclaimer_non_medical.trim() : '';
 
   const optimization = asObject(root.existing_products_optimization);
   const keepList = toStringList(optimization?.keep, 6);
@@ -113,8 +157,9 @@ export function AnalysisStoryCard({
   const bridge = asObject(root.routine_bridge);
   const ctaText =
     asString(bridge?.cta_text) ||
+    asString(bridge?.cta_label) ||
     (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
-  const actionId = asString(bridge?.action_id) || 'chip.start.routine';
+  const actionId = asString(bridge?.action_id) || mapRoutineBridgeAction(asString(bridge?.cta_action)) || 'chip.start.routine';
   const replyText =
     asString(bridge?.reply_text) ||
     (language === 'CN'
@@ -122,6 +167,7 @@ export function AnalysisStoryCard({
       : 'Let me complete AM/PM routine, then give me personalized product recommendations.');
   const bridgeWhyNow = asString(bridge?.why_now);
   const bridgeMissing = toStringList(bridge?.missing_fields, 8);
+  const shortlistItems = asArray(recoShortlist).map(asObject).filter(Boolean).slice(0, 2) as Dict[];
 
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
@@ -275,6 +321,54 @@ export function AnalysisStoryCard({
           </button>
         </div>
       ) : null}
+
+      <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+        <div className="text-xs font-semibold text-muted-foreground">
+          {renderSectionTitle(language, 'Product next step', '产品下一步')}
+        </div>
+        {shortlistItems.length ? (
+          <div className="mt-2 space-y-2">
+            {shortlistItems.map((item, idx) => {
+              const name =
+                asString(item.name) ||
+                asString(item.title) ||
+                asString((item as any).display_name) ||
+                asString((item as any).displayName) ||
+                (language === 'CN' ? `候选产品 ${idx + 1}` : `Candidate ${idx + 1}`);
+              const brand = asString(item.brand);
+              const priceLabel = asString((item as any).price_label) || asString((item as any).priceLabel);
+              return (
+                <div key={`shortlist_${idx}_${name}`} className="rounded-lg border border-border/50 bg-background/70 p-2">
+                  <div className="text-sm font-medium text-foreground">{brand ? `${brand} · ${name}` : name}</div>
+                  {priceLabel ? <div className="text-xs text-muted-foreground">{priceLabel}</div> : null}
+                  <button
+                    type="button"
+                    className="chip-button mt-2 text-[11px]"
+                    onClick={() => onOpenSimilarProducts?.(item)}
+                  >
+                    {language === 'CN' ? '类似产品' : 'Similar products'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {renderSectionTitle(
+              language,
+              'No shortlist yet. Tap below to generate recommendations.',
+              '暂无短名单，点击下方生成推荐。',
+            )}
+          </div>
+        )}
+        <button
+          type="button"
+          className="chip-button chip-button-primary mt-3"
+          onClick={() => onAction?.('analysis_get_recommendations', { trigger_source: 'analysis_story_v2' })}
+        >
+          {language === 'CN' ? '查看产品推荐' : 'See product recommendations'}
+        </button>
+      </div>
 
       {disclaimer ? <div className="text-[11px] text-muted-foreground">{disclaimer}</div> : null}
     </div>
