@@ -81,6 +81,19 @@ describe('agentStateMachine: validateRequestedTransition', () => {
       expect(validation.next_state).toBe('DIAG_ANALYSIS_SUMMARY');
     }
   });
+
+  it('allows action transition from DIAG_PROFILE -> RECO_GATE', () => {
+    const validation = validateRequestedTransition({
+      from_state: 'DIAG_PROFILE',
+      trigger_source: 'action',
+      trigger_id: 'analysis_get_recommendations',
+      requested_next_state: 'RECO_GATE',
+    });
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.next_state).toBe('RECO_GATE');
+    }
+  });
 });
 
 describe('agentStateMachine: chip.intake.* aliases', () => {

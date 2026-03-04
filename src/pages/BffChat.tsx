@@ -655,6 +655,7 @@ const primaryChipScore = (chip: SuggestedChip): number => {
     'reco',
     'recommend',
     'analysis_continue',
+    'analysis_get_recommendations',
     'start_diagnosis',
     'start.diagnosis',
     'upload_photos',
@@ -8099,11 +8100,86 @@ export default function BffChat() {
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
       const resolvedActionId =
-        actionId === 'analysis_get_recommendations'
-          ? 'analysis_continue'
-          : actionId === 'analysis_optimize_existing'
-            ? 'analysis_review_products'
-            : actionId;
+        actionId === 'analysis_optimize_existing'
+          ? 'analysis_review_products'
+          : actionId;
+      const requestProductRecommendationsFromAnalysis = async (
+        triggerActionId: 'analysis_continue' | 'analysis_get_recommendations',
+        triggerData?: Record<string, any>,
+      ) => {
+        const fromState = agentState;
+        const ctx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: fromState,
+        };
+        const validation = validateRequestedTransition({
+          from_state: fromState,
+          trigger_source: 'action',
+          trigger_id: triggerActionId,
+          requested_next_state: 'RECO_GATE',
+        });
+        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
+        if (!validation.ok) {
+          console.warn('[StateMachine] soft fallback on action transition', {
+            actionId: triggerActionId,
+            fromState,
+            reason: validation.reason,
+          });
+        }
+        if (resolvedNextState !== fromState) {
+          emitAgentStateEntered(
+            { ...ctx, state: resolvedNextState },
+            { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: triggerActionId },
+          );
+          setAgentStateSafe(resolvedNextState);
+        }
+        if (resolvedNextState === 'RECO_GATE') {
+          emitUiRecosRequested(
+            { ...ctx, state: resolvedNextState },
+            {
+              entry_point: 'action',
+              prior_value_moment: triggerActionId === 'analysis_get_recommendations' ? 'analysis_story_v2' : 'analysis_summary',
+            },
+          );
+        }
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? '查看产品推荐' : 'See product recommendations',
+          },
+        ]);
+        const replyText =
+          language === 'CN'
+            ? '推荐一些产品（并给出可购买的链接/入口）。'
+            : 'Recommend a few products (with purchasable links/CTAs).';
+        await sendChat(
+          undefined,
+          {
+            action_id: 'chip.start.reco_products',
+            kind: 'chip',
+            data: {
+              reply_text: replyText,
+              force_route: 'reco_products',
+              ...(asString((triggerData as any)?.trigger_source)
+                ? { trigger_source: asString((triggerData as any).trigger_source) }
+                : {}),
+              ...(asString((triggerData as any)?.source_card_type)
+                ? { source_card_type: asString((triggerData as any).source_card_type) }
+                : {}),
+            },
+          },
+          {
+            client_state: fromState,
+            requested_transition: { trigger_source: 'action', trigger_id: triggerActionId, requested_next_state: resolvedNextState },
+          },
+        );
+      };
 
       if (actionId === 'diagnosis_skip') {
         setItems((prev) => [
@@ -8584,67 +8660,21 @@ export default function BffChat() {
         return;
       }
 
-      const msg =
-        resolvedActionId === 'analysis_continue'
-          ? null
-          : resolvedActionId === 'analysis_gentler'
-            ? language === 'CN'
-              ? '给我更温和的方案'
-              : 'Make it gentler'
-            : resolvedActionId === 'analysis_simple'
-              ? language === 'CN'
-                ? '给我更简单的方案'
-                : 'Make it simpler'
-              : null;
-
-      if (resolvedActionId === 'analysis_continue') {
-        // Explicitly request recommendations via a chip trigger so the backend
-        // can safely allow recommendation cards (no accidental auto-push).
-        const fromState = agentState;
-        const ctx: AnalyticsContext = {
-          brief_id: headers.brief_id,
-          trace_id: headers.trace_id,
-          aurora_uid: headers.aurora_uid,
-          lang: toLangPref(language),
-          state: fromState,
-        };
-        const validation = validateRequestedTransition({
-          from_state: fromState,
-          trigger_source: 'action',
-          trigger_id: actionId,
-          requested_next_state: 'RECO_GATE',
-        });
-        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
-        if (!validation.ok) {
-          console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
-        }
-        if (resolvedNextState !== fromState) {
-          emitAgentStateEntered(
-            { ...ctx, state: resolvedNextState },
-            { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
-          );
-          setAgentStateSafe(resolvedNextState);
-        }
-        if (resolvedNextState === 'RECO_GATE') {
-          emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
-        }
-        setItems((prev) => [
-          ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: t('s5.btn.continue', language) },
-        ]);
-        await sendChat(undefined, {
-          action_id: 'chip.action.reco_routine',
-          kind: 'chip',
-          data: {
-            reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
-            include_alternatives: true,
-          },
-        }, {
-          client_state: fromState,
-          requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
-        });
+      if (resolvedActionId === 'analysis_continue' || resolvedActionId === 'analysis_get_recommendations') {
+        await requestProductRecommendationsFromAnalysis(resolvedActionId, data);
         return;
       }
+
+      const msg =
+        resolvedActionId === 'analysis_gentler'
+          ? language === 'CN'
+            ? '给我更温和的方案'
+            : 'Make it gentler'
+          : resolvedActionId === 'analysis_simple'
+            ? language === 'CN'
+              ? '给我更简单的方案'
+              : 'Make it simpler'
+            : null;
 
       if (msg) {
         setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);

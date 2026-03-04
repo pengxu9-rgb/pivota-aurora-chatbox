@@ -1141,7 +1141,8 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
       expect(chatCalls).toHaveLength(2);
       const lastRawBody = String((chatCalls[1]?.[2] as any)?.body || '');
-      expect(lastRawBody).toContain('chip.action.reco_routine');
+      expect(lastRawBody).toContain('chip.start.reco_products');
+      expect(lastRawBody).toContain('"force_route":"reco_products"');
     });
   });
 
@@ -1211,7 +1212,8 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
       expect(chatCalls).toHaveLength(2);
       const lastRawBody = String((chatCalls[1]?.[2] as any)?.body || '');
-      expect(lastRawBody).toContain('chip.action.reco_routine');
+      expect(lastRawBody).toContain('chip.start.reco_products');
+      expect(lastRawBody).toContain('"force_route":"reco_products"');
     });
   });
 

@@ -46,6 +46,23 @@ const toPlanLines = (value: unknown, max = 8): string[] =>
 
 const renderSectionTitle = (language: Language, en: string, cn: string) => (language === 'CN' ? cn : en);
 
+const canonicalizeFindingText = (raw: string): string =>
+  String(raw || '')
+    .toLowerCase()
+    .replace(/^\s*\d+\s*[.)\-:：·]\s*/, '')
+    .replace(/^[\s\-*•·]+/, '')
+    .replace(/[，,。.!！？;；:：()[\]{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildFindingLine = (item: Dict): string => {
+  const priority = asString(item.priority) || asString(item.priority_level);
+  const title = asString(item.title) || asString(item.finding) || asString(item.issue);
+  const area = asString(item.area) || asString(item.region) || asString(item.module);
+  const text = [priority, title, area].filter(Boolean).join(' · ');
+  return text || asString(item.description);
+};
+
 const normalizeConfidenceLevelLabel = (rawLevel: string, language: Language): string => {
   const token = String(rawLevel || '').trim().toLowerCase();
   if (!token) return '';
@@ -125,21 +142,40 @@ export function AnalysisStoryCard({
   const root = asObject(payload) || {};
   const confidenceOverall = formatConfidenceOverall(root.confidence_overall, language);
   const skinProfile = asObject(root.skin_profile);
+  const findingLines = asArray(root.priority_findings)
+    .map((item) => {
+      const row = asObject(item);
+      if (!row) return asString(item);
+      return buildFindingLine(row);
+    })
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  const priorityFindingKeys = findingLines
+    .map((line) => canonicalizeFindingText(line))
+    .filter(Boolean);
+  const currentStrengths = toStringList(skinProfile?.current_strengths, 8).filter((item) => {
+    const candidate = canonicalizeFindingText(item);
+    if (!candidate) return false;
+    return !priorityFindingKeys.some((findingKey) => {
+      if (!findingKey) return false;
+      if (candidate === findingKey) return true;
+      if (candidate.length >= 12 && findingKey.includes(candidate)) return true;
+      if (findingKey.length >= 12 && candidate.includes(findingKey)) return true;
+      return false;
+    });
+  });
   const profileBullets = toStringList(
     skinProfile
       ? [
           skinProfile.skin_type_tendency,
           skinProfile.sensitivity_tendency,
-          ...(asArray(skinProfile.current_strengths) as unknown[]),
+          ...currentStrengths,
         ]
       : [],
     8,
   );
 
-  const findings = asArray(root.priority_findings)
-    .map(asObject)
-    .filter(Boolean)
-    .slice(0, 6) as Dict[];
   const targetState = toStringList(root.target_state, 6);
   const principles = toStringList(root.core_principles, 8);
   const amPlan = toPlanLines(root.am_plan, 8);
@@ -195,19 +231,15 @@ export function AnalysisStoryCard({
         </div>
       ) : null}
 
-      {findings.length ? (
+      {findingLines.length ? (
         <div>
           <div className="text-xs font-medium text-muted-foreground">
             {renderSectionTitle(language, 'Priority findings', '优先问题')}
           </div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-            {findings.map((item, idx) => {
-              const priority = asString(item.priority) || asString(item.priority_level);
-              const title = asString(item.title) || asString(item.finding) || asString(item.issue);
-              const area = asString(item.area) || asString(item.region) || asString(item.module);
-              const text = [priority, title, area].filter(Boolean).join(' · ');
-              return <li key={`finding_${idx}`}>{text || asString(item.description)}</li>;
-            })}
+            {findingLines.map((line, idx) => (
+              <li key={`finding_${idx}_${line}`}>{line}</li>
+            ))}
           </ul>
         </div>
       ) : null}
