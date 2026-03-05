@@ -2,6 +2,7 @@ import { bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff
 
 export type ActivityEventType =
   | 'chat_started'
+  | 'skin_analysis'
   | 'tracker_logged'
   | 'profile_updated'
   | 'travel_plan_created'

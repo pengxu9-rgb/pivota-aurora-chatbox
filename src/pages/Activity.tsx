@@ -135,6 +135,8 @@ function formatActivityTitle(item: ActivityItem): string {
   switch (item.event_type) {
     case 'chat_started':
       return 'Started a chat';
+    case 'skin_analysis':
+      return 'Completed skin analysis';
     case 'tracker_logged':
       return 'Logged a check-in';
     case 'profile_updated':
@@ -152,6 +154,13 @@ function formatActivityTitle(item: ActivityItem): string {
 
 function formatActivitySubtitle(item: ActivityItem): string {
   const payload = item.payload && typeof item.payload === 'object' ? item.payload : {};
+  if (item.event_type === 'skin_analysis') {
+    const usedPhotos = payload.used_photos === true;
+    const failureCode = typeof payload.photo_failure_code === 'string' ? payload.photo_failure_code.trim() : '';
+    if (usedPhotos) return `Photo-based analysis · ${formatRelativeTime(item.occurred_at_ms)}`;
+    if (failureCode) return `No-photo (${failureCode}) · ${formatRelativeTime(item.occurred_at_ms)}`;
+    return `No-photo analysis · ${formatRelativeTime(item.occurred_at_ms)}`;
+  }
   if (
     (item.event_type === 'travel_plan_created' || item.event_type === 'travel_plan_updated' || item.event_type === 'travel_plan_archived') &&
     typeof payload.destination === 'string' &&
