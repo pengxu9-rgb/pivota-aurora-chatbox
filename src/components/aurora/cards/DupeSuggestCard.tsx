@@ -119,6 +119,8 @@ export function DupeSuggestCard({
   dupes,
   comparables,
   language,
+  anchorResolutionStatus,
+  quality,
   onCompare,
 }: {
   className?: string;
@@ -126,6 +128,8 @@ export function DupeSuggestCard({
   dupes: AlternativeLike[];
   comparables: AlternativeLike[];
   language: Language;
+  anchorResolutionStatus?: string;
+  quality?: Record<string, unknown>;
   onCompare?: (args: { original: ProductLike; dupe: ProductLike }) => void;
 }) {
   const { brand, name } = productLabel(original);
@@ -139,6 +143,13 @@ export function DupeSuggestCard({
       <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
         <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? 'Find Dupes' : 'Find Dupes'}</div>
         <div className="mt-1 text-sm font-semibold text-foreground">{title}</div>
+        {(anchorResolutionStatus === 'failed' || (original && typeof original === 'object' && (original as any)._stub)) ? (
+          <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-800">
+            {language === 'CN'
+              ? '未能完全解析目标商品信息，结果可能不够精准。请尝试提供更具体的商品名称或链接。'
+              : 'Could not fully resolve the target product. Results may be less precise. Try a more specific product name or link.'}
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-2">

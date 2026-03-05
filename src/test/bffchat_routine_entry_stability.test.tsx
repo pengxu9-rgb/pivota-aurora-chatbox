@@ -83,7 +83,7 @@ describe('Routine entry stability', () => {
       expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
     });
 
-    const cleanserInput = screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i);
+    const cleanserInput = screen.getByLabelText(/Cleanser/i);
     expect(cleanserInput).not.toBeDisabled();
     fireEvent.change(cleanserInput, { target: { value: 'Test cleanser' } });
     expect((cleanserInput as HTMLInputElement).value).toBe('Test cleanser');
@@ -205,7 +205,7 @@ describe('Routine entry stability', () => {
       expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
     });
 
-    const cleanserInput = screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i);
+    const cleanserInput = screen.getByLabelText(/Cleanser/i);
     expect(cleanserInput).not.toBeDisabled();
 
     vi.useFakeTimers();

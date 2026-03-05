@@ -105,6 +105,7 @@ import { parseChatResponseV1 } from '@/lib/chatCardsParser';
 import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
 import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
 import { toast } from '@/components/ui/use-toast';
+import { ProductSearchInput, type ResolvedProduct } from '@/components/ui/ProductSearchInput';
 import {
   buildPdpUrl,
   extractPdpTargetFromProductGroupId,
@@ -165,40 +166,56 @@ type ProductAlternativeTrack = {
   filteredCount: number;
 };
 
+type RoutineSlotValue = {
+  text: string;
+  resolvedProduct: ResolvedProduct | null;
+};
+
+const emptySlot = (): RoutineSlotValue => ({ text: '', resolvedProduct: null });
+
 type RoutineDraft = {
-  am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
-  pm: { cleanser: string; treatment: string; moisturizer: string };
+  am: { cleanser: RoutineSlotValue; treatment: RoutineSlotValue; moisturizer: RoutineSlotValue; spf: RoutineSlotValue };
+  pm: { cleanser: RoutineSlotValue; treatment: RoutineSlotValue; moisturizer: RoutineSlotValue };
   notes: string;
 };
 
 const makeEmptyRoutineDraft = (): RoutineDraft => ({
-  am: { cleanser: '', treatment: '', moisturizer: '', spf: '' },
-  pm: { cleanser: '', treatment: '', moisturizer: '' },
+  am: { cleanser: emptySlot(), treatment: emptySlot(), moisturizer: emptySlot(), spf: emptySlot() },
+  pm: { cleanser: emptySlot(), treatment: emptySlot(), moisturizer: emptySlot() },
   notes: '',
 });
 
+const slotText = (slot: RoutineSlotValue): string => String(slot?.text || '').trim();
+
 const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
   const values = [
-    draft.am.cleanser,
-    draft.am.treatment,
-    draft.am.moisturizer,
-    draft.am.spf,
-    draft.pm.cleanser,
-    draft.pm.treatment,
-    draft.pm.moisturizer,
-    draft.notes,
+    slotText(draft.am.cleanser),
+    slotText(draft.am.treatment),
+    slotText(draft.am.moisturizer),
+    slotText(draft.am.spf),
+    slotText(draft.pm.cleanser),
+    slotText(draft.pm.treatment),
+    slotText(draft.pm.moisturizer),
+    String(draft.notes || '').trim(),
   ];
-  return values.some((v) => Boolean(String(v || '').trim()));
+  return values.some(Boolean);
 };
 
-const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
-  const am: Array<{ step: string; product: string }> = [];
-  const pm: Array<{ step: string; product: string }> = [];
+type RoutinePayloadStep = { step: string; product: string; product_id?: string; sku_id?: string };
 
-  const pushStep = (list: Array<{ step: string; product: string }>, step: string, value: string) => {
-    const v = String(value || '').trim();
+const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
+  const am: RoutinePayloadStep[] = [];
+  const pm: RoutinePayloadStep[] = [];
+
+  const pushStep = (list: RoutinePayloadStep[], step: string, slot: RoutineSlotValue) => {
+    const v = slotText(slot);
     if (!v) return;
-    list.push({ step, product: v.slice(0, 500) });
+    list.push({
+      step,
+      product: v.slice(0, 500),
+      ...(slot.resolvedProduct?.product_id ? { product_id: slot.resolvedProduct.product_id } : {}),
+      ...(slot.resolvedProduct?.sku_id ? { sku_id: slot.resolvedProduct.sku_id } : {}),
+    });
   };
 
   pushStep(am, 'cleanser', draft.am.cleanser);
@@ -213,7 +230,7 @@ const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
   const notes = String(draft.notes || '').trim();
 
   return {
-    schema_version: 'aurora.routine_intake.v1',
+    schema_version: 'aurora.routine_intake.v2',
     am,
     pm,
     ...(notes ? { notes: notes.slice(0, 1200) } : {}),
@@ -223,10 +240,12 @@ const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
 const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) => {
   const lines: string[] = [];
 
-  const add = (label: string, value: string) => {
-    const v = String(value || '').trim();
+  const add = (label: string, slot: RoutineSlotValue) => {
+    const v = slotText(slot);
     if (!v) return;
-    lines.push(`${label}: ${v}`);
+    const resolved = slot.resolvedProduct?.display_name || slot.resolvedProduct?.name;
+    const suffix = resolved && resolved !== v ? ` [\u2713 ${resolved}]` : slot.resolvedProduct ? ' [\u2713]' : '';
+    lines.push(`${label}: ${v}${suffix}`);
   };
 
   lines.push('AM');
@@ -244,7 +263,7 @@ const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) =>
   const notes = String(draft.notes || '').trim();
   if (notes) {
     lines.push('');
-    lines.push(language === 'CN' ? `备注: ${notes}` : `Notes: ${notes}`);
+    lines.push(language === 'CN' ? `\u5907\u6ce8: ${notes}` : `Notes: ${notes}`);
   }
 
   return lines.join('\n').trim();
@@ -6487,6 +6506,7 @@ function BffCardView({
               labels={labels as any}
               quality={isLimitedCompare ? 'limited' : 'full'}
               limitedReason={limitedReason || undefined}
+              basicCompare={Array.isArray((payload as any).basic_compare) ? ((payload as any).basic_compare as unknown[]).map((v) => String(v ?? '').trim()).filter(Boolean) : []}
             />
 
             {tradeoffs.length && !isLimitedCompare ? (
@@ -10390,42 +10410,58 @@ export default function BffChat() {
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '洁面' : 'Cleanser'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.cleanser}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
+                        <ProductSearchInput
+                          value={routineDraft.am.cleanser.text}
+                          resolvedProduct={routineDraft.am.cleanser.resolvedProduct}
+                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: { ...prev.am.cleanser, text } } }))}
+                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: { text: p.display_name || p.name || prev.am.cleanser.text, resolvedProduct: p } } }))}
+                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: { ...prev.am.cleanser, resolvedProduct: null } } }))}
+                          placeholder={language === 'CN' ? '搜索洁面产品...' : 'Search cleanser...'}
                           disabled={routineFormBusy}
+                          language={language === 'CN' ? 'CN' : 'EN'}
+                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.treatment}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
+                        <ProductSearchInput
+                          value={routineDraft.am.treatment.text}
+                          resolvedProduct={routineDraft.am.treatment.resolvedProduct}
+                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: { ...prev.am.treatment, text } } }))}
+                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: { text: p.display_name || p.name || prev.am.treatment.text, resolvedProduct: p } } }))}
+                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: { ...prev.am.treatment, resolvedProduct: null } } }))}
+                          placeholder={language === 'CN' ? '搜索精华/活性产品...' : 'Search treatment...'}
                           disabled={routineFormBusy}
+                          language={language === 'CN' ? 'CN' : 'EN'}
+                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.moisturizer}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                        <ProductSearchInput
+                          value={routineDraft.am.moisturizer.text}
+                          resolvedProduct={routineDraft.am.moisturizer.resolvedProduct}
+                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: { ...prev.am.moisturizer, text } } }))}
+                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: { text: p.display_name || p.name || prev.am.moisturizer.text, resolvedProduct: p } } }))}
+                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: { ...prev.am.moisturizer, resolvedProduct: null } } }))}
+                          placeholder={language === 'CN' ? '搜索保湿产品...' : 'Search moisturizer...'}
                           disabled={routineFormBusy}
+                          language={language === 'CN' ? 'CN' : 'EN'}
+                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.spf}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
+                        <ProductSearchInput
+                          value={routineDraft.am.spf.text}
+                          resolvedProduct={routineDraft.am.spf.resolvedProduct}
+                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: { ...prev.am.spf, text } } }))}
+                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: { text: p.display_name || p.name || prev.am.spf.text, resolvedProduct: p } } }))}
+                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: { ...prev.am.spf, resolvedProduct: null } } }))}
+                          placeholder={language === 'CN' ? '搜索防晒产品...' : 'Search SPF...'}
                           disabled={routineFormBusy}
+                          language={language === 'CN' ? 'CN' : 'EN'}
+                          searchFn={resolveProductsSearch}
                         />
                       </label>
                     </div>
@@ -10435,32 +10471,44 @@ export default function BffChat() {
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '洁面' : 'Cleanser'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.pm.cleanser}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
+                        <ProductSearchInput
+                          value={routineDraft.pm.cleanser.text}
+                          resolvedProduct={routineDraft.pm.cleanser.resolvedProduct}
+                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: { ...prev.pm.cleanser, text } } }))}
+                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: { text: p.display_name || p.name || prev.pm.cleanser.text, resolvedProduct: p } } }))}
+                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: { ...prev.pm.cleanser, resolvedProduct: null } } }))}
+                          placeholder={language === 'CN' ? '搜索洁面产品...' : 'Search cleanser...'}
                           disabled={routineFormBusy}
+                          language={language === 'CN' ? 'CN' : 'EN'}
+                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.pm.treatment}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
+                        <ProductSearchInput
+                          value={routineDraft.pm.treatment.text}
+                          resolvedProduct={routineDraft.pm.treatment.resolvedProduct}
+                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: { ...prev.pm.treatment, text } } }))}
+                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: { text: p.display_name || p.name || prev.pm.treatment.text, resolvedProduct: p } } }))}
+                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: { ...prev.pm.treatment, resolvedProduct: null } } }))}
+                          placeholder={language === 'CN' ? '搜索精华/活性产品...' : 'Search treatment...'}
                           disabled={routineFormBusy}
+                          language={language === 'CN' ? 'CN' : 'EN'}
+                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.pm.moisturizer}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                        <ProductSearchInput
+                          value={routineDraft.pm.moisturizer.text}
+                          resolvedProduct={routineDraft.pm.moisturizer.resolvedProduct}
+                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: { ...prev.pm.moisturizer, text } } }))}
+                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: { text: p.display_name || p.name || prev.pm.moisturizer.text, resolvedProduct: p } } }))}
+                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: { ...prev.pm.moisturizer, resolvedProduct: null } } }))}
+                          placeholder={language === 'CN' ? '搜索保湿产品...' : 'Search moisturizer...'}
                           disabled={routineFormBusy}
+                          language={language === 'CN' ? 'CN' : 'EN'}
+                          searchFn={resolveProductsSearch}
                         />
                       </label>
                     </div>

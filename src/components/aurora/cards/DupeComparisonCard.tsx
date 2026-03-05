@@ -56,6 +56,7 @@ export interface DupeComparisonCardProps {
   addedBenefits?: string[];
   quality?: 'full' | 'limited';
   limitedReason?: string;
+  basicCompare?: string[];
   selected?: 'original' | 'dupe';
   labels?: Partial<{
     similarity: string;
@@ -231,6 +232,7 @@ export function DupeComparisonCard({
   addedBenefits = [],
   quality = 'full',
   limitedReason,
+  basicCompare = [],
   selected,
   labels,
   onSwitchToDupe,
@@ -304,9 +306,23 @@ export function DupeComparisonCard({
         </div>
 
         {isLimited ? (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
-            <span className="font-semibold text-foreground">{copy.tradeoffNote}:</span>{' '}
-            {limitedReason?.trim() || 'Comparison details are limited for this pair. Provide a clearer dupe product link/full name to improve tradeoffs.'}
+          <div className="space-y-2">
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+              <span className="font-semibold text-foreground">{copy.tradeoffNote}:</span>{' '}
+              {limitedReason?.trim() || 'Comparison details are limited for this pair. Provide a clearer dupe product link/full name to improve tradeoffs.'}
+            </div>
+            {basicCompare.length > 0 ? (
+              <div className="rounded-lg border border-border/70 bg-muted/10 px-3 py-2">
+                <ul className="space-y-1 text-sm text-muted-foreground">
+                  {basicCompare.map((bullet) => (
+                    <li key={bullet} className="flex items-start gap-2">
+                      <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-muted-foreground/50" />
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

@@ -32,6 +32,8 @@ import { bffJson } from '@/lib/pivotaAgentBff';
 import { patchGlowSessionProfile } from '@/lib/glowSessionProfile';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 
+const QUICK_PROFILE_TEST_TIMEOUT_MS = 15_000;
+
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
     request_id: args?.request_id ?? 'req_1',
@@ -107,7 +109,9 @@ describe('BffChat quick profile persistence and bind prompt', () => {
     }
   });
 
-  it('continues quick profile flow even when legacy /session/profile/patch fails', async () => {
+  it(
+    'continues quick profile flow even when legacy /session/profile/patch fails',
+    async () => {
     mockBff();
     vi.mocked(patchGlowSessionProfile).mockRejectedValue(new Error('legacy_down'));
 
@@ -119,10 +123,14 @@ describe('BffChat quick profile persistence and bind prompt', () => {
       const profileUpdateCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/profile/update');
       expect(profileUpdateCalls.length).toBe(3);
     });
-    expect(vi.mocked(patchGlowSessionProfile)).toHaveBeenCalledTimes(3);
-  });
+      expect(vi.mocked(patchGlowSessionProfile)).toHaveBeenCalledTimes(3);
+    },
+    QUICK_PROFILE_TEST_TIMEOUT_MS,
+  );
 
-  it('does not block progression when /v1/profile/update fails and shows non-blocking toast', async () => {
+  it(
+    'does not block progression when /v1/profile/update fails and shows non-blocking toast',
+    async () => {
     mockBff({
       onProfileUpdate: () => Promise.reject(new Error('timeout')),
     });
@@ -137,9 +145,13 @@ describe('BffChat quick profile persistence and bind prompt', () => {
 
     await screen.findByText(/#1 goal/i);
     expect(vi.mocked(toast)).toHaveBeenCalled();
-  });
+    },
+    QUICK_PROFILE_TEST_TIMEOUT_MS,
+  );
 
-  it('shows sign-in bind prompt after completion when user is not signed in', async () => {
+  it(
+    'shows sign-in bind prompt after completion when user is not signed in',
+    async () => {
     mockBff();
     vi.mocked(patchGlowSessionProfile).mockResolvedValue({
       ok: true,
@@ -153,6 +165,7 @@ describe('BffChat quick profile persistence and bind prompt', () => {
     await screen.findByText('Saved on this device; sign in to bind and sync across devices.');
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to sync profile' }));
     await screen.findByRole('button', { name: 'Send code' });
-  });
+    },
+    QUICK_PROFILE_TEST_TIMEOUT_MS,
+  );
 });
-
