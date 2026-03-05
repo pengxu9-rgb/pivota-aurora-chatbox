@@ -185,6 +185,21 @@ const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
   return values.some((v) => Boolean(String(v || '').trim()));
 };
 
+const hasAnyRoutineAmInput = (draft: RoutineDraft): boolean => {
+  const values = [draft.am.cleanser, draft.am.treatment, draft.am.moisturizer, draft.am.spf];
+  return values.some((v) => Boolean(String(v || '').trim()));
+};
+
+const copyRoutineAmToPm = (draft: RoutineDraft): RoutineDraft => ({
+  ...draft,
+  pm: {
+    ...draft.pm,
+    cleanser: String(draft.am.cleanser || ''),
+    treatment: String(draft.am.treatment || ''),
+    moisturizer: String(draft.am.moisturizer || ''),
+  },
+});
+
 const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
   const am: Array<{ step: string; product: string }> = [];
   const pm: Array<{ step: string; product: string }> = [];
@@ -9245,6 +9260,19 @@ export default function BffChat() {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-muted-foreground">
+                        {language === 'CN' ? '如果晚上用法和早上一样，可一键复制。' : 'If PM is the same as AM, copy in one tap.'}
+                      </div>
+                      <button
+                        type="button"
+                        className="chip-button !px-3 !py-1.5 text-[11px] whitespace-nowrap"
+                        onClick={() => setRoutineDraft((prev) => copyRoutineAmToPm(prev))}
+                        disabled={routineFormBusy || !hasAnyRoutineAmInput(routineDraft)}
+                      >
+                        {language === 'CN' ? '同 AM' : 'Same as AM'}
+                      </button>
+                    </div>
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '洁面' : 'Cleanser'}

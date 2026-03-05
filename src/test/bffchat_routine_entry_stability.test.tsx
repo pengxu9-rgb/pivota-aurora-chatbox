@@ -92,6 +92,88 @@ describe('Routine entry stability', () => {
     expect(chatCalls).toHaveLength(0);
   });
 
+  it('fills PM fields from AM when tapping Same as AM and submits copied routine', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_same_as_am',
+            trace_id: 'trace_bootstrap_same_as_am',
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/analysis/skin') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analysis_same_as_am',
+            trace_id: 'trace_analysis_same_as_am',
+            session_patch: {},
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat?open=routine']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i), {
+      target: { value: 'Biotherm Force Cleanser' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/niacinamide \/ vitamin C \/ none/i), {
+      target: { value: 'SkinCeuticals C E Ferulic' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/CeraVe PM \/ none/i), {
+      target: { value: 'Biotherm Aquasource Hydra Barrier Cream' },
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: /Evening \(PM\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Same as AM/i }));
+
+    const pmCleanser = screen.getByPlaceholderText(/same as AM \/ or different/i) as HTMLInputElement;
+    const pmTreatment = screen.getByPlaceholderText(/retinol \/ AHA\/BHA \/ none/i) as HTMLInputElement;
+    const pmMoisturizer = screen.getByPlaceholderText(/CeraVe PM \/ none/i) as HTMLInputElement;
+
+    expect(pmCleanser.value).toBe('Biotherm Force Cleanser');
+    expect(pmTreatment.value).toBe('SkinCeuticals C E Ferulic');
+    expect(pmMoisturizer.value).toBe('Biotherm Aquasource Hydra Barrier Cream');
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & analyze/i }));
+
+    await waitFor(() => {
+      const calls = mock.mock.calls.filter((call) => call[0] === '/v1/analysis/skin');
+      expect(calls).toHaveLength(1);
+    });
+
+    const analysisCall = mock.mock.calls.find((call) => call[0] === '/v1/analysis/skin');
+    expect(analysisCall).toBeTruthy();
+    const bodyRaw = String((analysisCall?.[2] as RequestInit | undefined)?.body || '{}');
+    const body = JSON.parse(bodyRaw) as Record<string, any>;
+    const routine = (body.currentRoutine || {}) as Record<string, any>;
+    const amSteps = Array.isArray(routine.am) ? routine.am : [];
+    const pmSteps = Array.isArray(routine.pm) ? routine.pm : [];
+    const pickStep = (steps: Array<Record<string, any>>, step: string) =>
+      String(steps.find((entry) => String(entry.step || '').trim() === step)?.product || '');
+
+    expect(pickStep(amSteps, 'cleanser')).toBe('Biotherm Force Cleanser');
+    expect(pickStep(amSteps, 'treatment')).toBe('SkinCeuticals C E Ferulic');
+    expect(pickStep(amSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
+    expect(pickStep(pmSteps, 'cleanser')).toBe('Biotherm Force Cleanser');
+    expect(pickStep(pmSteps, 'treatment')).toBe('SkinCeuticals C E Ferulic');
+    expect(pickStep(pmSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
+  });
+
   it('keeps routine form editable while a normal chat request is timing out', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
