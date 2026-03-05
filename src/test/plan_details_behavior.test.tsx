@@ -138,4 +138,30 @@ describe('PlanDetails behavior', () => {
     });
     expect(toast).toHaveBeenCalled();
   });
+
+  it('uses responsive travel date classes in edit panel', async () => {
+    routeState = {
+      plan: makePlan({
+        trip_id: 'trip_edit_layout',
+        destination: 'Lisbon',
+        start_date: '2099-05-03',
+        end_date: '2099-05-08',
+      }),
+    };
+    routeParams = { tripId: 'trip_edit_layout' };
+
+    render(<PlanDetails />);
+    await screen.findByText('Lisbon');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    const startDateInput = screen.getByLabelText('Start date');
+    const endDateInput = screen.getByLabelText('End date');
+    const dateGrid = startDateInput.closest('.travel-date-grid');
+
+    expect(dateGrid).toBeTruthy();
+    expect(endDateInput.closest('.travel-date-grid')).toBe(dateGrid);
+    expect(startDateInput.className).toContain('travel-date-input');
+    expect(endDateInput.className).toContain('travel-date-input');
+  });
 });

@@ -305,14 +305,14 @@ export default function Plans() {
             </div>
           </label>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="travel-date-grid">
             <label className="block">
               <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '开始日期' : 'Start date'}</div>
               <input
                 type="date"
                 value={draft.start_date}
                 onChange={(e) => setDraft((prev) => ({ ...prev, start_date: e.target.value }))}
-                className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                className="travel-date-input h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
               />
             </label>
             <label className="block">
@@ -321,7 +321,7 @@ export default function Plans() {
                 type="date"
                 value={draft.end_date}
                 onChange={(e) => setDraft((prev) => ({ ...prev, end_date: e.target.value }))}
-                className="h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
+                className="travel-date-input h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
               />
             </label>
           </div>
@@ -511,18 +511,18 @@ export default function Plans() {
                         className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
                         placeholder={language === 'CN' ? '目的地' : 'Destination'}
                       />
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="travel-date-grid">
                         <input
                           type="date"
                           value={editDraft.start_date}
                           onChange={(e) => setEditDraft((prev) => ({ ...prev, start_date: e.target.value }))}
-                          className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
+                          className="travel-date-input h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
                         />
                         <input
                           type="date"
                           value={editDraft.end_date}
                           onChange={(e) => setEditDraft((prev) => ({ ...prev, end_date: e.target.value }))}
-                          className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
+                          className="travel-date-input h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
                         />
                       </div>
                       <input

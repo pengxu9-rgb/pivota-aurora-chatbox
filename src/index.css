@@ -365,6 +365,20 @@
     @apply text-[12px] leading-5 text-muted-foreground;
   }
 
+  .travel-date-grid {
+    @apply grid grid-cols-1 gap-2 sm:grid-cols-2;
+  }
+
+  .travel-date-grid > * {
+    min-width: 0;
+  }
+
+  .travel-date-input {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
   /* Aurora Chat Container */
   .chat-container {
     /* Use dynamic viewport units so the input isn't hidden behind mobile browser UI. */

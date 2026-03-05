@@ -89,11 +89,19 @@ describe('Plans page behavior', () => {
     render(<Plans />);
     await screen.findByText('Create new plan');
 
+    const startDateInput = screen.getByLabelText('Start date');
+    const endDateInput = screen.getByLabelText('End date');
+    const createDateGrid = startDateInput.closest('.travel-date-grid');
+    expect(createDateGrid).toBeTruthy();
+    expect(endDateInput.closest('.travel-date-grid')).toBe(createDateGrid);
+    expect(startDateInput.className).toContain('travel-date-input');
+    expect(endDateInput.className).toContain('travel-date-input');
+
     fireEvent.change(screen.getByPlaceholderText('e.g. Tokyo / Paris'), {
       target: { value: 'Tokyo' },
     });
-    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2099-03-01' } });
-    fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2099-03-05' } });
+    fireEvent.change(startDateInput, { target: { value: '2099-03-01' } });
+    fireEvent.change(endDateInput, { target: { value: '2099-03-05' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save plan' }));
 
@@ -115,6 +123,37 @@ describe('Plans page behavior', () => {
       }),
     );
     expect(toast).toHaveBeenCalled();
+  });
+
+  it('uses responsive travel date classes in inline edit form', async () => {
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({
+      plans: [
+        makePlan({
+          trip_id: 'trip_edit_layout',
+          destination: 'Kyoto',
+          start_date: '2099-04-11',
+          end_date: '2099-04-16',
+        }),
+      ],
+      summary: {
+        active_trip_id: 'trip_edit_layout',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+      },
+    });
+
+    render(<Plans />);
+    await screen.findByText('Kyoto');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    const editStartDateInput = screen.getByDisplayValue('2099-04-11');
+    const editEndDateInput = screen.getByDisplayValue('2099-04-16');
+    const editDateGrid = editStartDateInput.closest('.travel-date-grid');
+
+    expect(editDateGrid).toBeTruthy();
+    expect(editEndDateInput.closest('.travel-date-grid')).toBe(editDateGrid);
+    expect(editStartDateInput.className).toContain('travel-date-input');
+    expect(editEndDateInput.className).toContain('travel-date-input');
   });
 
   it('starts chat only when Open in chat is clicked', async () => {
