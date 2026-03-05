@@ -4,6 +4,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { BottomNav } from '@/components/mobile/BottomNav';
 import { ChatComposerDrawer, type ChatStartIntent } from '@/components/mobile/ChatComposerDrawer';
+import { logActivity } from '@/lib/activityApi';
 import { loadChatHistory, upsertChatHistoryItem, type ChatHistoryItem } from '@/lib/chatHistory';
 import { makeDefaultHeaders } from '@/lib/pivotaAgentBff';
 import { getLangPref } from '@/lib/persistence';
@@ -72,6 +73,32 @@ export default function MobileShell() {
         } catch {
           // no-op
         }
+
+        // Best-effort activity logging should never block navigation.
+        void logActivity(lang, {
+          event_type: 'chat_started',
+          payload:
+            intent.kind === 'query'
+              ? {
+                  title: String(intent.title || '').trim().slice(0, 64) || null,
+                  has_query: Boolean(String(intent.query || '').trim()),
+                }
+              : intent.kind === 'chip'
+                ? {
+                    title: String(intent.title || '').trim().slice(0, 64) || null,
+                    chip_id: String(intent.chip_id || '').trim().slice(0, 120) || null,
+                    open: intent.open || null,
+                  }
+                : {
+                    title: String(intent.title || '').trim().slice(0, 64) || null,
+                    open: intent.open || null,
+                  },
+          deeplink: search ? `/chat${search}` : '/chat',
+          source: 'mobile_shell',
+          occurred_at_ms: Date.now(),
+        }).catch(() => {
+          // no-op
+        });
       } catch {
         // Fallback: still route to chat even if header generation fails.
       }

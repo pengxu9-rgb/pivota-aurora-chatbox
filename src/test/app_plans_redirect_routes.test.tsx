@@ -47,6 +47,10 @@ vi.mock('@/pages/Profile', () => ({
   default: () => <div>profile-page</div>,
 }));
 
+vi.mock('@/pages/Activity', () => ({
+  default: () => <div>activity-page</div>,
+}));
+
 vi.mock('@/pages/Plans', () => ({
   default: () => <div>plans-page</div>,
 }));

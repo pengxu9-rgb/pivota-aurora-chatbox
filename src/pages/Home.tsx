@@ -1,13 +1,39 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Activity, Beaker, CalendarDays, Camera, Compass, Copy, FlaskConical, Menu, MessageCircle, Search, Sparkles, Workflow } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
+import { listActivity, type ActivityItem } from '@/lib/activityApi';
+import { getLangPref } from '@/lib/persistence';
 import { cn } from '@/lib/utils';
 
 export default function Home() {
   const { openSidebar, openComposer, startChat } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [recentLoading, setRecentLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const language = getLangPref() === 'cn' ? 'CN' : 'EN';
+    setRecentLoading(true);
+    void listActivity(language, { limit: 3 })
+      .then((response) => {
+        if (cancelled) return;
+        setRecentActivity(Array.isArray(response?.items) ? response.items : []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRecentActivity([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setRecentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="font-aurora-body bg-[hsl(var(--aurora-home-background))] pb-6 text-[hsl(var(--aurora-home-foreground))]">
@@ -162,41 +188,140 @@ export default function Home() {
           <button
             type="button"
             className="text-[12px] font-semibold text-[hsl(var(--aurora-home-primary))] hover:opacity-90"
-            onClick={() => openComposer()}
+            onClick={() => navigate('/activity')}
           >
             See all
           </button>
         </div>
 
-        <div
-          className="mt-2.5 rounded-[24px] border p-5 text-center shadow-card"
-          style={{
-            borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
-            backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-glass-alpha))',
-            backdropFilter: 'blur(var(--aurora-home-search-blur))',
-          }}
-        >
+        {recentLoading ? (
           <div
-            className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl text-[hsl(var(--aurora-home-primary))]"
-            style={{ backgroundColor: 'hsl(var(--aurora-home-primary) / 0.12)' }}
+            className="mt-2.5 rounded-[24px] border p-5 text-center shadow-card"
+            style={{
+              borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
+              backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-glass-alpha))',
+              backdropFilter: 'blur(var(--aurora-home-search-blur))',
+            }}
           >
-            <Sparkles className="h-6 w-6" />
+            <div className="text-[13px] text-[hsl(var(--aurora-home-muted-foreground))]">Loading activity...</div>
           </div>
-          <div className="font-aurora-heading mt-3 text-[15px] font-semibold tracking-[-0.01em] text-[hsl(var(--aurora-home-foreground))]">
-            Start your first skin diagnosis
-          </div>
-          <div className="mt-1 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">Takes ~1 minute and helps personalize everything.</div>
-          <button
-            type="button"
-            className="mt-4 inline-flex items-center justify-center rounded-2xl bg-[hsl(var(--aurora-home-primary))] px-4 py-2.5 text-[14px] font-semibold text-[hsl(var(--aurora-home-primary-foreground))] shadow-card active:scale-[0.99]"
-            onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
+        ) : recentActivity.length ? (
+          <div
+            className="mt-2.5 rounded-[24px] border p-2 shadow-card"
+            style={{
+              borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
+              backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-glass-alpha))',
+              backdropFilter: 'blur(var(--aurora-home-search-blur))',
+            }}
           >
-            Start
-          </button>
-        </div>
+            {recentActivity.map((item) => (
+              <button
+                key={String(item.activity_id || `${item.event_type}_${item.occurred_at_ms}`)}
+                type="button"
+                className="w-full rounded-2xl px-3 py-2.5 text-left hover:bg-[hsl(var(--aurora-home-primary)/0.06)]"
+                onClick={() => openActivityDeeplink(item.deeplink, navigate)}
+              >
+                <div className="text-[14px] font-semibold text-[hsl(var(--aurora-home-foreground))]">{formatActivityTitle(item)}</div>
+                <div className="mt-0.5 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">
+                  {formatActivitySubtitle(item)}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div
+            className="mt-2.5 rounded-[24px] border p-5 text-center shadow-card"
+            style={{
+              borderColor: 'hsl(var(--aurora-home-border) / 0.72)',
+              backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-glass-alpha))',
+              backdropFilter: 'blur(var(--aurora-home-search-blur))',
+            }}
+          >
+            <div
+              className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl text-[hsl(var(--aurora-home-primary))]"
+              style={{ backgroundColor: 'hsl(var(--aurora-home-primary) / 0.12)' }}
+            >
+              <Sparkles className="h-6 w-6" />
+            </div>
+            <div className="font-aurora-heading mt-3 text-[15px] font-semibold tracking-[-0.01em] text-[hsl(var(--aurora-home-foreground))]">
+              Start your first skin diagnosis
+            </div>
+            <div className="mt-1 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">Takes ~1 minute and helps personalize everything.</div>
+            <button
+              type="button"
+              className="mt-4 inline-flex items-center justify-center rounded-2xl bg-[hsl(var(--aurora-home-primary))] px-4 py-2.5 text-[14px] font-semibold text-[hsl(var(--aurora-home-primary-foreground))] shadow-card active:scale-[0.99]"
+              onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
+            >
+              Start
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+function openActivityDeeplink(deeplink: string | null | undefined, navigate: (to: string) => void) {
+  const target = String(deeplink || '').trim();
+  if (!target) {
+    navigate('/activity');
+    return;
+  }
+  if (target.startsWith('/')) {
+    navigate(target);
+    return;
+  }
+  if (/^https?:\/\//i.test(target) && typeof window !== 'undefined') {
+    window.open(target, '_blank', 'noopener,noreferrer');
+  }
+}
+
+function formatActivityTitle(item: ActivityItem): string {
+  switch (item.event_type) {
+    case 'chat_started':
+      return 'Started a chat';
+    case 'tracker_logged':
+      return 'Logged a check-in';
+    case 'profile_updated':
+      return 'Updated profile';
+    case 'travel_plan_created':
+      return 'Created a travel plan';
+    case 'travel_plan_updated':
+      return 'Updated a travel plan';
+    case 'travel_plan_archived':
+      return 'Archived a travel plan';
+    default:
+      return 'Activity';
+  }
+}
+
+function formatActivitySubtitle(item: ActivityItem): string {
+  const payload = item.payload && typeof item.payload === 'object' ? item.payload : {};
+  if (
+    (item.event_type === 'travel_plan_created' || item.event_type === 'travel_plan_updated' || item.event_type === 'travel_plan_archived') &&
+    typeof payload.destination === 'string' &&
+    payload.destination.trim()
+  ) {
+    return `${payload.destination.trim()} · ${formatRelativeTime(item.occurred_at_ms)}`;
+  }
+  if (item.event_type === 'tracker_logged' && typeof payload.date === 'string' && payload.date.trim()) {
+    return `${payload.date.trim()} · ${formatRelativeTime(item.occurred_at_ms)}`;
+  }
+  return formatRelativeTime(item.occurred_at_ms);
+}
+
+function formatRelativeTime(occurredAtMs: number): string {
+  const deltaMs = Date.now() - Number(occurredAtMs || 0);
+  if (!Number.isFinite(deltaMs)) return 'Just now';
+  const deltaSeconds = Math.max(0, Math.floor(deltaMs / 1000));
+  if (deltaSeconds < 60) return 'Just now';
+  const minutes = Math.floor(deltaSeconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(occurredAtMs).toLocaleDateString();
 }
 
 function Pill({ label, Icon, onClick }: { label: string; Icon: React.ComponentType<{ className?: string }>; onClick: () => void }) {
