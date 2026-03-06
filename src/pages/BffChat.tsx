@@ -329,6 +329,13 @@ const toBffErrorMessage = (err: unknown): string => {
   return err instanceof Error ? err.message : String(err);
 };
 
+const shouldFallbackToLegacyDiagnosis = (err: unknown): boolean => {
+  if (!(err instanceof PivotaAgentBffError)) return false;
+  if (err.status === 404) return true;
+  const body = err.responseBody as any;
+  return String(body?.error || '').trim() === 'DIAGNOSIS_V2_NOT_ENABLED';
+};
+
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
 
 const FF_RETURN_WELCOME = (() => {
@@ -8451,6 +8458,19 @@ export default function BffChat() {
     });
   }, []);
 
+  const appendLegacyDiagnosisGate = useCallback(() => {
+    setSessionState('S2_DIAGNOSIS');
+    setItems((prev) => [
+      ...prev,
+      {
+        id: nextId(),
+        role: 'assistant',
+        kind: 'cards',
+        cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
+      },
+    ]);
+  }, []);
+
   const startDiagnosisV2 = useCallback(
     async ({
       goals,
@@ -8517,12 +8537,16 @@ export default function BffChat() {
           ]);
         }
       } catch (err) {
+        if (shouldFallbackToLegacyDiagnosis(err)) {
+          appendLegacyDiagnosisGate();
+          return;
+        }
         setError(toBffErrorMessage(err));
       } finally {
         setChatBusy(false);
       }
     },
-    [appendDiagnosisV2Card, authSession?.token, buildRequestHeaders, language, sendDiagnosisV2Telemetry],
+    [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildRequestHeaders, language, sendDiagnosisV2Telemetry],
   );
 
   const submitDiagnosisV2 = useCallback(
