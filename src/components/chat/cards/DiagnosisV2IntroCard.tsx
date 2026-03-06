@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type {
   DiagnosisV2FollowupQuestion,
   DiagnosisV2GoalPreset,
@@ -30,22 +31,36 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
   const [goals, setGoals] = useState<string[]>(payload?.goal_profile?.selected_goals ?? []);
   const [customInput, setCustomInput] = useState<string>(payload?.goal_profile?.custom_input ?? '');
   const [followupAnswers, setFollowupAnswers] = useState<Record<string, string>>({});
+  const goalsRef = useRef(goals);
+  const customInputRef = useRef(customInput);
+  const followupAnswersRef = useRef(followupAnswers);
 
   const followupQuestions = (payload?.followup_questions ?? []).slice(0, 3);
 
   const toggleGoal = (goalId: string) => {
-    setGoals((prev) => (prev.includes(goalId) ? prev.filter((g) => g !== goalId) : [...prev, goalId]));
+    flushSync(() => {
+      setGoals((prev) => {
+        const next = prev.includes(goalId) ? prev.filter((g) => g !== goalId) : [...prev, goalId];
+        goalsRef.current = next;
+        return next;
+      });
+    });
   };
 
   const setFollowupAnswer = (questionId: string, optionId: string) => {
-    setFollowupAnswers((prev) => ({ ...prev, [questionId]: optionId }));
+    setFollowupAnswers((prev) => {
+      const next = { ...prev, [questionId]: optionId };
+      followupAnswersRef.current = next;
+      return next;
+    });
   };
 
   const handleSubmit = () => {
+    const selectedGoals = goalsRef.current;
     onAction('diagnosis_v2_submit', {
-      goals,
-      customInput: goals.includes('custom') ? customInput : undefined,
-      followupAnswers,
+      goals: selectedGoals,
+      customInput: selectedGoals.includes('custom') ? customInputRef.current : undefined,
+      followupAnswers: followupAnswersRef.current,
     });
   };
 
@@ -70,6 +85,7 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
                 key={goalId}
                 type="button"
                 onClick={() => toggleGoal(goalId)}
+                aria-pressed={goals.includes(goalId)}
                 className={`inline-flex items-center rounded-full px-3.5 py-1.5 text-sm font-medium transition-all duration-200 ease-out ${
                   goals.includes(goalId)
                     ? 'bg-primary text-primary-foreground shadow-sm'
@@ -86,7 +102,10 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
               <input
                 type="text"
                 value={customInput}
-                onChange={(e) => setCustomInput(e.target.value)}
+                onChange={(e) => {
+                  customInputRef.current = e.target.value;
+                  setCustomInput(e.target.value);
+                }}
                 placeholder={t('diagnosis_v2.custom_placeholder', language)}
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
