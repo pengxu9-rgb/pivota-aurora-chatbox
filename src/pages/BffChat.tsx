@@ -9197,8 +9197,14 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'direct_reco' || actionId === 'setup_routine' || actionId === 'start_checkin' || actionId === 'intake_optimize') {
-        await runDiagnosisV2RouteAction(actionId, data);
+      if (
+        actionId === 'direct_reco' ||
+        actionId === 'setup_routine' ||
+        actionId === 'start_checkin' ||
+        actionId === 'intake_optimize' ||
+        actionId === 'add_travel'
+      ) {
+        await runDiagnosisV2RouteAction(actionId === 'add_travel' ? 'intake_optimize' : actionId, data);
         return;
       }
 

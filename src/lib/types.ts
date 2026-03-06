@@ -515,7 +515,7 @@ export interface DiagnosisV2RoutineBlueprint {
 
 export interface DiagnosisV2ImprovementTip {
   tip: string;
-  action_type: 'take_photo' | 'setup_routine' | 'start_checkin' | 'add_travel';
+  action_type: 'take_photo' | 'setup_routine' | 'start_checkin' | 'add_travel' | 'intake_optimize';
   action_label: string;
 }
 
