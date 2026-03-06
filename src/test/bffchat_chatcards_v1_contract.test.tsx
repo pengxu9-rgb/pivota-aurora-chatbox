@@ -1146,7 +1146,7 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     });
   });
 
-  it('maps analysis_story_v2 recommendation CTA to recommendation request', async () => {
+  it('maps analysis_story_v2 deep-dive CTA to a follow-up chat action', async () => {
     const mock = vi.mocked(bffJson);
     let chatTurns = 0;
     mock.mockImplementation((path: string) => {
@@ -1169,12 +1169,6 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
                   payload: {
                     confidence_overall: { level: 'medium', score: 0.66 },
                     skin_profile: { current_strengths: ['stable baseline'] },
-                    routine_bridge: {
-                      missing_fields: ['currentRoutine.am'],
-                      why_now: 'Need AM/PM routine to personalize recommendations.',
-                      cta_label: 'Add AM/PM routine',
-                      cta_action: 'open_routine_intake',
-                    },
                   },
                 },
               ],
@@ -1184,8 +1178,8 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
         }
         return Promise.resolve(
           makeV1Response({
-            assistant_text: 'Recommendations prepared from story CTA.',
-            telemetry: { intent: 'reco_products', intent_confidence: 0.9, entities: [] },
+            assistant_text: 'Deep dive follow-up received.',
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.9, entities: [] },
           }),
         );
       }
@@ -1205,48 +1199,115 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
     await screen.findByText('Story generated.');
-    fireEvent.click(await screen.findByRole('button', { name: 'See product recommendations' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dive deeper into skin' }));
 
-    await screen.findByText('Recommendations prepared from story CTA.');
+    await screen.findByText('Deep dive follow-up received.');
     await waitFor(() => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
       expect(chatCalls).toHaveLength(2);
       const lastRawBody = String((chatCalls[1]?.[2] as any)?.body || '');
-      expect(lastRawBody).toContain('chip.start.reco_products');
-      expect(lastRawBody).toContain('"force_route":"reco_products"');
+      expect(lastRawBody).toContain('chip.aurora.next_action.deep_dive_skin');
     });
   });
 
-  it('opens routine intake locally when clicking analysis_story_v2 Add AM/PM routine CTA', async () => {
+  it('maps analysis_story_v2 ingredient-plan CTA to a follow-up chat action', async () => {
+    const mock = vi.mocked(bffJson);
+    let chatTurns = 0;
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        chatTurns += 1;
+        if (chatTurns === 1) {
+          return Promise.resolve(
+            makeV1Response({
+              assistant_text: 'Story generated.',
+              cards: [
+                {
+                  id: 'analysis_story_local_intake',
+                  type: 'analysis_story_v2',
+                  priority: 1,
+                  title: 'Analysis story',
+                  tags: [],
+                  sections: [],
+                  actions: [],
+                  payload: {
+                    confidence_overall: { level: 'medium', score: 0.66 },
+                    skin_profile: { current_strengths: ['stable baseline'] },
+                  },
+                },
+              ],
+              telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.93, entities: [] },
+            }),
+          );
+        }
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Ingredient-plan follow-up received.',
+            telemetry: { intent: 'ingredient_plan', intent_confidence: 0.93, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'analyze my skin' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    await screen.findByText('Story generated.');
+    fireEvent.click(await screen.findByRole('button', { name: 'Ingredient plan details' }));
+
+    await screen.findByText('Ingredient-plan follow-up received.');
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls).toHaveLength(2);
+      const lastRawBody = String((chatCalls[1]?.[2] as any)?.body || '');
+      expect(lastRawBody).toContain('chip.aurora.next_action.ingredient_plan');
+    });
+  });
+
+  it('renders routine_fit_summary cards through BffChat', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
       if (path === '/v1/chat') {
         return Promise.resolve(
           makeV1Response({
-            assistant_text: 'Story generated.',
+            assistant_text: 'Routine fit generated.',
             cards: [
               {
-                id: 'analysis_story_local_intake',
-                type: 'analysis_story_v2',
+                id: 'routine_fit_1',
+                type: 'routine_fit_summary',
                 priority: 1,
-                title: 'Analysis story',
+                title: 'Routine fit',
                 tags: [],
                 sections: [],
                 actions: [],
                 payload: {
-                  confidence_overall: { level: 'medium', score: 0.66 },
-                  skin_profile: { current_strengths: ['stable baseline'] },
-                  routine_bridge: {
-                    missing_fields: ['currentRoutine.am', 'currentRoutine.pm'],
-                    why_now: 'Need AM/PM routine to personalize recommendations.',
-                    cta_label: 'Add AM/PM routine',
-                    cta_action: 'open_routine_intake',
+                  overall_fit: 'partial_match',
+                  fit_score: 0.5,
+                  summary: 'Some strong matches, with a few gaps to adjust.',
+                  highlights: ['Barrier support is solid.'],
+                  concerns: ['AM protection could be stronger.'],
+                  dimension_scores: {
+                    ingredient_match: { score: 0.5, note: 'Mostly aligned' },
+                    routine_completeness: { score: 0.4, note: 'AM needs more coverage' },
+                    conflict_risk: { score: 0.8, note: 'No major stacking issues' },
+                    sensitivity_safety: { score: 0.6, note: 'Generally tolerable' },
                   },
+                  next_questions: ['What should I adjust first?'],
                 },
               },
             ],
-            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.93, entities: [] },
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.91, entities: [] },
           }),
         );
       }
@@ -1262,17 +1323,13 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     );
 
     const input = await screen.findByPlaceholderText(/ask a question/i);
-    fireEvent.change(input, { target: { value: 'analyze my skin' } });
+    fireEvent.change(input, { target: { value: 'analyze my routine fit' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    await screen.findByText('Story generated.');
-    fireEvent.click(await screen.findByRole('button', { name: 'Add AM/PM routine' }));
-
-    await screen.findByText(/Add your AM\/PM products/i);
-    await waitFor(() => {
-      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
-      expect(chatCalls).toHaveLength(1);
-    });
+    await screen.findByText('Routine fit generated.');
+    expect(await screen.findByText('Some strong matches, with a few gaps to adjust.')).toBeInTheDocument();
+    expect(screen.getByText('Partial match · 50%')).toBeInTheDocument();
+    expect(screen.getByText('What should I adjust first?')).toBeInTheDocument();
   });
 
   it('maps analysis_optimize_existing next-step action to local routine-review flow without extra chat turn', async () => {
