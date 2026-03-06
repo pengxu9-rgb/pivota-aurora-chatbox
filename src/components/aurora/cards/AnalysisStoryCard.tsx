@@ -3,7 +3,6 @@ import React from 'react';
 import type { Language } from '@/lib/types';
 
 type Dict = Record<string, unknown>;
-export type AnalysisStoryShortlistItem = Record<string, unknown>;
 
 const asObject = (value: unknown): Dict | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -94,50 +93,14 @@ const formatConfidenceOverall = (value: unknown, language: Language): string => 
   return '';
 };
 
-const mapRoutineBridgeAction = (rawAction: string): string => {
-  const token = String(rawAction || '').trim().toLowerCase();
-  if (!token) return '';
-  if (token === 'open_routine_intake') return 'chip.start.routine';
-  if (token === 'routine_generate') return 'chip.start.routine';
-  return String(rawAction || '').trim();
-};
-
-function OptimizationList({
-  language,
-  titleEn,
-  titleCn,
-  items,
-}: {
-  language: Language;
-  titleEn: string;
-  titleCn: string;
-  items: string[];
-}) {
-  if (!items.length) return null;
-  return (
-    <div>
-      <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, titleEn, titleCn)}</div>
-      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-        {items.map((item) => (
-          <li key={`${titleEn}_${item}`}>{item}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 export function AnalysisStoryCard({
   payload,
   language,
   onAction,
-  recoShortlist,
-  onOpenSimilarProducts,
 }: {
   payload: unknown;
   language: Language;
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
-  recoShortlist?: AnalysisStoryShortlistItem[];
-  onOpenSimilarProducts?: (item: AnalysisStoryShortlistItem) => void;
 }) {
   const root = asObject(payload) || {};
   const confidenceOverall = formatConfidenceOverall(root.confidence_overall, language);
@@ -183,29 +146,6 @@ export function AnalysisStoryCard({
   const timeline = toStringList(root.timeline, 6);
   const safetyNotes = toStringList(root.safety_notes, 6);
   const disclaimer = typeof root.disclaimer_non_medical === 'string' ? root.disclaimer_non_medical.trim() : '';
-
-  const optimization = asObject(root.existing_products_optimization);
-  const keepList = toStringList(optimization?.keep, 6);
-  const addList = toStringList(optimization?.add, 6);
-  const replaceList = toStringList(optimization?.replace, 6);
-  const removeList = toStringList(optimization?.remove, 6);
-
-  const bridge = asObject(root.routine_bridge);
-  const ctaText =
-    asString(bridge?.cta_text) ||
-    asString(bridge?.cta_label) ||
-    (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
-  const actionId = asString(bridge?.action_id) || mapRoutineBridgeAction(asString(bridge?.cta_action)) || 'chip.start.routine';
-  const ctaAction = asString(bridge?.cta_action);
-  const replyText =
-    asString(bridge?.reply_text) ||
-    (language === 'CN'
-      ? '我来补全 AM/PM routine，再给我个性化产品建议。'
-      : 'Let me complete AM/PM routine, then give me personalized product recommendations.');
-  const bridgeWhyNow = asString(bridge?.why_now);
-  const bridgeMissing = toStringList(bridge?.missing_fields, 8);
-  const shortlistItems = asArray(recoShortlist).map(asObject).filter(Boolean).slice(0, 2) as Dict[];
-
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
       <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
@@ -300,18 +240,6 @@ export function AnalysisStoryCard({
         </div>
       ) : null}
 
-      {optimization ? (
-        <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
-          <div className="text-xs font-medium text-muted-foreground">
-            {renderSectionTitle(language, 'Optimize your existing products', '现有产品优化建议')}
-          </div>
-          <OptimizationList language={language} titleEn="Keep" titleCn="保留" items={keepList} />
-          <OptimizationList language={language} titleEn="Add" titleCn="新增" items={addList} />
-          <OptimizationList language={language} titleEn="Replace" titleCn="替换" items={replaceList} />
-          <OptimizationList language={language} titleEn="Remove" titleCn="移除" items={removeList} />
-        </div>
-      ) : null}
-
       {timeline.length ? (
         <div>
           <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, 'Timeline', '时间线')}</div>
@@ -334,78 +262,30 @@ export function AnalysisStoryCard({
         </div>
       ) : null}
 
-      {bridgeWhyNow || bridgeMissing.length ? (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
-          <div className="text-xs font-semibold text-foreground">
-            {renderSectionTitle(language, 'Next best step', '下一步建议')}
-          </div>
-          {bridgeWhyNow ? <div className="mt-1 text-sm text-muted-foreground">{bridgeWhyNow}</div> : null}
-          {bridgeMissing.length ? (
-            <div className="mt-1 text-xs text-muted-foreground">
-              {(language === 'CN' ? '待补充：' : 'Missing: ') + bridgeMissing.join(', ')}
-            </div>
-          ) : null}
-          <button
-            type="button"
-            className="mt-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/15"
-            onClick={() =>
-              onAction?.(actionId, {
-                reply_text: replyText,
-                trigger_source: 'analysis_story_v2',
-                ...(ctaAction ? { cta_action: ctaAction } : {}),
-              })
-            }
-          >
-            {ctaText}
-          </button>
-        </div>
-      ) : null}
-
-      <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-        <div className="text-xs font-semibold text-muted-foreground">
-          {renderSectionTitle(language, 'Product next step', '产品下一步')}
-        </div>
-        {shortlistItems.length ? (
-          <div className="mt-2 space-y-2">
-            {shortlistItems.map((item, idx) => {
-              const name =
-                asString(item.name) ||
-                asString(item.title) ||
-                asString((item as any).display_name) ||
-                asString((item as any).displayName) ||
-                (language === 'CN' ? `候选产品 ${idx + 1}` : `Candidate ${idx + 1}`);
-              const brand = asString(item.brand);
-              const priceLabel = asString((item as any).price_label) || asString((item as any).priceLabel);
-              return (
-                <div key={`shortlist_${idx}_${name}`} className="rounded-lg border border-border/50 bg-background/70 p-2">
-                  <div className="text-sm font-medium text-foreground">{brand ? `${brand} · ${name}` : name}</div>
-                  {priceLabel ? <div className="text-xs text-muted-foreground">{priceLabel}</div> : null}
-                  <button
-                    type="button"
-                    className="chip-button mt-2 text-[11px]"
-                    onClick={() => onOpenSimilarProducts?.(item)}
-                  >
-                    {language === 'CN' ? '类似产品' : 'Similar products'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="mt-2 text-xs text-muted-foreground">
-            {renderSectionTitle(
-              language,
-              'No shortlist yet. Tap below to generate recommendations.',
-              '暂无短名单，点击下方生成推荐。',
-            )}
-          </div>
-        )}
+      <div className="flex flex-wrap gap-2 pt-1">
         <button
           type="button"
-          className="chip-button chip-button-primary mt-3"
-          onClick={() => onAction?.('analysis_get_recommendations', { trigger_source: 'analysis_story_v2' })}
+          className="chip-button text-[11px]"
+          onClick={() =>
+            onAction?.('chip.aurora.next_action.deep_dive_skin', {
+              reply_text: language === 'CN' ? '深入了解我的皮肤状态' : 'Tell me more about my skin',
+              trigger_source: 'analysis_story_v2',
+            })
+          }
         >
-          {language === 'CN' ? '查看产品推荐' : 'See product recommendations'}
+          {language === 'CN' ? '深入了解皮肤状态' : 'Dive deeper into skin'}
+        </button>
+        <button
+          type="button"
+          className="chip-button text-[11px]"
+          onClick={() =>
+            onAction?.('chip.aurora.next_action.ingredient_plan', {
+              reply_text: language === 'CN' ? '查看成分计划详情' : 'Explain the ingredient plan',
+              trigger_source: 'analysis_story_v2',
+            })
+          }
+        >
+          {language === 'CN' ? '成分计划详情' : 'Ingredient plan details'}
         </button>
       </div>
 

@@ -37,6 +37,7 @@ const CARD_TYPES = new Set([
   'diagnosis_gate',
   'analysis_summary',
   'analysis_story_v2',
+  'routine_fit_summary',
   'confidence_notice',
   'budget_gate',
   'gate_notice',
@@ -51,6 +52,7 @@ const fallbackTitleForType = (type: string): string => {
   if (token === 'diagnosis_gate') return 'Quick skin profile first';
   if (token === 'analysis_summary') return 'Skin summary';
   if (token === 'analysis_story_v2') return 'Analysis story';
+  if (token === 'routine_fit_summary') return 'Routine fit';
   if (token === 'confidence_notice') return 'Confidence notice';
   if (token === 'budget_gate') return 'Budget';
   if (token === 'gate_notice') return 'Gate notice';

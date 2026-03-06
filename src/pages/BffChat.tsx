@@ -8,6 +8,11 @@ import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
 import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
+import { DiagnosisV2LoginPromptCard } from '@/components/chat/cards/DiagnosisV2LoginPromptCard';
+import { DiagnosisV2IntroCard } from '@/components/chat/cards/DiagnosisV2IntroCard';
+import { DiagnosisV2PhotoPromptCard } from '@/components/chat/cards/DiagnosisV2PhotoPromptCard';
+import { DiagnosisV2ThinkingCard } from '@/components/chat/cards/DiagnosisV2ThinkingCard';
+import { DiagnosisV2ResultCard } from '@/components/chat/cards/DiagnosisV2ResultCard';
 import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
 import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
@@ -24,7 +29,8 @@ import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard
 import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
-import { AnalysisStoryCard, type AnalysisStoryShortlistItem } from '@/components/aurora/cards/AnalysisStoryCard';
+import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
+import { RoutineFitSummaryCard } from '@/components/aurora/cards/RoutineFitSummaryCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { IngredientPlanCardV1 } from '@/components/chat/cards/IngredientPlanCardV1';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
@@ -194,6 +200,41 @@ const makeEmptyRoutineDraft = (): RoutineDraft => ({
   pm: { cleanser: emptySlot(), treatment: emptySlot(), moisturizer: emptySlot() },
   notes: '',
 });
+
+const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | null => {
+  if (!currentRoutine || typeof currentRoutine !== 'object') return null;
+  const raw = currentRoutine as Record<string, unknown>;
+  if (raw.schema_version !== 'aurora.routine_intake.v2') return null;
+
+  const draft = makeEmptyRoutineDraft();
+
+  const fillSlots = (
+    steps: unknown,
+    target: Record<string, RoutineSlotValue>,
+  ) => {
+    if (!Array.isArray(steps)) return;
+    for (const entry of steps) {
+      if (!entry || typeof entry !== 'object') continue;
+      const step = String((entry as any).step || '').toLowerCase();
+      const product = String((entry as any).product || '').trim();
+      if (!step || !product) continue;
+      if (!(step in target)) continue;
+      const pid = String((entry as any).product_id || '').trim();
+      target[step] = {
+        text: product,
+        resolvedProduct: pid
+          ? { product_id: pid, sku_id: (entry as any).sku_id ?? null, name: product, display_name: product }
+          : null,
+      };
+    }
+  };
+
+  fillSlots(raw.am, draft.am as unknown as Record<string, RoutineSlotValue>);
+  fillSlots(raw.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
+  draft.notes = String(raw.notes || '').trim();
+
+  return hasAnyRoutineDraftInput(draft) ? draft : null;
+};
 
 const slotText = (slot: RoutineSlotValue): string => String(slot?.text || '').trim();
 
@@ -585,6 +626,7 @@ const iconForChip = (chipId: string): IconType => {
   if (id.includes('dupe')) return Copy;
   if (id.includes('ingredient')) return FlaskConical;
   if (id.startsWith('chip.clarify.')) return HelpCircle;
+  if (id.includes('deep_dive_skin')) return Activity;
   if (id.startsWith('chip.aurora.next_action.')) return ArrowRight;
   return ArrowRight;
 };
@@ -875,6 +917,10 @@ const CARD_FIRST_DEDUPE_TYPES = new Set([
   'analysis_story_v2',
   'confidence_notice',
   'diagnosis_gate',
+  'diagnosis_v2_login_prompt',
+  'diagnosis_v2_intro',
+  'diagnosis_v2_photo_prompt',
+  'diagnosis_v2_result',
   'profile',
 ]);
 
@@ -1166,177 +1212,6 @@ const uniqueStrings = (items: unknown): string[] => {
     out.push(v);
   }
   return out;
-};
-
-type StoryRecoShortlistSeed = {
-  source: 'ingredient_plan_v2' | 'recommendations';
-  product: Record<string, unknown>;
-  anchorProductId: string | null;
-  productInput: string | null;
-};
-
-const toTrimmedString = (value: unknown): string => String(asString(value) || '').trim();
-
-const normalizeStoryRecoCandidate = (
-  raw: unknown,
-  source: StoryRecoShortlistSeed['source'],
-): StoryRecoShortlistSeed | null => {
-  const product = asObject(raw);
-  if (!product) return null;
-  const name =
-    toTrimmedString(product.name) ||
-    toTrimmedString(product.title) ||
-    toTrimmedString((product as any).display_name) ||
-    toTrimmedString((product as any).displayName);
-  if (!name) return null;
-  const brand = toTrimmedString(product.brand);
-  const anchorProductId =
-    toTrimmedString((product as any).product_group_id) ||
-    toTrimmedString((product as any).product_id) ||
-    toTrimmedString((product as any).sku_id) ||
-    null;
-  const productInput = [brand, name].filter(Boolean).join(' ').trim() || null;
-  return {
-    source,
-    product,
-    anchorProductId,
-    productInput,
-  };
-};
-
-const collectAnalysisStoryRecoShortlist = (cards: Card[], max = 2): AnalysisStoryShortlistItem[] => {
-  const rows = Array.isArray(cards) ? cards : [];
-  const candidates: StoryRecoShortlistSeed[] = [];
-
-  for (const card of rows) {
-    const type = String(card?.type || '').trim().toLowerCase();
-    if (type !== 'ingredient_plan_v2') continue;
-    const payload = asObject(card?.payload);
-    const targets = asArray(payload?.targets);
-    for (const targetRaw of targets) {
-      const target = asObject(targetRaw);
-      const products = asObject(target?.products);
-      const competitors = asArray(products?.competitors);
-      for (const row of competitors) {
-        const candidate = normalizeStoryRecoCandidate(row, 'ingredient_plan_v2');
-        if (candidate) candidates.push(candidate);
-      }
-      const dupes = asArray(products?.dupes);
-      for (const row of dupes) {
-        const candidate = normalizeStoryRecoCandidate(row, 'ingredient_plan_v2');
-        if (candidate) candidates.push(candidate);
-      }
-    }
-  }
-
-  if (candidates.length < max) {
-    for (const card of rows) {
-      const type = String(card?.type || '').trim().toLowerCase();
-      if (type !== 'recommendations') continue;
-      const payload = asObject(card?.payload);
-      const recos = asArray(payload?.recommendations);
-      for (const row of recos) {
-        const candidate = normalizeStoryRecoCandidate(row, 'recommendations');
-        if (candidate) candidates.push(candidate);
-      }
-    }
-  }
-
-  const deduped: AnalysisStoryShortlistItem[] = [];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    const name = toTrimmedString(candidate.product.name) || toTrimmedString(candidate.product.title);
-    const brand = toTrimmedString(candidate.product.brand);
-    const dedupeKey =
-      (candidate.anchorProductId && `id:${candidate.anchorProductId.toLowerCase()}`) ||
-      `name:${brand.toLowerCase()}::${name.toLowerCase()}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    deduped.push({
-      ...candidate.product,
-      source: candidate.source,
-      anchor_product_id: candidate.anchorProductId,
-      product_input: candidate.productInput,
-    });
-    if (deduped.length >= max) break;
-  }
-
-  return deduped;
-};
-
-const normalizeAlternativeIntent = (
-  candidate: Record<string, unknown>,
-  block: RecoBlockType,
-): 'replace' | 'pair' => {
-  const raw = toTrimmedString((candidate as any).recommendation_intent || (candidate as any).recommendationIntent).toLowerCase();
-  if (raw === 'replace' || raw === 'pair') return raw;
-  return block === 'related_products' ? 'pair' : 'replace';
-};
-
-const buildAnalysisStoryAlternativesTracks = (
-  alternativesSource: Array<Record<string, unknown>>,
-  language: UiLanguage,
-): ProductAlternativeTrack[] => {
-  const alternatives = Array.isArray(alternativesSource) ? alternativesSource : [];
-  const mapped = alternatives
-    .map((alt, index) => {
-      const kind = toTrimmedString((alt as any).kind).toLowerCase();
-      const block: RecoBlockType =
-        kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
-      return {
-        candidate: alt,
-        block,
-        rank: index + 1,
-        intent: normalizeAlternativeIntent(alt, block),
-      } as ProductAlternativeTrackItem;
-    })
-    .slice(0, 8);
-
-  const replace = mapped.filter((item) => item.intent === 'replace');
-  const pair = mapped.filter((item) => item.intent === 'pair');
-  const tracks: ProductAlternativeTrack[] = [];
-  if (replace.length) {
-    tracks.push({
-      key: 'replace',
-      title: language === 'CN' ? '更多对比候选' : 'More comparison candidates',
-      subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
-      items: replace,
-      filteredCount: 0,
-    });
-  }
-  if (pair.length) {
-    tracks.push({
-      key: 'pair',
-      title: language === 'CN' ? '搭配建议' : 'Pairing ideas',
-      subtitle: language === 'CN' ? '用于搭配补位，不是直接替代' : 'Companion products to pair with your current pick',
-      items: pair,
-      filteredCount: 0,
-    });
-  }
-  return tracks;
-};
-
-const buildAnalysisStoryAlternativesEmptyTrack = (
-  language: UiLanguage,
-  reasonCode: string | null,
-): ProductAlternativeTrack[] => {
-  const reason = toTrimmedString(reasonCode);
-  const note = reason
-    ? (language === 'CN'
-        ? `当前暂无可用类似产品（${reason}）。`
-        : `No similar products available right now (${reason}).`)
-    : (language === 'CN' ? '当前暂无可用类似产品。' : 'No similar products available right now.');
-  return [
-    {
-      key: 'empty',
-      title: language === 'CN' ? '暂无类似产品' : 'No similar products yet',
-      subtitle: language === 'CN' ? '可以稍后重试或直接获取完整推荐' : 'Retry shortly or request full recommendations',
-      items: [],
-      notes: [note],
-      noResultReason: reason || null,
-      filteredCount: 0,
-    },
-  ];
 };
 
 type IngredientRenderMode = 'show_products' | 'empty_match' | 'pending_match';
@@ -4276,6 +4151,22 @@ function BffCardView({
     return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
   }
 
+  if (cardType === 'diagnosis_v2_login_prompt') {
+    return <DiagnosisV2LoginPromptCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'diagnosis_v2_intro') {
+    return <DiagnosisV2IntroCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'diagnosis_v2_photo_prompt') {
+    return <DiagnosisV2PhotoPromptCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'diagnosis_v2_result') {
+    return <DiagnosisV2ResultCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
   if (cardType === 'analysis_summary') {
     const analysisObj = asObject((payload as any).analysis) || {};
     const analysis = analysisObj as any;
@@ -4304,55 +4195,20 @@ function BffCardView({
   }
 
   if (cardType === 'analysis_story_v2') {
-    const storyShortlist = collectAnalysisStoryRecoShortlist(Array.isArray(turnCards) ? turnCards : []);
-    const openStorySimilarProducts = (item: AnalysisStoryShortlistItem) => {
-      const product = asObject(item) || {};
-      const anchorProductId = toTrimmedString((product as any).anchor_product_id) || null;
-      const productInput =
-        toTrimmedString((product as any).product_input) ||
-        [toTrimmedString((product as any).brand), toTrimmedString((product as any).name) || toTrimmedString((product as any).title)]
-          .filter(Boolean)
-          .join(' ')
-          .trim() ||
-        null;
-
-      if (!loadRecommendationAlternatives || !onOpenRecommendationAlternatives) {
-        onAction('analysis_get_recommendations', {
-          trigger_source: 'analysis_story_v2_shortlist',
-        });
-        return;
-      }
-
-      void loadRecommendationAlternatives({
-        anchorProductId,
-        productInput,
-        product,
-        ingredientContext: payloadIngredientContext,
-      })
-        .then((resp) => {
-          const alternatives = asArray(resp && resp.alternatives).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
-          const tracks = buildAnalysisStoryAlternativesTracks(alternatives, language);
-          if (tracks.length) {
-            onOpenRecommendationAlternatives(tracks);
-            return;
-          }
-          onOpenRecommendationAlternatives(
-            buildAnalysisStoryAlternativesEmptyTrack(language, toTrimmedString(resp?.noResultReason) || null),
-          );
-        })
-        .catch(() => {
-          if (onOpenRecommendationAlternatives) {
-            onOpenRecommendationAlternatives(buildAnalysisStoryAlternativesEmptyTrack(language, 'load_failed'));
-          }
-        });
-    };
-
     return (
       <AnalysisStoryCard
         payload={payload as Record<string, unknown>}
         language={language}
-        recoShortlist={storyShortlist}
-        onOpenSimilarProducts={openStorySimilarProducts}
+        onAction={(id, data) => onAction(id, data)}
+      />
+    );
+  }
+
+  if (cardType === 'routine_fit_summary') {
+    return (
+      <RoutineFitSummaryCard
+        payload={payload as Record<string, unknown>}
+        language={language}
         onAction={(id, data) => onAction(id, data)}
       />
     );
@@ -5527,6 +5383,13 @@ function BffCardView({
             ) : verdict ? (
               <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}>
                 {language === 'CN' ? '结论：' : 'Verdict: '} {verdict}
+              </div>
+            ) : null}
+
+            {(assessment as any)?.ingredient_plan_conflict?.flagged ? (
+              <div className="mt-2 rounded-lg border border-amber-400/40 bg-amber-50/60 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-900/20 dark:text-amber-300">
+                <span className="font-semibold">{language === 'CN' ? '成分计划冲突：' : 'Ingredient plan conflict: '}</span>
+                {asString((assessment as any)?.ingredient_plan_conflict?.note)}
               </div>
             ) : null}
 
@@ -6980,7 +6843,10 @@ export default function BffChat() {
           ? { ...prev }
           : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
 
-        if (profilePatch) merged.profile = profilePatch;
+        if (profilePatch) {
+          const baseProfile = asObject(merged.profile) || {};
+          merged.profile = { ...baseProfile, ...profilePatch };
+        }
 
         const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
         if (recentLogs.length) merged.recent_logs = recentLogs;
@@ -8499,10 +8365,13 @@ export default function BffChat() {
   );
 
   const openRoutineIntakeSheet = useCallback(() => {
-    setRoutineDraft(makeEmptyRoutineDraft());
+    const profileRoutine = (profileSnapshot ?? bootstrapInfo?.profile) as Record<string, unknown> | null | undefined;
+    const currentRoutine = profileRoutine?.currentRoutine;
+    const prefilled = buildRoutineDraftFromProfile(currentRoutine);
+    setRoutineDraft(prefilled ?? makeEmptyRoutineDraft());
     setRoutineTab('am');
     setRoutineSheetOpen(true);
-  }, []);
+  }, [profileSnapshot, bootstrapInfo?.profile]);
 
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
@@ -8614,6 +8483,130 @@ export default function BffChat() {
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
         ]);
         setSessionState('idle');
+        return;
+      }
+
+      // ── Diagnosis V2 Actions ──
+
+      if (actionId === 'login_then_diagnose') {
+        const pendingGoals = (data as any)?.pending_goals || (data as any)?.return_to_goals || [];
+        const returnUrl = `${window.location.pathname}?open=diagnosis_v2&goals=${encodeURIComponent(JSON.stringify(pendingGoals))}`;
+        window.location.href = `/login?return_to=${encodeURIComponent(returnUrl)}`;
+        return;
+      }
+
+      if (actionId === 'skip_login' || actionId === 'diagnosis_v2_skip') {
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过' : 'Skip' },
+        ]);
+        setSessionState('idle');
+        return;
+      }
+
+      if (actionId === 'diagnosis_v2_submit') {
+        const goals = Array.isArray((data as any)?.goals) ? (data as any).goals : [];
+        const customInput = typeof (data as any)?.customInput === 'string' ? (data as any).customInput : undefined;
+        const followupAnswers = (data as any)?.followupAnswers || {};
+
+        if (goals.length === 0) {
+          setError(language === 'CN' ? '请至少选择一个护肤目标' : 'Please select at least one skincare goal');
+          return;
+        }
+
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? `开始分析：${goals.join('、')}` : `Analyzing: ${goals.join(', ')}` },
+        ]);
+
+        try {
+          const resp = await fetch('/v1/diagnosis/answer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(window._auroraAuthHeaders?.() || {}) },
+            body: JSON.stringify({ goals, custom_input: customInput, followup_answers: followupAnswers, language }),
+          });
+
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+          if (resp.headers.get('content-type')?.includes('text/event-stream')) {
+            const reader = resp.body?.getReader();
+            const decoder = new TextDecoder();
+            const thinkingSteps: any[] = [];
+            const thinkingItemId = nextId();
+
+            setItems((prev) => [
+              ...prev,
+              { id: thinkingItemId, role: 'assistant', kind: 'cards', cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking' as any, payload: { steps: thinkingSteps } }] },
+            ]);
+
+            if (reader) {
+              let buffer = '';
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const eventData = JSON.parse(line.slice(6));
+                      if (line.includes('thinking_step') || eventData.stage) {
+                        thinkingSteps.push(eventData);
+                        setItems((prev) => prev.map((item) =>
+                          item.id === thinkingItemId
+                            ? { ...item, cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking' as any, payload: { steps: [...thinkingSteps] } }] }
+                            : item,
+                        ));
+                      }
+                      if (eventData.ok && eventData.card?.type === 'diagnosis_v2_result') {
+                        setItems((prev) => [
+                          ...prev.filter((item) => item.id !== thinkingItemId),
+                          { id: nextId(), role: 'assistant', kind: 'cards', cards: [{ card_id: `result_${Date.now()}`, type: 'diagnosis_v2_result', payload: eventData.card.payload }] },
+                        ]);
+                      }
+                    } catch (_) { /* ignore parse errors */ }
+                  }
+                }
+              }
+            }
+          } else {
+            const json = await resp.json();
+            if (json.ok && json.card) {
+              setItems((prev) => [
+                ...prev,
+                { id: nextId(), role: 'assistant', kind: 'cards', cards: [{ card_id: `diag_v2_${Date.now()}`, type: json.card.type, payload: json.card.payload }] },
+              ]);
+            }
+          }
+        } catch (err) {
+          setError(language === 'CN' ? '分析出错，请重试' : 'Analysis failed, please retry');
+        }
+        return;
+      }
+
+      if (actionId === 'take_photo') {
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '准备拍照' : 'Taking photo' },
+        ]);
+        return;
+      }
+
+      if (actionId === 'skip_photo') {
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过拍照，直接分析' : 'Skip photo, analyze now' },
+        ]);
+        return;
+      }
+
+      if (actionId === 'direct_reco' || actionId === 'setup_routine' || actionId === 'start_checkin' || actionId === 'intake_optimize') {
+        await sendChat(undefined, {
+          action_id: `chip.action.${actionId}`,
+          kind: 'action',
+          data: data || {},
+        });
         return;
       }
 

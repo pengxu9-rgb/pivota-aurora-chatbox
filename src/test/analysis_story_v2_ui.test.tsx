@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 
 describe('analysis_story_v2 ui', () => {
-  it('renders structured blocks with confidence object and dual routine_bridge keys', () => {
+  it('renders structured blocks and analysis-first follow-up actions', () => {
     const onAction = vi.fn();
     render(
       <AnalysisStoryCard
@@ -28,12 +28,6 @@ describe('analysis_story_v2 ui', () => {
             week_8_12_expectation: ['Observe gradual improvements'],
           },
           safety_notes: ['Pause actives if irritation persists'],
-          routine_bridge: {
-            missing_fields: ['currentRoutine.am', 'currentRoutine.pm'],
-            why_now: 'Need routine to personalize recommendations.',
-            cta_label: 'Add AM/PM routine',
-            cta_action: 'open_routine_intake',
-          },
         }}
       />,
     );
@@ -44,20 +38,24 @@ describe('analysis_story_v2 ui', () => {
     expect(screen.getByText('Priority findings')).toBeInTheDocument();
     expect(screen.getByText('AM plan')).toBeInTheDocument();
     expect(screen.getByText('PM plan')).toBeInTheDocument();
+    expect(screen.queryByText('Add AM/PM routine')).not.toBeInTheDocument();
+    expect(screen.queryByText('See product recommendations')).not.toBeInTheDocument();
+    expect(screen.queryByText('Optimize your existing products')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add AM/PM routine' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dive deeper into skin' }));
     expect(onAction).toHaveBeenCalledWith(
-      'chip.start.routine',
+      'chip.aurora.next_action.deep_dive_skin',
       expect.objectContaining({
-        cta_action: 'open_routine_intake',
+        reply_text: 'Tell me more about my skin',
         trigger_source: 'analysis_story_v2',
       }),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'See product recommendations' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ingredient plan details' }));
     expect(onAction).toHaveBeenCalledWith(
-      'analysis_get_recommendations',
+      'chip.aurora.next_action.ingredient_plan',
       expect.objectContaining({
+        reply_text: 'Explain the ingredient plan',
         trigger_source: 'analysis_story_v2',
       }),
     );
