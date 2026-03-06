@@ -451,3 +451,109 @@ export interface CardAction {
   variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
   data?: Record<string, any>;
 }
+
+export type DiagnosisV2GoalPreset =
+  | 'anti_aging_face'
+  | 'eye_anti_aging'
+  | 'post_procedure_repair'
+  | 'barrier_repair'
+  | 'sun_protection'
+  | 'brightening'
+  | 'neck_care'
+  | 'daily_maintenance'
+  | 'mask_special'
+  | 'custom';
+
+export interface DiagnosisV2GoalProfile {
+  selected_goals: string[];
+  custom_input?: string;
+  constraints: string[];
+  post_procedure_meta?: {
+    days_since: number;
+    skin_broken: boolean;
+    procedure_type?: string;
+  };
+}
+
+export interface DiagnosisV2FollowupQuestion {
+  id: string;
+  question: string;
+  options: { id: string; label: string; value?: string }[];
+  required?: boolean;
+}
+
+export interface DiagnosisV2IntroPayload {
+  goal_profile: DiagnosisV2GoalProfile;
+  is_cold_start: boolean;
+  question_strategy: 'default' | 'state_probe';
+  followup_questions: DiagnosisV2FollowupQuestion[];
+  actions: { type: string; label: string; payload?: Record<string, any> }[];
+}
+
+export interface DiagnosisV2InferredAxis {
+  axis: string;
+  level: 'low' | 'moderate' | 'high' | 'severe';
+  confidence: number;
+  evidence: string[];
+  trend: 'improved' | 'stable' | 'worsened' | 'new';
+  previous_level?: 'low' | 'moderate' | 'high' | 'severe';
+}
+
+export interface DiagnosisV2Strategy {
+  title: string;
+  why: string;
+  timeline: string;
+  do_list: string[];
+  avoid_list: string[];
+}
+
+export interface DiagnosisV2RoutineBlueprint {
+  am_steps: string[];
+  pm_steps: string[];
+  conflict_rules: string[];
+}
+
+export interface DiagnosisV2ImprovementTip {
+  tip: string;
+  action_type: 'take_photo' | 'setup_routine' | 'start_checkin' | 'add_travel' | 'intake_optimize';
+  action_label: string;
+}
+
+export interface DiagnosisV2ResultPayload {
+  diagnosis_id: string;
+  diagnosis_seq: number;
+  goal_profile: DiagnosisV2GoalProfile;
+  is_cold_start: boolean;
+  data_quality: {
+    overall: 'high' | 'medium' | 'low';
+    limits_banner?: string;
+  };
+  inferred_state: {
+    axes: DiagnosisV2InferredAxis[];
+  };
+  strategies: DiagnosisV2Strategy[];
+  routine_blueprint: DiagnosisV2RoutineBlueprint;
+  improvement_path: DiagnosisV2ImprovementTip[];
+  next_actions: { type: string; label: string; payload?: Record<string, any> }[];
+}
+
+export interface DiagnosisV2ThinkingStep {
+  stage: 'goal_understanding' | 'inference' | 'strategy';
+  step: string;
+  text: string;
+  status: 'pending' | 'in_progress' | 'done';
+}
+
+export interface DiagnosisV2LoginPromptPayload {
+  prompt_text: string;
+  login_action: { type: string; label: string; payload?: Record<string, any> };
+  skip_action: { type: string; label: string; payload?: Record<string, any> };
+  pending_goals: string[];
+}
+
+export interface DiagnosisV2PhotoPromptPayload {
+  prompt_text: string;
+  photo_action: { type: string; label: string; payload?: Record<string, any> };
+  skip_action: { type: string; label: string; payload?: Record<string, any> };
+  has_existing_artifact: boolean;
+}

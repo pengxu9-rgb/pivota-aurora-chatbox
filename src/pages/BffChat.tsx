@@ -8,11 +8,11 @@ import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
 import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
-import { DiagnosisV2LoginPromptCard } from '@/components/chat/cards/DiagnosisV2LoginPromptCard';
 import { DiagnosisV2IntroCard } from '@/components/chat/cards/DiagnosisV2IntroCard';
+import { DiagnosisV2LoginPromptCard } from '@/components/chat/cards/DiagnosisV2LoginPromptCard';
 import { DiagnosisV2PhotoPromptCard } from '@/components/chat/cards/DiagnosisV2PhotoPromptCard';
-import { DiagnosisV2ThinkingCard } from '@/components/chat/cards/DiagnosisV2ThinkingCard';
 import { DiagnosisV2ResultCard } from '@/components/chat/cards/DiagnosisV2ResultCard';
+import { DiagnosisV2ThinkingCard } from '@/components/chat/cards/DiagnosisV2ThinkingCard';
 import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
 import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
@@ -92,7 +92,18 @@ import {
 import { buildChatSession } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
-import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
+import type {
+  DiagnosisResult,
+  DiagnosisV2ResultPayload,
+  DiagnosisV2ThinkingStep,
+  FlowState,
+  Language as UiLanguage,
+  Offer,
+  Product,
+  Session,
+  SkinConcern,
+  SkinType,
+} from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { AURORA_AUTH_SESSION_CHANGED_EVENT, clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import {
@@ -165,6 +176,21 @@ type ChatItem =
   | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
   | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: ReturnWelcomeSummary | null };
 
+type DiagnosisV2FlowState = {
+  goals: string[];
+  customInput?: string;
+  followupAnswers: Record<string, unknown>;
+  resultPayload: DiagnosisV2ResultPayload | null;
+  routineSkeleton: Record<string, unknown> | null;
+  checkinBinding: Record<string, unknown> | null;
+};
+
+type DiagnosisV2AuthResumeState = {
+  goals: string[];
+  customInput?: string;
+  userText?: string;
+};
+
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
   block: RecoBlockType;
@@ -200,41 +226,6 @@ const makeEmptyRoutineDraft = (): RoutineDraft => ({
   pm: { cleanser: emptySlot(), treatment: emptySlot(), moisturizer: emptySlot() },
   notes: '',
 });
-
-const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | null => {
-  if (!currentRoutine || typeof currentRoutine !== 'object') return null;
-  const raw = currentRoutine as Record<string, unknown>;
-  if (raw.schema_version !== 'aurora.routine_intake.v2') return null;
-
-  const draft = makeEmptyRoutineDraft();
-
-  const fillSlots = (
-    steps: unknown,
-    target: Record<string, RoutineSlotValue>,
-  ) => {
-    if (!Array.isArray(steps)) return;
-    for (const entry of steps) {
-      if (!entry || typeof entry !== 'object') continue;
-      const step = String((entry as any).step || '').toLowerCase();
-      const product = String((entry as any).product || '').trim();
-      if (!step || !product) continue;
-      if (!(step in target)) continue;
-      const pid = String((entry as any).product_id || '').trim();
-      target[step] = {
-        text: product,
-        resolvedProduct: pid
-          ? { product_id: pid, sku_id: (entry as any).sku_id ?? null, name: product, display_name: product }
-          : null,
-      };
-    }
-  };
-
-  fillSlots(raw.am, draft.am as unknown as Record<string, RoutineSlotValue>);
-  fillSlots(raw.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
-  draft.notes = String(raw.notes || '').trim();
-
-  return hasAnyRoutineDraftInput(draft) ? draft : null;
-};
 
 const slotText = (slot: RoutineSlotValue): string => String(slot?.text || '').trim();
 
@@ -343,6 +334,13 @@ const toBffErrorMessage = (err: unknown): string => {
     return err.message;
   }
   return err instanceof Error ? err.message : String(err);
+};
+
+const shouldFallbackToLegacyDiagnosis = (err: unknown): boolean => {
+  if (!(err instanceof PivotaAgentBffError)) return false;
+  if (err.status === 404) return true;
+  const body = err.responseBody as any;
+  return String(body?.error || '').trim() === 'DIAGNOSIS_V2_NOT_ENABLED';
 };
 
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
@@ -626,7 +624,6 @@ const iconForChip = (chipId: string): IconType => {
   if (id.includes('dupe')) return Copy;
   if (id.includes('ingredient')) return FlaskConical;
   if (id.startsWith('chip.clarify.')) return HelpCircle;
-  if (id.includes('deep_dive_skin')) return Activity;
   if (id.startsWith('chip.aurora.next_action.')) return ArrowRight;
   return ArrowRight;
 };
@@ -4163,6 +4160,11 @@ function BffCardView({
     return <DiagnosisV2PhotoPromptCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
+  if (cardType === 'diagnosis_v2_thinking') {
+    const steps = Array.isArray((payload as any)?.steps) ? ((payload as any).steps as DiagnosisV2ThinkingStep[]) : [];
+    return <DiagnosisV2ThinkingCard steps={steps} language={language} />;
+  }
+
   if (cardType === 'diagnosis_v2_result') {
     return <DiagnosisV2ResultCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
@@ -5386,13 +5388,6 @@ function BffCardView({
               </div>
             ) : null}
 
-            {(assessment as any)?.ingredient_plan_conflict?.flagged ? (
-              <div className="mt-2 rounded-lg border border-amber-400/40 bg-amber-50/60 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-900/20 dark:text-amber-300">
-                <span className="font-semibold">{language === 'CN' ? '成分计划冲突：' : 'Ingredient plan conflict: '}</span>
-                {asString((assessment as any)?.ingredient_plan_conflict?.note)}
-              </div>
-            ) : null}
-
             {isV4Payload && v4TopTakeaways.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '核心结论' : 'Key takeaways'}</div>
@@ -6476,24 +6471,42 @@ export default function BffChat() {
     [navigate],
   );
 
-  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'profile' | 'checkin';
+  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'profile' | 'checkin' | 'diagnosis_v2';
   const searchParams = useMemo(() => {
     try {
       const sp = new URLSearchParams(location.search);
       const openRaw = String(sp.get('open') || '').trim().toLowerCase();
+      const goalsRaw = String(sp.get('goals') || '').trim();
+      let diagnosisGoals: string[] = [];
+      if (goalsRaw) {
+        try {
+          const parsedGoals = JSON.parse(goalsRaw);
+          if (Array.isArray(parsedGoals)) {
+            diagnosisGoals = parsedGoals.map((goal) => String(goal || '').trim()).filter(Boolean);
+          }
+        } catch {
+          diagnosisGoals = [];
+        }
+      }
       return {
         brief_id: String(sp.get('brief_id') || '').trim(),
         trace_id: String(sp.get('trace_id') || '').trim(),
         q: String(sp.get('q') || '').trim(),
         chip_id: String(sp.get('chip_id') || '').trim(),
         open: (
-          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'profile' || openRaw === 'checkin'
+          openRaw === 'photo' ||
+          openRaw === 'routine' ||
+          openRaw === 'auth' ||
+          openRaw === 'profile' ||
+          openRaw === 'checkin' ||
+          openRaw === 'diagnosis_v2'
             ? openRaw
             : null
         ) as DeepLinkOpen | null,
+        diagnosis_goals: diagnosisGoals,
       };
     } catch {
-      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null };
+      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null, diagnosis_goals: [] as string[] };
     }
   }, [location.search]);
 
@@ -6591,6 +6604,15 @@ export default function BffChat() {
   const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
   const [alternativesSheetOpen, setAlternativesSheetOpen] = useState(false);
   const [alternativesSheetTracks, setAlternativesSheetTracks] = useState<ProductAlternativeTrack[]>([]);
+  const diagnosisV2StateRef = useRef<DiagnosisV2FlowState>({
+    goals: [],
+    customInput: undefined,
+    followupAnswers: {},
+    resultPayload: null,
+    routineSkeleton: null,
+    checkinBinding: null,
+  });
+  const diagnosisV2AuthResumeRef = useRef<DiagnosisV2AuthResumeState | null>(null);
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '' });
@@ -6630,6 +6652,23 @@ export default function BffChat() {
       return { ...restHeaders, lang: language, ...(token ? { auth_token: token } : {}) };
     },
     [headers, language],
+  );
+
+  const buildDiagnosisFetchHeaders = useCallback(
+    (authToken?: string | null, accept = 'application/json') => {
+      const requestHeaders = buildRequestHeaders(authToken);
+      return {
+        Accept: accept,
+        'Content-Type': 'application/json',
+        'X-Aurora-Uid': requestHeaders.aurora_uid ?? '',
+        'X-Trace-ID': requestHeaders.trace_id,
+        'X-Brief-ID': requestHeaders.brief_id,
+        'X-Lang': requestHeaders.lang,
+        'X-Aurora-Lang': requestHeaders.lang === 'CN' ? 'cn' : 'en',
+        ...(requestHeaders.auth_token ? { Authorization: `Bearer ${requestHeaders.auth_token}` } : {}),
+      };
+    },
+    [buildRequestHeaders],
   );
 
   useEffect(() => {
@@ -6843,10 +6882,7 @@ export default function BffChat() {
           ? { ...prev }
           : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
 
-        if (profilePatch) {
-          const baseProfile = asObject(merged.profile) || {};
-          merged.profile = { ...baseProfile, ...profilePatch };
-        }
+        if (profilePatch) merged.profile = profilePatch;
 
         const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
         if (recentLogs.length) merged.recent_logs = recentLogs;
@@ -8179,6 +8215,434 @@ export default function BffChat() {
     ]
   );
 
+  const sendDiagnosisV2Telemetry = useCallback(
+    async (
+      events: Array<{
+        event_name: string;
+        diagnosis_id?: string | null;
+        data?: Record<string, unknown>;
+      }>,
+    ) => {
+      if (!Array.isArray(events) || events.length === 0) return;
+      try {
+        const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
+        await bffJson<{ ok: boolean; accepted: number }>('/v1/diagnosis/telemetry', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({
+            events: events.map((event) => ({
+              event_name: event.event_name,
+              diagnosis_id: event.diagnosis_id ?? null,
+              timestamp: Date.now(),
+              data: event.data ?? {},
+            })),
+          }),
+          timeoutMs: 5000,
+        });
+      } catch {
+        // Telemetry must not block the user flow.
+      }
+    },
+    [authSession?.token, buildRequestHeaders],
+  );
+
+  const appendDiagnosisV2Card = useCallback((cardType: string, payload: Record<string, unknown>, replaceItemId?: string | null) => {
+    setItems((prev) => {
+      const base = replaceItemId ? prev.filter((item) => item.id !== replaceItemId) : prev;
+      return [
+        ...base,
+        {
+          id: nextId(),
+          role: 'assistant',
+          kind: 'cards',
+          cards: [{ card_id: `${cardType}_${Date.now()}`, type: cardType, payload }],
+        },
+      ];
+    });
+  }, []);
+
+  const appendLegacyDiagnosisGate = useCallback(() => {
+    setSessionState('S2_DIAGNOSIS');
+    setItems((prev) => [
+      ...prev,
+      {
+        id: nextId(),
+        role: 'assistant',
+        kind: 'cards',
+        cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
+      },
+    ]);
+  }, []);
+
+  const startDiagnosisV2 = useCallback(
+    async ({
+      goals,
+      customInput,
+      skipLogin,
+      authTokenOverride,
+      userText,
+    }: {
+      goals: string[];
+      customInput?: string;
+      skipLogin?: boolean;
+      authTokenOverride?: string | null;
+      userText?: string;
+    }) => {
+      const normalizedGoals = Array.isArray(goals) ? goals.map((goal) => String(goal || '').trim()).filter(Boolean) : [];
+      if (normalizedGoals.length === 0) {
+        setError(language === 'CN' ? '请至少选择一个护肤目标' : 'Please select at least one skincare goal');
+        return;
+      }
+
+      diagnosisV2StateRef.current = {
+        goals: normalizedGoals,
+        customInput: customInput || undefined,
+        followupAnswers: {},
+        resultPayload: null,
+        routineSkeleton: null,
+        checkinBinding: null,
+      };
+
+      if (userText) {
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+      }
+
+      setSessionState('S2_DIAGNOSIS');
+      setChatBusy(true);
+      setError(null);
+      try {
+        const resolvedAuthToken = authTokenOverride === undefined ? (authSession?.token ?? null) : authTokenOverride;
+        const requestHeaders = buildRequestHeaders(resolvedAuthToken);
+        const response = await bffJson<{
+          ok: boolean;
+          stage?: 'login_prompt' | 'intro';
+          card?: { type: string; payload: Record<string, unknown> };
+          is_cold_start?: boolean;
+        }>('/v1/diagnosis/start', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({
+            goals: normalizedGoals,
+            ...(customInput ? { custom_input: customInput } : {}),
+            ...(skipLogin ? { skip_login: true } : {}),
+            language,
+          }),
+        });
+
+        if (response?.ok && response.card?.type && response.card.payload) {
+          appendDiagnosisV2Card(response.card.type, response.card.payload);
+          void sendDiagnosisV2Telemetry([
+            {
+              event_name: skipLogin ? 'diagnosis_v2_skip_login' : 'diagnosis_v2_start',
+              diagnosis_id: diagnosisV2StateRef.current.resultPayload?.diagnosis_id ?? null,
+              data: {
+                stage: response.stage ?? null,
+                goals: normalizedGoals,
+                is_cold_start: response.is_cold_start ?? null,
+              },
+            },
+          ]);
+        }
+      } catch (err) {
+        if (shouldFallbackToLegacyDiagnosis(err)) {
+          appendLegacyDiagnosisGate();
+          return;
+        }
+        setError(toBffErrorMessage(err));
+      } finally {
+        setChatBusy(false);
+      }
+    },
+    [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildRequestHeaders, language, sendDiagnosisV2Telemetry],
+  );
+
+  useEffect(() => {
+    const pendingResume = diagnosisV2AuthResumeRef.current;
+    if (!pendingResume || !authSession?.token) return;
+    diagnosisV2AuthResumeRef.current = null;
+    void startDiagnosisV2({
+      goals: pendingResume.goals,
+      customInput: pendingResume.customInput,
+      authTokenOverride: authSession.token,
+      userText: pendingResume.userText,
+    });
+  }, [authSession?.token, startDiagnosisV2]);
+
+  const submitDiagnosisV2 = useCallback(
+    async ({
+      goals,
+      customInput,
+      followupAnswers,
+      skipPhoto,
+      userText,
+    }: {
+      goals: string[];
+      customInput?: string;
+      followupAnswers: Record<string, unknown>;
+      skipPhoto?: boolean;
+      userText?: string;
+    }) => {
+      const normalizedGoals = Array.isArray(goals) ? goals.map((goal) => String(goal || '').trim()).filter(Boolean) : [];
+      if (normalizedGoals.length === 0) {
+        setError(language === 'CN' ? '请至少选择一个护肤目标' : 'Please select at least one skincare goal');
+        return;
+      }
+
+      diagnosisV2StateRef.current.goals = normalizedGoals;
+      diagnosisV2StateRef.current.customInput = customInput || undefined;
+      diagnosisV2StateRef.current.followupAnswers = followupAnswers || {};
+
+      if (userText) {
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+      }
+
+      setChatBusy(true);
+      setError(null);
+
+      try {
+        const response = await fetch('/v1/diagnosis/answer', {
+          method: 'POST',
+          headers: buildDiagnosisFetchHeaders(authSession?.token ?? null, 'text/event-stream, application/json'),
+          body: JSON.stringify({
+            goals: normalizedGoals,
+            ...(customInput ? { custom_input: customInput } : {}),
+            followup_answers: followupAnswers || {},
+            ...(skipPhoto ? { skip_photo: true } : {}),
+            language,
+          }),
+        });
+
+        if (!response.ok) {
+          let serverMessage = '';
+          try {
+            const errorBody = await response.json();
+            serverMessage = asString((errorBody as any)?.error);
+          } catch {
+            serverMessage = '';
+          }
+          throw new Error(serverMessage || `HTTP ${response.status}`);
+        }
+
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        if (!contentType.includes('text/event-stream')) {
+          const json = await response.json();
+          if (json?.ok && json.card?.type && json.card.payload) {
+            appendDiagnosisV2Card(json.card.type, json.card.payload);
+            if (json.card.type === 'diagnosis_v2_result') {
+              diagnosisV2StateRef.current.resultPayload = json.card.payload as DiagnosisV2ResultPayload;
+            }
+            void sendDiagnosisV2Telemetry([
+              {
+                event_name: skipPhoto ? 'diagnosis_v2_skip_photo' : 'diagnosis_v2_submit',
+                diagnosis_id: diagnosisV2StateRef.current.resultPayload?.diagnosis_id ?? null,
+                data: {
+                  stage: json.stage ?? null,
+                  goals: normalizedGoals,
+                },
+              },
+            ]);
+          }
+          return;
+        }
+
+        const thinkingItemId = nextId();
+        const thinkingSteps: DiagnosisV2ThinkingStep[] = [];
+        setItems((prev) => [
+          ...prev,
+          {
+            id: thinkingItemId,
+            role: 'assistant',
+            kind: 'cards',
+            cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking', payload: { steps: [] } }],
+          },
+        ]);
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEvent = 'message';
+        let dataLines: string[] = [];
+
+        const applyThinkingSteps = () => {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === thinkingItemId
+                ? {
+                    ...item,
+                    cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking', payload: { steps: [...thinkingSteps] } }],
+                  }
+                : item,
+            ),
+          );
+        };
+
+        const flushEvent = () => {
+          if (dataLines.length === 0) {
+            currentEvent = 'message';
+            return;
+          }
+
+          try {
+            const eventPayload = JSON.parse(dataLines.join('\n'));
+            if (currentEvent === 'thinking_step') {
+              thinkingSteps.push(eventPayload as DiagnosisV2ThinkingStep);
+              applyThinkingSteps();
+            } else if (currentEvent === 'result' && eventPayload?.ok && eventPayload.card?.type === 'diagnosis_v2_result') {
+              diagnosisV2StateRef.current.resultPayload = eventPayload.card.payload as DiagnosisV2ResultPayload;
+              appendDiagnosisV2Card(eventPayload.card.type, eventPayload.card.payload, thinkingItemId);
+              void sendDiagnosisV2Telemetry([
+                {
+                  event_name: skipPhoto ? 'diagnosis_v2_skip_photo' : 'diagnosis_v2_submit',
+                  diagnosis_id: eventPayload.card.payload?.diagnosis_id ?? null,
+                  data: {
+                    stage: eventPayload.stage ?? 'result',
+                    goals: normalizedGoals,
+                  },
+                },
+              ]);
+            } else if (currentEvent === 'error') {
+              throw new Error(asString(eventPayload?.error) || 'Diagnosis failed');
+            }
+          } finally {
+            currentEvent = 'message';
+            dataLines = [];
+          }
+        };
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (!line) {
+                flushEvent();
+                continue;
+              }
+              if (line.startsWith('event:')) {
+                currentEvent = line.slice(6).trim() || 'message';
+                continue;
+              }
+              if (line.startsWith('data:')) {
+                dataLines.push(line.slice(5).trimStart());
+              }
+            }
+          }
+          flushEvent();
+        }
+      } catch (err) {
+        setError(toBffErrorMessage(err));
+      } finally {
+        setChatBusy(false);
+      }
+    },
+    [appendDiagnosisV2Card, authSession?.token, buildDiagnosisFetchHeaders, language, sendDiagnosisV2Telemetry],
+  );
+
+  const openRoutineIntakeSheet = useCallback(() => {
+    setRoutineDraft(makeEmptyRoutineDraft());
+    setRoutineTab('am');
+    setRoutineSheetOpen(true);
+  }, []);
+
+  const runDiagnosisV2RouteAction = useCallback(
+    async (actionType: 'direct_reco' | 'setup_routine' | 'start_checkin' | 'intake_optimize', payload?: Record<string, unknown>) => {
+      const resultPayload = diagnosisV2StateRef.current.resultPayload;
+      if (!resultPayload?.diagnosis_id) {
+        setError(language === 'CN' ? '缺少诊断结果，暂时无法继续' : 'Diagnosis result is missing');
+        return;
+      }
+
+      setChatBusy(true);
+      setError(null);
+
+      try {
+        const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
+        let routineSkeleton = diagnosisV2StateRef.current.routineSkeleton;
+
+        if (actionType === 'setup_routine') {
+          const blueprintResult = await bffJson<{ ok: boolean; routine_skeleton?: Record<string, unknown> }>(
+            '/v1/diagnosis/blueprint-to-routine',
+            requestHeaders,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                diagnosis_id: resultPayload.diagnosis_id,
+                routine_blueprint: resultPayload.routine_blueprint,
+              }),
+            },
+          );
+          routineSkeleton = asObject(blueprintResult?.routine_skeleton);
+          diagnosisV2StateRef.current.routineSkeleton = routineSkeleton;
+        }
+
+        if (actionType === 'start_checkin') {
+          const bindResult = await bffJson<{ ok: boolean; binding?: Record<string, unknown> }>(
+            '/v1/diagnosis/bind-checkin',
+            requestHeaders,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                diagnosis_id: resultPayload.diagnosis_id,
+              }),
+            },
+          );
+          diagnosisV2StateRef.current.checkinBinding = asObject(bindResult?.binding);
+        }
+
+        const routeResult = await bffJson<{
+          ok: boolean;
+          redirect_to?: string;
+          action?: V1Action;
+        }>('/v1/diagnosis/route-action', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({
+            action_type: actionType,
+            diagnosis_id: resultPayload.diagnosis_id,
+            goal_profile: resultPayload.goal_profile,
+            routine_blueprint: resultPayload.routine_blueprint,
+            ...(routineSkeleton ? { routine_skeleton: routineSkeleton } : {}),
+            ...(payload ? { payload } : {}),
+          }),
+        });
+
+        const nextAction = routeResult?.action;
+        if (!nextAction) {
+          throw new Error(language === 'CN' ? '路由动作缺失' : 'Missing routed action');
+        }
+
+        void sendDiagnosisV2Telemetry([
+          {
+            event_name: 'diagnosis_v2_result_action',
+            diagnosis_id: resultPayload.diagnosis_id,
+            data: {
+              action_type: actionType,
+              redirect_to: routeResult.redirect_to ?? null,
+            },
+          },
+        ]);
+
+        const normalizedActionId = normalizeChipToken(nextAction.action_id);
+        if (normalizedActionId === 'chip.start.routine') {
+          openRoutineIntakeSheet();
+          return;
+        }
+        if (normalizedActionId === 'chip.start.checkin') {
+          setCheckinSheetOpen(true);
+          return;
+        }
+
+        await sendChat(undefined, nextAction);
+      } catch (err) {
+        setError(toBffErrorMessage(err));
+      } finally {
+        setChatBusy(false);
+      }
+    },
+    [authSession?.token, buildRequestHeaders, language, openRoutineIntakeSheet, sendChat, sendDiagnosisV2Telemetry],
+  );
+
   const parseMaybeUrl = useCallback((text: string) => {
     const t = String(text || '').trim();
     if (!t) return null;
@@ -8364,15 +8828,6 @@ export default function BffChat() {
     [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
   );
 
-  const openRoutineIntakeSheet = useCallback(() => {
-    const profileRoutine = (profileSnapshot ?? bootstrapInfo?.profile) as Record<string, unknown> | null | undefined;
-    const currentRoutine = profileRoutine?.currentRoutine;
-    const prefilled = buildRoutineDraftFromProfile(currentRoutine);
-    setRoutineDraft(prefilled ?? makeEmptyRoutineDraft());
-    setRoutineTab('am');
-    setRoutineSheetOpen(true);
-  }, [profileSnapshot, bootstrapInfo?.profile]);
-
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
       const resolvedActionId =
@@ -8486,127 +8941,102 @@ export default function BffChat() {
         return;
       }
 
-      // ── Diagnosis V2 Actions ──
-
       if (actionId === 'login_then_diagnose') {
-        const pendingGoals = (data as any)?.pending_goals || (data as any)?.return_to_goals || [];
-        const returnUrl = `${window.location.pathname}?open=diagnosis_v2&goals=${encodeURIComponent(JSON.stringify(pendingGoals))}`;
-        window.location.href = `/login?return_to=${encodeURIComponent(returnUrl)}`;
+        const pendingGoalsRaw = Array.isArray((data as any)?.pending_goals)
+          ? (data as any).pending_goals
+          : diagnosisV2StateRef.current.goals;
+        const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
+        if (authSession?.token) {
+          await startDiagnosisV2({
+            goals: pendingGoals,
+            customInput: diagnosisV2StateRef.current.customInput,
+            authTokenOverride: authSession.token,
+          });
+          return;
+        }
+        diagnosisV2AuthResumeRef.current = {
+          goals: pendingGoals,
+          customInput: diagnosisV2StateRef.current.customInput,
+          userText: language === 'CN' ? '登录后继续诊断' : 'Continue diagnosis after sign in',
+        };
+        resetAuthUi(authDraft.email);
+        setAuthSheetOpen(true);
         return;
       }
 
-      if (actionId === 'skip_login' || actionId === 'diagnosis_v2_skip') {
+      if (actionId === 'skip_login') {
+        diagnosisV2AuthResumeRef.current = null;
+        const pendingGoalsRaw = Array.isArray((data as any)?.pending_goals)
+          ? (data as any).pending_goals
+          : diagnosisV2StateRef.current.goals;
+        const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
+        await startDiagnosisV2({
+          goals: pendingGoals,
+          customInput: diagnosisV2StateRef.current.customInput,
+          skipLogin: true,
+          userText: language === 'CN' ? '先不登录，直接开始' : 'Skip login and continue',
+        });
+        return;
+      }
+
+      if (actionId === 'diagnosis_v2_skip') {
+        diagnosisV2AuthResumeRef.current = null;
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过' : 'Skip' },
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过这一步' : 'Skip this step' },
         ]);
         setSessionState('idle');
         return;
       }
 
       if (actionId === 'diagnosis_v2_submit') {
-        const goals = Array.isArray((data as any)?.goals) ? (data as any).goals : [];
-        const customInput = typeof (data as any)?.customInput === 'string' ? (data as any).customInput : undefined;
-        const followupAnswers = (data as any)?.followupAnswers || {};
-
-        if (goals.length === 0) {
-          setError(language === 'CN' ? '请至少选择一个护肤目标' : 'Please select at least one skincare goal');
-          return;
-        }
-
-        setItems((prev) => [
-          ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? `开始分析：${goals.join('、')}` : `Analyzing: ${goals.join(', ')}` },
-        ]);
-
-        try {
-          const resp = await fetch('/v1/diagnosis/answer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(window._auroraAuthHeaders?.() || {}) },
-            body: JSON.stringify({ goals, custom_input: customInput, followup_answers: followupAnswers, language }),
-          });
-
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-          if (resp.headers.get('content-type')?.includes('text/event-stream')) {
-            const reader = resp.body?.getReader();
-            const decoder = new TextDecoder();
-            const thinkingSteps: any[] = [];
-            const thinkingItemId = nextId();
-
-            setItems((prev) => [
-              ...prev,
-              { id: thinkingItemId, role: 'assistant', kind: 'cards', cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking' as any, payload: { steps: thinkingSteps } }] },
-            ]);
-
-            if (reader) {
-              let buffer = '';
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                  if (line.startsWith('data: ')) {
-                    try {
-                      const eventData = JSON.parse(line.slice(6));
-                      if (line.includes('thinking_step') || eventData.stage) {
-                        thinkingSteps.push(eventData);
-                        setItems((prev) => prev.map((item) =>
-                          item.id === thinkingItemId
-                            ? { ...item, cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking' as any, payload: { steps: [...thinkingSteps] } }] }
-                            : item,
-                        ));
-                      }
-                      if (eventData.ok && eventData.card?.type === 'diagnosis_v2_result') {
-                        setItems((prev) => [
-                          ...prev.filter((item) => item.id !== thinkingItemId),
-                          { id: nextId(), role: 'assistant', kind: 'cards', cards: [{ card_id: `result_${Date.now()}`, type: 'diagnosis_v2_result', payload: eventData.card.payload }] },
-                        ]);
-                      }
-                    } catch (_) { /* ignore parse errors */ }
-                  }
-                }
-              }
-            }
-          } else {
-            const json = await resp.json();
-            if (json.ok && json.card) {
-              setItems((prev) => [
-                ...prev,
-                { id: nextId(), role: 'assistant', kind: 'cards', cards: [{ card_id: `diag_v2_${Date.now()}`, type: json.card.type, payload: json.card.payload }] },
-              ]);
-            }
-          }
-        } catch (err) {
-          setError(language === 'CN' ? '分析出错，请重试' : 'Analysis failed, please retry');
-        }
+        const goals = Array.isArray((data as any)?.goals) ? (data as any).goals.map((goal: unknown) => String(goal || '').trim()).filter(Boolean) : [];
+        const customInput = typeof (data as any)?.customInput === 'string' ? (data as any).customInput.trim() : undefined;
+        const followupAnswers = asObject((data as any)?.followupAnswers) || {};
+        await submitDiagnosisV2({
+          goals,
+          customInput,
+          followupAnswers,
+          userText: language === 'CN' ? `开始分析：${goals.join('、')}` : `Analyzing: ${goals.join(', ')}`,
+        });
         return;
       }
 
       if (actionId === 'take_photo') {
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '准备拍照' : 'Taking photo' },
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '我来上传照片' : 'I will add photos' },
         ]);
+        void sendDiagnosisV2Telemetry([
+          {
+            event_name: 'diagnosis_v2_take_photo',
+            diagnosis_id: diagnosisV2StateRef.current.resultPayload?.diagnosis_id ?? null,
+            data: { goals: diagnosisV2StateRef.current.goals },
+          },
+        ]);
+        handlePickPhoto();
         return;
       }
 
       if (actionId === 'skip_photo') {
-        setItems((prev) => [
-          ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过拍照，直接分析' : 'Skip photo, analyze now' },
-        ]);
+        await submitDiagnosisV2({
+          goals: diagnosisV2StateRef.current.goals,
+          customInput: diagnosisV2StateRef.current.customInput,
+          followupAnswers: diagnosisV2StateRef.current.followupAnswers,
+          skipPhoto: true,
+          userText: language === 'CN' ? '跳过照片，继续分析' : 'Skip photo and continue',
+        });
         return;
       }
 
-      if (actionId === 'direct_reco' || actionId === 'setup_routine' || actionId === 'start_checkin' || actionId === 'intake_optimize') {
-        await sendChat(undefined, {
-          action_id: `chip.action.${actionId}`,
-          kind: 'action',
-          data: data || {},
-        });
+      if (
+        actionId === 'direct_reco' ||
+        actionId === 'setup_routine' ||
+        actionId === 'start_checkin' ||
+        actionId === 'intake_optimize' ||
+        actionId === 'add_travel'
+      ) {
+        await runDiagnosisV2RouteAction(actionId === 'add_travel' ? 'intake_optimize' : actionId, data);
         return;
       }
 
@@ -9152,7 +9582,23 @@ export default function BffChat() {
 
       await sendChat(undefined, { action_id: resolvedActionId, kind: 'action', data });
     },
-    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, headers, language, openRoutineIntakeSheet, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyEnvelope,
+      handlePickPhoto,
+      headers,
+      language,
+      openRoutineIntakeSheet,
+      runDiagnosisV2RouteAction,
+      sendChat,
+      sendDiagnosisV2Telemetry,
+      setAgentStateSafe,
+      startDiagnosisV2,
+      submitDiagnosisV2,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
 
   const onProductPicksPrimary = useCallback(async () => {
@@ -9650,17 +10096,11 @@ export default function BffChat() {
       }
 
       if (id === 'chip_start_diagnosis' || id === 'chip.start.diagnosis') {
-        setSessionState('S2_DIAGNOSIS');
-        setItems((prev) => [
-          ...stripReturnWelcome(prev),
-          userItem,
-          {
-            id: nextId(),
-            role: 'assistant',
-            kind: 'cards',
-            cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
-          },
-        ]);
+        setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+        await startDiagnosisV2({
+          goals: ['barrier_repair'],
+          userText: undefined,
+        });
         return;
       }
 
@@ -9772,6 +10212,7 @@ export default function BffChat() {
       authSession,
       persistQuickProfilePatch,
       setAgentStateSafe,
+      startDiagnosisV2,
     ]
   );
 
@@ -9866,7 +10307,14 @@ export default function BffChat() {
       return;
     }
 
-    const sig = [searchParams.brief_id, searchParams.trace_id, searchParams.open].map((v) => String(v || '')).join('|');
+    const sig = [
+      searchParams.brief_id,
+      searchParams.trace_id,
+      searchParams.open,
+      searchParams.diagnosis_goals.join(','),
+    ]
+      .map((v) => String(v || ''))
+      .join('|');
     if (openIntentConsumedRef.current === sig) return;
     openIntentConsumedRef.current = sig;
 
@@ -9888,6 +10336,11 @@ export default function BffChat() {
       resetAuthUi(authDraft.email);
       setAuthSheetOpen(true);
     }
+    if (searchParams.open === 'diagnosis_v2') {
+      void startDiagnosisV2({
+        goals: searchParams.diagnosis_goals.length ? searchParams.diagnosis_goals : ['barrier_repair'],
+      });
+    }
     const suppressRoutineAutoChip = searchParams.open === 'routine' && searchParams.chip_id === 'chip.start.routine';
 
     try {
@@ -9895,6 +10348,10 @@ export default function BffChat() {
       let changed = false;
       if (sp.has('open')) {
         sp.delete('open');
+        changed = true;
+      }
+      if (sp.has('goals')) {
+        sp.delete('goals');
         changed = true;
       }
       if (suppressRoutineAutoChip && sp.get('chip_id') === 'chip.start.routine') {
@@ -9916,7 +10373,7 @@ export default function BffChat() {
     } catch {
       // ignore
     }
-  }, [authDraft.email, headers.brief_id, headers.trace_id, navigate, openRoutineIntakeSheet, resetAuthUi, searchParams]);
+  }, [authDraft.email, headers.brief_id, headers.trace_id, navigate, openRoutineIntakeSheet, resetAuthUi, searchParams, startDiagnosisV2]);
 
   useEffect(() => {
     if (!hasBootstrapped) return;
@@ -10160,8 +10617,12 @@ export default function BffChat() {
           <Sheet
             open={authSheetOpen}
             title={language === 'CN' ? '登录 / 账户' : 'Sign in / Account'}
-            onClose={() => setAuthSheetOpen(false)}
+            onClose={() => {
+              diagnosisV2AuthResumeRef.current = null;
+              setAuthSheetOpen(false);
+            }}
             onOpenMenu={() => {
+              diagnosisV2AuthResumeRef.current = null;
               setAuthSheetOpen(false);
               setSidebarOpen(true);
             }}
