@@ -78,6 +78,13 @@ describe("aurora ui contracts", () => {
             reapply_rule: "Every 2 hours outdoors",
           },
         ],
+        category_recommendations: [
+          {
+            category: "sun_protection",
+            why: "UV is elevated",
+            products: [{ name: "SPF stick", ingredient_logic: "portable touch-up", usage: "Midday reapply" }],
+          },
+        ],
         store_examples: [{ name: "Matsukiyo", type: "Drugstore", district: "Shibuya", source: "curated_reference" }],
         shopping_preview: {
           products: [
@@ -98,6 +105,7 @@ describe("aurora ui contracts", () => {
         },
         structured_sections: {
           routine_adjustments: ["Switch to lighter AM moisturizer"],
+          travel_kit: ["【Sun protection】 SPF50+ fluid + SPF stick"],
           packing_list: ["SPF50+", "Barrier cream"],
         },
         confidence: {
@@ -117,6 +125,8 @@ describe("aurora ui contracts", () => {
     expect(model?.travel_readiness?.forecast_window?.[0]?.date).toBe("2026-03-01");
     expect(model?.travel_readiness?.alerts?.[0]?.severity).toBe("orange");
     expect(model?.travel_readiness?.reco_bundle?.[0]?.trigger).toBe("Elevated UV");
+    expect(model?.travel_readiness?.category_recommendations?.[0]?.category).toBe("sun_protection");
+    expect(model?.travel_readiness?.category_recommendations?.[0]?.products?.[0]?.name).toBe("SPF stick");
     expect(model?.travel_readiness?.store_examples?.[0]?.name).toBe("Matsukiyo");
     expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.name).toBe("Barrier Cream");
     expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.product_source).toBe("llm_generated");
@@ -125,6 +135,7 @@ describe("aurora ui contracts", () => {
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[1]?.match_status).toBe("llm_only");
     expect(model?.travel_readiness?.shopping_preview?.buying_channels).toEqual(["beauty_retail", "ecommerce"]);
     expect(model?.travel_readiness?.structured_sections?.routine_adjustments).toEqual(["Switch to lighter AM moisturizer"]);
+    expect(model?.travel_readiness?.structured_sections?.travel_kit).toEqual(["【Sun protection】 SPF50+ fluid + SPF stick"]);
     expect(model?.travel_readiness?.structured_sections?.packing_list).toEqual(["SPF50+", "Barrier cream"]);
     expect(model?.travel_readiness?.confidence?.missing_inputs).toContain("currentRoutine");
   });
