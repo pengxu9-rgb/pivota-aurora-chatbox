@@ -138,6 +138,12 @@ export type TravelReadinessV1 = {
     mask_tips?: string[];
   };
   reco_bundle?: TravelRecoBundleItem[];
+  category_recommendations?: {
+    category: string;
+    why?: string | null;
+    products?: { name: string | null; ingredient_logic?: string | null; usage?: string | null }[];
+    skip_reason?: string | null;
+  }[];
   store_examples?: TravelStoreExample[];
   shopping_preview?: {
     products?: TravelReadinessProductPreviewItem[];
@@ -154,6 +160,7 @@ export type TravelReadinessV1 = {
     active_handling?: string[];
     phased_plan?: string[];
     packing_list?: string[];
+    travel_kit?: string[];
     product_guidance?: string[];
     troubleshooting?: string[];
   };

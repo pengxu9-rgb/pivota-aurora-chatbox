@@ -64,6 +64,9 @@ describe('EnvStressCard travel readiness', () => {
               city_hint: 'Paris',
             },
             store_examples: [{ name: 'Matsukiyo', type: 'Drugstore', district: 'Shibuya' }],
+            structured_sections: {
+              travel_kit: ['【Sun protection】 SPF50+ fluid + SPF stick', 'Barrier Cream'],
+            },
             confidence: {
               level: 'medium',
               missing_inputs: ['recent_logs'],
@@ -92,6 +95,9 @@ describe('EnvStressCard travel readiness', () => {
     expect(screen.getByText('Where to buy')).toBeInTheDocument();
     expect(screen.getByText('Example stores')).toBeInTheDocument();
     expect(screen.getByText(/Matsukiyo/i)).toBeInTheDocument();
+    expect(screen.getByText('Travel skincare kit')).toBeInTheDocument();
+    expect(screen.getByText('【Sun protection】')).toHaveClass('font-semibold');
+    expect(screen.getByText(/SPF50\+ fluid \+ SPF stick/)).toBeInTheDocument();
     expect(screen.getByText('Want a more accurate signal? Add a quick check-in.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'See full recommendations' }));
@@ -122,7 +128,7 @@ describe('EnvStressCard travel readiness', () => {
   });
 
   it('renders contributor bars/chips when drivers exist and shows match-status badge correctly', () => {
-    render(
+    const { rerender } = render(
       <EnvStressCard
         payload={{
           schema_version: 'aurora.ui.env_stress.v1',
@@ -137,6 +143,9 @@ describe('EnvStressCard travel readiness', () => {
           notes: [],
           travel_readiness: {
             destination_context: { destination: 'Paris' },
+            structured_sections: {
+              product_guidance: ['Barrier Cream', 'SPF stick'],
+            },
             shopping_preview: {
               products: [
                 {
@@ -158,5 +167,45 @@ describe('EnvStressCard travel readiness', () => {
     expect(screen.queryByText('Why this score (expand)')).not.toBeInTheDocument();
     expect(screen.getByText('Humidity: 55.6%')).toBeInTheDocument();
     expect(screen.getByText('Catalog verified')).toBeInTheDocument();
+    expect(screen.getByText('Travel skincare kit')).toBeInTheDocument();
+    expect(screen.getByText(/SPF stick/)).toBeInTheDocument();
+
+    rerender(
+      <EnvStressCard
+        payload={{
+          schema_version: 'aurora.ui.env_stress.v1',
+          ess: 32,
+          tier: 'Medium',
+          tier_description: 'Medium stress: expect mild irritation/dryness.',
+          radar: [
+            { axis: 'Weather', value: 46, drivers: ['Temp: 19C', 'Humidity: 55.6%'] },
+            { axis: 'UV', value: 28, drivers: ['UV index: 4.1'] },
+            { axis: 'Barrier', value: 18, drivers: ['Drier than home'] },
+          ],
+          notes: [],
+          travel_readiness: {
+            destination_context: { destination: 'Paris' },
+            structured_sections: {
+              packing_list: ['Travel SPF50+'],
+            },
+            shopping_preview: {
+              products: [
+                {
+                  product_id: 'prod_2',
+                  name: 'Daily SPF Fluid',
+                  brand: 'Aurora Lab',
+                  product_source: 'catalog',
+                  match_status: 'catalog_verified',
+                  reasons: ['UV support'],
+                },
+              ],
+            },
+          },
+        }}
+        language="EN"
+      />,
+    );
+
+    expect(screen.getByText(/Travel SPF50\+/)).toBeInTheDocument();
   });
 });
