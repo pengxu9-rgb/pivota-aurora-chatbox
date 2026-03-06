@@ -8723,6 +8723,12 @@ export default function BffChat() {
     [appendDiagnosisV2Card, authSession?.token, buildDiagnosisFetchHeaders, language, sendDiagnosisV2Telemetry],
   );
 
+  const openRoutineIntakeSheet = useCallback(() => {
+    setRoutineDraft(makeEmptyRoutineDraft());
+    setRoutineTab('am');
+    setRoutineSheetOpen(true);
+  }, []);
+
   const runDiagnosisV2RouteAction = useCallback(
     async (actionType: 'direct_reco' | 'setup_routine' | 'start_checkin' | 'intake_optimize', payload?: Record<string, unknown>) => {
       const resultPayload = diagnosisV2StateRef.current.resultPayload;
@@ -9004,12 +9010,6 @@ export default function BffChat() {
     },
     [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
   );
-
-  const openRoutineIntakeSheet = useCallback(() => {
-    setRoutineDraft(makeEmptyRoutineDraft());
-    setRoutineTab('am');
-    setRoutineSheetOpen(true);
-  }, []);
 
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
