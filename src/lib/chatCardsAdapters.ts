@@ -1,4 +1,8 @@
 import type {
+  DiagnosisV2IntroPayload,
+  DiagnosisV2LoginPromptPayload,
+  DiagnosisV2PhotoPromptPayload,
+  DiagnosisV2ResultPayload,
   DiagnosisResult,
   Language,
   MechanismVector,
@@ -86,6 +90,11 @@ export type NudgeAdapterData = {
   };
 };
 
+export type DiagnosisV2LoginPromptAdapterData = DiagnosisV2LoginPromptPayload;
+export type DiagnosisV2IntroAdapterData = DiagnosisV2IntroPayload;
+export type DiagnosisV2PhotoPromptAdapterData = DiagnosisV2PhotoPromptPayload;
+export type DiagnosisV2ResultAdapterData = DiagnosisV2ResultPayload;
+
 export type ChatCardsAdapterHit =
   | { kind: 'compatibility'; data: CompatibilityAdapterData }
   | { kind: 'routine'; data: RoutineAdapterData }
@@ -94,7 +103,11 @@ export type ChatCardsAdapterHit =
   | { kind: 'skin_status'; data: SkinStatusAdapterData }
   | { kind: 'effect_review'; data: EffectReviewAdapterData }
   | { kind: 'triage'; data: TriageAdapterData }
-  | { kind: 'nudge'; data: NudgeAdapterData };
+  | { kind: 'nudge'; data: NudgeAdapterData }
+  | { kind: 'diagnosis_v2_login_prompt'; data: DiagnosisV2LoginPromptAdapterData }
+  | { kind: 'diagnosis_v2_intro'; data: DiagnosisV2IntroAdapterData }
+  | { kind: 'diagnosis_v2_photo_prompt'; data: DiagnosisV2PhotoPromptAdapterData }
+  | { kind: 'diagnosis_v2_result'; data: DiagnosisV2ResultAdapterData };
 
 const asObject = (value: unknown): AnyRecord | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -862,6 +875,22 @@ export function adaptChatCardForRichRender({
   if (normalizedType === 'nudge') {
     const adapted = adaptNudge(payload, sections);
     return adapted ? { kind: 'nudge', data: adapted } : null;
+  }
+
+  if (normalizedType === 'diagnosis_v2_login_prompt') {
+    return payload ? { kind: 'diagnosis_v2_login_prompt', data: payload as DiagnosisV2LoginPromptPayload } : null;
+  }
+
+  if (normalizedType === 'diagnosis_v2_intro') {
+    return payload ? { kind: 'diagnosis_v2_intro', data: payload as DiagnosisV2IntroPayload } : null;
+  }
+
+  if (normalizedType === 'diagnosis_v2_photo_prompt') {
+    return payload ? { kind: 'diagnosis_v2_photo_prompt', data: payload as DiagnosisV2PhotoPromptPayload } : null;
+  }
+
+  if (normalizedType === 'diagnosis_v2_result') {
+    return payload ? { kind: 'diagnosis_v2_result', data: payload as DiagnosisV2ResultPayload } : null;
   }
 
   return null;
