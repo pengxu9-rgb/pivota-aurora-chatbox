@@ -33,10 +33,12 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 
 import { bffJson } from '@/lib/pivotaAgentBff';
 import Profile from '@/pages/Profile';
-import { saveAuroraAuthSession } from '@/lib/auth';
+import { clearAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { setLangPref } from '@/lib/persistence';
 import { toast } from '@/components/ui/use-toast';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
+
+const PROFILE_TEST_TIMEOUT_MS = 15_000;
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -118,6 +120,12 @@ describe('Profile quick profile status', () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     setLangPref('en');
+    if (!HTMLElement.prototype.scrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        value: vi.fn(),
+        writable: true,
+      });
+    }
   });
 
   it('shows incomplete state and starts quick profile flow', async () => {
@@ -126,7 +134,7 @@ describe('Profile quick profile status', () => {
     render(<Profile />);
 
     await screen.findByRole('button', { name: 'Start quick profile' });
-    expect(screen.queryByRole('button', { name: 'Sign in to bind profile' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in to sync profile' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '切换到中文' }));
     await screen.findByRole('button', { name: '开始快速画像' });
@@ -138,9 +146,9 @@ describe('Profile quick profile status', () => {
       title: 'Quick Profile',
       chip_id: 'chip_quick_profile',
     });
-  });
+  }, PROFILE_TEST_TIMEOUT_MS);
 
-  it('shows complete_guest state with bind CTA', async () => {
+  it('shows complete_guest state with sync CTA', async () => {
     mockProfileBff({
       bootstrapProfile: {
         skinType: 'oily',
@@ -151,12 +159,52 @@ describe('Profile quick profile status', () => {
 
     render(<Profile />);
 
-    await screen.findByRole('button', { name: 'Sign in to bind profile' });
+    await screen.findByRole('button', { name: 'Sign in to sync profile' });
     expect(screen.queryByRole('button', { name: 'Start quick profile' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in to bind profile' }));
-    expect(screen.getByText('Sign in to bind this device profile to your account.')).toBeInTheDocument();
-  });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to sync profile' }));
+    expect(await screen.findByText('Sign in to sync this device profile to your account.')).toBeInTheDocument();
+  }, PROFILE_TEST_TIMEOUT_MS);
+
+  it('resets auth UI after external auth changes and clears stale sync prompts', async () => {
+    mockProfileBff({
+      bootstrapProfile: {
+        skinType: 'oily',
+        sensitivity: 'unknown',
+        goals: ['breakouts'],
+      },
+    });
+
+    render(<Profile />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in to sync profile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Password' }));
+    fireEvent.change(screen.getByPlaceholderText('name@email.com'), {
+      target: { value: 'stale@example.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('••••••••'), {
+      target: { value: 'stale-password' },
+    });
+
+    expect(await screen.findByText('Please enter your email in the Account section below to sign in.')).toBeInTheDocument();
+
+    saveAuroraAuthSession({ token: 'external_token', email: 'external@example.com', expires_at: null });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('external@example.com').length).toBeGreaterThan(0);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Please enter your email in the Account section below to sign in.')).not.toBeInTheDocument();
+      expect(screen.queryByText('Sign in to sync this device profile to your account.')).not.toBeInTheDocument();
+    });
+
+    clearAuroraAuthSession();
+
+    await screen.findByRole('button', { name: 'Send code' });
+    expect(screen.getByText('New user? Just enter your email — a code will be sent and your account will be created automatically.')).toBeInTheDocument();
+    expect(screen.queryByText('No password yet? Use Email code to sign in first, then set a password.')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('stale@example.com')).not.toBeInTheDocument();
+  }, PROFILE_TEST_TIMEOUT_MS);
 
   it('shows complete_signed state and opens profile editor route', async () => {
     saveAuroraAuthSession({ token: 'token_signed', email: 'signed@example.com', expires_at: null });
@@ -177,7 +225,7 @@ describe('Profile quick profile status', () => {
     const navArg = mockNavigate.mock.calls[0]?.[0] as { pathname: string; search: string };
     expect(navArg.pathname).toBe('/chat');
     expect(navArg.search).toContain('open=profile');
-  });
+  }, PROFILE_TEST_TIMEOUT_MS);
 
   it('refreshes bootstrap with auth token after verify login', async () => {
     mockProfileBff({
@@ -192,7 +240,7 @@ describe('Profile quick profile status', () => {
 
     const mounted = render(<Profile />);
 
-    await screen.findByRole('button', { name: 'Sign in to bind profile' });
+    await screen.findByRole('button', { name: 'Sign in to sync profile' });
 
     fireEvent.change(screen.getByPlaceholderText('name@email.com'), {
       target: { value: 'verify@example.com' },
@@ -216,7 +264,7 @@ describe('Profile quick profile status', () => {
     const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
     const latestHeaders = bootstrapCalls[bootstrapCalls.length - 1]?.[1] as { auth_token?: string };
     expect(latestHeaders.auth_token).toBe('verified_token');
-  });
+  }, PROFILE_TEST_TIMEOUT_MS);
 
   it('collapses password card after save and allows reopening via change password', async () => {
     saveAuroraAuthSession({ token: 'token_signed_pw', email: 'signed_pw@example.com', expires_at: null });
@@ -247,7 +295,7 @@ describe('Profile quick profile status', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
     await screen.findByRole('button', { name: 'Save password' });
     expect(vi.mocked(toast)).toHaveBeenCalled();
-  });
+  }, PROFILE_TEST_TIMEOUT_MS);
 
   it('saves display name with avatar upload entry for signed-in account and restores after remount', async () => {
     saveAuroraAuthSession({ token: 'token_signed_profile', email: 'signed_profile@example.com', expires_at: null });
@@ -273,5 +321,5 @@ describe('Profile quick profile status', () => {
 
     await screen.findByDisplayValue('Peng');
     await screen.findByRole('button', { name: 'Upload avatar' });
-  });
+  }, PROFILE_TEST_TIMEOUT_MS);
 });

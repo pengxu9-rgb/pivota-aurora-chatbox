@@ -3,7 +3,7 @@ import { HelpCircle, KeyRound, LogIn, LogOut, Mail, Menu, Shield, User } from 'l
 import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
-import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession, type AuroraAuthSession } from '@/lib/auth';
+import { AURORA_AUTH_SESSION_CHANGED_EVENT, clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession, type AuroraAuthSession } from '@/lib/auth';
 import { bffJson, makeDefaultHeaders, PivotaAgentBffError, type V1Envelope } from '@/lib/pivotaAgentBff';
 import { deriveQuickProfileStatus, formatQuickProfileSummary, type QuickProfileStatus } from '@/lib/profileCompletion';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
@@ -103,6 +103,16 @@ const extractBootstrapProfile = (env: V1Envelope): Record<string, unknown> | nul
   return asObject(payload?.profile);
 };
 
+function buildEmptyAuthDraft(email = '') {
+  return {
+    email,
+    code: '',
+    password: '',
+    newPassword: '',
+    newPasswordConfirm: '',
+  };
+}
+
 export default function Profile() {
   const { openSidebar, startChat, openComposer } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
@@ -113,13 +123,7 @@ export default function Profile() {
   const [authSession, setAuthSession] = useState<AuroraAuthSession | null>(() => loadAuroraAuthSession());
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
   const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
-  const [authDraft, setAuthDraft] = useState(() => ({
-    email: authSession?.email ?? '',
-    code: '',
-    password: '',
-    newPassword: '',
-    newPasswordConfirm: '',
-  }));
+  const [authDraft, setAuthDraft] = useState(() => buildEmptyAuthDraft(authSession?.email ?? ''));
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
@@ -130,7 +134,9 @@ export default function Profile() {
   const [profileDraft, setProfileDraft] = useState<{ displayName: string; avatarUrl: string }>({ displayName: '', avatarUrl: '' });
   const [profileNotice, setProfileNotice] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [showSyncHint, setShowSyncHint] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const accountSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const onLang = (evt: Event) => {
@@ -140,6 +146,25 @@ export default function Profile() {
     window.addEventListener('aurora_lang_pref_changed', onLang as EventListener);
     return () => window.removeEventListener('aurora_lang_pref_changed', onLang as EventListener);
   }, []);
+
+  const resetAuthUi = useCallback((nextEmail = '') => {
+    setAuthMode('code');
+    setAuthStage('email');
+    setAuthDraft(buildEmptyAuthDraft(nextEmail));
+    setAuthError(null);
+    setAuthNotice(null);
+  }, []);
+
+  useEffect(() => {
+    const onAuthChanged = () => {
+      const nextSession = loadAuroraAuthSession();
+      setAuthSession(nextSession);
+      resetAuthUi(nextSession?.email ?? '');
+      setShowSyncHint(false);
+    };
+    window.addEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
+    return () => window.removeEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
+  }, [resetAuthUi]);
 
   const toggleLang = useCallback(() => {
     const next: LangPref = langPref === 'cn' ? 'en' : 'cn';
@@ -462,12 +487,10 @@ export default function Profile() {
       setProfileDraft({ displayName: '', avatarUrl: '' });
       setProfileNotice(null);
       setProfileError(null);
-      setAuthMode('code');
-      setAuthStage('email');
-      setAuthDraft({ email: '', code: '', password: '', newPassword: '', newPasswordConfirm: '' });
+      resetAuthUi();
       setAuthLoading(false);
     }
-  }, [authSession?.token, makeHeaders]);
+  }, [authSession?.token, makeHeaders, resetAuthUi]);
 
   return (
     <div className="ios-page">
@@ -506,8 +529,8 @@ export default function Profile() {
                     : 'Best practice: complete the 30‑sec quick profile once so Aurora can personalize recommendations.')
                 : quickProfileStatus === 'complete_guest'
                   ? (isCN
-                      ? '快速画像已完成，当前仅保存在本设备。登录后可绑定并跨设备同步。'
-                      : 'Quick profile is complete on this device. Sign in to bind and sync across devices.')
+                      ? '快速画像已完成，当前仅保存在本设备。登录后可跨设备同步。'
+                      : 'Quick profile is complete on this device. Sign in to sync across devices.')
                   : (isCN
                       ? '快速画像已完成并已同步到账号。'
                       : 'Quick profile is complete and synced to your account.')}
@@ -545,11 +568,20 @@ export default function Profile() {
                 setAuthMode('code');
                 setAuthStage('email');
                 setAuthError(null);
-                setAuthNotice(isCN ? '登录后将把当前设备画像绑定到账号。' : 'Sign in to bind this device profile to your account.');
+                setAuthNotice(isCN ? '登录后将把当前设备画像同步到账号。' : 'Sign in to sync this device profile to your account.');
+                setShowSyncHint(true);
+                window.setTimeout(() => {
+                  accountSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 60);
               }}
             >
-              {isCN ? '登录并绑定资料' : 'Sign in to bind profile'}
+              {isCN ? '登录并同步资料' : 'Sign in to sync profile'}
             </button>
+            {showSyncHint ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800">
+                {isCN ? '请在下方 Account 区域输入邮箱完成登录。' : 'Please enter your email in the Account section below to sign in.'}
+              </div>
+            ) : null}
             <button
               type="button"
               className={cn(
@@ -586,14 +618,14 @@ export default function Profile() {
         ) : null}
       </div>
 
-      <div className="ios-panel mt-3">
+      <div ref={accountSectionRef} className="ios-panel mt-3">
         <div className="flex items-start gap-3">
           <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
             <Shield className="h-[18px] w-[18px]" />
           </div>
           <div className="flex-1">
             <div className="ios-section-title">Account</div>
-            <div className="ios-caption mt-1">Sign in to sync profile, routines, and history.</div>
+            <div className="ios-caption mt-1">{isCN ? '登录后同步画像、护肤方案与历史记录。' : 'Sign in to sync profile, routines, and history.'}</div>
           </div>
         </div>
 
@@ -847,7 +879,7 @@ export default function Profile() {
             {authMode === 'password' ? (
               <>
                 <label className="space-y-1 text-[12px] text-muted-foreground">
-                  Password
+                  {isCN ? '密码' : 'Password'}
                   <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3">
                     <KeyRound className="h-4 w-4 text-muted-foreground" />
                     <input
@@ -871,22 +903,34 @@ export default function Profile() {
                   disabled={authLoading || !authDraft.email.trim() || !authDraft.password}
                 >
                   <LogIn className="h-4 w-4" />
-                  {authLoading ? 'Signing in…' : 'Sign in'}
+                  {authLoading ? (isCN ? '登录中…' : 'Signing in…') : (isCN ? '密码登录' : 'Sign in')}
                 </button>
+                <div className="text-[12px] text-muted-foreground">
+                  {isCN
+                    ? '还没有密码？请先使用验证码登录，登录后可设置密码。'
+                    : "No password yet? Use Email code to sign in first, then set a password."}
+                </div>
               </>
             ) : authStage === 'email' ? (
-              <button
-                type="button"
-                className={cn(
-                  'aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
-                  'active:scale-[0.99]',
-                )}
-                onClick={() => void startAuth()}
-                disabled={authLoading || !authDraft.email.trim()}
-              >
-                <LogIn className="h-4 w-4" />
-                {authLoading ? 'Sending…' : 'Send code'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={cn(
+                    'aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card',
+                    'active:scale-[0.99]',
+                  )}
+                  onClick={() => void startAuth()}
+                  disabled={authLoading || !authDraft.email.trim()}
+                >
+                  <LogIn className="h-4 w-4" />
+                  {authLoading ? (isCN ? '发送中…' : 'Sending…') : (isCN ? '发送验证码' : 'Send code')}
+                </button>
+                <div className="text-[12px] text-muted-foreground">
+                  {isCN
+                    ? '新用户？直接输入邮箱，系统将自动发送验证码并创建账号。'
+                    : 'New user? Just enter your email — a code will be sent and your account will be created automatically.'}
+                </div>
+              </>
             ) : (
               <>
                 <label className="space-y-1 text-[12px] text-muted-foreground">

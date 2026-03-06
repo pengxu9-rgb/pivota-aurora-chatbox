@@ -1,10 +1,11 @@
 import React from 'react';
-import { CalendarDays, Clock, Compass, Home, Package, ShoppingCart, Sparkles, User } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CalendarDays, Clock, Compass, Home, LogIn, Package, ShoppingCart, Sparkles, User } from 'lucide-react';
 
 import { NavLink } from '@/components/NavLink';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { AuroraCartPreviewDrawer } from '@/components/shop/AuroraCartPreviewDrawer';
-import { loadAuroraAuthSession } from '@/lib/auth';
+import { AURORA_AUTH_SESSION_CHANGED_EVENT, loadAuroraAuthSession } from '@/lib/auth';
 import type { ChatHistoryItem } from '@/lib/chatHistory';
 import { AURORA_USER_PROFILE_UPDATED_EVENT, loadAuroraUserProfile } from '@/lib/userProfile';
 import { cn } from '@/lib/utils';
@@ -14,17 +15,18 @@ type SidebarIdentity = {
   displayName: string;
   subtitle: string;
   avatarUrl: string;
+  isSignedIn: boolean;
 };
 
 function resolveSidebarIdentity(): SidebarIdentity {
   if (typeof window === 'undefined') {
-    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '' };
+    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '', isSignedIn: false };
   }
 
   const authSession = loadAuroraAuthSession();
   const email = String(authSession?.email || '').trim();
   if (!email) {
-    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '' };
+    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '', isSignedIn: false };
   }
 
   const profile = loadAuroraUserProfile(email);
@@ -33,6 +35,7 @@ function resolveSidebarIdentity(): SidebarIdentity {
     displayName,
     subtitle: email,
     avatarUrl: profile?.avatarUrl || '',
+    isSignedIn: true,
   };
 }
 
@@ -47,6 +50,7 @@ export function AuroraSidebar({
   history: ChatHistoryItem[];
   onOpenChat: (briefId: string) => void;
 }) {
+  const navigate = useNavigate();
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
   const [cartPreviewOpen, setCartPreviewOpen] = React.useState(false);
@@ -70,11 +74,14 @@ export function AuroraSidebar({
       if (!event.key || event.key.startsWith('pivota_aurora_')) syncIdentity();
     };
     const onProfileUpdated = () => syncIdentity();
+    const onAuthChanged = () => syncIdentity();
     window.addEventListener('storage', onStorage);
     window.addEventListener(AURORA_USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+    window.addEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
     return () => {
       window.removeEventListener('storage', onStorage);
       window.removeEventListener(AURORA_USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+      window.removeEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
     };
   }, [syncIdentity]);
 
@@ -103,6 +110,22 @@ export function AuroraSidebar({
                     <div className="max-w-[180px] truncate text-[12px] text-muted-foreground">{identity.subtitle}</div>
                   </div>
                 </div>
+                {!identity.isSignedIn ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-2xl border border-border/60 px-3 py-1.5 text-[12px] font-semibold text-foreground',
+                      'hover:bg-muted/50 active:scale-[0.97]',
+                    )}
+                    onClick={() => {
+                      onOpenChange(false);
+                      navigate('/profile');
+                    }}
+                  >
+                    <LogIn className="h-3.5 w-3.5" />
+                    Sign in
+                  </button>
+                ) : null}
               </div>
             </div>
 

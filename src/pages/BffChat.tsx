@@ -88,7 +88,7 @@ import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/retu
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
-import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
+import { AURORA_AUTH_SESSION_CHANGED_EVENT, clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import {
   getLangMismatchHintMutedUntil,
   getLangPref,
@@ -142,6 +142,16 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+
+function buildEmptyAuthDraft(email = '') {
+  return {
+    email,
+    code: '',
+    password: '',
+    newPassword: '',
+    newPasswordConfirm: '',
+  };
+}
 
 type ChatItem =
   | { id: string; role: 'user' | 'assistant'; kind: 'text'; content: string }
@@ -451,7 +461,7 @@ const buildQuickProfileBindChip = (language: UiLanguage): SuggestedChip => {
   const isCN = language === 'CN';
   return {
     chip_id: 'chip_login_sync_profile',
-    label: isCN ? '登录并绑定资料' : 'Sign in to sync profile',
+    label: isCN ? '登录并同步资料' : 'Sign in to sync profile',
     kind: 'quick_reply',
     data: { trigger_source: 'chip' },
   };
@@ -6706,13 +6716,7 @@ export default function BffChat() {
   const [authSession, setAuthSession] = useState(() => loadAuroraAuthSession());
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
   const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
-  const [authDraft, setAuthDraft] = useState(() => ({
-    email: authSession?.email ?? '',
-    code: '',
-    password: '',
-    newPassword: '',
-    newPasswordConfirm: '',
-  }));
+  const [authDraft, setAuthDraft] = useState(() => buildEmptyAuthDraft(authSession?.email ?? ''));
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
@@ -6747,6 +6751,23 @@ export default function BffChat() {
     hydration: 0,
     notes: '',
   });
+
+  const resetAuthUi = useCallback((nextEmail = '') => {
+    setAuthMode('code');
+    setAuthStage('email');
+    setAuthDraft(buildEmptyAuthDraft(nextEmail));
+    setAuthError(null);
+    setAuthNotice(null);
+  }, []);
+
+  const buildRequestHeaders = useCallback(
+    (authToken?: string | null) => {
+      const token = String(authToken || '').trim();
+      const { auth_token: _ignoredAuthToken, ...restHeaders } = headers;
+      return { ...restHeaders, lang: language, ...(token ? { auth_token: token } : {}) };
+    },
+    [headers, language],
+  );
 
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, lang: language }));
@@ -7385,13 +7406,13 @@ export default function BffChat() {
   const bootstrap = useCallback(async () => {
     setChatBusy(true);
     try {
-      const requestHeaders = { ...headers, lang: language };
+      const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
       const langPref = toLangPref(language);
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
       const info = readBootstrapInfo(env);
       setBootstrapInfo(info);
-      const profile = info?.profile;
-      if (profile) setProfileSnapshot(profile);
+      const profile = info?.profile ?? null;
+      setProfileSnapshot(profile);
       const isReturning = Boolean(info?.is_returning);
       const returnWelcomeSummary = buildReturnWelcomeSummary({
         profile,
@@ -7524,7 +7545,7 @@ export default function BffChat() {
     } finally {
       setChatBusy(false);
     }
-  }, [agentState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [agentState, authSession?.token, buildRequestHeaders, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
 
   const startNewChat = useCallback(() => {
     setError(null);
@@ -7736,6 +7757,10 @@ export default function BffChat() {
         hydration: Math.max(0, Math.min(5, Math.trunc(checkinDraft.hydration))),
       };
       if (checkinDraft.notes.trim()) payload.notes = checkinDraft.notes.trim();
+      const activeRoutineId = (bootstrapInfo?.profile as any)?.active_routine_id;
+      if (typeof activeRoutineId === 'string' && activeRoutineId.trim()) {
+        payload.routine_id = activeRoutineId.trim();
+      }
 
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/tracker/log', requestHeaders, {
@@ -7773,19 +7798,31 @@ export default function BffChat() {
     } finally {
       setChatBusy(false);
     }
-  }, [applyEnvelope, checkinDraft, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [applyEnvelope, bootstrapInfo, checkinDraft, headers, language, tryApplyEnvelopeFromBffError]);
 
-  const refreshBootstrapInfo = useCallback(async () => {
+  const refreshBootstrapInfo = useCallback(async (authTokenOverride?: string | null) => {
     try {
-      const requestHeaders = { ...headers, lang: language };
+      const resolvedAuthToken = authTokenOverride === undefined ? (authSession?.token ?? null) : authTokenOverride;
+      const requestHeaders = buildRequestHeaders(resolvedAuthToken);
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
       const info = readBootstrapInfo(env);
-      if (info) setBootstrapInfo(info);
-      if (info?.profile) setProfileSnapshot(info.profile);
+      setBootstrapInfo(info);
+      setProfileSnapshot(info?.profile ?? null);
     } catch {
       // ignore
     }
-  }, [headers, language]);
+  }, [authSession?.token, buildRequestHeaders]);
+
+  useEffect(() => {
+    const onAuthChanged = () => {
+      const nextSession = loadAuroraAuthSession();
+      setAuthSession(nextSession);
+      resetAuthUi(nextSession?.email ?? '');
+      void refreshBootstrapInfo(nextSession?.token ?? null);
+    };
+    window.addEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
+    return () => window.removeEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
+  }, [refreshBootstrapInfo, resetAuthUi]);
 
   const persistQuickProfilePatch = useCallback(
     async (profilePatch: QuickProfileProfilePatch, auroraProfilePatch: Record<string, unknown> | null) => {
@@ -7876,7 +7913,7 @@ export default function BffChat() {
       setAuthSession(nextSession);
       setAuthDraft((prev) => ({ ...prev, code: '' }));
       setAuthSheetOpen(false);
-      await refreshBootstrapInfo();
+      await refreshBootstrapInfo(nextSession.token);
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -7912,7 +7949,7 @@ export default function BffChat() {
       setAuthSession(nextSession);
       setAuthDraft((prev) => ({ ...prev, password: '' }));
       setAuthSheetOpen(false);
-      await refreshBootstrapInfo();
+      await refreshBootstrapInfo(nextSession.token);
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -7982,13 +8019,12 @@ export default function BffChat() {
     } finally {
       clearAuroraAuthSession();
       setAuthSession(null);
-      setAuthStage('email');
-      setAuthDraft({ email: '', code: '', password: '', newPassword: '', newPasswordConfirm: '' });
+      resetAuthUi();
       setAuthSheetOpen(false);
       setAuthLoading(false);
-      await refreshBootstrapInfo();
+      await refreshBootstrapInfo(null);
     }
-  }, [headers, language, refreshBootstrapInfo]);
+  }, [headers, language, refreshBootstrapInfo, resetAuthUi]);
 
   const handlePickPhoto = useCallback(() => {
     setPromptRoutineAfterPhoto(false);
@@ -9415,10 +9451,10 @@ export default function BffChat() {
         emitAgentProfileQuestionAnswered(ctx, { question_id: qpQuestionId, answer_type: qpAnswer });
 
         const finishQuickProfile = (args: { didSkip: boolean; draft: QuickProfileProfilePatch }) => {
-          const shouldShowBindPrompt = !args.didSkip && !authSession;
-          const bindNotice = language === 'CN'
-            ? '已临时保存到当前设备；登录后可绑定并跨设备同步。'
-            : 'Saved on this device; sign in to bind and sync across devices.';
+          const shouldShowSyncPrompt = !args.didSkip && !authSession;
+          const syncNotice = language === 'CN'
+            ? '已临时保存到当前设备；登录后可跨设备同步。'
+            : 'Saved on this device; sign in to sync across devices.';
 
           setAgentStateSafe('IDLE_CHAT');
           setQuickProfileStep('skin_feel');
@@ -9433,8 +9469,8 @@ export default function BffChat() {
               ...stripReturnWelcome(prev),
               { id: nextId(), role: 'assistant', kind: 'text', content },
             ];
-            if (shouldShowBindPrompt) {
-              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: bindNotice });
+            if (shouldShowSyncPrompt) {
+              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: syncNotice });
               nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: [buildQuickProfileBindChip(language)] });
             }
             nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: buildQuickProfileExitChips(language) });
@@ -9608,10 +9644,7 @@ export default function BffChat() {
 
       if (id === 'chip_login_sync_profile') {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
-        setAuthError(null);
-        setAuthNotice(null);
-        setAuthStage('email');
-        setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
+        resetAuthUi(authDraft.email);
         setAuthSheetOpen(true);
         return;
       }
@@ -9742,6 +9775,7 @@ export default function BffChat() {
       openRoutineIntakeSheet,
       runLowConfidenceSkinAnalysis,
       sendChat,
+      resetAuthUi,
       authSession,
       persistQuickProfilePatch,
       setAgentStateSafe,
@@ -9858,10 +9892,7 @@ export default function BffChat() {
       setCheckinSheetOpen(true);
     }
     if (searchParams.open === 'auth') {
-      setAuthError(null);
-      setAuthNotice(null);
-      setAuthStage('email');
-      setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
+      resetAuthUi(authDraft.email);
       setAuthSheetOpen(true);
     }
     const suppressRoutineAutoChip = searchParams.open === 'routine' && searchParams.chip_id === 'chip.start.routine';
@@ -9892,7 +9923,7 @@ export default function BffChat() {
     } catch {
       // ignore
     }
-  }, [headers.brief_id, headers.trace_id, navigate, openRoutineIntakeSheet, searchParams]);
+  }, [authDraft.email, headers.brief_id, headers.trace_id, navigate, openRoutineIntakeSheet, resetAuthUi, searchParams]);
 
   useEffect(() => {
     if (!hasBootstrapped) return;
@@ -10243,11 +10274,11 @@ export default function BffChat() {
                   <div className="text-xs text-muted-foreground">
                     {authMode === 'password'
                       ? language === 'CN'
-                        ? '用邮箱 + 密码登录。如果还没设置密码，请先用验证码登录后在账户里设置。'
-                        : "Sign in with email + password. If you haven't set a password, use email code first, then set one in Account."
+                        ? '用邮箱 + 密码登录。还没有密码？请先使用验证码登录，登录后可设置密码。'
+                        : "Sign in with email + password. No password yet? Use Email code to sign in first, then set a password."
                       : language === 'CN'
-                        ? '输入邮箱获取验证码（用于跨设备保存你的皮肤档案）。'
-                        : 'Enter your email to get a sign-in code (for cross-device profile).'}
+                        ? '新用户？直接输入邮箱，系统将自动发送验证码并创建账号。已有账号同样适用。'
+                        : 'New user? Just enter your email — a code will be sent and your account will be created automatically. Works for existing accounts too.'}
                   </div>
 
                   <label className="space-y-1 text-xs text-muted-foreground">

@@ -5,6 +5,15 @@ export type AuroraAuthSession = {
 };
 
 const STORAGE_KEY = 'pivota_aurora_auth_session_v1';
+export const AURORA_AUTH_SESSION_CHANGED_EVENT = 'aurora_auth_session_changed';
+
+function dispatchAuthChange(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(AURORA_AUTH_SESSION_CHANGED_EVENT));
+  } catch {
+    // ignore
+  }
+}
 
 function safeJsonParse(value: string): unknown {
   try {
@@ -51,6 +60,7 @@ export function saveAuroraAuthSession(session: AuroraAuthSession): void {
     const expires_at = session.expires_at == null ? null : String(session.expires_at).trim();
     if (!token || !email) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, email, expires_at }));
+    dispatchAuthChange();
   } catch {
     // ignore
   }
@@ -59,6 +69,7 @@ export function saveAuroraAuthSession(session: AuroraAuthSession): void {
 export function clearAuroraAuthSession(): void {
   try {
     window.localStorage.removeItem(STORAGE_KEY);
+    dispatchAuthChange();
   } catch {
     // ignore
   }

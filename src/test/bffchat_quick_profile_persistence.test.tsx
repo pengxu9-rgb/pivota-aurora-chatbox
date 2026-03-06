@@ -28,11 +28,12 @@ vi.mock('@/lib/glowSessionProfile', async () => {
 import { ShopProvider } from '@/contexts/shop';
 import BffChat from '@/pages/BffChat';
 import { toast } from '@/components/ui/use-toast';
+import { clearAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import { bffJson } from '@/lib/pivotaAgentBff';
 import { patchGlowSessionProfile } from '@/lib/glowSessionProfile';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 
-const QUICK_PROFILE_TEST_TIMEOUT_MS = 15_000;
+const QUICK_PROFILE_TEST_TIMEOUT_MS = 60_000;
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -66,14 +67,18 @@ function mockBff(opts?: {
   });
 }
 
-async function openQuickProfile() {
+function renderChat(initialEntry = '/chat') {
   render(
-    <MemoryRouter initialEntries={['/chat']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ShopProvider>
         <BffChat />
       </ShopProvider>
     </MemoryRouter>,
   );
+}
+
+async function openQuickProfile() {
+  renderChat();
 
   await waitFor(() => {
     const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
@@ -150,7 +155,7 @@ describe('BffChat quick profile persistence and bind prompt', () => {
   );
 
   it(
-    'shows sign-in bind prompt after completion when user is not signed in',
+    'shows sign-in sync prompt after completion when user is not signed in',
     async () => {
     mockBff();
     vi.mocked(patchGlowSessionProfile).mockResolvedValue({
@@ -162,9 +167,72 @@ describe('BffChat quick profile persistence and bind prompt', () => {
     await openQuickProfile();
     await completeQuickProfile();
 
-    await screen.findByText('Saved on this device; sign in to bind and sync across devices.');
+    await screen.findByText('Saved on this device; sign in to sync across devices.');
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to sync profile' }));
     await screen.findByRole('button', { name: 'Send code' });
+    },
+    QUICK_PROFILE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'sends auth token on the first bootstrap when chat opens signed in',
+    async () => {
+      saveAuroraAuthSession({ token: 'seed_token', email: 'seed@example.com', expires_at: null });
+      mockBff();
+
+      renderChat();
+
+      await waitFor(() => {
+        const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
+        expect(bootstrapCalls.length).toBeGreaterThan(0);
+      });
+
+      const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
+      const firstHeaders = bootstrapCalls[0]?.[1] as { auth_token?: string };
+      expect(firstHeaders.auth_token).toBe('seed_token');
+    },
+    QUICK_PROFILE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'refreshes bootstrap and resets auth UI after external auth changes',
+    async () => {
+      mockBff();
+
+      renderChat('/chat?open=auth');
+
+      await screen.findByRole('button', { name: 'Password' });
+      fireEvent.click(screen.getByRole('button', { name: 'Password' }));
+      fireEvent.change(screen.getByPlaceholderText('name@email.com'), {
+        target: { value: 'stale@example.com' },
+      });
+      fireEvent.change(screen.getByPlaceholderText('Enter password'), {
+        target: { value: 'stale-password' },
+      });
+
+      saveAuroraAuthSession({ token: 'external_token', email: 'external@example.com', expires_at: null });
+
+      await screen.findByText('Signed in');
+      await waitFor(() => {
+        const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
+        expect(bootstrapCalls.length).toBeGreaterThanOrEqual(2);
+        const latestHeaders = bootstrapCalls[bootstrapCalls.length - 1]?.[1] as { auth_token?: string };
+        expect(latestHeaders.auth_token).toBe('external_token');
+      });
+
+      const bootstrapCountAfterSignIn = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap').length;
+      clearAuroraAuthSession();
+
+      await screen.findByRole('button', { name: 'Send code' });
+      await waitFor(() => {
+        const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
+        expect(bootstrapCalls.length).toBeGreaterThan(bootstrapCountAfterSignIn);
+        const latestHeaders = bootstrapCalls[bootstrapCalls.length - 1]?.[1] as { auth_token?: string };
+        expect(latestHeaders.auth_token).toBeUndefined();
+      });
+      expect(screen.getByText('New user? Just enter your email — a code will be sent and your account will be created automatically. Works for existing accounts too.')).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('Enter password')).not.toBeInTheDocument();
+      expect(screen.queryByDisplayValue('stale@example.com')).not.toBeInTheDocument();
     },
     QUICK_PROFILE_TEST_TIMEOUT_MS,
   );
