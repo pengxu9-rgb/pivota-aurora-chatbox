@@ -1,6 +1,8 @@
 export type ChatCardV1Type =
   | 'recommendations'
   | 'product_verdict'
+  | 'product_parse'
+  | 'product_analysis'
   | 'compatibility'
   | 'routine'
   | 'triage'

@@ -16,13 +16,55 @@ export type SuggestedChip = {
   data?: Record<string, unknown>;
 };
 
-export type Card = {
+export type ProductParseCardPayload = {
+  product?: Record<string, unknown> | null;
+  confidence?: number | null;
+  missing_info?: unknown[];
+  parse_source?: string;
+  [k: string]: unknown;
+};
+
+export type ProductAnalysisCardPayload = {
+  assessment?: Record<string, unknown>;
+  evidence?: Record<string, unknown>;
+  social_signals?: Record<string, unknown>;
+  competitors?: Record<string, unknown>;
+  dupes?: Record<string, unknown>;
+  related_products?: Record<string, unknown>;
+  ingredient_intel?: Record<string, unknown>;
+  inci_status?: Record<string, unknown>;
+  provenance?: Record<string, unknown>;
+  missing_info?: unknown[];
+  user_facing_gaps?: unknown[];
+  confidence?: number | null;
+  [k: string]: unknown;
+};
+
+export type RawBffCardBase = {
   card_id: string;
   type: string;
   title?: string;
   payload: Record<string, unknown>;
   field_missing?: Array<Record<string, unknown>>;
 };
+
+export type ProductParseCard = RawBffCardBase & {
+  type: 'product_parse';
+  payload: ProductParseCardPayload;
+};
+
+export type ProductAnalysisCard = RawBffCardBase & {
+  type: 'product_analysis';
+  payload: ProductAnalysisCardPayload;
+};
+
+export type Card =
+  | ProductParseCard
+  | ProductAnalysisCard
+  | (RawBffCardBase & {
+      type: string;
+      payload: Record<string, unknown>;
+    });
 
 export type AnalysisMeta = {
   detector_source: string;

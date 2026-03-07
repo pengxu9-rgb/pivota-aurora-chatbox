@@ -155,6 +155,118 @@ describe('BffChat product-parse degraded UX', () => {
     });
   });
 
+  it('hides a low-confidence parse card once deep scan returns a usable analysis card', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_parse_hidden',
+            trace_id: 'trace_bootstrap_parse_hidden',
+          }),
+        );
+      }
+      if (path === '/v1/product/parse') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_parse_hidden',
+            trace_id: 'trace_parse_hidden',
+            cards: [
+              {
+                card_id: 'parse_hidden',
+                type: 'product_parse',
+                payload: {
+                  product: {
+                    brand: 'Labseries',
+                    name: 'All One',
+                    url: 'https://www.labseries.com/product/example',
+                  },
+                  confidence: 0.25,
+                  missing_info: ['anchor_soft_blocked_ambiguous', 'anchor_id_not_used_due_to_low_trust'],
+                  parse_source: 'upstream_structured',
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/product/analyze') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analyze_hidden',
+            trace_id: 'trace_analyze_hidden',
+            cards: [
+              {
+                card_id: 'analyze_hidden',
+                type: 'product_analysis',
+                payload: {
+                  assessment: {
+                    verdict: 'Likely Suitable',
+                    summary: 'Hydration-focused daytime formula with some fragrance caution.',
+                    reasons: [
+                      'Hydration-focused daytime formula with some fragrance caution.',
+                      'Use as the final AM step and reapply when outdoors.',
+                    ],
+                    anchor_product: {
+                      brand: 'Lab Series',
+                      name: 'All-In-One Defense Lotion Moisturizer SPF 35',
+                      url: 'https://www.labseries.com/product/example',
+                    },
+                    how_to_use: {
+                      when: 'AM only',
+                      frequency: 'daily',
+                      order_in_routine: 'Last step of AM routine',
+                      pairing_rules: ['Reapply about every 2 hours when outdoors.'],
+                      stop_signs: ['Persistent redness or stinging.'],
+                    },
+                  },
+                  evidence: {
+                    science: {
+                      key_ingredients: ['Acetyl Hexapeptide-8', 'Sodium Hyaluronate'],
+                      mechanisms: ['Humectant blend suggests hydration support and moisture retention.'],
+                      fit_notes: [],
+                      risk_notes: ['Patch test if you are fragrance-sensitive.'],
+                    },
+                    social_signals: { typical_positive: ['hydration'], typical_negative: [], risk_for_groups: [] },
+                    expert_notes: ['Evidence source: ingredient list parsed from product page.'],
+                    missing_info: ['version_verification_needed'],
+                  },
+                  confidence: 0.67,
+                  missing_info: ['version_verification_needed', 'incidecoder_source_used'],
+                },
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    fireEvent.click(entry);
+
+    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    fireEvent.change(productInput, { target: { value: 'Lab Series All-In-One Defense Lotion Moisturizer SPF 35' } });
+    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/likely suitable/i).length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByText(/confidence 25%/i)).toBeNull();
+    expect(screen.queryByText(/source upstream structured/i)).toBeNull();
+    expect(screen.queryByText(/an unreliable anchor was blocked from id binding/i)).toBeNull();
+    expect(screen.queryByText(/this card failed to render and was safely downgraded/i)).toBeNull();
+  });
+
   it('shows degraded parse reason labels when analyze verdict remains unknown', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
