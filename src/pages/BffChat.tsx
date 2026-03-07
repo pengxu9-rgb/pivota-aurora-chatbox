@@ -6485,6 +6485,7 @@ function BffCardView({
               language={language}
               cardType="product_analysis_routine_compatibility"
               cardId={`${card.card_id || 'product_analysis'}::routine_compatibility`}
+              analyticsCtx={analyticsCtx}
             >
               <RoutineCompatibilityFooter
                 language={language}
@@ -11826,6 +11827,13 @@ export default function BffChat() {
                           language={language}
                           cardType={String(card.type || '')}
                           cardId={card.card_id}
+                          analyticsCtx={{
+                            brief_id: headers.brief_id,
+                            trace_id: headers.trace_id,
+                            aurora_uid: headers.aurora_uid,
+                            lang: toLangPref(language),
+                            state: agentState,
+                          }}
                         >
                           <BffCardView
                             card={card}

@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { emitUiCardRenderFailed, type AnalyticsContext } from '@/lib/auroraAnalytics';
 import type { Language as UiLanguage } from '@/lib/types';
 
 type CardRenderBoundaryProps = {
@@ -7,6 +8,7 @@ type CardRenderBoundaryProps = {
   language: UiLanguage;
   cardType?: string;
   cardId?: string;
+  analyticsCtx?: AnalyticsContext;
 };
 
 type CardRenderBoundaryState = {
@@ -22,13 +24,23 @@ export class CardRenderBoundary extends React.Component<CardRenderBoundaryProps,
     return { hasError: true };
   }
 
-  componentDidCatch(error: unknown) {
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
     // Keep the rest of the chat renderable when a single card crashes.
     console.error('[CardRenderBoundary] card render failed', {
       card_type: this.props.cardType || null,
       card_id: this.props.cardId || null,
       error,
     });
+    if (this.props.analyticsCtx) {
+      const err = error instanceof Error ? error : null;
+      emitUiCardRenderFailed(this.props.analyticsCtx, {
+        card_type: this.props.cardType || null,
+        card_id: this.props.cardId || null,
+        error_name: err?.name || null,
+        error_message: err?.message || String(error || ''),
+        component_stack: typeof info.componentStack === 'string' ? info.componentStack : null,
+      });
+    }
   }
 
   componentDidUpdate(prevProps: CardRenderBoundaryProps) {
