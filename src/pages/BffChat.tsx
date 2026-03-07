@@ -184,6 +184,11 @@ type DiagnosisV2FlowState = {
   checkinBinding: Record<string, unknown> | null;
 };
 
+type PendingDiagnosisAuthResume = {
+  goals: string[];
+  customInput?: string;
+};
+
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
   block: RecoBlockType;
@@ -6846,6 +6851,7 @@ export default function BffChat() {
     routineSkeleton: null,
     checkinBinding: null,
   });
+  const pendingDiagnosisAuthResumeRef = useRef<PendingDiagnosisAuthResume | null>(null);
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '' });
@@ -8052,6 +8058,7 @@ export default function BffChat() {
       setAuthDraft((prev) => ({ ...prev, code: '' }));
       setAuthSheetOpen(false);
       await refreshBootstrapInfo(nextSession.token);
+      await resumePendingDiagnosisAfterAuth(nextSession.token);
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -8088,6 +8095,7 @@ export default function BffChat() {
       setAuthDraft((prev) => ({ ...prev, password: '' }));
       setAuthSheetOpen(false);
       await refreshBootstrapInfo(nextSession.token);
+      await resumePendingDiagnosisAfterAuth(nextSession.token);
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -8515,11 +8523,13 @@ export default function BffChat() {
       customInput,
       skipLogin,
       userText,
+      authTokenOverride,
     }: {
       goals: string[];
       customInput?: string;
       skipLogin?: boolean;
       userText?: string;
+      authTokenOverride?: string | null;
     }) => {
       const normalizedGoals = Array.isArray(goals) ? goals.map((goal) => String(goal || '').trim()).filter(Boolean) : [];
       if (normalizedGoals.length === 0) {
@@ -8544,7 +8554,9 @@ export default function BffChat() {
       setChatBusy(true);
       setError(null);
       try {
-        const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
+        const requestHeaders = buildRequestHeaders(
+          authTokenOverride === undefined ? (authSession?.token ?? null) : authTokenOverride,
+        );
         const response = await bffJson<{
           ok: boolean;
           stage?: 'login_prompt' | 'intro';
@@ -8585,6 +8597,20 @@ export default function BffChat() {
       }
     },
     [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildRequestHeaders, language, sendDiagnosisV2Telemetry],
+  );
+
+  const resumePendingDiagnosisAfterAuth = useCallback(
+    async (authToken: string | null | undefined) => {
+      const pending = pendingDiagnosisAuthResumeRef.current;
+      if (!pending || !authToken) return;
+      pendingDiagnosisAuthResumeRef.current = null;
+      await startDiagnosisV2({
+        goals: pending.goals,
+        customInput: pending.customInput,
+        authTokenOverride: authToken,
+      });
+    },
+    [startDiagnosisV2],
   );
 
   const submitDiagnosisV2 = useCallback(
@@ -9170,8 +9196,12 @@ export default function BffChat() {
           ? (data as any).pending_goals
           : diagnosisV2StateRef.current.goals;
         const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
-        const returnUrl = `${window.location.pathname}?open=diagnosis_v2&goals=${encodeURIComponent(JSON.stringify(pendingGoals))}`;
-        window.location.href = `/login?return_to=${encodeURIComponent(returnUrl)}`;
+        pendingDiagnosisAuthResumeRef.current = {
+          goals: pendingGoals,
+          customInput: diagnosisV2StateRef.current.customInput,
+        };
+        resetAuthUi(authDraft.email);
+        setAuthSheetOpen(true);
         return;
       }
 
@@ -9180,6 +9210,7 @@ export default function BffChat() {
           ? (data as any).pending_goals
           : diagnosisV2StateRef.current.goals;
         const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
+        pendingDiagnosisAuthResumeRef.current = null;
         await startDiagnosisV2({
           goals: pendingGoals,
           customInput: diagnosisV2StateRef.current.customInput,
@@ -10410,6 +10441,7 @@ export default function BffChat() {
     },
     [
       agentState,
+      authDraft.email,
       headers,
       language,
       quickProfileBusy,
