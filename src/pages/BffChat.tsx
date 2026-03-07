@@ -233,6 +233,8 @@ const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | n
 
   const draft = makeEmptyRoutineDraft();
 
+  const stepAliases: Record<string, string> = { sunscreen: 'spf', serum: 'treatment', toner: 'treatment' };
+
   const fillSlots = (
     steps: unknown,
     target: Record<string, RoutineSlotValue>,
@@ -240,15 +242,17 @@ const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | n
     if (!Array.isArray(steps)) return;
     for (const entry of steps) {
       if (!entry || typeof entry !== 'object') continue;
-      const step = String((entry as any).step || '').toLowerCase();
-      const product = String((entry as any).product || '').trim();
-      if (!step || !product) continue;
+      const rec = entry as Record<string, unknown>;
+      const rawStep = String(rec.step || '').toLowerCase();
+      const product = String(rec.product || '').trim();
+      if (!rawStep || !product) continue;
+      const step = stepAliases[rawStep] ?? rawStep;
       if (!(step in target)) continue;
-      const pid = String((entry as any).product_id || '').trim();
+      const pid = String(rec.product_id || '').trim();
       target[step] = {
         text: product,
         resolvedProduct: pid
-          ? { product_id: pid, sku_id: (entry as any).sku_id ?? null, name: product, display_name: product }
+          ? { product_id: pid, sku_id: rec.sku_id != null ? String(rec.sku_id) : null, name: product, display_name: product }
           : null,
       };
     }
@@ -5309,7 +5313,7 @@ function BffCardView({
           ...expertNotes.filter((note) => /(evidence source|ingredient list|inci|entries|product page|parsed)/i.test(String(note || ''))),
         ]).slice(0, 3);
 
-        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine((bootstrapInfo?.profile as any)?.currentRoutine);
+        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine(bootstrapInfo?.profile?.currentRoutine);
         const compatibilityBaseProduct: CompatibilityProductInput = {
           id:
             asString((anchorRaw as any)?.product_id) ||
@@ -6481,6 +6485,9 @@ function BffCardView({
   );
 }
 
+export { buildRoutineDraftFromProfile, makeEmptyRoutineDraft, hasAnyRoutineDraftInput };
+export type { RoutineDraft };
+
 export default function BffChat() {
   const initialLanguageRef = useRef<UiLanguage | null>(null);
   if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
@@ -7391,7 +7398,7 @@ export default function BffChat() {
 
       if (isReturning && !returnVisitEmittedRef.current) {
         returnVisitEmittedRef.current = true;
-        const currentRoutine = profile ? (profile as any).currentRoutine : null;
+        const currentRoutine = profile?.currentRoutine ?? null;
         emitUiReturnVisit(analyticsCtx, {
           days_since_last: returnWelcomeSummary.days_since_last ?? 0,
           has_active_plan:
@@ -7696,7 +7703,7 @@ export default function BffChat() {
         hydration: Math.max(0, Math.min(5, Math.trunc(checkinDraft.hydration))),
       };
       if (checkinDraft.notes.trim()) payload.notes = checkinDraft.notes.trim();
-      const activeRoutineId = (bootstrapInfo?.profile as any)?.active_routine_id;
+      const activeRoutineId = bootstrapInfo?.profile?.active_routine_id;
       if (typeof activeRoutineId === 'string' && activeRoutineId.trim()) {
         payload.routine_id = activeRoutineId.trim();
       }
@@ -8583,8 +8590,8 @@ export default function BffChat() {
   );
 
   const openRoutineIntakeSheet = useCallback(() => {
-    const profileRoutine = (profileSnapshot ?? bootstrapInfo?.profile) as Record<string, unknown> | null | undefined;
-    const currentRoutine = profileRoutine?.currentRoutine;
+    const source = profileSnapshot ?? bootstrapInfo?.profile ?? null;
+    const currentRoutine = source?.currentRoutine;
     const prefilled = buildRoutineDraftFromProfile(currentRoutine);
     setRoutineDraft(prefilled ?? makeEmptyRoutineDraft());
     setRoutineTab('am');
