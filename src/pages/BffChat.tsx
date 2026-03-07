@@ -184,12 +184,6 @@ type DiagnosisV2FlowState = {
   checkinBinding: Record<string, unknown> | null;
 };
 
-type DiagnosisV2AuthResumeState = {
-  goals: string[];
-  customInput?: string;
-  userText?: string;
-};
-
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
   block: RecoBlockType;
@@ -225,6 +219,41 @@ const makeEmptyRoutineDraft = (): RoutineDraft => ({
   pm: { cleanser: emptySlot(), treatment: emptySlot(), moisturizer: emptySlot() },
   notes: '',
 });
+
+const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | null => {
+  if (!currentRoutine || typeof currentRoutine !== 'object') return null;
+  const raw = currentRoutine as Record<string, unknown>;
+  if (raw.schema_version !== 'aurora.routine_intake.v2') return null;
+
+  const draft = makeEmptyRoutineDraft();
+
+  const fillSlots = (
+    steps: unknown,
+    target: Record<string, RoutineSlotValue>,
+  ) => {
+    if (!Array.isArray(steps)) return;
+    for (const entry of steps) {
+      if (!entry || typeof entry !== 'object') continue;
+      const step = String((entry as any).step || '').toLowerCase();
+      const product = String((entry as any).product || '').trim();
+      if (!step || !product) continue;
+      if (!(step in target)) continue;
+      const pid = String((entry as any).product_id || '').trim();
+      target[step] = {
+        text: product,
+        resolvedProduct: pid
+          ? { product_id: pid, sku_id: (entry as any).sku_id ?? null, name: product, display_name: product }
+          : null,
+      };
+    }
+  };
+
+  fillSlots(raw.am, draft.am as unknown as Record<string, RoutineSlotValue>);
+  fillSlots(raw.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
+  draft.notes = String(raw.notes || '').trim();
+
+  return hasAnyRoutineDraftInput(draft) ? draft : null;
+};
 
 const slotText = (slot: RoutineSlotValue): string => String(slot?.text || '').trim();
 
@@ -6817,7 +6846,6 @@ export default function BffChat() {
     routineSkeleton: null,
     checkinBinding: null,
   });
-  const diagnosisV2AuthResumeRef = useRef<DiagnosisV2AuthResumeState | null>(null);
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '' });
@@ -7087,7 +7115,10 @@ export default function BffChat() {
           ? { ...prev }
           : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
 
-        if (profilePatch) merged.profile = profilePatch;
+        if (profilePatch) {
+          const baseProfile = asObject(merged.profile) || {};
+          merged.profile = { ...baseProfile, ...profilePatch };
+        }
 
         const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
         if (recentLogs.length) merged.recent_logs = recentLogs;
@@ -8483,13 +8514,11 @@ export default function BffChat() {
       goals,
       customInput,
       skipLogin,
-      authTokenOverride,
       userText,
     }: {
       goals: string[];
       customInput?: string;
       skipLogin?: boolean;
-      authTokenOverride?: string | null;
       userText?: string;
     }) => {
       const normalizedGoals = Array.isArray(goals) ? goals.map((goal) => String(goal || '').trim()).filter(Boolean) : [];
@@ -8515,8 +8544,7 @@ export default function BffChat() {
       setChatBusy(true);
       setError(null);
       try {
-        const resolvedAuthToken = authTokenOverride === undefined ? (authSession?.token ?? null) : authTokenOverride;
-        const requestHeaders = buildRequestHeaders(resolvedAuthToken);
+        const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
         const response = await bffJson<{
           ok: boolean;
           stage?: 'login_prompt' | 'intro';
@@ -8558,18 +8586,6 @@ export default function BffChat() {
     },
     [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildRequestHeaders, language, sendDiagnosisV2Telemetry],
   );
-
-  useEffect(() => {
-    const pendingResume = diagnosisV2AuthResumeRef.current;
-    if (!pendingResume || !authSession?.token) return;
-    diagnosisV2AuthResumeRef.current = null;
-    void startDiagnosisV2({
-      goals: pendingResume.goals,
-      customInput: pendingResume.customInput,
-      authTokenOverride: authSession.token,
-      userText: pendingResume.userText,
-    });
-  }, [authSession?.token, startDiagnosisV2]);
 
   const submitDiagnosisV2 = useCallback(
     async ({
@@ -8746,10 +8762,13 @@ export default function BffChat() {
   );
 
   const openRoutineIntakeSheet = useCallback(() => {
-    setRoutineDraft(makeEmptyRoutineDraft());
+    const profileRoutine = (profileSnapshot ?? bootstrapInfo?.profile) as Record<string, unknown> | null | undefined;
+    const currentRoutine = profileRoutine?.currentRoutine;
+    const prefilled = buildRoutineDraftFromProfile(currentRoutine);
+    setRoutineDraft(prefilled ?? makeEmptyRoutineDraft());
     setRoutineTab('am');
     setRoutineSheetOpen(true);
-  }, []);
+  }, [profileSnapshot, bootstrapInfo?.profile]);
 
   const runDiagnosisV2RouteAction = useCallback(
     async (actionType: 'direct_reco' | 'setup_routine' | 'start_checkin' | 'intake_optimize', payload?: Record<string, unknown>) => {
@@ -9151,26 +9170,12 @@ export default function BffChat() {
           ? (data as any).pending_goals
           : diagnosisV2StateRef.current.goals;
         const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
-        if (authSession?.token) {
-          await startDiagnosisV2({
-            goals: pendingGoals,
-            customInput: diagnosisV2StateRef.current.customInput,
-            authTokenOverride: authSession.token,
-          });
-          return;
-        }
-        diagnosisV2AuthResumeRef.current = {
-          goals: pendingGoals,
-          customInput: diagnosisV2StateRef.current.customInput,
-          userText: language === 'CN' ? '登录后继续诊断' : 'Continue diagnosis after sign in',
-        };
-        resetAuthUi(authDraft.email);
-        setAuthSheetOpen(true);
+        const returnUrl = `${window.location.pathname}?open=diagnosis_v2&goals=${encodeURIComponent(JSON.stringify(pendingGoals))}`;
+        window.location.href = `/login?return_to=${encodeURIComponent(returnUrl)}`;
         return;
       }
 
       if (actionId === 'skip_login') {
-        diagnosisV2AuthResumeRef.current = null;
         const pendingGoalsRaw = Array.isArray((data as any)?.pending_goals)
           ? (data as any).pending_goals
           : diagnosisV2StateRef.current.goals;
@@ -9185,7 +9190,6 @@ export default function BffChat() {
       }
 
       if (actionId === 'diagnosis_v2_skip') {
-        diagnosisV2AuthResumeRef.current = null;
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过这一步' : 'Skip this step' },
@@ -10822,12 +10826,8 @@ export default function BffChat() {
           <Sheet
             open={authSheetOpen}
             title={language === 'CN' ? '登录 / 账户' : 'Sign in / Account'}
-            onClose={() => {
-              diagnosisV2AuthResumeRef.current = null;
-              setAuthSheetOpen(false);
-            }}
+            onClose={() => setAuthSheetOpen(false)}
             onOpenMenu={() => {
-              diagnosisV2AuthResumeRef.current = null;
               setAuthSheetOpen(false);
               setSidebarOpen(true);
             }}
