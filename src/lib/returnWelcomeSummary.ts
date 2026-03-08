@@ -1,3 +1,5 @@
+import { parseCurrentRoutine } from '@/lib/currentRoutineState';
+
 export type ReturnWelcomeSummary = {
   goal_primary: string | null;
   plan_am_short: string[] | null;
@@ -40,33 +42,13 @@ const uniqueStrings = (v: unknown, limit = 12): string[] => {
   return out;
 };
 
-const safeJsonParseObject = (value: string): Record<string, unknown> | null => {
-  try {
-    const parsed = JSON.parse(value);
-    return asObject(parsed);
-  } catch {
-    return null;
-  }
-};
-
 const normalizeRoutine = (value: unknown): RoutineIntake | null => {
-  const obj =
-    typeof value === 'string'
-      ? safeJsonParseObject(value)
-      : asObject(value);
-  if (!obj) return null;
-
-  const readEntries = (key: 'am' | 'pm'): RoutineEntry[] => {
-    const entries = asArray(obj[key]).map((x) => asObject(x)).filter(Boolean) as Array<Record<string, unknown>>;
-    return entries
-      .map((e) => ({
-        step: asString(e.step) ?? null,
-        product: asString(e.product) ?? null,
-      }))
-      .filter((e) => Boolean(e.step || e.product));
+  const parsed = parseCurrentRoutine(value);
+  if (!parsed) return null;
+  return {
+    am: parsed.am.map((entry) => ({ step: entry.step ?? null, product: entry.product ?? null })),
+    pm: parsed.pm.map((entry) => ({ step: entry.step ?? null, product: entry.product ?? null })),
   };
-
-  return { am: readEntries('am'), pm: readEntries('pm') };
 };
 
 const titleCase = (raw: string) =>
