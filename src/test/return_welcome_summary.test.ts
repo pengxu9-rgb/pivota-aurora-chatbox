@@ -72,4 +72,23 @@ describe('return welcome summary', () => {
     expect(summary.sensitivities).toEqual(['fragrance', 'alcohol']);
     expect(summary.checkin_due).toBe(false);
   });
+
+  it('parses object-map routine payloads for welcome summary', () => {
+    const summary = buildReturnWelcomeSummary({
+      profile: {
+        goals: ['acne'],
+        currentRoutine: {
+          am: { cleanser: 'Gentle cleanser', spf: 'SPF 50' },
+          pm: { treatment: 'Retinol Serum' },
+        },
+      },
+      recent_logs: [],
+      checkin_due: false,
+      language: 'EN',
+      nowMs: Date.parse('2026-02-07T00:00:00.000Z'),
+    });
+
+    expect(summary.plan_am_short).toEqual(['Cleanser: Gentle cleanser', 'SPF: SPF 50']);
+    expect(summary.plan_pm_short).toEqual(['Treatment: Retinol Serum']);
+  });
 });

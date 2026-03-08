@@ -8,7 +8,7 @@ describe('buildRoutineDraftFromProfile', () => {
     expect(buildRoutineDraftFromProfile(undefined)).toBeNull();
   });
 
-  it('returns null for non-object input', () => {
+  it('returns null for invalid non-routine input', () => {
     expect(buildRoutineDraftFromProfile('string')).toBeNull();
     expect(buildRoutineDraftFromProfile(42)).toBeNull();
     expect(buildRoutineDraftFromProfile([])).toBeNull();
@@ -43,6 +43,41 @@ describe('buildRoutineDraftFromProfile', () => {
     expect(draft!.pm.treatment.text).toBe('Retinol Serum');
     expect(draft!.pm.moisturizer.text).toBe('Cetaphil Cream');
     expect(draft!.notes).toBe('Added retinol 2 weeks ago');
+  });
+
+  it('parses JSON-string routine payloads', () => {
+    const draft = buildRoutineDraftFromProfile(
+      JSON.stringify({
+        schema_version: 'aurora.routine_intake.v2',
+        am: [{ step: 'cleanser', product: 'CeraVe Hydrating' }],
+        pm: [{ step: 'treatment', product: 'Retinol Serum' }],
+      }),
+    );
+    expect(draft).not.toBeNull();
+    expect(draft!.am.cleanser.text).toBe('CeraVe Hydrating');
+    expect(draft!.pm.treatment.text).toBe('Retinol Serum');
+  });
+
+  it('parses object-map routine payloads into slots', () => {
+    const draft = buildRoutineDraftFromProfile({
+      am: { cleanser: 'Gentle cleanser', spf: 'SPF 50' },
+      pm: { treatment: 'Retinol Serum', moisturizer: 'Barrier cream' },
+    });
+    expect(draft).not.toBeNull();
+    expect(draft!.am.cleanser.text).toBe('Gentle cleanser');
+    expect(draft!.am.spf.text).toBe('SPF 50');
+    expect(draft!.pm.treatment.text).toBe('Retinol Serum');
+    expect(draft!.pm.moisturizer.text).toBe('Barrier cream');
+  });
+
+  it('parses array routine payloads with slot metadata', () => {
+    const draft = buildRoutineDraftFromProfile([
+      { slot: 'am', step: 'cleanser', product: 'Gentle cleanser' },
+      { slot: 'pm', step: 'treatment', product: 'Retinol Serum' },
+    ]);
+    expect(draft).not.toBeNull();
+    expect(draft!.am.cleanser.text).toBe('Gentle cleanser');
+    expect(draft!.pm.treatment.text).toBe('Retinol Serum');
   });
 
   it('maps "sunscreen" step to spf slot', () => {

@@ -46,6 +46,7 @@ import { enrichPhotoModulesPayloadWithSessionPreview } from '@/lib/photoModulesF
 import { looksLikeProductPicksRawText } from '@/lib/productPicks';
 import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
 import type { CompatibilityProductInput } from '@/lib/routineCompatibility/types';
+import { parseCurrentRoutine } from '@/lib/currentRoutineState';
 import {
   inferTextExplicitTransition,
   normalizeAgentState,
@@ -227,9 +228,8 @@ const makeEmptyRoutineDraft = (): RoutineDraft => ({
 });
 
 const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | null => {
-  if (!currentRoutine || typeof currentRoutine !== 'object') return null;
-  const raw = currentRoutine as Record<string, unknown>;
-  if (raw.schema_version !== 'aurora.routine_intake.v2') return null;
+  const parsedRoutine = parseCurrentRoutine(currentRoutine);
+  if (!parsedRoutine) return null;
 
   const draft = makeEmptyRoutineDraft();
 
@@ -258,9 +258,9 @@ const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | n
     }
   };
 
-  fillSlots(raw.am, draft.am as unknown as Record<string, RoutineSlotValue>);
-  fillSlots(raw.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
-  draft.notes = String(raw.notes || '').trim();
+  fillSlots(parsedRoutine.am, draft.am as unknown as Record<string, RoutineSlotValue>);
+  fillSlots(parsedRoutine.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
+  draft.notes = String(parsedRoutine.notes || '').trim();
 
   return hasAnyRoutineDraftInput(draft) ? draft : null;
 };
