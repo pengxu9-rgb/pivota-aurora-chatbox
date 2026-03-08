@@ -105,6 +105,7 @@ export type TravelReadinessV1 = {
     start_date?: string | null;
     end_date?: string | null;
     env_source?: string | null;
+    weather_reason?: string | null;
     epi?: number | null;
   };
   delta_vs_home?: {
