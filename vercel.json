@@ -15,6 +15,10 @@
       "destination": "https://pivota-agent-production.up.railway.app/v1/:path*"
     },
     {
+      "source": "/v2/:path*",
+      "destination": "https://pivota-agent-production.up.railway.app/v2/:path*"
+    },
+    {
       "source": "/health",
       "destination": "https://pivota-agent-production.up.railway.app/health"
     },
