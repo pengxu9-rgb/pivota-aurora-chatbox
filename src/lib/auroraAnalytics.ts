@@ -180,6 +180,16 @@ export const emitAlternativesFailed = (
   } & Record<string, unknown>,
 ) => emitWithContext('alternatives_failed', ctx, props);
 
+export const emitAuroraEmptyRecommendationsContractViolation = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    task_mode?: string | null;
+    source_card_type?: string | null;
+    products_empty_reason?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_empty_recommendations_contract_violation', ctx, props);
+
 export const emitAgentStateEntered = (
   ctx: AnalyticsContext,
   props: {

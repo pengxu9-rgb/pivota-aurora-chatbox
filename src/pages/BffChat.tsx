@@ -63,6 +63,7 @@ import {
   emitPdpOpenPath,
   emitRecommendationDetailsSheetOpened,
   emitAlternativesFailed,
+  emitAuroraEmptyRecommendationsContractViolation,
   emitAuroraProductAnalysisDegraded,
   emitAuroraProductAlternativesFiltered,
   emitAuroraHowToLayerInlineOpened,
@@ -3572,6 +3573,27 @@ export function RecommendationsCard({
   const pmSteps = toRoutineSteps(groups.pm);
 
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
+  const unexpectedEmptyRecommendations = items.length === 0 && ingredientRenderMode === 'show_products';
+  const emptyRecommendationsViolationRef = useRef(false);
+
+  useEffect(() => {
+    if (!unexpectedEmptyRecommendations || !analyticsCtx || emptyRecommendationsViolationRef.current) return;
+    emptyRecommendationsViolationRef.current = true;
+    emitAuroraEmptyRecommendationsContractViolation(analyticsCtx, {
+      card_id: asString(card.card_id) || null,
+      source_card_type: 'recommendations',
+      task_mode:
+        asString((payload as any)?.recommendation_meta?.task_mode) ||
+        asString((payload as any)?.task_mode) ||
+        null,
+      products_empty_reason: asString((payload as any)?.products_empty_reason) || null,
+    });
+  }, [analyticsCtx, card.card_id, payload, unexpectedEmptyRecommendations]);
+
+  useEffect(() => {
+    if (unexpectedEmptyRecommendations) return;
+    emptyRecommendationsViolationRef.current = false;
+  }, [unexpectedEmptyRecommendations]);
 
   if (ingredientRenderMode === 'empty_match') {
     const emptyActions = asArray((payload as any).empty_match_actions);
@@ -3625,6 +3647,23 @@ export function RecommendationsCard({
             })}
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (unexpectedEmptyRecommendations) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+        <div className="text-sm font-medium text-foreground">
+          {language === 'CN'
+            ? '这轮推荐还没有形成可展示的产品清单。'
+            : 'This recommendation round did not produce a displayable product shortlist yet.'}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {language === 'CN'
+            ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
+            : 'Retry shortly, or add your current routine / skin context before trying again.'}
+        </div>
       </div>
     );
   }
