@@ -235,6 +235,7 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       start_date: normalizeOptionalText(destinationContext.start_date, 24),
       end_date: normalizeOptionalText(destinationContext.end_date, 24),
       env_source: normalizeOptionalText(destinationContext.env_source, 40),
+      weather_reason: normalizeOptionalText(destinationContext.weather_reason, 80),
       epi: coerceNumber(destinationContext.epi),
     };
   }

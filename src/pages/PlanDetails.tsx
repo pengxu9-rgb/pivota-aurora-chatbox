@@ -12,14 +12,18 @@ import {
 import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 
 import { toast } from '@/components/ui/use-toast';
+import { DestinationDisambiguationDialog } from '@/components/travel/DestinationDisambiguationDialog';
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { getLangPref } from '@/lib/persistence';
 import type { Language } from '@/lib/pivotaAgentBff';
 import {
   archiveTravelPlan,
+  getDestinationAmbiguityPayload,
   getTravelPlanById,
   updateTravelPlan,
+  type DestinationPlace,
   type TravelPlanCardModel,
+  type UpdateTravelPlanInput,
 } from '@/lib/travelPlansApi';
 
 type EditDraft = {
@@ -32,6 +36,12 @@ type EditDraft = {
 
 type PlanDetailsRouteState = {
   plan?: TravelPlanCardModel | null;
+};
+
+type PendingDestinationSelection = {
+  normalizedQuery: string;
+  candidates: DestinationPlace[];
+  payload: UpdateTravelPlanInput;
 };
 
 const normalizeRatio = (raw: string): number | null => {
@@ -120,6 +130,8 @@ export default function PlanDetails() {
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<EditDraft>(makeDraftFromPlan(initialPlan));
+  const [pendingDestinationSelection, setPendingDestinationSelection] = useState<PendingDestinationSelection | null>(null);
+  const [selectingDestination, setSelectingDestination] = useState(false);
 
   useEffect(() => {
     if (!tripId) {
@@ -175,7 +187,7 @@ export default function PlanDetails() {
 
     try {
       setSaving(true);
-      const response = await updateTravelPlan(language, tripId, {
+      const payload: UpdateTravelPlanInput = {
         destination: draft.destination.trim(),
         start_date: draft.start_date,
         end_date: draft.end_date,
@@ -183,17 +195,71 @@ export default function PlanDetails() {
           ? { indoor_outdoor_ratio: normalizeRatio(draft.indoor_outdoor_ratio) as number }
           : { indoor_outdoor_ratio: undefined }),
         ...(draft.itinerary.trim() ? { itinerary: draft.itinerary.trim().slice(0, 1200) } : { itinerary: '' }),
-      });
+      };
+      const response = await updateTravelPlan(language, tripId, payload);
 
       const nextPlan = response.plan ?? null;
       setPlan(nextPlan);
       setDraft(makeDraftFromPlan(nextPlan));
       setEditing(false);
+      setPendingDestinationSelection(null);
       toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
     } catch (err) {
+      const ambiguity = getDestinationAmbiguityPayload(err);
+      if (ambiguity) {
+        setPendingDestinationSelection({
+          normalizedQuery: ambiguity.normalized_query || draft.destination.trim(),
+          candidates: ambiguity.candidates,
+          payload: {
+            destination: draft.destination.trim(),
+            start_date: draft.start_date,
+            end_date: draft.end_date,
+            ...(normalizeRatio(draft.indoor_outdoor_ratio) != null
+              ? { indoor_outdoor_ratio: normalizeRatio(draft.indoor_outdoor_ratio) as number }
+              : { indoor_outdoor_ratio: undefined }),
+            ...(draft.itinerary.trim() ? { itinerary: draft.itinerary.trim().slice(0, 1200) } : { itinerary: '' }),
+          },
+        });
+        setError('');
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const submitDestinationSelection = async (candidate: DestinationPlace) => {
+    if (!tripId || !pendingDestinationSelection) return;
+    setSelectingDestination(true);
+    setError('');
+    try {
+      const response = await updateTravelPlan(language, tripId, {
+        ...pendingDestinationSelection.payload,
+        destination_place: {
+          ...candidate,
+          resolution_source: 'user_selected',
+        },
+      });
+      const nextPlan = response.plan ?? null;
+      setPlan(nextPlan);
+      setDraft(makeDraftFromPlan(nextPlan));
+      setEditing(false);
+      setPendingDestinationSelection(null);
+      toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
+    } catch (err) {
+      const ambiguity = getDestinationAmbiguityPayload(err);
+      if (ambiguity) {
+        setPendingDestinationSelection({
+          normalizedQuery: ambiguity.normalized_query || pendingDestinationSelection.normalizedQuery,
+          candidates: ambiguity.candidates,
+          payload: pendingDestinationSelection.payload,
+        });
+        return;
+      }
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSelectingDestination(false);
     }
   };
 
@@ -240,6 +306,18 @@ export default function PlanDetails() {
 
   return (
     <div className="ios-page">
+      <DestinationDisambiguationDialog
+        open={Boolean(pendingDestinationSelection)}
+        language={language}
+        normalizedQuery={pendingDestinationSelection?.normalizedQuery || ''}
+        candidates={pendingDestinationSelection?.candidates || []}
+        submitting={selectingDestination}
+        onSelect={submitDestinationSelection}
+        onOpenChange={(open) => {
+          if (open || selectingDestination) return;
+          setPendingDestinationSelection(null);
+        }}
+      />
       <div className="ios-page-header">
         <button type="button" onClick={onBack} className="ios-nav-button" aria-label={language === 'CN' ? '返回计划' : 'Back to plans'}>
           <ArrowLeft className="h-[18px] w-[18px]" />

@@ -52,6 +52,7 @@ describe("aurora ui contracts", () => {
           start_date: "2026-03-01",
           end_date: "2026-03-05",
           env_source: "weather_api",
+          weather_reason: "weather_api_ok",
           epi: 67,
         },
         delta_vs_home: {
@@ -121,6 +122,7 @@ describe("aurora ui contracts", () => {
     expect(model?.tier_description).toBe("Moderate stress: maintain barrier support and daily SPF.");
     expect(model?.radar?.[0]?.drivers).toEqual(["Humidity: 76%", "Wind: 14 kph"]);
     expect(model?.travel_readiness?.destination_context?.destination).toBe("Paris");
+    expect(model?.travel_readiness?.destination_context?.weather_reason).toBe("weather_api_ok");
     expect(model?.travel_readiness?.delta_vs_home?.summary_tags).toEqual(["colder", "higher_uv"]);
     expect(model?.travel_readiness?.forecast_window?.[0]?.date).toBe("2026-03-01");
     expect(model?.travel_readiness?.alerts?.[0]?.severity).toBe("orange");

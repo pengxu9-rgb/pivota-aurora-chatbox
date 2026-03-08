@@ -21,15 +21,20 @@ vi.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock('@/lib/travelPlansApi', () => ({
-  listTravelPlans: vi.fn(),
-  createTravelPlan: vi.fn(),
-  updateTravelPlan: vi.fn(),
-  archiveTravelPlan: vi.fn(),
-}));
+vi.mock('@/lib/travelPlansApi', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/travelPlansApi')>('@/lib/travelPlansApi');
+  return {
+    ...actual,
+    listTravelPlans: vi.fn(),
+    createTravelPlan: vi.fn(),
+    updateTravelPlan: vi.fn(),
+    archiveTravelPlan: vi.fn(),
+  };
+});
 
 import Plans from '@/pages/Plans';
 import { toast } from '@/components/ui/use-toast';
+import { PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import {
   archiveTravelPlan,
   createTravelPlan,
@@ -176,6 +181,89 @@ describe('Plans page behavior', () => {
         title: 'Travel skincare plan',
       }),
     );
+  });
+
+  it('retries create after destination ambiguity selection', async () => {
+    vi.mocked(createTravelPlan)
+      .mockRejectedValueOnce(
+        new PivotaAgentBffError('Request failed: 409 Conflict', 409, {
+          error: 'DESTINATION_AMBIGUOUS',
+          normalized_query: 'Paris',
+          candidates: [
+            {
+              label: 'Paris, Ile-de-France, France',
+              canonical_name: 'Paris',
+              latitude: 48.85341,
+              longitude: 2.3488,
+              country_code: 'FR',
+              country: 'France',
+              admin1: 'Ile-de-France',
+              timezone: 'Europe/Paris',
+            },
+            {
+              label: 'Paris, Texas, United States',
+              canonical_name: 'Paris',
+              latitude: 33.66094,
+              longitude: -95.55551,
+              country_code: 'US',
+              country: 'United States',
+              admin1: 'Texas',
+              timezone: 'America/Chicago',
+            },
+          ],
+        }) as never,
+      )
+      .mockResolvedValueOnce({
+        plan: makePlan({
+          trip_id: 'trip_paris',
+          destination: 'Paris, Ile-de-France, France',
+          destination_place: {
+            label: 'Paris, Ile-de-France, France',
+            canonical_name: 'Paris',
+            latitude: 48.85341,
+            longitude: 2.3488,
+            country_code: 'FR',
+            country: 'France',
+            admin1: 'Ile-de-France',
+            timezone: 'Europe/Paris',
+            resolution_source: 'user_selected',
+          },
+        }),
+        summary: {
+          active_trip_id: 'trip_paris',
+          counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+        },
+      });
+
+    render(<Plans />);
+    await screen.findByText('Create new plan');
+
+    fireEvent.change(screen.getByPlaceholderText('e.g. Tokyo / Paris'), {
+      target: { value: 'Paris' },
+    });
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2099-06-01' } });
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2099-06-05' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save plan' }));
+
+    expect(await screen.findByText('Confirm destination')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Paris, Ile-de-France, France/i }));
+
+    await waitFor(() => {
+      expect(createTravelPlan).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(createTravelPlan).mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        destination: 'Paris',
+        destination_place: expect.objectContaining({
+          canonical_name: 'Paris',
+          resolution_source: 'user_selected',
+          timezone: 'Europe/Paris',
+        }),
+      }),
+    );
+    await waitFor(() => {
+      expect(outletContext.startChat).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('keeps plan details collapsed until user expands', async () => {

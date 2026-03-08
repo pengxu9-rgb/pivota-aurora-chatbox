@@ -119,6 +119,18 @@ export function EnvStressCard({
   const missingRecentLogs = Boolean(
     missingInputs.includes('recent_logs') || model?.notes?.some((n) => typeof n === 'string' && n.includes('recent_logs')),
   );
+  const envSource = String(travelReadiness?.destination_context?.env_source || '').trim().toLowerCase();
+  const usesLiveWeather = envSource === 'weather_api';
+  const usesClimateFallback = Boolean(travelReadiness) && envSource !== '' && envSource !== 'weather_api';
+  const weatherSourceLabel = usesLiveWeather
+    ? language === 'CN'
+      ? '实时天气'
+      : 'Live weather'
+    : usesClimateFallback
+      ? language === 'CN'
+        ? '气候常模估算'
+        : 'Climate baseline estimate'
+      : null;
 
   const metricRows = useMemo(
     () =>
@@ -290,6 +302,18 @@ export function EnvStressCard({
                     ? ` (${travelReadiness.destination_context?.start_date || '-'} -> ${travelReadiness.destination_context?.end_date || '-'})`
                     : ''}
                 </div>
+                {weatherSourceLabel ? (
+                  <div className="mt-1.5 inline-flex items-center rounded-full border border-border/70 px-2 py-0.5 text-[10px] text-foreground/85">
+                    {weatherSourceLabel}
+                  </div>
+                ) : null}
+                {usesClimateFallback ? (
+                  <div className="mt-1.5">
+                    {language === 'CN'
+                      ? '实时天气暂不可用，以下按目的地气候特征给出定性建议。'
+                      : 'Live weather is unavailable, so the guidance below uses destination climate patterns.'}
+                  </div>
+                ) : null}
                 {metricRows.length ? (
                   <ul className="mt-1.5 space-y-1">
                     {metricRows.slice(0, 2).map((row) => (
@@ -324,7 +348,7 @@ export function EnvStressCard({
                 ) : null}
               </div>
 
-              {travelReadiness.forecast_window?.length ? (
+              {usesLiveWeather && travelReadiness.forecast_window?.length ? (
                 <details className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                   <summary className="cursor-pointer select-none font-semibold text-foreground/90">
                     {language === 'CN' ? '逐日天气预报（展开）' : 'Daily forecast (expand)'}
