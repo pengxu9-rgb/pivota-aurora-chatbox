@@ -165,6 +165,7 @@ describe('PhotoUploadCard smoke', () => {
     expect(fileInputs.length).toBe(2);
     fireEvent.change(fileInputs[1], { target: { files: [new File(['indoor'], 'indoor.jpg', { type: 'image/jpeg' })] } });
 
+    await screen.findByAltText('indoor_white');
     await screen.findAllByText('Frame good');
     fireEvent.click(screen.getByRole('button', { name: 'Hide optional photo' }));
 
