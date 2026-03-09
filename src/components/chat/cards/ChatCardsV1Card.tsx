@@ -21,6 +21,13 @@ type Props = {
 
 const asString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+const looksLikeRawPdpResponse = (value: unknown): boolean => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  const hasSubject = row.subject && typeof row.subject === 'object' && !Array.isArray(row.subject);
+  const hasModules = Array.isArray(row.modules);
+  return Boolean(hasSubject && (hasModules || asString(row.pdp_version) || asString(row.status)));
+};
 
 const renderItemText = (item: unknown): string => {
   if (typeof item === 'string') return item;
@@ -35,6 +42,7 @@ const renderItemText = (item: unknown): string => {
     asString(row.value),
   ].filter(Boolean);
   if (candidates.length > 0) return candidates.join(' · ');
+  if (looksLikeRawPdpResponse(row)) return '';
   try {
     return JSON.stringify(row);
   } catch {
