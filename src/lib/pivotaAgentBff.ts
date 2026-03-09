@@ -193,6 +193,122 @@ export const bffJson = async <TResponse>(
   return body as TResponse;
 };
 
+// ─── SSE streaming for /v1/chat/stream ─────────────────────────────────────
+
+export type SSEThinkingEvent = { step: string; message: string };
+export type SSEChunkEvent = { text: string };
+export type SSEResultEvent = {
+  cards: Array<Record<string, unknown>>;
+  ops: Record<string, unknown>;
+  next_actions: Array<Record<string, unknown>>;
+  thinking_steps: SSEThinkingEvent[];
+  intro_hint?: { en: string; zh: string };
+  meta: {
+    skill_id?: string;
+    task_mode?: string;
+    elapsed_ms?: number;
+    quality_ok?: boolean;
+  };
+};
+
+export type BffStreamCallbacks = {
+  onThinking: (event: SSEThinkingEvent) => void;
+  onChunk: (event: SSEChunkEvent) => void;
+  onResult: (event: SSEResultEvent) => void;
+  onError?: (message: string) => void;
+  onDone?: () => void;
+};
+
+/**
+ * SSE streaming client for /v1/chat/stream.
+ * Consumes server-sent events and dispatches to typed callbacks.
+ */
+export const bffChatStream = async (
+  headers: BffHeaders,
+  body: Record<string, unknown>,
+  callbacks: BffStreamCallbacks,
+  options: { baseUrl?: string; timeoutMs?: number } = {},
+): Promise<void> => {
+  const baseUrl = options.baseUrl ?? getPivotaAgentBaseUrl();
+  const requestUrl = joinUrl(baseUrl, '/v1/chat/stream');
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutMs = options.timeoutMs ?? 90_000;
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => controller.abort(), timeoutMs);
+  }
+
+  try {
+    const res = await fetch(requestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        'X-Aurora-Uid': headers.aurora_uid ?? '',
+        'X-Trace-ID': headers.trace_id,
+        'X-Brief-ID': headers.brief_id,
+        'X-Lang': headers.lang,
+        'X-Aurora-Lang': headers.lang === 'CN' ? 'cn' : 'en',
+        ...(headers.auth_token ? { Authorization: `Bearer ${headers.auth_token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new PivotaAgentBffError(`Stream request failed: ${res.status}`, res.status, errBody);
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEventType = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEventType = line.slice(7).trim();
+        } else if (line.startsWith('data: ') && currentEventType) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            switch (currentEventType) {
+              case 'thinking':
+                callbacks.onThinking(data as SSEThinkingEvent);
+                break;
+              case 'chunk':
+                callbacks.onChunk(data as SSEChunkEvent);
+                break;
+              case 'result':
+                callbacks.onResult(data as SSEResultEvent);
+                break;
+              case 'error':
+                callbacks.onError?.(data.message || 'Unknown error');
+                break;
+              case 'done':
+                callbacks.onDone?.();
+                break;
+            }
+          } catch {
+            // skip malformed SSE data
+          }
+          currentEventType = '';
+        }
+      }
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
 export type RecoEmployeeFeedbackType = 'relevant' | 'not_relevant' | 'wrong_block';
 export type RecoBlockType = 'competitors' | 'dupes' | 'related_products';
 

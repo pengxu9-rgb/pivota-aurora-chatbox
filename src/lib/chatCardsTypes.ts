@@ -83,10 +83,12 @@ export type ChatResponseV1 = {
   request_id: string;
   trace_id: string;
   assistant_text: string;
+  intro_hint?: string;
   cards: ChatCardV1[];
   follow_up_questions: FollowUpQuestionV1[];
   suggested_quick_replies: QuickReplyV1[];
   ops: ChatOpsV1;
   safety: ChatSafetyV1;
   telemetry: ChatTelemetryV1;
+  legacy_session_patch?: Record<string, unknown>;
 };

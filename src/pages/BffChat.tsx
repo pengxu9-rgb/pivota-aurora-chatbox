@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
-import { bffJson, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
+import { bffJson, bffChatStream, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
+import type { SSEResultEvent } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
@@ -16,7 +17,7 @@ import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompa
 import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
 import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
-import { AuroraLoadingCard, type AuroraLoadingIntent } from '@/components/aurora/cards/AuroraLoadingCard';
+import { AuroraLoadingCard, type AuroraLoadingIntent, type ThinkingStep } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
 import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
@@ -53,6 +54,7 @@ import {
   emitPdpLatencyMs,
   emitPdpOpenPath,
   emitRecommendationDetailsSheetOpened,
+  emitAuroraEmptyRecommendationsContractViolation,
   emitAuroraProductAnalysisDegraded,
   emitAuroraProductAlternativesFiltered,
   emitAuroraHowToLayerInlineOpened,
@@ -113,6 +115,8 @@ import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
+import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
+import { saveAuroraProfileCache } from '@/lib/userProfile';
 import {
   Activity,
   ArrowRight,
@@ -184,6 +188,21 @@ const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
   ];
   return values.some((v) => Boolean(String(v || '').trim()));
 };
+
+const hasAnyRoutineAmInput = (draft: RoutineDraft): boolean => {
+  const values = [draft.am.cleanser, draft.am.treatment, draft.am.moisturizer, draft.am.spf];
+  return values.some((v) => Boolean(String(v || '').trim()));
+};
+
+const copyRoutineAmToPm = (draft: RoutineDraft): RoutineDraft => ({
+  ...draft,
+  pm: {
+    ...draft.pm,
+    cleanser: String(draft.am.cleanser || ''),
+    treatment: String(draft.am.treatment || ''),
+    moisturizer: String(draft.am.moisturizer || ''),
+  },
+});
 
 const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
   const am: Array<{ step: string; product: string }> = [];
@@ -856,6 +875,33 @@ const filterPassiveAdvisoryChips = (chips: SuggestedChip[], showPassive: boolean
     return !isPassiveProfileChipId(chipId);
   });
 };
+const normalizeChipDedupToken = (value: unknown): string => String(value ?? '').trim().toLowerCase();
+const buildChipDedupKey = (chip: SuggestedChip): string => {
+  const data = asObject((chip as any)?.data) ?? {};
+  const actionId = normalizeChipDedupToken((data as any).action_id);
+  if (actionId) return `action:${actionId}`;
+  const followUpOptionId = normalizeChipDedupToken((data as any).follow_up_option_id);
+  if (followUpOptionId) return `followup_option:${followUpOptionId}`;
+  const chipId = normalizeChipDedupToken((chip as any)?.chip_id);
+  if (chipId) return `chip:${chipId}`;
+  const label = normalizeChipDedupToken((chip as any)?.label);
+  const replyText = normalizeChipDedupToken((data as any).reply_text);
+  return `text:${label}::${replyText}`;
+};
+const dedupeSuggestedChips = (chips: SuggestedChip[], max = 12): SuggestedChip[] => {
+  const out: SuggestedChip[] = [];
+  const seen = new Set<string>();
+  const rows = Array.isArray(chips) ? chips : [];
+  for (const chip of rows) {
+    if (!chip || typeof chip !== 'object') continue;
+    const key = buildChipDedupKey(chip);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(chip);
+    if (out.length >= max) break;
+  }
+  return out;
+};
 const asNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
@@ -889,6 +935,16 @@ const isInternalKbCitationId = (raw: string): boolean => {
   if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v)) return true;
   return false;
 };
+
+const FRAGRANCE_FREE_RE = /\b(no fragrance|fragrance[\s-]*free|without fragrance|fragrance not listed|no parfum)\b/i;
+
+function filterContradictoryFragranceFlags(flags: string[]): string[] {
+  const hasDescriptiveFragranceFree = flags.some(
+    (f) => f.length > 12 && FRAGRANCE_FREE_RE.test(f),
+  );
+  if (!hasDescriptiveFragranceFree) return flags;
+  return flags.filter((f) => f.toLowerCase() !== 'fragrance');
+}
 
 const ACK_PREFIX_WITH_PUNCT_RE =
   /^(?:got it|okay|ok|sure|great|understood|received|收到|好的|明白了|已收到)\s*(?:✅|☑️|✔️)?\s*(?:[—–-]|[,，:：]|[.!?。！？])\s*/i;
@@ -997,6 +1053,29 @@ const uniqueStrings = (items: unknown): string[] => {
     out.push(v);
   }
   return out;
+};
+
+type IngredientRenderMode = 'show_products' | 'empty_match' | 'pending_match';
+
+const deriveIngredientRenderMode = (payload: Record<string, unknown> | null | undefined): IngredientRenderMode => {
+  if (!payload || typeof payload !== 'object') return 'show_products';
+  const emptyReason = String((payload as any)?.products_empty_reason ?? '').trim();
+  const matched = (payload as any)?.constraint_match_summary?.matched;
+  const confidence = (payload as any)?.recommendation_confidence_score;
+  const taskMode = String((payload as any)?.recommendation_meta?.task_mode ?? (payload as any)?.task_mode ?? '').trim();
+  const matcherPending = (payload as any)?.metadata?.matcher_check_result?.pending;
+
+  if (
+    emptyReason === 'ingredient_constraint_no_match' ||
+    emptyReason === 'ingredient_no_verified_candidates' ||
+    taskMode === 'ingredient_lookup_no_candidates' ||
+    (matched === 0 && typeof matched === 'number') ||
+    (confidence === 0 && typeof confidence === 'number' && taskMode.startsWith('ingredient_'))
+  ) {
+    return 'empty_match';
+  }
+  if (matcherPending === true && taskMode.startsWith('ingredient_')) return 'pending_match';
+  return 'show_products';
 };
 
 const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
@@ -1435,7 +1514,9 @@ const readBootstrapInfoFromSessionBootstrapCard = (env: V1Envelope): BootstrapIn
   const patch: BootstrapInfoPatch = {};
   if (Object.prototype.hasOwnProperty.call(p, 'profile')) {
     const rawProfile = (p as any).profile;
-    patch.profile = asObject(rawProfile) ?? (rawProfile == null ? null : null);
+    const profileObj = asObject(rawProfile);
+    const normalized = normalizeProfileFromBootstrap(profileObj);
+    patch.profile = profileObj ? { ...profileObj, ...(normalized || {}), ...(normalized?.region ? { region: normalized.region } : {}) } : null;
   }
   if (Object.prototype.hasOwnProperty.call(p, 'recent_logs')) {
     patch.recent_logs = asArray((p as any).recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
@@ -1458,7 +1539,11 @@ const readBootstrapInfoFromSessionPatch = (env: V1Envelope): BootstrapInfoPatch 
   if (!patch) return null;
 
   const out: BootstrapInfoPatch = {};
-  if (Object.prototype.hasOwnProperty.call(patch, 'profile')) out.profile = asObject(patch.profile) ?? (patch.profile == null ? null : null);
+  if (Object.prototype.hasOwnProperty.call(patch, 'profile')) {
+    const profileObj = asObject(patch.profile);
+    const normalized = normalizeProfileFromBootstrap(profileObj);
+    out.profile = profileObj ? { ...profileObj, ...(normalized || {}), ...(normalized?.region ? { region: normalized.region } : {}) } : null;
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'recent_logs'))
     out.recent_logs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
   if (Object.prototype.hasOwnProperty.call(patch, 'checkin_due')) out.checkin_due = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
@@ -2314,10 +2399,11 @@ export function RecommendationsCard({
     const comparisonNotes = asArray(evidencePack?.comparisonNotes ?? evidencePack?.comparison_notes)
       .map((v) => asString(v))
       .filter(Boolean) as string[];
-    const sensitivityFlags = asArray(evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags)
+    const sensitivityFlagsRaw = asArray(evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags)
       .map((v) => asString(v))
       .filter(Boolean)
       .filter((v) => !isInternalKbCitationId(v)) as string[];
+    const sensitivityFlags = filterContradictoryFragranceFlags(sensitivityFlagsRaw);
     const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
       .map((v) => asString(v))
       .filter(Boolean) as string[];
@@ -3001,9 +3087,110 @@ export function RecommendationsCard({
 
   const amSteps = toRoutineSteps(groups.am);
   const pmSteps = toRoutineSteps(groups.pm);
+  const ingredientRenderMode = deriveIngredientRenderMode(payload);
+  const unexpectedEmptyRecommendations = items.length === 0 && ingredientRenderMode === 'show_products';
+  const emptyRecommendationsViolationRef = useRef(false);
+
+  useEffect(() => {
+    if (!unexpectedEmptyRecommendations || !analyticsCtx || emptyRecommendationsViolationRef.current) return;
+    emptyRecommendationsViolationRef.current = true;
+    emitAuroraEmptyRecommendationsContractViolation(analyticsCtx, {
+      card_id: asString(card.card_id) || null,
+      source_card_type: 'recommendations',
+      task_mode:
+        asString((payload as any)?.recommendation_meta?.task_mode) ||
+        asString((payload as any)?.task_mode) ||
+        null,
+      products_empty_reason: asString((payload as any)?.products_empty_reason) || null,
+    });
+  }, [analyticsCtx, card.card_id, payload, unexpectedEmptyRecommendations]);
+
+  useEffect(() => {
+    if (unexpectedEmptyRecommendations) return;
+    emptyRecommendationsViolationRef.current = false;
+  }, [unexpectedEmptyRecommendations]);
+
+  if (ingredientRenderMode === 'empty_match') {
+    const emptyActions = asArray((payload as any).empty_match_actions);
+    const ingredientQuery = asString(
+      (payload as any)?.ingredient_evidence?.query ??
+      (payload as any)?.ingredient_context?.query ??
+      (payload as any)?.recommendation_meta?.ingredient_query,
+    ) || '';
+    return (
+      <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/30 p-4">
+        <div className="text-sm font-medium text-foreground">
+          {ingredientQuery
+            ? (language === 'CN'
+              ? `暂未找到确认含有 ${ingredientQuery} 的产品。`
+              : `No confirmed products containing ${ingredientQuery} found yet.`)
+            : (language === 'CN'
+              ? '暂未找到成分匹配的产品。'
+              : 'No confirmed ingredient-matched products found yet.')}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {language === 'CN'
+            ? '仅在成分信息可验证时展示产品推荐。'
+            : 'Products are only shown when ingredient presence can be verified.'}
+        </div>
+        {emptyActions.length > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {emptyActions.map((action: unknown) => {
+              const a = asObject(action);
+              if (!a) return null;
+              const actionId = asString((a as any).action_id) || '';
+              const actionLabel = asString((a as any).label) || actionId || '';
+              return (
+                <button
+                  key={actionId}
+                  type="button"
+                  className="rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60 transition-colors"
+                  onClick={() => {
+                    if (!onAction || !actionId) return;
+                    onAction(actionId, {
+                      action_id: actionId,
+                      action_label: actionLabel,
+                      trigger_source: 'ingredient_empty_match',
+                      source_card_type: 'recommendations',
+                      ...(ingredientQuery ? { ingredient_query: ingredientQuery } : {}),
+                    });
+                  }}
+                >
+                  {actionLabel}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (unexpectedEmptyRecommendations) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+        <div className="text-sm font-medium text-foreground">
+          {language === 'CN'
+            ? '这轮推荐还没有形成可展示的产品清单。'
+            : 'This recommendation round did not produce a displayable product shortlist yet.'}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {language === 'CN'
+            ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
+            : 'Retry shortly, or add your current routine / skin context before trying again.'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
+      {ingredientRenderMode === 'pending_match' ? (
+        <div className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+          {language === 'CN' ? '成分匹配验证中…' : 'Verifying ingredient match…'}
+        </div>
+      ) : null}
       {recommendationBasis ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           {recommendationBasis}
@@ -4292,6 +4479,97 @@ function BffCardView({
           .filter(Boolean)
           .slice(0, 5);
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
+
+        // ─── V4 payload fields ────────────────────────────────────────────────
+        // Detect V4 by presence of verdict_level field
+        const verdictLevel = asString((assessment as any)?.verdict_level) || null;
+        const isV4Payload = Boolean(verdictLevel);
+        const dataQualityBanner = asString((assessment as any)?.data_quality_banner) || null;
+        const v4TopTakeaways = isV4Payload ? uniqueStrings(asArray((assessment as any)?.top_takeaways)).slice(0, 5) : [];
+        const v4BestFor = isV4Payload ? uniqueStrings(asArray((assessment as any)?.best_for)).slice(0, 5) : [];
+        const v4WatchoutsRaw = isV4Payload ? asArray((assessment as any)?.watchouts) : [];
+        const v4Watchouts = v4WatchoutsRaw
+          .map((item: unknown) => {
+            const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
+            if (!o) return null;
+            const issue = asString(o.issue);
+            const status = asString(o.status);
+            const whatToDo = asString(o.what_to_do);
+            if (!issue) return null;
+            return {
+              issue,
+              status: ['confirmed', 'possible', 'unknown'].includes(status) ? status : 'unknown',
+              what_to_do: whatToDo,
+            };
+          })
+          .filter(Boolean) as Array<{ issue: string; status: string; what_to_do: string }>;
+        const v4HowToUse = isV4Payload
+          ? (() => {
+              const htu = typeof howToUse === 'object' && howToUse !== null ? (howToUse as Record<string, unknown>) : null;
+              if (!htu) return null;
+              return {
+                when: asString(htu.when) || null,
+                frequency: asString(htu.frequency) || null,
+                order_in_routine: asString(htu.order_in_routine) || null,
+                pairing_rules: uniqueStrings(asArray(htu.pairing_rules)).slice(0, 4),
+                stop_signs: uniqueStrings(asArray(htu.stop_signs)).slice(0, 4),
+              };
+            })()
+          : null;
+        const evidence = typeof (payload as any).evidence === 'object' && (payload as any).evidence !== null
+          ? ((payload as any).evidence as Record<string, unknown>)
+          : null;
+        const v4KeyIngredientsByFunction = isV4Payload
+          ? asArray(evidence?.key_ingredients_by_function)
+              .map((item: unknown) => {
+                const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
+                if (!o) return null;
+                const fn = asString(o.function);
+                const ingredients = uniqueStrings(asArray(o.ingredients)).filter(Boolean).slice(0, 8);
+                const confidence = asString(o.confidence);
+                if (!fn || !ingredients.length) return null;
+                return { function: fn, ingredients, confidence };
+              })
+              .filter(Boolean) as Array<{ function: string; ingredients: string[]; confidence: string }>
+          : [];
+        const v4ProductTypeReasoning = isV4Payload ? asString(evidence?.product_type_reasoning) || null : null;
+        const inciStatus = (payload as any).inci_status && typeof (payload as any).inci_status === 'object'
+          ? ((payload as any).inci_status as Record<string, unknown>)
+          : null;
+        const inciConsensusTier = asString(inciStatus?.consensus_tier) || null;
+
+        // Verdict-level color coding (V4)
+        const verdictLevelStyle = (() => {
+          if (!verdictLevel) return null;
+          const vl = verdictLevel.toLowerCase();
+          if (vl === 'recommended') return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
+          if (vl === 'cautiously_ok') return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
+          if (vl === 'needs_verification') return 'bg-orange-500/10 text-orange-700 border-orange-500/20';
+          if (vl === 'not_recommended') return 'bg-rose-500/10 text-rose-600 border-rose-500/20';
+          return null;
+        })();
+        const verdictLevelLabel = (() => {
+          if (!verdictLevel) return null;
+          const vl = verdictLevel.toLowerCase();
+          if (language === 'CN') {
+            if (vl === 'recommended') return '推荐';
+            if (vl === 'cautiously_ok') return '谨慎适合';
+            if (vl === 'needs_verification') return '待验证';
+            if (vl === 'not_recommended') return '不推荐';
+          } else {
+            if (vl === 'recommended') return 'Recommended';
+            if (vl === 'cautiously_ok') return 'Cautiously OK';
+            if (vl === 'needs_verification') return 'Needs Verification';
+            if (vl === 'not_recommended') return 'Not Recommended';
+          }
+          return null;
+        })();
+        const watchoutStatusIcon = (status: string) => {
+          if (status === 'confirmed') return '⚠️';
+          if (status === 'possible') return '❓';
+          return '○';
+        };
+        // ─────────────────────────────────────────────────────────────────────
         const profilePromptRaw = asObject((payload as any).profile_prompt || (payload as any).profilePrompt) || null;
         const competitorsObj = asObject((payload as any).competitors) || null;
         const relatedProductsObj = asObject((payload as any).related_products || (payload as any).relatedProducts) || null;
@@ -4774,13 +5052,49 @@ function BffCardView({
           <div className="space-y-3">
             {product ? <AuroraAnchorCard product={product} offers={anchorOffers} language={language} hidePriceWhenUnknown /> : null}
 
-            {verdict ? (
+            {/* V4: Data quality banner — shown at the top when non-null */}
+            {dataQualityBanner ? (
+              <div className="rounded-2xl border border-orange-500/30 bg-orange-50/60 px-3 py-2 text-xs text-orange-800">
+                <span className="mr-1 font-semibold">{language === 'CN' ? '数据质量提示：' : 'Data quality note:'}</span>
+                {dataQualityBanner}
+              </div>
+            ) : null}
+
+            {/* V4: verdict_level badge (replaces legacy verdict badge when V4 payload detected) */}
+            {isV4Payload && verdictLevelLabel ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictLevelStyle || verdictStyle}`}>
+                  {language === 'CN' ? '评估：' : 'Assessment: '} {verdictLevelLabel}
+                </div>
+                {inciConsensusTier ? (
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                    inciConsensusTier === 'high' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
+                    inciConsensusTier === 'medium' ? 'border-amber-300 bg-amber-50 text-amber-700' :
+                    'border-slate-300 bg-slate-50 text-slate-600'
+                  }`}>
+                    {language === 'CN'
+                      ? `成分可信度：${inciConsensusTier === 'high' ? '高' : inciConsensusTier === 'medium' ? '中' : '低'}`
+                      : `INCI confidence: ${inciConsensusTier}`}
+                  </span>
+                ) : null}
+              </div>
+            ) : verdict ? (
               <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}>
                 {language === 'CN' ? '结论：' : 'Verdict: '} {verdict}
               </div>
             ) : null}
 
-            {keyTakeawayLines.length ? (
+            {/* V4: compact top takeaways (replaces keyTakeawayLines when V4) */}
+            {isV4Payload && v4TopTakeaways.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '核心结论' : 'Key takeaways'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {v4TopTakeaways.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : !isV4Payload && keyTakeawayLines.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '重点结论' : 'Key takeaway'}</div>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
@@ -4900,7 +5214,17 @@ function BffCardView({
               </div>
             ) : null}
 
-            {(bestForSignals.length || cautionSignals.length) ? (
+            {/* V4: best_for from assessment — shown alongside legacy best_for when available */}
+            {isV4Payload && v4BestFor.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                  {v4BestFor.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : !isV4Payload && (bestForSignals.length || cautionSignals.length) ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '是否适合你' : 'Is it a fit for you?'}</div>
                 <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -4954,7 +5278,93 @@ function BffCardView({
               </div>
             ) : null}
 
-            {howToUseBullets.length ? (
+            {/* V4: structured watchouts with confirmed/possible/unknown status icons */}
+            {isV4Payload && v4Watchouts.length ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {language === 'CN' ? '需要注意的地方' : 'Watchouts'}
+                </div>
+                <div className="mt-2 space-y-2">
+                  {v4Watchouts.map((w, i) => (
+                    <div key={`watchout_${i}_${w.issue}`} className="rounded-xl border border-border/40 bg-background/70 p-2">
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : w.status === 'possible' ? 'text-orange-500' : 'text-slate-400'}`}>
+                          {watchoutStatusIcon(w.status)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-foreground">{w.issue}</div>
+                          {w.what_to_do ? (
+                            <div className="mt-1 text-xs text-muted-foreground">{w.what_to_do}</div>
+                          ) : null}
+                        </div>
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                          w.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
+                          w.status === 'possible' ? 'bg-orange-100 text-orange-600' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>
+                          {w.status === 'confirmed'
+                            ? (language === 'CN' ? '已确认' : 'Confirmed')
+                            : w.status === 'possible'
+                              ? (language === 'CN' ? '可能' : 'Possible')
+                              : (language === 'CN' ? '未知' : 'Unknown')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {/* V4: structured how_to_use with when/frequency/order/pairing/stop_signs */}
+            {isV4Payload && v4HowToUse ? (
+              <details
+                open
+                className="rounded-2xl border border-border/60 bg-background/60 p-3"
+                onToggle={(event) => {
+                  const current = event.currentTarget;
+                  if (!current.open || !analyticsCtx) return;
+                  const eventKey = `${card.card_id || 'product_analysis'}::how_to_layer_inline_opened`;
+                  if (howToLayerEventKeysRef.current.has(eventKey)) return;
+                  howToLayerEventKeysRef.current.add(eventKey);
+                  emitAuroraHowToLayerInlineOpened(analyticsCtx, {
+                    request_id: asString((payload as any)?.request_id) || null,
+                    bff_trace_id: requestHeaders.trace_id || null,
+                  });
+                }}
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                  <span>{language === 'CN' ? '怎么用（使用指南）' : 'How to use'}</span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
+                <div className="mt-2 space-y-2 text-sm">
+                  {v4HowToUse.when ? (
+                    <div><span className="font-medium text-foreground">{language === 'CN' ? '使用时段：' : 'When: '}</span><span className="text-muted-foreground">{v4HowToUse.when}</span></div>
+                  ) : null}
+                  {v4HowToUse.frequency ? (
+                    <div><span className="font-medium text-foreground">{language === 'CN' ? '频率：' : 'Frequency: '}</span><span className="text-muted-foreground">{v4HowToUse.frequency}</span></div>
+                  ) : null}
+                  {v4HowToUse.order_in_routine ? (
+                    <div><span className="font-medium text-foreground">{language === 'CN' ? 'Routine 顺序：' : 'Order in routine: '}</span><span className="text-muted-foreground">{v4HowToUse.order_in_routine}</span></div>
+                  ) : null}
+                  {v4HowToUse.pairing_rules.length ? (
+                    <div>
+                      <div className="font-medium text-foreground">{language === 'CN' ? '搭配建议：' : 'Pairing rules:'}</div>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                        {v4HowToUse.pairing_rules.map((rule) => <li key={rule}>{rule}</li>)}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {v4HowToUse.stop_signs.length ? (
+                    <div>
+                      <div className="font-medium text-rose-700">{language === 'CN' ? '停用信号：' : 'Stop signs:'}</div>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-rose-700/80">
+                        {v4HowToUse.stop_signs.map((sign) => <li key={sign}>{sign}</li>)}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            ) : howToUseBullets.length ? (
               <details
                 open
                 className="rounded-2xl border border-border/60 bg-background/60 p-3"
@@ -4980,6 +5390,53 @@ function BffCardView({
                   ))}
                 </ul>
               </details>
+            ) : null}
+
+            {/* V4: key_ingredients_by_function grouped display */}
+            {isV4Payload && v4KeyIngredientsByFunction.length ? (
+              <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                  <span>{language === 'CN' ? '关键成分（按功能分组）' : 'Key ingredients by function'}</span>
+                  <ChevronDown className="h-4 w-4" />
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {v4KeyIngredientsByFunction.map((group) => (
+                    <div key={group.function}>
+                      <div className="flex items-center gap-2">
+                        <div className="text-[11px] font-semibold text-muted-foreground">{group.function}</div>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                          group.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' :
+                          group.confidence === 'medium' ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>
+                          {group.confidence}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {group.ingredients.map((ingredient) => (
+                          <button
+                            key={`${group.function}_${ingredient}`}
+                            type="button"
+                            className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] transition hover:opacity-90"
+                            title={language === 'CN' ? '点击查看成分分析' : 'Click to view ingredient analysis'}
+                            onClick={() => onAction('ingredient_drilldown', { ingredient_name: ingredient })}
+                          >
+                            {ingredient}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+
+            {/* V4: product type reasoning */}
+            {isV4Payload && v4ProductTypeReasoning ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{language === 'CN' ? '产品分类：' : 'Product type: '}</span>
+                {v4ProductTypeReasoning}
+              </div>
             ) : null}
 
             {followUpQuestion ? (
@@ -5128,6 +5585,13 @@ function BffCardView({
                     );
                   })}
                 </div>
+              </div>
+            ) : null}
+
+            {/* G3: when all three alternative sections are empty, show a single line instead of empty blocks */}
+            {!hasAlternatives && (rawCompetitorCandidates.length > 0 || rawRelatedCandidates.length > 0 || rawDupeCandidates.length > 0) ? (
+              <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                {language === 'CN' ? '暂未找到合适的替代品或搭配建议。' : 'No alternatives found for this product.'}
               </div>
             ) : null}
 
@@ -5692,7 +6156,7 @@ export default function BffChat() {
     [navigate],
   );
 
-  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'profile' | 'checkin';
+  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'checkin';
   const searchParams = useMemo(() => {
     try {
       const sp = new URLSearchParams(location.search);
@@ -5703,7 +6167,7 @@ export default function BffChat() {
         q: String(sp.get('q') || '').trim(),
         chip_id: String(sp.get('chip_id') || '').trim(),
         open: (
-          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'profile' || openRaw === 'checkin'
+          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'checkin'
             ? openRaw
             : null
         ) as DeepLinkOpen | null,
@@ -5768,6 +6232,8 @@ export default function BffChat() {
   const [routineFormBusy, setRoutineFormBusy] = useState(false);
   const isLoading = chatBusy || analysisBusy;
   const [loadingIntent, setLoadingIntent] = useState<AuroraLoadingIntent>('default');
+  const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
+  const [streamedText, setStreamedText] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
@@ -5844,6 +6310,18 @@ export default function BffChat() {
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, auth_token: authSession?.token }));
   }, [authSession?.token]);
+
+  useEffect(() => {
+    const email = String(authSession?.email || '').trim();
+    if (!email) return;
+    const normalized = normalizeProfileFromBootstrap(profileSnapshot ?? bootstrapInfo?.profile ?? null);
+    if (!normalized) return;
+    saveAuroraProfileCache(email, {
+      displayName: normalized.displayName || '',
+      avatarUrl: normalized.avatarUrl || '',
+      region: normalized.region || '',
+    });
+  }, [authSession?.email, bootstrapInfo?.profile, profileSnapshot]);
 
   useEffect(() => {
     setLangPref(toLangPref(language));
@@ -6021,9 +6499,12 @@ export default function BffChat() {
         })
       : false;
 
-    const visibleChips = filterPassiveAdvisoryChips(
-      Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
-      FF_SHOW_PASSIVE_GATES,
+    const visibleChips = dedupeSuggestedChips(
+      filterPassiveAdvisoryChips(
+        Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
+        FF_SHOW_PASSIVE_GATES,
+      ),
+      12,
     );
     if (!suppressChips && visibleChips.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: visibleChips });
@@ -6236,6 +6717,7 @@ export default function BffChat() {
           data: {
             ...(option.metadata || {}),
             follow_up_id: followUp.id,
+            follow_up_option_id: option.id,
             follow_up_question: followUp.question,
             follow_up_required: followUp.required,
             reply_text: option.value || option.label,
@@ -6244,14 +6726,22 @@ export default function BffChat() {
         }));
       };
 
-      const suggestedChips = [
-        ...response.suggested_quick_replies.map(quickReplyToChip),
-        ...response.follow_up_questions.flatMap(followUpToChips),
-      ].slice(0, 12);
+      const suggestedChips = dedupeSuggestedChips(
+        [
+          ...response.suggested_quick_replies.map(quickReplyToChip),
+          ...response.follow_up_questions.flatMap(followUpToChips),
+        ],
+        12,
+      );
+
+      const introHint = String(response.intro_hint || '').trim();
 
       const nextItems: ChatItem[] = [];
       if (assistantText.trim()) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: assistantText });
+      }
+      if (introHint && !assistantText.trim()) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: introHint });
       }
       if (autoFollowNotice) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: autoFollowNotice });
@@ -6547,24 +7037,7 @@ export default function BffChat() {
   const saveProfile = useCallback(async () => {
     setChatBusy(true);
     try {
-      const patch: Record<string, unknown> = {};
-      if (profileDraft.skinType.trim()) patch.skinType = profileDraft.skinType.trim();
-      if (profileDraft.sensitivity.trim()) patch.sensitivity = profileDraft.sensitivity.trim();
-      if (profileDraft.barrierStatus.trim()) patch.barrierStatus = profileDraft.barrierStatus.trim();
-      if (profileDraft.region.trim()) patch.region = profileDraft.region.trim();
-      if (profileDraft.budgetTier.trim()) patch.budgetTier = profileDraft.budgetTier.trim();
-      if (profileDraft.age_band.trim()) patch.age_band = profileDraft.age_band.trim();
-      if (profileDraft.pregnancy_status.trim()) patch.pregnancy_status = profileDraft.pregnancy_status.trim();
-      if (profileDraft.lactation_status.trim()) patch.lactation_status = profileDraft.lactation_status.trim();
-      if (profileDraft.high_risk_medications_text.trim()) {
-        const meds = profileDraft.high_risk_medications_text
-          .split(/[,\n，]/)
-          .map((item) => item.trim())
-          .filter(Boolean)
-          .slice(0, 20);
-        if (meds.length) patch.high_risk_medications = meds;
-      }
-      if (profileDraft.goals.length) patch.goals = profileDraft.goals;
+      const patch = buildProfileUpdatePatch(profileDraft);
 
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
@@ -7164,6 +7637,8 @@ export default function BffChat() {
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
       setChatBusy(true);
+      setThinkingSteps([]);
+      setStreamedText('');
       const timeoutMs = isRoutineChatAction(action) ? ROUTINE_CHAT_TIMEOUT_MS : CHAT_TIMEOUT_MS;
       try {
         const requestHeaders = { ...headers, lang: language };
@@ -7185,21 +7660,54 @@ export default function BffChat() {
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
 
-        const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(body),
-          timeoutMs,
-        });
-        const parsedV1 = parseChatResponseV1(bodyRaw);
-        if (!parsedV1) {
-          throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+        let streamResult: SSEResultEvent | null = null;
+
+        try {
+          await bffChatStream(requestHeaders, body, {
+            onThinking: (event) => {
+              setThinkingSteps((prev) => {
+                const updated = prev.map((s) => ({ ...s, completed: true }));
+                return [...updated, { step: event.step, message: event.message, completed: false }];
+              });
+            },
+            onChunk: (event) => {
+              setStreamedText((prev) => prev + event.text);
+            },
+            onResult: (event) => {
+              streamResult = event;
+            },
+            onError: (msg) => {
+              setError(msg);
+            },
+          }, { timeoutMs });
+        } catch (streamErr) {
+          // Fallback to non-streaming /v1/chat
+          const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            timeoutMs,
+          });
+          const parsedV1 = parseChatResponseV1(bodyRaw);
+          if (!parsedV1) {
+            throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+          }
+          applyChatResponseV1(parsedV1);
+          return;
         }
-        applyChatResponseV1(parsedV1);
+
+        if (streamResult) {
+          const parsedV1 = parseChatResponseV1(streamResult);
+          if (parsedV1) {
+            applyChatResponseV1(parsedV1);
+          }
+        }
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
         setLoadingIntent('default');
+        setThinkingSteps([]);
+        setStreamedText('');
       }
     },
     [
@@ -8499,6 +9007,7 @@ export default function BffChat() {
       const isCameraClientAction =
         clientAction === 'open_camera' ||
         effectiveActionId === 'diag.upload_photo' ||
+        effectiveActionId === 'chip.intake.upload_photos' ||
         id === 'chip.intake.upload_photos';
       if (isCameraClientAction) {
         setPromptRoutineAfterPhoto(true);
@@ -8665,9 +9174,6 @@ export default function BffChat() {
       setRoutineDraft(makeEmptyRoutineDraft());
       setRoutineTab('am');
       setRoutineSheetOpen(true);
-    }
-    if (searchParams.open === 'profile') {
-      setProfileSheetOpen(true);
     }
     if (searchParams.open === 'checkin') {
       setCheckinSheetOpen(true);
@@ -9266,6 +9772,19 @@ export default function BffChat() {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-muted-foreground">
+                        {language === 'CN' ? '如果晚上用法和早上一样，可一键复制。' : 'If PM is the same as AM, copy in one tap.'}
+                      </div>
+                      <button
+                        type="button"
+                        className="chip-button !px-3 !py-1.5 text-[11px] whitespace-nowrap"
+                        onClick={() => setRoutineDraft((prev) => copyRoutineAmToPm(prev))}
+                        disabled={routineFormBusy || !hasAnyRoutineAmInput(routineDraft)}
+                      >
+                        {language === 'CN' ? '同 AM' : 'Same as AM'}
+                      </button>
+                    </div>
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '洁面' : 'Cleanser'}
@@ -9928,7 +10447,7 @@ export default function BffChat() {
 	            </div>
 	          ) : null}
 
-	          {isLoading ? <AuroraLoadingCard language={language} intent={loadingIntent} /> : null}
+	          {isLoading ? <AuroraLoadingCard language={language} intent={loadingIntent} thinkingSteps={thinkingSteps} streamedText={streamedText || undefined} /> : null}
 	          <div ref={bottomRef} />
 	        </div>
 	      </main>
