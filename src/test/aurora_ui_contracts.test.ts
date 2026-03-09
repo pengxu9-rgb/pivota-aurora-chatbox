@@ -79,6 +79,33 @@ describe("aurora ui contracts", () => {
             reapply_rule: "Every 2 hours outdoors",
           },
         ],
+        categorized_kit: [
+          {
+            id: "sun_protection",
+            title: "Sun protection",
+            climate_link: "UV 4 -> 7 (+3)",
+            why: "Use SPF50+",
+            ingredient_logic: "Photostable filters",
+            preparations: [{ name: "Sunscreen fluid", detail: "Every 2 hours outdoors" }],
+            brand_suggestions: [
+              {
+                product: "UV Shield SPF50",
+                brand: "Aurora Lab",
+                reason: "High UV support",
+                match_status: "catalog_verified",
+              },
+              {
+                brand: "UnknownX",
+                reason: "Fallback to llm_only",
+                match_status: "random_status",
+              },
+              {
+                product: "Hydration Mask",
+                reason: "Missing badge should stay null",
+              },
+            ],
+          },
+        ],
         category_recommendations: [
           {
             category: "sun_protection",
@@ -127,6 +154,13 @@ describe("aurora ui contracts", () => {
     expect(model?.travel_readiness?.forecast_window?.[0]?.date).toBe("2026-03-01");
     expect(model?.travel_readiness?.alerts?.[0]?.severity).toBe("orange");
     expect(model?.travel_readiness?.reco_bundle?.[0]?.trigger).toBe("Elevated UV");
+    expect(model?.travel_readiness?.categorized_kit?.[0]?.id).toBe("sun_protection");
+    expect(model?.travel_readiness?.categorized_kit?.[0]?.title).toBe("Sun protection");
+    expect(model?.travel_readiness?.categorized_kit?.[0]?.preparations?.[0]?.name).toBe("Sunscreen fluid");
+    expect(model?.travel_readiness?.categorized_kit?.[0]?.brand_suggestions?.[0]?.product).toBe("UV Shield SPF50");
+    expect(model?.travel_readiness?.categorized_kit?.[0]?.brand_suggestions?.[0]?.match_status).toBe("catalog_verified");
+    expect(model?.travel_readiness?.categorized_kit?.[0]?.brand_suggestions?.[1]?.match_status).toBe("llm_only");
+    expect(model?.travel_readiness?.categorized_kit?.[0]?.brand_suggestions?.[2]?.match_status ?? null).toBeNull();
     expect(model?.travel_readiness?.category_recommendations?.[0]?.category).toBe("sun_protection");
     expect(model?.travel_readiness?.category_recommendations?.[0]?.products?.[0]?.name).toBe("SPF stick");
     expect(model?.travel_readiness?.store_examples?.[0]?.name).toBe("Matsukiyo");

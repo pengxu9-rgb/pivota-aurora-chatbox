@@ -91,6 +91,29 @@ export type TravelRecoBundleItem = {
   reapply_rule?: string | null;
 };
 
+export type CategorizedKitPreparation = {
+  name: string;
+  detail?: string | null;
+};
+
+export type CategorizedKitBrandSuggestion = {
+  brand?: string | null;
+  product?: string | null;
+  reason?: string | null;
+  match_status?: TravelReadinessBrandMatchStatus | 'llm_generated' | null;
+};
+
+export type CategorizedKitEntry = {
+  id: string;
+  title: string;
+  climate_link?: string | null;
+  why?: string | null;
+  ingredient_logic?: string | null;
+  preparations: CategorizedKitPreparation[];
+  reapply_rule?: string | null;
+  brand_suggestions?: CategorizedKitBrandSuggestion[] | null;
+};
+
 export type TravelStoreExample = {
   name: string;
   type?: string | null;
@@ -139,6 +162,7 @@ export type TravelReadinessV1 = {
     mask_tips?: string[];
   };
   reco_bundle?: TravelRecoBundleItem[];
+  categorized_kit?: CategorizedKitEntry[];
   category_recommendations?: {
     category: string;
     why?: string | null;

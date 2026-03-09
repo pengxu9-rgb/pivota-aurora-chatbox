@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 
 describe('EnvStressCard travel readiness', () => {
-  it('renders travel sections and CTA actions when travel_readiness exists', () => {
+  it('renders categorized concern sections and CTA actions when categorized_kit exists', () => {
     const onOpenCheckin = vi.fn();
     const onOpenRecommendations = vi.fn();
     const onRefineRoutine = vi.fn();
@@ -55,6 +55,24 @@ describe('EnvStressCard travel readiness', () => {
               sleep_tips: ['Shift sleep before departure'],
               mask_tips: ['Use recovery mask on first night'],
             },
+            categorized_kit: [
+              {
+                id: 'sun_protection',
+                title: 'Sun protection',
+                climate_link: 'UV 4 -> 7 (+3)',
+                why: 'Use SPF50+ sunscreen outdoors.',
+                ingredient_logic: 'Photostable filters',
+                preparations: [{ name: 'SPF fluid', detail: 'Every 2 hours outdoors' }],
+                brand_suggestions: [
+                  {
+                    product: 'UV Shield SPF50',
+                    brand: 'Aurora Lab',
+                    reason: 'High UV destination support.',
+                    match_status: 'catalog_verified',
+                  },
+                ],
+              },
+            ],
             shopping_preview: {
               products: [{ product_id: 'prod_1', name: 'Barrier Cream', brand: 'Aurora Lab', reasons: ['repair'] }],
               brand_candidates: [
@@ -84,28 +102,29 @@ describe('EnvStressCard travel readiness', () => {
 
     expect(screen.getByText('Destination delta')).toBeInTheDocument();
     expect(screen.getByText('Live weather')).toBeInTheDocument();
+    expect(screen.getByText('Skincare concerns & preparation')).toBeInTheDocument();
+    expect(screen.getByText('Sun protection')).toBeInTheDocument();
+    expect(screen.getByText('UV 4 -> 7 (+3)')).toBeInTheDocument();
     expect(screen.getByText('Personal focus')).toBeInTheDocument();
-    expect(screen.getByText('Jet lag and sleep')).toBeInTheDocument();
+    expect(screen.getByText('Jet lag & sleep')).toBeInTheDocument();
     expect(screen.getByText('Daily forecast (expand)')).toBeInTheDocument();
     expect(screen.getByText('Weather alerts')).toBeInTheDocument();
     expect(screen.getByText(/Wind advisory/i)).toBeInTheDocument();
-    expect(screen.getByText('Shopping preview')).toBeInTheDocument();
+    expect(screen.queryByText('Shopping preview')).not.toBeInTheDocument();
     expect(screen.getByText('Why this score (expand)')).toBeInTheDocument();
-    expect(screen.getByText('Local brand candidates')).toBeInTheDocument();
-    expect(screen.getByText(/Bioderma/i)).toBeInTheDocument();
-    expect(screen.getByText(/KB verified/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View suggested products (1)' })).toBeInTheDocument();
     expect(screen.getByText('Where to buy')).toBeInTheDocument();
     expect(screen.getByText('Example stores')).toBeInTheDocument();
     expect(screen.getByText(/Matsukiyo/i)).toBeInTheDocument();
-    expect(screen.getByText('Travel skincare kit')).toBeInTheDocument();
-    expect(screen.getByText('【Sun protection】')).toHaveClass('font-semibold');
-    expect(screen.getByText(/SPF50\+ fluid \+ SPF stick/)).toBeInTheDocument();
     expect(screen.getByText('Want a more accurate signal? Add a quick check-in.')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('button', { name: 'View suggested products (1)' }));
     fireEvent.click(screen.getByRole('button', { name: 'See full recommendations' }));
     fireEvent.click(screen.getByRole('button', { name: 'Refine with AM/PM' }));
     fireEvent.click(screen.getByRole('button', { name: 'Open daily check-in' }));
 
+    expect(screen.getByText(/UV Shield SPF50/i)).toBeInTheDocument();
+    expect(screen.getByText('Catalog verified')).toBeInTheDocument();
     expect(onOpenRecommendations).toHaveBeenCalledTimes(1);
     expect(onRefineRoutine).toHaveBeenCalledTimes(1);
     expect(onOpenCheckin).toHaveBeenCalledTimes(1);
