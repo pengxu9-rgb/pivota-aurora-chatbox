@@ -2062,6 +2062,9 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
       CN: 'INCIDecoder 结果未通过交叉验证，已阻断 KB 回写',
       EN: 'INCIDecoder result was not cross-validated and was blocked from KB persistence',
     },
+    pdp_contract_repaired: { CN: '已修复异常商品结构', EN: 'Repaired malformed product payload' },
+    pdp_contract_invalid_dropped: { CN: '已拦截损坏的商品结构', EN: 'Blocked malformed product payload' },
+    reco_contract_invalid: { CN: '推荐结果结构损坏', EN: 'Recommendation payload was malformed' },
     version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
     'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
     'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
@@ -2090,6 +2093,296 @@ function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unkno
   if (!signal) return false;
   return NON_SKINCARE_ALTERNATIVE_RE.test(signal);
 }
+
+const isRawPdpResponseLike = (value: unknown): value is Record<string, unknown> => {
+  const row = asObject(value);
+  if (!row) return false;
+  const hasSubject = asObject((row as any).subject);
+  const hasModules = Array.isArray((row as any).modules);
+  return Boolean(hasSubject && (hasModules || toTrimmedString((row as any).pdp_version) || toTrimmedString((row as any).status)));
+};
+
+const recoverRecoItemFromRawPdpResponse = (
+  raw: unknown,
+  carry?: Record<string, unknown> | null,
+): RecoItem | null => {
+  const source = asObject(raw);
+  if (!isRawPdpResponseLike(source)) return null;
+  const subject = asObject((source as any).subject);
+  const modules = asArray((source as any).modules);
+  const canonicalModule = modules
+    .map((module) => asObject(module))
+    .find((module) => toTrimmedString(module?.type).toLowerCase() === 'canonical');
+  const canonicalData = asObject(canonicalModule?.data);
+  const pdpPayload = asObject(canonicalData?.pdp_payload);
+  const product = asObject(pdpPayload?.product);
+  const brandObj = asObject(product?.brand);
+  const categoryPath = uniqueStrings(asArray(product?.category_path));
+  const categoryTail = categoryPath.length ? categoryPath[categoryPath.length - 1] : '';
+  const title =
+    toTrimmedString(product?.title) ||
+    toTrimmedString(product?.name) ||
+    toTrimmedString(carry?.name) ||
+    toTrimmedString(carry?.title) ||
+    toTrimmedString(carry?.display_name) ||
+    toTrimmedString(carry?.displayName) ||
+    categoryTail ||
+    '';
+  const brand =
+    toTrimmedString(brandObj?.name) ||
+    toTrimmedString(product?.brand_name) ||
+    toTrimmedString(product?.brandName) ||
+    toTrimmedString(product?.brand) ||
+    toTrimmedString(carry?.brand) ||
+    '';
+  const productId =
+    toTrimmedString((subject as any)?.canonical_product_ref?.product_id) ||
+    toTrimmedString((subject as any)?.canonicalProductRef?.product_id) ||
+    toTrimmedString((canonicalData as any)?.canonical_product_ref?.product_id) ||
+    toTrimmedString((canonicalData as any)?.canonicalProductRef?.product_id) ||
+    toTrimmedString(product?.product_id) ||
+    toTrimmedString(product?.productId) ||
+    toTrimmedString((subject as any)?.id) ||
+    '';
+  const merchantId =
+    toTrimmedString((subject as any)?.canonical_product_ref?.merchant_id) ||
+    toTrimmedString((subject as any)?.canonicalProductRef?.merchant_id) ||
+    toTrimmedString((canonicalData as any)?.canonical_product_ref?.merchant_id) ||
+    toTrimmedString((canonicalData as any)?.canonicalProductRef?.merchant_id) ||
+    toTrimmedString(product?.merchant_id) ||
+    toTrimmedString(product?.merchantId) ||
+    '';
+  const directUrl =
+    toTrimmedString(carry?.pdp_url) ||
+    toTrimmedString(carry?.url) ||
+    toTrimmedString(carry?.product_url) ||
+    toTrimmedString(product?.pdp_url) ||
+    toTrimmedString(product?.pdpUrl) ||
+    toTrimmedString(product?.url) ||
+    toTrimmedString(product?.product_url) ||
+    toTrimmedString(product?.productUrl) ||
+    '';
+  if (!title && !brand && !productId && !directUrl) return null;
+
+  const nextSku: Record<string, unknown> = {
+    ...(productId ? { product_id: productId } : {}),
+    ...(merchantId ? { merchant_id: merchantId } : {}),
+    ...(brand ? { brand } : {}),
+    ...(title ? { name: title, title, display_name: title } : {}),
+    ...(categoryPath.length ? { category_path: categoryPath } : {}),
+    ...(directUrl ? { url: directUrl, pdp_url: directUrl } : {}),
+  };
+  const category =
+    toTrimmedString(carry?.category) ||
+    toTrimmedString(carry?.category_name) ||
+    toTrimmedString(product?.category) ||
+    toTrimmedString(product?.category_name) ||
+    toTrimmedString(product?.categoryName) ||
+    categoryTail ||
+    '';
+  if (category) {
+    nextSku.category = category;
+  }
+
+  return {
+    ...(carry || {}),
+    ...(productId ? { product_id: productId } : {}),
+    ...(merchantId ? { merchant_id: merchantId } : {}),
+    ...(brand ? { brand } : {}),
+    ...(title ? { name: title, title, display_name: title, displayName: title } : {}),
+    ...(category ? { category, category_name: category } : {}),
+    ...(categoryPath.length ? { category_path: categoryPath } : {}),
+    ...(directUrl ? { pdp_url: directUrl, url: directUrl, product_url: directUrl } : {}),
+    sku: nextSku,
+    metadata: {
+      ...(asObject((carry as any)?.metadata) || {}),
+      pdp_contract_repaired: true,
+      pdp_contract_source: 'get_pdp_v2',
+    },
+  };
+};
+
+const normalizeRecoItemForRender = (value: unknown): RecoItem | null => {
+  const base = asObject(value);
+  if (!base) return null;
+
+  const recoveredBase = recoverRecoItemFromRawPdpResponse(base);
+  const withBaseRepair = recoveredBase || base;
+  const productNode = asObject((withBaseRepair as any).product) || asObject((withBaseRepair as any).sku);
+  const recoveredProduct = recoverRecoItemFromRawPdpResponse(productNode, withBaseRepair);
+  const next = recoveredProduct || withBaseRepair;
+
+  if (isRawPdpResponseLike(next)) return null;
+  if (isRawPdpResponseLike((next as any).product) || isRawPdpResponseLike((next as any).sku)) return null;
+
+  const sku = asObject((next as any).sku) || asObject((next as any).product);
+  const label =
+    toTrimmedString((next as any).name) ||
+    toTrimmedString((next as any).title) ||
+    toTrimmedString((next as any).display_name) ||
+    toTrimmedString((next as any).displayName) ||
+    toTrimmedString(sku?.name) ||
+    toTrimmedString((sku as any)?.title) ||
+    toTrimmedString((sku as any)?.display_name) ||
+    toTrimmedString((sku as any)?.displayName) ||
+    '';
+  const openSignal =
+    toTrimmedString((next as any).url) ||
+    toTrimmedString((next as any).pdp_url) ||
+    toTrimmedString((next as any).product_url) ||
+    toTrimmedString((next as any)?.canonical_product_ref?.product_id) ||
+    toTrimmedString((sku as any)?.product_id) ||
+    '';
+  if (!label && !openSignal) return null;
+  return next as RecoItem;
+};
+
+const extractRecoItemIdentity = (value: unknown) => {
+  const row = asObject(value) || {};
+  const sku = asObject((row as any).sku) || asObject((row as any).product) || null;
+  const categoryPath = uniqueStrings([
+    ...asArray((row as any).category_path).map((item) => asString(item)),
+    ...asArray((sku as any)?.category_path).map((item) => asString(item)),
+  ]);
+  const categoryTail = categoryPath.length ? categoryPath[categoryPath.length - 1] : '';
+  const brand =
+    toTrimmedString((row as any).brand) ||
+    toTrimmedString((sku as any)?.brand) ||
+    toTrimmedString((sku as any)?.Brand) ||
+    '';
+  const name =
+    toTrimmedString((row as any).name) ||
+    toTrimmedString((row as any).title) ||
+    toTrimmedString((row as any).display_name) ||
+    toTrimmedString((row as any).displayName) ||
+    toTrimmedString((sku as any)?.name) ||
+    toTrimmedString((sku as any)?.title) ||
+    toTrimmedString((sku as any)?.display_name) ||
+    toTrimmedString((sku as any)?.displayName) ||
+    '';
+  const category =
+    toTrimmedString((row as any).category) ||
+    toTrimmedString((row as any).category_name) ||
+    toTrimmedString((row as any).categoryName) ||
+    toTrimmedString((sku as any)?.category) ||
+    toTrimmedString((sku as any)?.category_name) ||
+    toTrimmedString((sku as any)?.categoryName) ||
+    categoryTail ||
+    '';
+  const step =
+    toTrimmedString((row as any).step) ||
+    category ||
+    '';
+  return { row, sku, brand, name, category, step };
+};
+
+const deriveTravelRecoFallbackReasons = ({
+  item,
+  recommendationMeta,
+  language,
+}: {
+  item: RecoItem;
+  recommendationMeta: Record<string, unknown> | null;
+  language: 'EN' | 'CN';
+}): string[] => {
+  const sourceMode = toTrimmedString((recommendationMeta as any)?.source_mode).toLowerCase();
+  const triggerSource = toTrimmedString((recommendationMeta as any)?.trigger_source).toLowerCase();
+  const taskMode = toTrimmedString((recommendationMeta as any)?.task_mode).toLowerCase();
+  if (sourceMode !== 'travel_handoff' && triggerSource !== 'travel_handoff' && taskMode !== 'travel_readiness_products') {
+    return [];
+  }
+
+  const identity = extractRecoItemIdentity(item);
+  const signal = [
+    identity.step,
+    identity.category,
+    identity.name,
+    identity.brand,
+    toTrimmedString((item as any).slot),
+    ...asArray((item as any).tags).map((entry) => asString(entry)),
+  ]
+    .join(' ')
+    .toLowerCase();
+  const destination = toTrimmedString((recommendationMeta as any)?.destination);
+  const tripLabel = destination
+    ? language === 'CN'
+      ? `${destination} 这趟行程`
+      : `For ${destination}`
+    : language === 'CN'
+      ? '这趟行程'
+      : 'For this trip';
+
+  if (/(spf|sunscreen|sun screen|uv|防晒|晒后)/i.test(signal)) {
+    return [
+      language === 'CN'
+        ? `${tripLabel}里 UV 暴露是主风险，这个选择优先补足白天防护。`
+        : `${tripLabel}, UV exposure is the main daytime risk, so this keeps protection consistent.`,
+    ];
+  }
+  if (/(cleanser|face wash|wash|foam|micellar|洁面|洗面|清洁)/i.test(signal)) {
+    return [
+      language === 'CN'
+        ? `${tripLabel}更容易叠加汗水、防晒和潮湿闷感，这类洁面更适合晚间卸除残留。`
+        : `${tripLabel}, sweat, sunscreen, and humidity buildup make this useful for a cleaner PM reset.`,
+    ];
+  }
+  if (/(barrier|repair|moistur|cream|lotion|balm|hydrat|soothing|修护|屏障|保湿|面霜|乳液|舒缓)/i.test(signal)) {
+    return [
+      language === 'CN'
+        ? `${tripLabel}会叠加空调和环境切换，这类修护保湿更适合稳住屏障和干燥紧绷。`
+        : `${tripLabel}, air-conditioning and climate shifts can stress the barrier, so this supports hydration and recovery.`,
+    ];
+  }
+  if (/(mask|mist|喷雾|面膜)/i.test(signal)) {
+    return [
+      language === 'CN'
+        ? `${tripLabel}里它更适合作为临时补水和舒缓恢复步骤。`
+        : `${tripLabel}, this works as an easy hydration and recovery step when skin feels depleted.`,
+    ];
+  }
+  return [];
+};
+
+const collectRecoReasonLines = ({
+  item,
+  recommendationMeta,
+  language,
+}: {
+  item: RecoItem;
+  recommendationMeta: Record<string, unknown> | null;
+  language: 'EN' | 'CN';
+}): string[] => {
+  const row = asObject(item) || {};
+  const whyCandidate = asObject((row as any).why_candidate || (row as any).whyCandidate) || null;
+  const evidencePack = asObject((row as any).evidence_pack) || asObject((row as any).evidencePack) || null;
+  const explicitReasons = uniqueStrings([
+    ...asArray((row as any).reasons).map((entry) => asString(entry)),
+    ...asArray((row as any).notes).map((entry) => asString(entry)),
+    ...asArray((row as any).why).map((entry) => asString(entry)),
+    asString((row as any).reason),
+    typeof (row as any).why === 'string' ? asString((row as any).why) : '',
+    ...asArray((row as any).compare_highlights || (row as any).compareHighlights).map((entry) => asString(entry)),
+    ...(whyCandidate
+      ? [
+          asString((whyCandidate as any).summary),
+          ...asArray((whyCandidate as any).reasons_user_visible || (whyCandidate as any).reasonsUserVisible).map((entry) => asString(entry)),
+          ...asArray((whyCandidate as any).reasons).map((entry) => asString(entry)),
+        ]
+      : []),
+    ...(evidencePack
+      ? [
+          asString((evidencePack as any).summary),
+          ...asArray((evidencePack as any).comparisonNotes ?? (evidencePack as any).comparison_notes).map((entry) => asString(entry)),
+        ]
+      : []),
+  ])
+    .map((entry) => stripInternalKbRefsFromText(entry).trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (explicitReasons.length) return explicitReasons;
+  return deriveTravelRecoFallbackReasons({ item, recommendationMeta, language });
+};
 
 type LazyRecoAlternativesLoadResult = {
   ok?: boolean;
@@ -2189,7 +2482,11 @@ export function RecommendationsCard({
     asObject((payload as any).ingredient_context) ||
     asObject((payload as any).recommendation_meta?.ingredient_context) ||
     null;
-  const items = asArray(payload.recommendations) as RecoItem[];
+  const rawItems = asArray(payload.recommendations) as RecoItem[];
+  const items = rawItems
+    .map((item) => normalizeRecoItemForRender(item))
+    .filter(Boolean) as RecoItem[];
+  const droppedMalformedRecoCount = Math.max(0, rawItems.length - items.length);
   const externalDiscoveryCtas = asArray((payload as any).external_search_ctas).filter(
     (cta): cta is { title: string; url: string; source?: string; reason?: string } =>
       Boolean(cta && typeof cta === 'object' && (cta as any).url && (cta as any).title),
@@ -2649,7 +2946,8 @@ export function RecommendationsCard({
   };
 
   const renderStep = (item: RecoItem, idx: number) => {
-    const sku = asObject(item.sku) || asObject(item.product) || null;
+    const identity = extractRecoItemIdentity(item);
+    const sku = identity.sku;
     const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
     const skuRef = asObject((sku as any)?.product_ref) || asObject((sku as any)?.productRef) || null;
     const itemCanonicalTop =
@@ -2678,14 +2976,8 @@ export function RecommendationsCard({
       asString((sku as any)?.product_group_id) ||
       asString((sku as any)?.productGroupId) ||
       null;
-    const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
-    const nameFromName = asString(sku?.name) || asString((sku as any)?.Name) || null;
-    const nameFromDisplay = asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
-    const name =
-      (nameFromName && !looksLikeOpaqueId(nameFromName) ? nameFromName : null) ||
-      nameFromDisplay ||
-      nameFromName ||
-      null;
+    const brand = identity.brand || null;
+    const name = identity.name || null;
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
     const canonicalProductId =
       asString((itemCanonicalRef as any)?.product_id) ||
@@ -2791,8 +3083,12 @@ export function RecommendationsCard({
       (q ? `q:${q}` : null) ||
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
     const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
-    const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
+    const step = identity.step || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
+    const reasonLines = collectRecoReasonLines({ item, recommendationMeta, language });
+    const supportingNotes = uniqueStrings(
+      notes.filter((note) => !reasonLines.some((reason) => reason.toLowerCase() === note.toLowerCase())),
+    );
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
     const keyActives = asArray(evidencePack?.keyActives ?? evidencePack?.key_actives)
@@ -3028,6 +3324,19 @@ export function RecommendationsCard({
           </div>
         </div>
 
+        {reasonLines.length ? (
+          <div className="mt-2 rounded-xl border border-primary/15 bg-primary/5 p-3">
+            <div className="text-[11px] font-semibold text-foreground">
+              {language === 'CN' ? '推荐理由' : 'Why this fits'}
+            </div>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground/85">
+              {reasonLines.slice(0, 3).map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {keyActives.length ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {keyActives.slice(0, 6).map((k) => (
@@ -3041,9 +3350,9 @@ export function RecommendationsCard({
           </div>
         ) : null}
 
-        {notes.length ? (
+        {supportingNotes.length ? (
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            {notes.slice(0, 3).map((n) => (
+            {supportingNotes.slice(0, 3).map((n) => (
               <li key={n}>{n}</li>
             ))}
           </ul>
@@ -3472,6 +3781,10 @@ export function RecommendationsCard({
         ? language === 'CN'
           ? 'LLM 主推荐'
           : 'LLM primary'
+        : source === 'travel_handoff'
+        ? language === 'CN'
+          ? '旅行上下文推荐'
+          : 'travel handoff'
         : source === 'artifact_matcher'
         ? language === 'CN'
           ? '结构化诊断匹配'
@@ -3563,10 +3876,10 @@ export function RecommendationsCard({
   const toRoutineSteps = (list: RecoItem[]) =>
     list
       .map((item, idx) => {
-        const sku = asObject(item.sku) || asObject(item.product) || null;
-        const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || '';
-        const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || '';
-        const step = asString(item.step) || asString(item.category) || '';
+        const identity = extractRecoItemIdentity(item);
+        const brand = identity.brand;
+        const name = identity.name;
+        const step = identity.step || identity.category || '';
         const typeRaw =
           (asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
         const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
@@ -3587,6 +3900,9 @@ export function RecommendationsCard({
 
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
   const unexpectedEmptyRecommendations = items.length === 0 && ingredientRenderMode === 'show_products';
+  const recoContractFailure =
+    droppedMalformedRecoCount > 0 ||
+    toTrimmedString((payload as any).products_empty_reason) === 'reco_contract_invalid';
   const emptyRecommendationsViolationRef = useRef(false);
 
   useEffect(() => {
@@ -3668,15 +3984,41 @@ export function RecommendationsCard({
     return (
       <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
         <div className="text-sm font-medium text-foreground">
-          {language === 'CN'
-            ? '这轮推荐还没有形成可展示的产品清单。'
-            : 'This recommendation round did not produce a displayable product shortlist yet.'}
+          {recoContractFailure
+            ? (language === 'CN'
+              ? '这轮推荐结果结构异常，已拦截损坏的商品数据。'
+              : 'This recommendation payload was malformed, so broken product rows were blocked.')
+            : (language === 'CN'
+              ? '这轮推荐还没有形成可展示的产品清单。'
+              : 'This recommendation round did not produce a displayable product shortlist yet.')}
         </div>
         <div className="text-xs text-muted-foreground">
-          {language === 'CN'
-            ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
-            : 'Retry shortly, or add your current routine / skin context before trying again.'}
+          {recoContractFailure
+            ? (language === 'CN'
+              ? '请重试一次推荐；前端不会展示原始 JSON 或 unknown.response。'
+              : 'Retry this recommendation round. Raw JSON and unknown.response rows are suppressed.')
+            : (language === 'CN'
+              ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
+              : 'Retry shortly, or add your current routine / skin context before trying again.')}
         </div>
+        {recoContractFailure && onAction ? (
+          <div className="pt-1">
+            <button
+              type="button"
+              className="chip-button text-[11px]"
+              onClick={() =>
+                onAction('chip.start.reco_products', {
+                  reply_text: language === 'CN' ? '重新获取产品推荐' : 'Retry product recommendations',
+                  force_route: 'reco_products',
+                  trigger_source: 'reco_contract_retry',
+                  source_card_type: 'recommendations',
+                })
+              }
+            >
+              {language === 'CN' ? '重试推荐' : 'Retry recommendations'}
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -4045,6 +4387,8 @@ function BffCardView({
                   ? '请给我完整护肤产品推荐。'
                   : 'Show full skincare product recommendations.',
               force_route: 'reco_products',
+              trigger_source: 'travel_handoff',
+              source_card_type: 'travel',
             })
           }
           onRefineRoutine={() =>
@@ -4323,6 +4667,8 @@ function BffCardView({
                 ? '请给我完整护肤产品推荐。'
                 : 'Show full skincare product recommendations.',
             force_route: 'reco_products',
+            trigger_source: 'travel_handoff',
+            source_card_type: 'env_stress',
           })
         }
         onRefineRoutine={() =>

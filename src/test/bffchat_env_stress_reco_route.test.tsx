@@ -317,6 +317,8 @@ describe('BffChat env stress recommendation routing', () => {
 
     expect(payload?.action?.action_id).toBe('chip.start.reco_products');
     expect(payload?.action?.data?.force_route).toBe('reco_products');
+    expect(payload?.action?.data?.trigger_source).toBe('travel_handoff');
+    expect(payload?.action?.data?.source_card_type).toBe('travel');
     expect(String(payload?.action?.data?.reply_text || '')).not.toMatch(/travel|weather/i);
   });
 

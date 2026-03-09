@@ -76,4 +76,107 @@ describe('RecommendationsCard empty contract guard', () => {
     expect(screen.getByText(/No confirmed ingredient-matched products found yet/i)).toBeInTheDocument();
     expect(vi.mocked(emitAuroraEmptyRecommendationsContractViolation).mock.calls.length).toBe(0);
   });
+
+  it('repairs raw PDP-shaped recommendation rows without rendering unknown.response or raw JSON', () => {
+    const card: Card = {
+      card_id: 'reco_raw_pdp_repaired',
+      type: 'recommendations',
+      payload: {
+        recommendations: [
+          {
+            status: 'success',
+            pdp_version: '2.0',
+            subject: {
+              type: 'product',
+              id: 'ext_reco_1',
+              canonical_product_ref: {
+                merchant_id: 'external_seed',
+                product_id: 'ext_reco_1',
+              },
+            },
+            modules: [
+              {
+                type: 'canonical',
+                data: {
+                  canonical_product_ref: {
+                    merchant_id: 'external_seed',
+                    product_id: 'ext_reco_1',
+                  },
+                  pdp_payload: {
+                    product: {
+                      product_id: 'ext_reco_1',
+                      title: 'Barrier Repair Cream',
+                      brand: { name: 'Aurora Lab' },
+                      category_path: ['Skincare', 'Moisturizer'],
+                      url: 'https://example.com/products/barrier-repair-cream',
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    render(
+      <RecommendationsCard
+        card={card}
+        language="EN"
+        debug={false}
+        analyticsCtx={{
+          brief_id: 'brief_reco_pdp_fix',
+          trace_id: 'trace_reco_pdp_fix',
+          lang: 'en',
+          state: 'RECO_RESULTS',
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/Barrier Repair Cream/i)).toBeInTheDocument();
+    expect(screen.queryByText(/unknown\.response/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/"pdp_version": "2\.0"/i)).not.toBeInTheDocument();
+  });
+
+  it('uses top-level reco identity and travel fallback reasoning when sku fields are missing', () => {
+    const card: Card = {
+      card_id: 'reco_top_level_identity',
+      type: 'recommendations',
+      payload: {
+        recommendation_meta: {
+          source_mode: 'travel_handoff',
+          trigger_source: 'travel_handoff',
+          task_mode: 'travel_readiness_products',
+          destination: 'Singapore',
+        },
+        recommendations: [
+          {
+            brand: 'Aurora Lab',
+            name: 'Light Gel Sunscreen SPF50',
+            category: 'sunscreen',
+          },
+        ],
+      },
+    };
+
+    render(
+      <RecommendationsCard
+        card={card}
+        language="EN"
+        debug={false}
+        analyticsCtx={{
+          brief_id: 'brief_reco_top_level',
+          trace_id: 'trace_reco_top_level',
+          lang: 'en',
+          state: 'RECO_RESULTS',
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/Light Gel Sunscreen SPF50/i)).toBeInTheDocument();
+    expect(screen.getByText(/Why this fits/i)).toBeInTheDocument();
+    expect(screen.getByText(/Singapore/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Unknown product$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Unknown brand$/i)).not.toBeInTheDocument();
+  });
 });
