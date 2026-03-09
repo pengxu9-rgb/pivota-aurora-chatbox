@@ -485,3 +485,14 @@ export const emitMemoryWritten = (
     experiment_written?: number;
   } & Record<string, unknown>,
 ) => emitWithContext('memory_written', ctx, props);
+
+export const emitUiCardRenderFailed = (
+  ctx: AnalyticsContext,
+  props: {
+    card_type?: string | null;
+    card_id?: string | null;
+    error_name?: string | null;
+    error_message?: string | null;
+    component_stack?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('ui_card_render_failed', ctx, props);
