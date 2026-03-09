@@ -8375,17 +8375,16 @@ export default function BffChat() {
             photos: photosForAnalysis,
             ...(hasCurrentRoutine ? { currentRoutine: profileCurrentRoutine } : {}),
           };
-          const env = await retryWithBackoff(
-            () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
               method: 'POST',
               body: JSON.stringify(body),
-              timeoutMs: 20000,
-            }),
-            { maxRetries: 1, baseDelayMs: 1500 },
-          );
+              timeoutMs: 55000,
+            });
           applyEnvelope(env);
         } catch (err) {
-          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+          if (!tryApplyEnvelopeFromBffError(err)) {
+            setError(language === 'CN' ? '皮肤分析暂时遇到问题，请重试' : 'Skin analysis encountered a temporary issue — please retry');
+          }
         } finally {
           setAnalysisBusy(false);
         }
@@ -10002,17 +10001,16 @@ export default function BffChat() {
     try {
       setSessionState('S4_ANALYSIS_LOADING');
       const requestHeaders = { ...headers, lang: language };
-      const env = await retryWithBackoff(
-        () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+      const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
           method: 'POST',
           body: JSON.stringify({ use_photo: false }),
-          timeoutMs: 20000,
-        }),
-        { maxRetries: 1, baseDelayMs: 1500 },
-      );
+          timeoutMs: 55000,
+        });
       applyEnvelope(env);
     } catch (err) {
-      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err)) {
+        setError(language === 'CN' ? '皮肤分析暂时遇到问题，请重试' : 'Skin analysis encountered a temporary issue — please retry');
+      }
     } finally {
       setAnalysisBusy(false);
       if (fromRoutineForm) setRoutineFormBusy(false);
@@ -10047,17 +10045,16 @@ export default function BffChat() {
           currentRoutine: routine,
           ...(usePhoto ? { photos } : {}),
         };
-        const envAnalysis = await retryWithBackoff(
-          () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+        const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
             method: 'POST',
             body: JSON.stringify(body),
-            timeoutMs: 20000,
-          }),
-          { maxRetries: 1, baseDelayMs: 1500 },
-        );
+            timeoutMs: 55000,
+          });
         applyEnvelope(envAnalysis);
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err)) {
+          setError(language === 'CN' ? '皮肤分析暂时遇到问题，请重试' : 'Skin analysis encountered a temporary issue — please retry');
+        }
       } finally {
         setAnalysisBusy(false);
         if (fromRoutineForm) setRoutineFormBusy(false);
