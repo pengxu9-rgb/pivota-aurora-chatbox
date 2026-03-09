@@ -9068,8 +9068,6 @@ export default function BffChat() {
         return;
       }
 
-      const chipData = asObject(chip.data) || {};
-      const actionIdOverride = asString(chipData.action_id);
       const actionPayloadData =
         actionIdOverride && actionIdOverride !== chip.chip_id
           ? { ...chipData, chip_id: chip.chip_id }
