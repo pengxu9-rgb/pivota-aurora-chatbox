@@ -1016,6 +1016,30 @@ const looksLikeWeatherOrEnvironmentQuestion = (text: string): boolean => {
   return false;
 };
 
+type ThinkingStepSetter = React.Dispatch<React.SetStateAction<ThinkingStep[]>>;
+const startSimulatedThinking = (
+  steps: string[],
+  setter: ThinkingStepSetter,
+  intervalMs = 1200,
+): (() => void) => {
+  let idx = 0;
+  const timer = setInterval(() => {
+    idx += 1;
+    if (idx < steps.length) {
+      setter((prev) => {
+        const updated = prev.map((s) => ({ ...s, completed: true }));
+        return [...updated, { step: `sim_${idx}`, message: steps[idx], completed: false }];
+      });
+    }
+  }, intervalMs);
+  return () => clearInterval(timer);
+};
+
+const ANALYSIS_SIM_STEPS: Record<string, string[]> = {
+  EN: ['Scanning skin features...', 'Cross-referencing conditions...', 'Building skin blueprint...', 'Preparing results...'],
+  CN: ['正在扫描皮肤特征...', '交叉检查肤况...', '构建肤质蓝图...', '正在准备结果...'],
+};
+
 const inferAuroraLoadingIntent = (message?: string, action?: V1Action): AuroraLoadingIntent => {
   const msg = String(message || '').trim();
   if (looksLikeWeatherOrEnvironmentQuestion(msg)) return 'environment';
@@ -6463,14 +6487,15 @@ export default function BffChat() {
       });
     }
 
+    const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
+    const hasEnvelopeCards = rawCards.length > 0;
+
     const nextItems: ChatItem[] = [];
-    if (enhancedEnv.assistant_message?.content) {
+    if (enhancedEnv.assistant_message?.content && !hasEnvelopeCards) {
       const raw = String(enhancedEnv.assistant_message.content || '');
       const cleaned = debug ? raw : stripInternalKbRefsFromText(raw);
       if (cleaned.trim()) nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: cleaned });
     }
-
-    const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
     const passiveFilteredCards = filterPassiveAdvisoryCards(gatedCards, FF_SHOW_PASSIVE_GATES);
     const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards));
@@ -6745,12 +6770,13 @@ export default function BffChat() {
       );
 
       const introHint = resolveIntroHintForLanguage(response.intro_hint, language);
+      const hasStructuredCards = response.cards.length > 0;
 
       const nextItems: ChatItem[] = [];
-      if (assistantText.trim()) {
+      if (assistantText.trim() && !hasStructuredCards) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: assistantText });
       }
-      if (introHint && !assistantText.trim()) {
+      if (introHint) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: introHint });
       }
       if (autoFollowNotice) {
@@ -7575,11 +7601,12 @@ export default function BffChat() {
             : Boolean(profileCurrentRoutine && typeof profileCurrentRoutine === 'object');
         setAnalysisBusy(true);
         setThinkingSteps([{
-          step: 'uploading_photos',
+          step: 'sim_0',
           message: language === 'CN' ? '正在上传照片并分析肤况...' : 'Uploading photos and analyzing skin...',
           completed: false,
         }]);
         setError(null);
+        const stopPhotoSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
         try {
           setSessionState('S4_ANALYSIS_LOADING');
           const requestHeaders = { ...headers, lang: language };
@@ -7596,6 +7623,7 @@ export default function BffChat() {
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
+          stopPhotoSim();
           setAnalysisBusy(false);
           setThinkingSteps([]);
         }
@@ -7654,8 +7682,8 @@ export default function BffChat() {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
       setChatBusy(true);
       setThinkingSteps([{
-        step: 'connecting',
-        message: language === 'CN' ? '正在连接 Aurora...' : 'Connecting to Aurora...',
+        step: 'sim_0',
+        message: language === 'CN' ? '正在读取你的档案...' : 'Reading your profile...',
         completed: false,
       }]);
       setStreamedText('');
@@ -7709,16 +7737,24 @@ export default function BffChat() {
         }
 
         if (!usedStream) {
-          const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(body),
-            timeoutMs,
-          });
-          const parsedV1 = parseChatResponseV1(bodyRaw);
-          if (!parsedV1) {
-            throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+          const simSteps = language === 'CN'
+            ? ['正在读取你的档案...', '搜索知识库...', '运行安全检查...', '生成回复中...']
+            : ['Reading your profile...', 'Searching knowledge base...', 'Running safety checks...', 'Generating response...'];
+          const stopSim = startSimulatedThinking(simSteps, setThinkingSteps);
+          try {
+            const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+              method: 'POST',
+              body: JSON.stringify(body),
+              timeoutMs,
+            });
+            const parsedV1 = parseChatResponseV1(bodyRaw);
+            if (!parsedV1) {
+              throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+            }
+            applyChatResponseV1(parsedV1);
+          } finally {
+            stopSim();
           }
-          applyChatResponseV1(parsedV1);
           return;
         }
 
@@ -8589,11 +8625,12 @@ export default function BffChat() {
     if (fromRoutineForm) setRoutineFormBusy(true);
     setAnalysisBusy(true);
     setThinkingSteps([{
-      step: 'quick_analysis',
+      step: 'sim_0',
       message: language === 'CN' ? '正在快速分析肤质...' : 'Running quick skin analysis...',
       completed: false,
     }]);
     setError(null);
+    const stopQuickSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
     try {
       setSessionState('S4_ANALYSIS_LOADING');
       const requestHeaders = { ...headers, lang: language };
@@ -8605,6 +8642,7 @@ export default function BffChat() {
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
+      stopQuickSim();
       setAnalysisBusy(false);
       setThinkingSteps([]);
       if (fromRoutineForm) setRoutineFormBusy(false);
@@ -8628,12 +8666,13 @@ export default function BffChat() {
       if (fromRoutineForm) setRoutineFormBusy(true);
       setAnalysisBusy(true);
       setThinkingSteps([{
-        step: 'routine_analysis',
+        step: 'sim_0',
         message: language === 'CN' ? '正在结合你的护肤步骤分析...' : 'Analyzing with your routine...',
         completed: false,
       }]);
       setError(null);
       const requestHeaders = { ...headers, lang: language };
+      const stopRoutineSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
 
       try {
         setSessionState('S4_ANALYSIS_LOADING');
@@ -8652,6 +8691,7 @@ export default function BffChat() {
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
+        stopRoutineSim();
         setAnalysisBusy(false);
         setThinkingSteps([]);
         if (fromRoutineForm) setRoutineFormBusy(false);
