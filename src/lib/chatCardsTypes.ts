@@ -78,12 +78,19 @@ export type ChatTelemetryV1 = {
   language_resolution_source?: 'header' | 'body' | 'text_detected' | 'mixed_override';
 };
 
+export type ChatIntroHintV1 =
+  | string
+  | {
+      en?: string;
+      zh?: string;
+    };
+
 export type ChatResponseV1 = {
   version: '1.0';
   request_id: string;
   trace_id: string;
-  assistant_text: string;
-  intro_hint?: string;
+  assistant_text?: string;
+  intro_hint?: ChatIntroHintV1;
   cards: ChatCardV1[];
   follow_up_questions: FollowUpQuestionV1[];
   suggested_quick_replies: QuickReplyV1[];

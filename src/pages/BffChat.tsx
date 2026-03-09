@@ -322,6 +322,15 @@ const parseUiLanguageToken = (raw: unknown): UiLanguage | null => {
   return null;
 };
 
+const resolveIntroHintForLanguage = (introHint: ChatResponseV1['intro_hint'], language: UiLanguage): string => {
+  if (typeof introHint === 'string') return introHint.trim();
+  if (!introHint || typeof introHint !== 'object') return '';
+
+  const preferred = language === 'CN' ? asString(introHint.zh) : asString(introHint.en);
+  const fallback = language === 'CN' ? asString(introHint.en) : asString(introHint.zh);
+  return preferred || fallback;
+};
+
 const toUiLanguageName = (lang: UiLanguage, copyLanguage: UiLanguage): string => {
   if (copyLanguage === 'CN') return lang === 'CN' ? '中文' : '英文';
   return lang === 'CN' ? 'Chinese' : 'English';
@@ -6735,7 +6744,7 @@ export default function BffChat() {
         12,
       );
 
-      const introHint = String(response.intro_hint || '').trim();
+      const introHint = resolveIntroHintForLanguage(response.intro_hint, language);
 
       const nextItems: ChatItem[] = [];
       if (assistantText.trim()) {
@@ -7671,7 +7680,7 @@ export default function BffChat() {
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
 
-        let streamResult: SSEResultEvent | null = null;
+        let parsedStreamResponse: ChatResponseV1 | null = null;
         let usedStream = false;
 
         if (!streamEndpointDisabledRef.current) {
@@ -7687,12 +7696,12 @@ export default function BffChat() {
                 setStreamedText((prev) => prev + event.text);
               },
               onResult: (event) => {
-                streamResult = event;
-              },
-              onError: (msg) => {
-                setError(msg);
+                parsedStreamResponse = parseChatResponseV1(event);
               },
             }, { timeoutMs });
+            if (!parsedStreamResponse) {
+              throw new Error('Invalid /v1/chat/stream result: expected ChatCards v1 schema.');
+            }
             usedStream = true;
           } catch {
             streamEndpointDisabledRef.current = true;
@@ -7713,11 +7722,8 @@ export default function BffChat() {
           return;
         }
 
-        if (streamResult) {
-          const parsedV1 = parseChatResponseV1(streamResult);
-          if (parsedV1) {
-            applyChatResponseV1(parsedV1);
-          }
+        if (parsedStreamResponse) {
+          applyChatResponseV1(parsedStreamResponse);
         }
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
@@ -8749,7 +8755,7 @@ export default function BffChat() {
       const id = String(chip.chip_id || '').trim();
       const chipData = asObject(chip.data) || {};
       const actionIdOverride = asString((chipData as any).action_id);
-      const clientAction = asString((chipData as any).client_action).toLowerCase();
+      const clientAction = (asString((chipData as any).client_action) || '').toLowerCase();
       const effectiveActionId = actionIdOverride || id;
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';

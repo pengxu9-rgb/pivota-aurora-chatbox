@@ -1,4 +1,5 @@
 import { getOrCreateAuroraUid } from './persistence';
+import type { ChatIntroHintV1 } from './chatCardsTypes';
 import { requestWithTimeout } from '@/utils/requestWithTimeout';
 
 export type Language = 'EN' | 'CN';
@@ -202,7 +203,7 @@ export type SSEResultEvent = {
   ops: Record<string, unknown>;
   next_actions: Array<Record<string, unknown>>;
   thinking_steps: SSEThinkingEvent[];
-  intro_hint?: { en: string; zh: string };
+  intro_hint?: ChatIntroHintV1;
   meta: {
     skill_id?: string;
     task_mode?: string;
@@ -234,6 +235,7 @@ export const bffChatStream = async (
 
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let sawResult = false;
   const timeoutMs = options.timeoutMs ?? 90_000;
   if (timeoutMs > 0) {
     timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -261,48 +263,116 @@ export const bffChatStream = async (
       throw new PivotaAgentBffError(`Stream request failed: ${res.status}`, res.status, errBody);
     }
 
-    const reader = res.body!.getReader();
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error('Stream response body was empty.');
+    }
+
     const decoder = new TextDecoder();
     let buffer = '';
-    let currentEventType = '';
+    const drainBuffer = (flush = false) => {
+      while (true) {
+        const boundary = buffer.match(/\r?\n\r?\n/);
+        if (!boundary || boundary.index == null) break;
+        const frame = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary[0].length);
+        dispatchFrame(frame);
+      }
+
+      if (!flush) return;
+
+      const trailing = buffer.trim();
+      buffer = '';
+      if (trailing) {
+        dispatchFrame(trailing, true);
+      }
+    };
+
+    const dispatchFrame = (frame: string, isTerminalFrame = false) => {
+      const lines = frame.split(/\r?\n/);
+      let eventType = '';
+      const dataLines: string[] = [];
+
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        if (!line || line.startsWith(':')) continue;
+
+        const separatorIdx = line.indexOf(':');
+        const field = separatorIdx === -1 ? line : line.slice(0, separatorIdx);
+        const rawValue = separatorIdx === -1 ? '' : line.slice(separatorIdx + 1);
+        const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue;
+
+        if (field === 'event') {
+          eventType = value.trim();
+        } else if (field === 'data') {
+          dataLines.push(value);
+        }
+      }
+
+      if (!eventType) {
+        if (isTerminalFrame) {
+          throw new Error('Stream closed with an incomplete terminal frame.');
+        }
+        return;
+      }
+
+      if (eventType === 'done') {
+        callbacks.onDone?.();
+        return;
+      }
+
+      const rawPayload = dataLines.join('\n').trim();
+      if (!rawPayload) {
+        if (eventType === 'thinking' || eventType === 'chunk') return;
+        throw new Error(`Stream ${eventType} event was missing data.`);
+      }
+
+      let data: unknown;
+      try {
+        data = JSON.parse(rawPayload);
+      } catch {
+        if (eventType === 'thinking' || eventType === 'chunk') return;
+        throw new Error(`Stream ${eventType} event contained malformed JSON.`);
+      }
+
+      switch (eventType) {
+        case 'thinking':
+          callbacks.onThinking(data as SSEThinkingEvent);
+          break;
+        case 'chunk':
+          callbacks.onChunk(data as SSEChunkEvent);
+          break;
+        case 'result':
+          sawResult = true;
+          callbacks.onResult(data as SSEResultEvent);
+          break;
+        case 'error': {
+          const message =
+            data && typeof data === 'object' && typeof (data as { message?: unknown }).message === 'string'
+              ? (data as { message: string }).message.trim() || 'Unknown error'
+              : 'Unknown error';
+          callbacks.onError?.(message);
+          throw new Error(message);
+        }
+        default:
+          break;
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        buffer += decoder.decode();
+        drainBuffer(true);
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      drainBuffer();
+    }
 
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEventType = line.slice(7).trim();
-        } else if (line.startsWith('data: ') && currentEventType) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            switch (currentEventType) {
-              case 'thinking':
-                callbacks.onThinking(data as SSEThinkingEvent);
-                break;
-              case 'chunk':
-                callbacks.onChunk(data as SSEChunkEvent);
-                break;
-              case 'result':
-                callbacks.onResult(data as SSEResultEvent);
-                break;
-              case 'error':
-                callbacks.onError?.(data.message || 'Unknown error');
-                break;
-              case 'done':
-                callbacks.onDone?.();
-                break;
-            }
-          } catch {
-            // skip malformed SSE data
-          }
-          currentEventType = '';
-        }
-      }
+    if (!sawResult) {
+      throw new Error('Stream completed without a result event.');
     }
   } finally {
     if (timer) clearTimeout(timer);

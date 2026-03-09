@@ -13,6 +13,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
   return {
     ...actual,
     bffJson: vi.fn(),
+    bffChatStream: vi.fn().mockRejectedValue(new Error('stream unavailable in test')),
     sendRecoEmployeeFeedback: vi.fn(),
   };
 });
@@ -115,6 +116,62 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
 
     await screen.findByText('v1 direct success path');
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
+
+  it('renders localized intro_hint when assistant_text is omitted', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope());
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve({
+          version: '1.0',
+          request_id: 'req_intro_hint',
+          trace_id: 'trace_intro_hint',
+          intro_hint: {
+            en: 'Here is your structured result.',
+            zh: '以下是你的结构化结果。',
+          },
+          cards: [],
+          follow_up_questions: [],
+          suggested_quick_replies: [],
+          ops: {
+            thread_ops: [],
+            profile_patch: [],
+            routine_patch: [],
+            experiment_events: [],
+          },
+          safety: {
+            risk_level: 'none',
+            red_flags: [],
+            disclaimer: '',
+          },
+          telemetry: {
+            intent: 'unknown',
+            intent_confidence: 0.5,
+            entities: [],
+          },
+        } satisfies ChatResponseV1);
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'Show me cards only' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await screen.findByText('Here is your structured result.');
   });
 
   it('renders ingredient hub card from v1 payload without nudge downgrade', async () => {

@@ -135,6 +135,23 @@ const normalizeCard = (raw: unknown, fallbackId: string): ChatCardV1 | null => {
   };
 };
 
+const normalizeIntroHint = (value: unknown): ChatResponseV1['intro_hint'] | undefined => {
+  const text = asString(value);
+  if (text) return text.slice(0, 500);
+
+  const row = asRecord(value);
+  if (!row) return undefined;
+
+  const en = asString(row.en);
+  const zh = asString(row.zh);
+  if (!en && !zh) return undefined;
+
+  return {
+    ...(en ? { en: en.slice(0, 500) } : {}),
+    ...(zh ? { zh: zh.slice(0, 500) } : {}),
+  };
+};
+
 export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
   const root = asRecord(input);
   if (!root) return null;
@@ -188,13 +205,13 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
         ? telemetryUiLanguage !== telemetryMatchingLanguage
         : false;
 
-  const introHint = asString(root.intro_hint) || undefined;
+  const introHint = normalizeIntroHint(root.intro_hint);
 
   return {
     version: '1.0',
     request_id: requestId,
     trace_id: traceId,
-    assistant_text: assistantText,
+    ...(assistantText ? { assistant_text: assistantText } : {}),
     ...(introHint ? { intro_hint: introHint } : {}),
     cards: cards.slice(0, 3),
     follow_up_questions: followUps.slice(0, 3),
