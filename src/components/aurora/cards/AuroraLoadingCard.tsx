@@ -139,49 +139,47 @@ export function AuroraLoadingCard({
     );
   }
 
+  const progress = (fallbackIndex + 1) / fallbackMessages.length;
+
   return (
     <div className="chat-card-elevated">
-      <div className="flex gap-1 mb-4">
-        {fallbackMessages.map((_, idx) => (
-          <div
-            key={idx}
-            className={`h-1 flex-1 rounded-full transition-all duration-500 ${
-              idx <= fallbackIndex ? 'bg-primary' : 'bg-muted'
-            }`}
-          />
-        ))}
+      <div className="h-1 rounded-full bg-muted mb-4 overflow-hidden">
+        <div
+          className="h-full bg-primary rounded-full transition-all duration-500"
+          style={{ width: `${Math.max(progress * 100, 10)}%` }}
+        />
       </div>
 
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-3">
         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
           <Loader2 className="w-5 h-5 text-primary animate-spin" />
         </div>
-        <div>
-          <p className="section-label mb-1">
-            {language === 'EN' ? 'AURORA ENGINE' : 'AURORA 引擎'}
-          </p>
-          <p className="text-sm font-medium text-foreground animate-pulse-subtle">
-            {fallbackMessages[fallbackIndex]}
-          </p>
-        </div>
+        <p className="section-label">
+          {language === 'EN' ? 'AURORA THINKING' : 'AURORA 思考中'}
+        </p>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {fallbackIndex >= 0 && (
-          <span className="signal-pill signal-pill-success">
-            {language === 'EN' ? '✓ Profile loaded' : '✓ 已加载画像'}
-          </span>
-        )}
-        {fallbackIndex >= 1 && (
-          <span className="signal-pill signal-pill-success">
-            {language === 'EN' ? '✓ Knowledge base ready' : '✓ 知识库就绪'}
-          </span>
-        )}
-        {fallbackIndex >= 2 && (
-          <span className="signal-pill signal-pill-primary">
-            {language === 'EN' ? 'Safety checks running' : '正在进行安全检查'}
-          </span>
-        )}
+      <div className="space-y-2 mb-4">
+        {fallbackMessages.map((msg, idx) => {
+          const isDone = idx < fallbackIndex;
+          const isActive = idx === fallbackIndex;
+          if (idx > fallbackIndex) return null;
+          return (
+            <div
+              key={idx}
+              className={`flex items-center gap-2 text-sm transition-opacity duration-300 ${isDone ? 'opacity-60' : 'opacity-100'}`}
+            >
+              {isDone ? (
+                <Check className="w-4 h-4 text-primary flex-shrink-0" />
+              ) : isActive ? (
+                <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
+              ) : null}
+              <span className={isDone ? 'text-muted-foreground' : 'text-foreground font-medium'}>
+                {msg}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {onSkip && (

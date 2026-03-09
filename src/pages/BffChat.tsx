@@ -6237,6 +6237,7 @@ export default function BffChat() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
+  const streamEndpointDisabledRef = useRef(false);
   const sessionStartedEmittedRef = useRef(false);
   const returnVisitEmittedRef = useRef(false);
   const openIntentConsumedRef = useRef<string | null>(null);
@@ -7564,6 +7565,11 @@ export default function BffChat() {
             ? Boolean(profileCurrentRoutine.trim())
             : Boolean(profileCurrentRoutine && typeof profileCurrentRoutine === 'object');
         setAnalysisBusy(true);
+        setThinkingSteps([{
+          step: 'uploading_photos',
+          message: language === 'CN' ? '正在上传照片并分析肤况...' : 'Uploading photos and analyzing skin...',
+          completed: false,
+        }]);
         setError(null);
         try {
           setSessionState('S4_ANALYSIS_LOADING');
@@ -7582,6 +7588,7 @@ export default function BffChat() {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
           setAnalysisBusy(false);
+          setThinkingSteps([]);
         }
         return;
       }
@@ -7637,7 +7644,11 @@ export default function BffChat() {
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
       setChatBusy(true);
-      setThinkingSteps([]);
+      setThinkingSteps([{
+        step: 'connecting',
+        message: language === 'CN' ? '正在连接 Aurora...' : 'Connecting to Aurora...',
+        completed: false,
+      }]);
       setStreamedText('');
       const timeoutMs = isRoutineChatAction(action) ? ROUTINE_CHAT_TIMEOUT_MS : CHAT_TIMEOUT_MS;
       try {
@@ -7661,27 +7672,34 @@ export default function BffChat() {
         };
 
         let streamResult: SSEResultEvent | null = null;
+        let usedStream = false;
 
-        try {
-          await bffChatStream(requestHeaders, body, {
-            onThinking: (event) => {
-              setThinkingSteps((prev) => {
-                const updated = prev.map((s) => ({ ...s, completed: true }));
-                return [...updated, { step: event.step, message: event.message, completed: false }];
-              });
-            },
-            onChunk: (event) => {
-              setStreamedText((prev) => prev + event.text);
-            },
-            onResult: (event) => {
-              streamResult = event;
-            },
-            onError: (msg) => {
-              setError(msg);
-            },
-          }, { timeoutMs });
-        } catch (streamErr) {
-          // Fallback to non-streaming /v1/chat
+        if (!streamEndpointDisabledRef.current) {
+          try {
+            await bffChatStream(requestHeaders, body, {
+              onThinking: (event) => {
+                setThinkingSteps((prev) => {
+                  const updated = prev.map((s) => ({ ...s, completed: true }));
+                  return [...updated, { step: event.step, message: event.message, completed: false }];
+                });
+              },
+              onChunk: (event) => {
+                setStreamedText((prev) => prev + event.text);
+              },
+              onResult: (event) => {
+                streamResult = event;
+              },
+              onError: (msg) => {
+                setError(msg);
+              },
+            }, { timeoutMs });
+            usedStream = true;
+          } catch {
+            streamEndpointDisabledRef.current = true;
+          }
+        }
+
+        if (!usedStream) {
           const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
             method: 'POST',
             body: JSON.stringify(body),
@@ -8564,6 +8582,11 @@ export default function BffChat() {
     const fromRoutineForm = opts?.fromRoutineForm === true;
     if (fromRoutineForm) setRoutineFormBusy(true);
     setAnalysisBusy(true);
+    setThinkingSteps([{
+      step: 'quick_analysis',
+      message: language === 'CN' ? '正在快速分析肤质...' : 'Running quick skin analysis...',
+      completed: false,
+    }]);
     setError(null);
     try {
       setSessionState('S4_ANALYSIS_LOADING');
@@ -8577,6 +8600,7 @@ export default function BffChat() {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
       setAnalysisBusy(false);
+      setThinkingSteps([]);
       if (fromRoutineForm) setRoutineFormBusy(false);
     }
   }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
@@ -8597,6 +8621,11 @@ export default function BffChat() {
       const fromRoutineForm = opts?.fromRoutineForm === true;
       if (fromRoutineForm) setRoutineFormBusy(true);
       setAnalysisBusy(true);
+      setThinkingSteps([{
+        step: 'routine_analysis',
+        message: language === 'CN' ? '正在结合你的护肤步骤分析...' : 'Analyzing with your routine...',
+        completed: false,
+      }]);
       setError(null);
       const requestHeaders = { ...headers, lang: language };
 
@@ -8618,6 +8647,7 @@ export default function BffChat() {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setAnalysisBusy(false);
+        setThinkingSteps([]);
         if (fromRoutineForm) setRoutineFormBusy(false);
       }
     },
