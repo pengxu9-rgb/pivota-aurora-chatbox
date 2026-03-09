@@ -7127,6 +7127,7 @@ export default function BffChat() {
   });
   const [sessionState, setSessionState] = useState<string>('idle');
   const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(null);
+  const lastTravelReadinessRef = useRef<Record<string, unknown> | null>(null);
   const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
   const agentStateRef = useRef<AgentState>('IDLE_CHAT');
   useEffect(() => {
@@ -7469,10 +7470,14 @@ export default function BffChat() {
       const next = (enhancedEnv.session_patch as Record<string, unknown>)['next_state'];
       if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
       const nextMeta = asObject(patch.meta);
-      if (nextMeta) {
+      const lastTravelReadiness = asObject(patch.last_travel_readiness) ?? asObject(patch.lastTravelReadiness);
+      if (lastTravelReadiness) lastTravelReadinessRef.current = lastTravelReadiness;
+      if (nextMeta || lastTravelReadiness) {
         setSessionMeta((prev) => {
           const base = asObject(prev) || {};
-          return { ...base, ...nextMeta };
+          const merged = nextMeta ? { ...base, ...nextMeta } : { ...base };
+          if (lastTravelReadiness) merged.last_travel_readiness = lastTravelReadiness;
+          return merged;
         });
       }
 
@@ -7665,10 +7670,14 @@ export default function BffChat() {
         if (next) setSessionState(next);
 
         const nextMeta = asObject(responseSessionPatch.meta);
-        if (nextMeta) {
+        const lastTravelReadiness = asObject(responseSessionPatch.last_travel_readiness) ?? asObject(responseSessionPatch.lastTravelReadiness);
+        if (lastTravelReadiness) lastTravelReadinessRef.current = lastTravelReadiness;
+        if (nextMeta || lastTravelReadiness) {
           setSessionMeta((prev) => {
             const base = asObject(prev) || {};
-            return { ...base, ...nextMeta };
+            const merged = nextMeta ? { ...base, ...nextMeta } : { ...base };
+            if (lastTravelReadiness) merged.last_travel_readiness = lastTravelReadiness;
+            return merged;
           });
         }
 
@@ -8076,6 +8085,8 @@ export default function BffChat() {
   const startNewChat = useCallback(() => {
     setError(null);
     setSessionState('idle');
+    setSessionMeta(null);
+    lastTravelReadinessRef.current = null;
     setAgentStateSafe('IDLE_CHAT');
     setQuickProfileStep('skin_feel');
     setQuickProfileDraft({});
@@ -8779,12 +8790,21 @@ export default function BffChat() {
       const timeoutMs = isRoutineChatAction(action) ? ROUTINE_CHAT_TIMEOUT_MS : CHAT_TIMEOUT_MS;
       try {
         const requestHeaders = { ...headers, lang: language };
+        const effectiveSessionMeta = (() => {
+          const base = asObject(sessionMeta);
+          const carriedTravelReadiness = asObject(lastTravelReadinessRef.current);
+          if (!carriedTravelReadiness) return base;
+          return {
+            ...(base || {}),
+            last_travel_readiness: carriedTravelReadiness,
+          };
+        })();
         const session = buildChatSession({
           state: sessionState,
           profileSnapshot,
           bootstrapProfile: bootstrapInfo?.profile ?? null,
           sessionProfilePatch: pendingSessionProfilePatch,
-          sessionMeta,
+          sessionMeta: effectiveSessionMeta,
         });
         const body: Record<string, unknown> = {
           session,
@@ -10913,6 +10933,8 @@ export default function BffChat() {
 
     setError(null);
     setSessionState('idle');
+    setSessionMeta(null);
+    lastTravelReadinessRef.current = null;
     setAgentStateSafe('IDLE_CHAT');
     setQuickProfileStep('skin_feel');
     setQuickProfileDraft({});

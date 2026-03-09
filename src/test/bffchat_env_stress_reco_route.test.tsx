@@ -60,6 +60,7 @@ function makeV1Response(args?: Partial<ChatResponseV1>): ChatResponseV1 {
       intent_confidence: 0.9,
       entities: [],
     },
+    session_patch: args?.session_patch ?? {},
   };
 }
 
@@ -211,6 +212,21 @@ describe('BffChat env stress recommendation routing', () => {
             request_id: 'req_chat_env',
             trace_id: 'trace_chat_env',
             assistant_text: 'Here is your travel environment plan.',
+            session_patch: {
+              last_travel_readiness: {
+                destination: 'Paris',
+                start_date: '2026-02-27',
+                end_date: '2026-03-02',
+                env_source: 'weather_api',
+                shopping_preview: {
+                  products: [],
+                  buying_channels: ['pharmacy', 'ecommerce'],
+                },
+                confidence: {
+                  level: 'medium',
+                },
+              },
+            },
             cards: [
               {
                 id: 'env_bootstrap',
@@ -320,6 +336,7 @@ describe('BffChat env stress recommendation routing', () => {
     expect(payload?.action?.data?.trigger_source).toBe('travel_handoff');
     expect(payload?.action?.data?.source_card_type).toBe('travel');
     expect(String(payload?.action?.data?.reply_text || '')).not.toMatch(/travel|weather/i);
+    expect(payload?.session?.meta?.last_travel_readiness?.destination).toBe('Paris');
   });
 
   it('renders contributor breakdown from travel_structured env payload when drivers exist', async () => {
