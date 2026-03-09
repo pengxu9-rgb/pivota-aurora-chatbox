@@ -180,6 +180,16 @@ export const emitAlternativesFailed = (
   } & Record<string, unknown>,
 ) => emitWithContext('alternatives_failed', ctx, props);
 
+export const emitAuroraEmptyRecommendationsContractViolation = (
+  ctx: AnalyticsContext,
+  props: {
+    card_id?: string | null;
+    task_mode?: string | null;
+    source_card_type?: string | null;
+    products_empty_reason?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_empty_recommendations_contract_violation', ctx, props);
+
 export const emitAgentStateEntered = (
   ctx: AnalyticsContext,
   props: {
@@ -245,6 +255,17 @@ export const emitAuroraPhotoModulesSchemaFail = (
     sanitizer_drop_count?: number;
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_photo_modules_schema_fail', ctx, props);
+
+export const emitUiCardRenderFailed = (
+  ctx: AnalyticsContext,
+  props: {
+    card_type?: string | null;
+    card_id?: string | null;
+    error_name?: string | null;
+    error_message?: string | null;
+    component_stack?: string | null;
+  } & Record<string, unknown>,
+) => emitWithContext('ui_card_render_failed', ctx, props);
 
 export const emitAuroraPhotoModulesModuleTap = (
   ctx: AnalyticsContext,

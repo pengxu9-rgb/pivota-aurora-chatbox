@@ -235,6 +235,7 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       start_date: normalizeOptionalText(destinationContext.start_date, 24),
       end_date: normalizeOptionalText(destinationContext.end_date, 24),
       env_source: normalizeOptionalText(destinationContext.env_source, 40),
+      weather_reason: normalizeOptionalText(destinationContext.weather_reason, 80),
       epi: coerceNumber(destinationContext.epi),
     };
   }
@@ -362,6 +363,37 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       .slice(0, 4) as any;
   }
 
+  const categoryRecommendations = Array.isArray(value.category_recommendations) ? value.category_recommendations : [];
+  if (categoryRecommendations.length) {
+    out.category_recommendations = categoryRecommendations
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const category = normalizeOptionalText(row.category, 80);
+        if (!category) return null;
+        const products = Array.isArray(row.products) ? row.products : [];
+        return {
+          category,
+          why: normalizeOptionalText(row.why, 260),
+          products: products
+            .map((product) => {
+              const productRow = isPlainObject(product) ? product : {};
+              const name = normalizeOptionalText(productRow.name, 140);
+              if (!name) return null;
+              return {
+                name,
+                ingredient_logic: normalizeOptionalText(productRow.ingredient_logic, 220),
+                usage: normalizeOptionalText(productRow.usage, 220),
+              };
+            })
+            .filter(Boolean)
+            .slice(0, 3) as any,
+          skip_reason: normalizeOptionalText(row.skip_reason, 160),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 10) as any;
+  }
+
   const storeExamples = Array.isArray(value.store_examples) ? value.store_examples : [];
   if (storeExamples.length) {
     out.store_examples = storeExamples
@@ -437,12 +469,14 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       'active_handling',
       'phased_plan',
       'packing_list',
+      'travel_kit',
       'product_guidance',
       'troubleshooting',
     ] as const;
     const normalizedSections: Record<string, string[]> = {};
     for (const key of sectionKeys) {
-      const rows = normalizeStringArray(structuredSections[key], key === 'packing_list' ? 8 : 6, 220);
+      const maxItems = key === 'travel_kit' ? 14 : key === 'packing_list' ? 8 : 6;
+      const rows = normalizeStringArray(structuredSections[key], maxItems, 320);
       if (rows.length) normalizedSections[key] = rows;
     }
     if (Object.keys(normalizedSections).length) {

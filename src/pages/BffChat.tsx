@@ -29,7 +29,8 @@ import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard
 import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
-import { AnalysisStoryCard, type AnalysisStoryShortlistItem } from '@/components/aurora/cards/AnalysisStoryCard';
+import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
+import { RoutineFitSummaryCard } from '@/components/aurora/cards/RoutineFitSummaryCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { IngredientPlanCardV1 } from '@/components/chat/cards/IngredientPlanCardV1';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
@@ -45,6 +46,7 @@ import { enrichPhotoModulesPayloadWithSessionPreview } from '@/lib/photoModulesF
 import { looksLikeProductPicksRawText } from '@/lib/productPicks';
 import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
 import type { CompatibilityProductInput } from '@/lib/routineCompatibility/types';
+import { parseCurrentRoutine } from '@/lib/currentRoutineState';
 import {
   inferTextExplicitTransition,
   normalizeAgentState,
@@ -61,6 +63,7 @@ import {
   emitPdpOpenPath,
   emitRecommendationDetailsSheetOpened,
   emitAlternativesFailed,
+  emitAuroraEmptyRecommendationsContractViolation,
   emitAuroraProductAnalysisDegraded,
   emitAuroraProductAlternativesFiltered,
   emitAuroraHowToLayerInlineOpened,
@@ -184,6 +187,11 @@ type DiagnosisV2FlowState = {
   checkinBinding: Record<string, unknown> | null;
 };
 
+type PendingDiagnosisAuthResume = {
+  goals: string[];
+  customInput?: string;
+};
+
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
   block: RecoBlockType;
@@ -221,11 +229,12 @@ const makeEmptyRoutineDraft = (): RoutineDraft => ({
 });
 
 const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | null => {
-  if (!currentRoutine || typeof currentRoutine !== 'object') return null;
-  const raw = currentRoutine as Record<string, unknown>;
-  if (raw.schema_version !== 'aurora.routine_intake.v2') return null;
+  const parsedRoutine = parseCurrentRoutine(currentRoutine);
+  if (!parsedRoutine) return null;
 
   const draft = makeEmptyRoutineDraft();
+
+  const stepAliases: Record<string, string> = { sunscreen: 'spf', serum: 'treatment', toner: 'treatment' };
 
   const fillSlots = (
     steps: unknown,
@@ -234,23 +243,25 @@ const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | n
     if (!Array.isArray(steps)) return;
     for (const entry of steps) {
       if (!entry || typeof entry !== 'object') continue;
-      const step = String((entry as any).step || '').toLowerCase();
-      const product = String((entry as any).product || '').trim();
-      if (!step || !product) continue;
+      const rec = entry as Record<string, unknown>;
+      const rawStep = String(rec.step || '').toLowerCase();
+      const product = String(rec.product || '').trim();
+      if (!rawStep || !product) continue;
+      const step = stepAliases[rawStep] ?? rawStep;
       if (!(step in target)) continue;
-      const pid = String((entry as any).product_id || '').trim();
+      const pid = String(rec.product_id || '').trim();
       target[step] = {
         text: product,
         resolvedProduct: pid
-          ? { product_id: pid, sku_id: (entry as any).sku_id ?? null, name: product, display_name: product }
+          ? { product_id: pid, sku_id: rec.sku_id != null ? String(rec.sku_id) : null, name: product, display_name: product }
           : null,
       };
     }
   };
 
-  fillSlots(raw.am, draft.am as unknown as Record<string, RoutineSlotValue>);
-  fillSlots(raw.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
-  draft.notes = String(raw.notes || '').trim();
+  fillSlots(parsedRoutine.am, draft.am as unknown as Record<string, RoutineSlotValue>);
+  fillSlots(parsedRoutine.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
+  draft.notes = String(parsedRoutine.notes || '').trim();
 
   return hasAnyRoutineDraftInput(draft) ? draft : null;
 };
@@ -369,16 +380,7 @@ const shouldFallbackToLegacyDiagnosis = (err: unknown): boolean => {
   if (err.status === 404) return true;
   const body = err.responseBody as any;
   const errorCode = String(body?.error || '').trim();
-  return (
-    errorCode === 'DIAGNOSIS_V2_NOT_ENABLED' ||
-    errorCode === 'LLM_PROVIDER_UNAVAILABLE'
-  );
-};
-
-const shouldFallbackDiagnosisV2StreamError = (err: unknown): boolean => {
-  if (!(err instanceof Error)) return false;
-  const errorCode = String(err.message || '').trim();
-  return errorCode === 'LLM_PROVIDER_UNAVAILABLE';
+  return errorCode === 'DIAGNOSIS_V2_NOT_ENABLED' || errorCode === 'LLM_PROVIDER_UNAVAILABLE';
 };
 
 const diagnosisV2TransientErrorMessage = (err: unknown, lang: string): string => {
@@ -1261,6 +1263,8 @@ const uniqueStrings = (items: unknown): string[] => {
   return out;
 };
 
+const toTrimmedString = (value: unknown): string => String(asString(value) || '').trim();
+
 const isProductParseCard = (card: Card | null | undefined): boolean =>
   String(card?.type || '').trim().toLowerCase() === 'product_parse';
 
@@ -1420,15 +1424,6 @@ const removeProductParseCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
   return out;
 };
 
-type StoryRecoShortlistSeed = {
-  source: 'ingredient_plan_v2' | 'recommendations';
-  product: Record<string, unknown>;
-  anchorProductId: string | null;
-  productInput: string | null;
-};
-
-const toTrimmedString = (value: unknown): string => String(asString(value) || '').trim();
-
 const normalizeProductNameKey = (value: unknown): string =>
   toTrimmedString(value)
     .toLowerCase()
@@ -1436,168 +1431,6 @@ const normalizeProductNameKey = (value: unknown): string =>
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-
-const normalizeStoryRecoCandidate = (
-  raw: unknown,
-  source: StoryRecoShortlistSeed['source'],
-): StoryRecoShortlistSeed | null => {
-  const product = asObject(raw);
-  if (!product) return null;
-  const name =
-    toTrimmedString(product.name) ||
-    toTrimmedString(product.title) ||
-    toTrimmedString((product as any).display_name) ||
-    toTrimmedString((product as any).displayName);
-  if (!name) return null;
-  const brand = toTrimmedString(product.brand);
-  const anchorProductId =
-    toTrimmedString((product as any).product_group_id) ||
-    toTrimmedString((product as any).product_id) ||
-    toTrimmedString((product as any).sku_id) ||
-    null;
-  const productInput = [brand, name].filter(Boolean).join(' ').trim() || null;
-  return {
-    source,
-    product,
-    anchorProductId,
-    productInput,
-  };
-};
-
-const collectAnalysisStoryRecoShortlist = (cards: Card[], max = 2): AnalysisStoryShortlistItem[] => {
-  const rows = Array.isArray(cards) ? cards : [];
-  const candidates: StoryRecoShortlistSeed[] = [];
-
-  for (const card of rows) {
-    const type = String(card?.type || '').trim().toLowerCase();
-    if (type !== 'ingredient_plan_v2') continue;
-    const payload = asObject(card?.payload);
-    const targets = asArray(payload?.targets);
-    for (const targetRaw of targets) {
-      const target = asObject(targetRaw);
-      const products = asObject(target?.products);
-      const competitors = asArray(products?.competitors);
-      for (const row of competitors) {
-        const candidate = normalizeStoryRecoCandidate(row, 'ingredient_plan_v2');
-        if (candidate) candidates.push(candidate);
-      }
-      const dupes = asArray(products?.dupes);
-      for (const row of dupes) {
-        const candidate = normalizeStoryRecoCandidate(row, 'ingredient_plan_v2');
-        if (candidate) candidates.push(candidate);
-      }
-    }
-  }
-
-  if (candidates.length < max) {
-    for (const card of rows) {
-      const type = String(card?.type || '').trim().toLowerCase();
-      if (type !== 'recommendations') continue;
-      const payload = asObject(card?.payload);
-      const recos = asArray(payload?.recommendations);
-      for (const row of recos) {
-        const candidate = normalizeStoryRecoCandidate(row, 'recommendations');
-        if (candidate) candidates.push(candidate);
-      }
-    }
-  }
-
-  const deduped: AnalysisStoryShortlistItem[] = [];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    const name = toTrimmedString(candidate.product.name) || toTrimmedString(candidate.product.title);
-    const brand = toTrimmedString(candidate.product.brand);
-    const dedupeKey =
-      (candidate.anchorProductId && `id:${candidate.anchorProductId.toLowerCase()}`) ||
-      `name:${brand.toLowerCase()}::${name.toLowerCase()}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    deduped.push({
-      ...candidate.product,
-      source: candidate.source,
-      anchor_product_id: candidate.anchorProductId,
-      product_input: candidate.productInput,
-    });
-    if (deduped.length >= max) break;
-  }
-
-  return deduped;
-};
-
-const normalizeAlternativeIntent = (
-  candidate: Record<string, unknown>,
-  block: RecoBlockType,
-): 'replace' | 'pair' => {
-  const raw = toTrimmedString((candidate as any).recommendation_intent || (candidate as any).recommendationIntent).toLowerCase();
-  if (raw === 'replace' || raw === 'pair') return raw;
-  return block === 'related_products' ? 'pair' : 'replace';
-};
-
-const buildAnalysisStoryAlternativesTracks = (
-  alternativesSource: Array<Record<string, unknown>>,
-  language: UiLanguage,
-): ProductAlternativeTrack[] => {
-  const alternatives = Array.isArray(alternativesSource) ? alternativesSource : [];
-  const mapped = alternatives
-    .map((alt, index) => {
-      const kind = toTrimmedString((alt as any).kind).toLowerCase();
-      const block: RecoBlockType =
-        kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
-      return {
-        candidate: alt,
-        block,
-        rank: index + 1,
-        intent: normalizeAlternativeIntent(alt, block),
-      } as ProductAlternativeTrackItem;
-    })
-    .slice(0, 8);
-
-  const replace = mapped.filter((item) => item.intent === 'replace');
-  const pair = mapped.filter((item) => item.intent === 'pair');
-  const tracks: ProductAlternativeTrack[] = [];
-  if (replace.length) {
-    tracks.push({
-      key: 'replace',
-      title: language === 'CN' ? '更多对比候选' : 'More comparison candidates',
-      subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
-      items: replace,
-      filteredCount: 0,
-    });
-  }
-  if (pair.length) {
-    tracks.push({
-      key: 'pair',
-      title: language === 'CN' ? '搭配建议' : 'Pairing ideas',
-      subtitle: language === 'CN' ? '用于搭配补位，不是直接替代' : 'Companion products to pair with your current pick',
-      items: pair,
-      filteredCount: 0,
-    });
-  }
-  return tracks;
-};
-
-const buildAnalysisStoryAlternativesEmptyTrack = (
-  language: UiLanguage,
-  reasonCode: string | null,
-): ProductAlternativeTrack[] => {
-  const reason = toTrimmedString(reasonCode);
-  const note = reason
-    ? (language === 'CN'
-        ? `当前暂无可用类似产品（${reason}）。`
-        : `No similar products available right now (${reason}).`)
-    : (language === 'CN' ? '当前暂无可用类似产品。' : 'No similar products available right now.');
-  return [
-    {
-      key: 'empty',
-      title: language === 'CN' ? '暂无类似产品' : 'No similar products yet',
-      subtitle: language === 'CN' ? '可以稍后重试或直接获取完整推荐' : 'Retry shortly or request full recommendations',
-      items: [],
-      notes: [note],
-      noResultReason: reason || null,
-      filteredCount: 0,
-    },
-  ];
-};
 
 type IngredientRenderMode = 'show_products' | 'empty_match' | 'pending_match';
 
@@ -3753,6 +3586,27 @@ export function RecommendationsCard({
   const pmSteps = toRoutineSteps(groups.pm);
 
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
+  const unexpectedEmptyRecommendations = items.length === 0 && ingredientRenderMode === 'show_products';
+  const emptyRecommendationsViolationRef = useRef(false);
+
+  useEffect(() => {
+    if (!unexpectedEmptyRecommendations || !analyticsCtx || emptyRecommendationsViolationRef.current) return;
+    emptyRecommendationsViolationRef.current = true;
+    emitAuroraEmptyRecommendationsContractViolation(analyticsCtx, {
+      card_id: asString(card.card_id) || null,
+      source_card_type: 'recommendations',
+      task_mode:
+        asString((payload as any)?.recommendation_meta?.task_mode) ||
+        asString((payload as any)?.task_mode) ||
+        null,
+      products_empty_reason: asString((payload as any)?.products_empty_reason) || null,
+    });
+  }, [analyticsCtx, card.card_id, payload, unexpectedEmptyRecommendations]);
+
+  useEffect(() => {
+    if (unexpectedEmptyRecommendations) return;
+    emptyRecommendationsViolationRef.current = false;
+  }, [unexpectedEmptyRecommendations]);
 
   if (ingredientRenderMode === 'empty_match') {
     const emptyActions = asArray((payload as any).empty_match_actions);
@@ -3806,6 +3660,23 @@ export function RecommendationsCard({
             })}
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (unexpectedEmptyRecommendations) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+        <div className="text-sm font-medium text-foreground">
+          {language === 'CN'
+            ? '这轮推荐还没有形成可展示的产品清单。'
+            : 'This recommendation round did not produce a displayable product shortlist yet.'}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {language === 'CN'
+            ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
+            : 'Retry shortly, or add your current routine / skin context before trying again.'}
+        </div>
       </div>
     );
   }
@@ -4585,55 +4456,20 @@ function BffCardView({
   }
 
   if (cardType === 'analysis_story_v2') {
-    const storyShortlist = collectAnalysisStoryRecoShortlist(Array.isArray(turnCards) ? turnCards : []);
-    const openStorySimilarProducts = (item: AnalysisStoryShortlistItem) => {
-      const product = asObject(item) || {};
-      const anchorProductId = toTrimmedString((product as any).anchor_product_id) || null;
-      const productInput =
-        toTrimmedString((product as any).product_input) ||
-        [toTrimmedString((product as any).brand), toTrimmedString((product as any).name) || toTrimmedString((product as any).title)]
-          .filter(Boolean)
-          .join(' ')
-          .trim() ||
-        null;
-
-      if (!loadRecommendationAlternatives || !onOpenRecommendationAlternatives) {
-        onAction('analysis_get_recommendations', {
-          trigger_source: 'analysis_story_v2_shortlist',
-        });
-        return;
-      }
-
-      void loadRecommendationAlternatives({
-        anchorProductId,
-        productInput,
-        product,
-        ingredientContext: payloadIngredientContext,
-      })
-        .then((resp) => {
-          const alternatives = asArray(resp && resp.alternatives).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
-          const tracks = buildAnalysisStoryAlternativesTracks(alternatives, language);
-          if (tracks.length) {
-            onOpenRecommendationAlternatives(tracks);
-            return;
-          }
-          onOpenRecommendationAlternatives(
-            buildAnalysisStoryAlternativesEmptyTrack(language, toTrimmedString(resp?.noResultReason) || null),
-          );
-        })
-        .catch(() => {
-          if (onOpenRecommendationAlternatives) {
-            onOpenRecommendationAlternatives(buildAnalysisStoryAlternativesEmptyTrack(language, 'load_failed'));
-          }
-        });
-    };
-
     return (
       <AnalysisStoryCard
         payload={payload as Record<string, unknown>}
         language={language}
-        recoShortlist={storyShortlist}
-        onOpenSimilarProducts={openStorySimilarProducts}
+        onAction={(id, data) => onAction(id, data)}
+      />
+    );
+  }
+
+  if (cardType === 'routine_fit_summary') {
+    return (
+      <RoutineFitSummaryCard
+        payload={payload as Record<string, unknown>}
+        language={language}
         onAction={(id, data) => onAction(id, data)}
       />
     );
@@ -5698,7 +5534,7 @@ function BffCardView({
           ...expertNotes.filter((note) => /(evidence source|ingredient list|inci|entries|product page|parsed)/i.test(String(note || ''))),
         ]).slice(0, 3);
 
-        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine((bootstrapInfo?.profile as any)?.currentRoutine);
+        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine(bootstrapInfo?.profile?.currentRoutine);
         const compatibilityBaseProduct: CompatibilityProductInput = {
           id:
             asString((anchorRaw as any)?.product_id) ||
@@ -6701,6 +6537,7 @@ function BffCardView({
               language={language}
               cardType="product_analysis_routine_compatibility"
               cardId={`${card.card_id || 'product_analysis'}::routine_compatibility`}
+              analyticsCtx={analyticsCtx}
             >
               <RoutineCompatibilityFooter
                 language={language}
@@ -6876,6 +6713,9 @@ function BffCardView({
   );
 }
 
+export { buildRoutineDraftFromProfile, makeEmptyRoutineDraft, hasAnyRoutineDraftInput };
+export type { RoutineDraft };
+
 export default function BffChat() {
   const initialLanguageRef = useRef<UiLanguage | null>(null);
   if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
@@ -7041,6 +6881,7 @@ export default function BffChat() {
     routineSkeleton: null,
     checkinBinding: null,
   });
+  const pendingDiagnosisAuthResumeRef = useRef<PendingDiagnosisAuthResume | null>(null);
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '' });
@@ -7799,7 +7640,7 @@ export default function BffChat() {
 
       if (isReturning && !returnVisitEmittedRef.current) {
         returnVisitEmittedRef.current = true;
-        const currentRoutine = profile ? (profile as any).currentRoutine : null;
+        const currentRoutine = profile?.currentRoutine ?? null;
         emitUiReturnVisit(analyticsCtx, {
           days_since_last: returnWelcomeSummary.days_since_last ?? 0,
           has_active_plan:
@@ -8104,7 +7945,7 @@ export default function BffChat() {
         hydration: Math.max(0, Math.min(5, Math.trunc(checkinDraft.hydration))),
       };
       if (checkinDraft.notes.trim()) payload.notes = checkinDraft.notes.trim();
-      const activeRoutineId = (bootstrapInfo?.profile as any)?.active_routine_id;
+      const activeRoutineId = bootstrapInfo?.profile?.active_routine_id;
       if (typeof activeRoutineId === 'string' && activeRoutineId.trim()) {
         payload.routine_id = activeRoutineId.trim();
       }
@@ -8261,6 +8102,7 @@ export default function BffChat() {
       setAuthDraft((prev) => ({ ...prev, code: '' }));
       setAuthSheetOpen(false);
       await refreshBootstrapInfo(nextSession.token);
+      await resumePendingDiagnosisAfterAuth(nextSession.token);
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -8297,6 +8139,7 @@ export default function BffChat() {
       setAuthDraft((prev) => ({ ...prev, password: '' }));
       setAuthSheetOpen(false);
       await refreshBootstrapInfo(nextSession.token);
+      await resumePendingDiagnosisAfterAuth(nextSession.token);
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -8724,11 +8567,13 @@ export default function BffChat() {
       customInput,
       skipLogin,
       userText,
+      authTokenOverride,
     }: {
       goals: string[];
       customInput?: string;
       skipLogin?: boolean;
       userText?: string;
+      authTokenOverride?: string | null;
     }) => {
       const normalizedGoals = Array.isArray(goals) ? goals.map((goal) => String(goal || '').trim()).filter(Boolean) : [];
       if (normalizedGoals.length === 0) {
@@ -8753,7 +8598,9 @@ export default function BffChat() {
       setChatBusy(true);
       setError(null);
       try {
-        const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
+        const requestHeaders = buildRequestHeaders(
+          authTokenOverride === undefined ? (authSession?.token ?? null) : authTokenOverride,
+        );
         const response = await bffJson<{
           ok: boolean;
           stage?: 'login_prompt' | 'intro';
@@ -8794,6 +8641,20 @@ export default function BffChat() {
       }
     },
     [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildRequestHeaders, language, sendDiagnosisV2Telemetry],
+  );
+
+  const resumePendingDiagnosisAfterAuth = useCallback(
+    async (authToken: string | null | undefined) => {
+      const pending = pendingDiagnosisAuthResumeRef.current;
+      if (!pending || !authToken) return;
+      pendingDiagnosisAuthResumeRef.current = null;
+      await startDiagnosisV2({
+        goals: pending.goals,
+        customInput: pending.customInput,
+        authTokenOverride: authToken,
+      });
+    },
+    [startDiagnosisV2],
   );
 
   const submitDiagnosisV2 = useCallback(
@@ -8962,21 +8823,17 @@ export default function BffChat() {
           flushEvent();
         }
       } catch (err) {
-        if (shouldFallbackDiagnosisV2StreamError(err)) {
-          appendLegacyDiagnosisGate();
-          return;
-        }
         setError(diagnosisV2TransientErrorMessage(err, language));
       } finally {
         setChatBusy(false);
       }
     },
-    [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildDiagnosisFetchHeaders, language, sendDiagnosisV2Telemetry],
+    [appendDiagnosisV2Card, authSession?.token, buildDiagnosisFetchHeaders, language, sendDiagnosisV2Telemetry],
   );
 
   const openRoutineIntakeSheet = useCallback(() => {
-    const profileRoutine = (profileSnapshot ?? bootstrapInfo?.profile) as Record<string, unknown> | null | undefined;
-    const currentRoutine = profileRoutine?.currentRoutine;
+    const source = profileSnapshot ?? bootstrapInfo?.profile ?? null;
+    const currentRoutine = source?.currentRoutine;
     const prefilled = buildRoutineDraftFromProfile(currentRoutine);
     setRoutineDraft(prefilled ?? makeEmptyRoutineDraft());
     setRoutineTab('am');
@@ -9381,8 +9238,12 @@ export default function BffChat() {
           ? (data as any).pending_goals
           : diagnosisV2StateRef.current.goals;
         const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
-        const returnUrl = `${window.location.pathname}?open=diagnosis_v2&goals=${encodeURIComponent(JSON.stringify(pendingGoals))}`;
-        window.location.href = `/login?return_to=${encodeURIComponent(returnUrl)}`;
+        pendingDiagnosisAuthResumeRef.current = {
+          goals: pendingGoals,
+          customInput: diagnosisV2StateRef.current.customInput,
+        };
+        resetAuthUi(authDraft.email);
+        setAuthSheetOpen(true);
         return;
       }
 
@@ -9391,6 +9252,7 @@ export default function BffChat() {
           ? (data as any).pending_goals
           : diagnosisV2StateRef.current.goals;
         const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
+        pendingDiagnosisAuthResumeRef.current = null;
         await startDiagnosisV2({
           goals: pendingGoals,
           customInput: diagnosisV2StateRef.current.customInput,
@@ -10621,6 +10483,7 @@ export default function BffChat() {
     },
     [
       agentState,
+      authDraft.email,
       headers,
       language,
       quickProfileBusy,
@@ -12016,6 +11879,13 @@ export default function BffChat() {
                           language={language}
                           cardType={String(card.type || '')}
                           cardId={card.card_id}
+                          analyticsCtx={{
+                            brief_id: headers.brief_id,
+                            trace_id: headers.trace_id,
+                            aurora_uid: headers.aurora_uid,
+                            lang: toLangPref(language),
+                            state: agentState,
+                          }}
                         >
                           <BffCardView
                             card={card}

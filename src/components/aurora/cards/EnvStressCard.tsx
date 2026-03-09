@@ -76,6 +76,7 @@ type StructuredSections = {
   active_handling?: string[];
   phased_plan?: string[];
   packing_list?: string[];
+  travel_kit?: string[];
   product_guidance?: string[];
   troubleshooting?: string[];
 };
@@ -106,6 +107,11 @@ export function EnvStressCard({
     : null;
   const travelReadiness = model?.travel_readiness;
   const sections: StructuredSections = (travelReadiness as Record<string, unknown>)?.structured_sections as StructuredSections ?? {};
+  const travelKitLines = safeStringArray(sections.travel_kit).length
+    ? safeStringArray(sections.travel_kit)
+    : safeStringArray(sections.product_guidance).length
+      ? safeStringArray(sections.product_guidance)
+      : safeStringArray(sections.packing_list);
   const hasDrivers = model?.radar?.some((r: Record<string, unknown>) => Array.isArray(r.drivers) && r.drivers.length > 0) ?? false;
   const missingInputs = Array.isArray(travelReadiness?.confidence?.missing_inputs)
     ? travelReadiness.confidence?.missing_inputs
@@ -113,6 +119,18 @@ export function EnvStressCard({
   const missingRecentLogs = Boolean(
     missingInputs.includes('recent_logs') || model?.notes?.some((n) => typeof n === 'string' && n.includes('recent_logs')),
   );
+  const envSource = String(travelReadiness?.destination_context?.env_source || '').trim().toLowerCase();
+  const usesLiveWeather = envSource === 'weather_api';
+  const usesClimateFallback = Boolean(travelReadiness) && envSource !== '' && envSource !== 'weather_api';
+  const weatherSourceLabel = usesLiveWeather
+    ? language === 'CN'
+      ? '实时天气'
+      : 'Live weather'
+    : usesClimateFallback
+      ? language === 'CN'
+        ? '气候常模估算'
+        : 'Climate baseline estimate'
+      : null;
 
   const metricRows = useMemo(
     () =>
@@ -284,6 +302,18 @@ export function EnvStressCard({
                     ? ` (${travelReadiness.destination_context?.start_date || '-'} -> ${travelReadiness.destination_context?.end_date || '-'})`
                     : ''}
                 </div>
+                {weatherSourceLabel ? (
+                  <div className="mt-1.5 inline-flex items-center rounded-full border border-border/70 px-2 py-0.5 text-[10px] text-foreground/85">
+                    {weatherSourceLabel}
+                  </div>
+                ) : null}
+                {usesClimateFallback ? (
+                  <div className="mt-1.5">
+                    {language === 'CN'
+                      ? '实时天气暂不可用，以下按目的地气候特征给出定性建议。'
+                      : 'Live weather is unavailable, so the guidance below uses destination climate patterns.'}
+                  </div>
+                ) : null}
                 {metricRows.length ? (
                   <ul className="mt-1.5 space-y-1">
                     {metricRows.slice(0, 2).map((row) => (
@@ -318,7 +348,7 @@ export function EnvStressCard({
                 ) : null}
               </div>
 
-              {travelReadiness.forecast_window?.length ? (
+              {usesLiveWeather && travelReadiness.forecast_window?.length ? (
                 <details className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                   <summary className="cursor-pointer select-none font-semibold text-foreground/90">
                     {language === 'CN' ? '逐日天气预报（展开）' : 'Daily forecast (expand)'}
@@ -547,31 +577,27 @@ export function EnvStressCard({
                 </details>
               ) : null}
 
-              {safeStringArray(sections.packing_list).length ? (
+              {travelKitLines.length ? (
                 <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                   <div className="font-semibold text-foreground/90">
-                    {language === 'CN' ? '旅行护肤清单' : 'Travel skincare kit'}
+                    {language === 'CN' ? '旅行护肤装备清单' : 'Travel skincare kit'}
                   </div>
-                  <ul className="mt-1.5 space-y-1">
-                    {safeStringArray(sections.packing_list).slice(0, 6).map((line, idx) => (
-                      <li key={`pk_${idx}`} className="flex items-start gap-1.5">
-                        <span className="mt-0.5 h-3 w-3 shrink-0 rounded border border-border/70" />
-                        <span>{line}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {safeStringArray(sections.product_guidance).length ? (
-                <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
-                  <div className="font-semibold text-foreground/90">
-                    {language === 'CN' ? '产品与准备' : 'Products and prep'}
-                  </div>
-                  <ul className="mt-1.5 space-y-1">
-                    {safeStringArray(sections.product_guidance).slice(0, 5).map((line, idx) => (
-                      <li key={`pg_${idx}`}>• {line}</li>
-                    ))}
+                  <ul className="mt-1.5 space-y-1.5">
+                    {travelKitLines.slice(0, 14).map((line, idx) => {
+                      const categoryMatch = line.match(/^(【[^】]+】)\s*(.*)$/);
+                      return (
+                        <li key={`tk_${idx}`}>
+                          {categoryMatch ? (
+                            <>
+                              <span className="font-semibold text-foreground/90">{categoryMatch[1]}</span>
+                              {categoryMatch[2] ? ` ${categoryMatch[2]}` : ''}
+                            </>
+                          ) : (
+                            `• ${line}`
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               ) : null}

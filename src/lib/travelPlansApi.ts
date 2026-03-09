@@ -1,10 +1,23 @@
-import { bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
+import { PivotaAgentBffError, bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
 
 export type TravelPlanStatus = 'upcoming' | 'in_trip' | 'completed' | 'archived';
+
+export type DestinationPlace = {
+  label: string;
+  canonical_name: string;
+  latitude: number;
+  longitude: number;
+  country_code?: string | null;
+  country?: string | null;
+  admin1?: string | null;
+  timezone?: string | null;
+  resolution_source?: 'auto_resolved' | 'user_selected';
+};
 
 export type TravelPlanCardModel = {
   trip_id: string;
   destination: string;
+  destination_place?: DestinationPlace | null;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio?: number;
@@ -36,6 +49,7 @@ export type TravelPlansListResponse = {
 
 export type CreateTravelPlanInput = {
   destination: string;
+  destination_place?: DestinationPlace;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio?: number;
@@ -49,6 +63,12 @@ export type UpdateTravelPlanInput = Partial<CreateTravelPlanInput> & {
 export type TravelPlanMutationResponse = {
   plan: TravelPlanCardModel | null;
   summary: TravelPlansSummary;
+};
+
+export type DestinationAmbiguityResponse = {
+  error: 'DESTINATION_AMBIGUOUS';
+  normalized_query: string;
+  candidates: DestinationPlace[];
 };
 
 const withQuery = (path: string, query: Record<string, string>) => {
@@ -110,4 +130,23 @@ export const getTravelPlanById = async (
   return bffJson<TravelPlanMutationResponse>(`/v1/travel-plans/${encodeURIComponent(tripId)}`, headers, {
     method: 'GET',
   });
+};
+
+export const getDestinationAmbiguityPayload = (error: unknown): DestinationAmbiguityResponse | null => {
+  if (!(error instanceof PivotaAgentBffError)) return null;
+  if (error.status !== 409) return null;
+  const body = error.responseBody;
+  if (!body || typeof body !== 'object') return null;
+  if ((body as { error?: string }).error !== 'DESTINATION_AMBIGUOUS') return null;
+  const candidates = Array.isArray((body as { candidates?: unknown[] }).candidates)
+    ? ((body as { candidates: unknown[] }).candidates as DestinationPlace[])
+    : [];
+  return {
+    error: 'DESTINATION_AMBIGUOUS',
+    normalized_query:
+      typeof (body as { normalized_query?: string }).normalized_query === 'string'
+        ? (body as { normalized_query: string }).normalized_query
+        : '',
+    candidates,
+  };
 };

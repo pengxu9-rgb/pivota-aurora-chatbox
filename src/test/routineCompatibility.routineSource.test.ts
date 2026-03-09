@@ -25,6 +25,24 @@ describe('extractRoutineProductsFromProfileCurrentRoutine', () => {
     expect(result[0].name).toBe('Same Product');
   });
 
+  it('parses object-map routine payloads', () => {
+    const result = extractRoutineProductsFromProfileCurrentRoutine({
+      am: { cleanser: 'Gentle cleanser', spf: 'SPF 50' },
+      pm: { treatment: 'Retinol Serum' },
+    });
+
+    expect(result.map((item) => item.name)).toEqual(['Gentle cleanser', 'SPF 50', 'Retinol Serum']);
+  });
+
+  it('parses array routine payloads with slot metadata', () => {
+    const result = extractRoutineProductsFromProfileCurrentRoutine([
+      { slot: 'am', step: 'cleanser', product: 'Gentle cleanser' },
+      { slot: 'pm', step: 'treatment', product: 'Retinol Serum' },
+    ]);
+
+    expect(result.map((item) => item.name)).toEqual(['Gentle cleanser', 'Retinol Serum']);
+  });
+
   it('returns empty for invalid payload', () => {
     expect(extractRoutineProductsFromProfileCurrentRoutine('not-json')).toEqual([]);
     expect(extractRoutineProductsFromProfileCurrentRoutine(null)).toEqual([]);

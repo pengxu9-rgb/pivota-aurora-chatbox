@@ -30,15 +30,20 @@ vi.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock('@/lib/travelPlansApi', () => ({
-  getTravelPlanById: vi.fn(),
-  archiveTravelPlan: vi.fn(),
-  updateTravelPlan: vi.fn(),
-}));
+vi.mock('@/lib/travelPlansApi', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/travelPlansApi')>('@/lib/travelPlansApi');
+  return {
+    ...actual,
+    getTravelPlanById: vi.fn(),
+    archiveTravelPlan: vi.fn(),
+    updateTravelPlan: vi.fn(),
+  };
+});
 
 import PlanDetails from '@/pages/PlanDetails';
 import { toast } from '@/components/ui/use-toast';
-import { archiveTravelPlan, getTravelPlanById } from '@/lib/travelPlansApi';
+import { PivotaAgentBffError } from '@/lib/pivotaAgentBff';
+import { archiveTravelPlan, getTravelPlanById, updateTravelPlan } from '@/lib/travelPlansApi';
 
 function makePlan(overrides: Partial<TravelPlanCardModel> = {}): TravelPlanCardModel {
   return {
@@ -72,6 +77,13 @@ describe('PlanDetails behavior', () => {
       summary: {
         active_trip_id: null,
         counts: { in_trip: 0, upcoming: 0, completed: 0, archived: 1 },
+      },
+    });
+    vi.mocked(updateTravelPlan).mockResolvedValue({
+      plan: makePlan({ destination: 'Paris Updated' }),
+      summary: {
+        active_trip_id: 'trip_1',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
   });
@@ -163,5 +175,84 @@ describe('PlanDetails behavior', () => {
     expect(endDateInput.closest('.travel-date-grid')).toBe(dateGrid);
     expect(startDateInput.className).toContain('travel-date-input');
     expect(endDateInput.className).toContain('travel-date-input');
+  });
+
+  it('retries update after destination ambiguity selection', async () => {
+    routeState = { plan: makePlan({ trip_id: 'trip_ambiguous', destination: 'Paris' }) };
+    routeParams = { tripId: 'trip_ambiguous' };
+    vi.mocked(updateTravelPlan)
+      .mockRejectedValueOnce(
+        new PivotaAgentBffError('Request failed: 409 Conflict', 409, {
+          error: 'DESTINATION_AMBIGUOUS',
+          normalized_query: 'Paris',
+          candidates: [
+            {
+              label: 'Paris, Ile-de-France, France',
+              canonical_name: 'Paris',
+              latitude: 48.85341,
+              longitude: 2.3488,
+              country_code: 'FR',
+              country: 'France',
+              admin1: 'Ile-de-France',
+              timezone: 'Europe/Paris',
+            },
+            {
+              label: 'Paris, Texas, United States',
+              canonical_name: 'Paris',
+              latitude: 33.66094,
+              longitude: -95.55551,
+              country_code: 'US',
+              country: 'United States',
+              admin1: 'Texas',
+              timezone: 'America/Chicago',
+            },
+          ],
+        }) as never,
+      )
+      .mockResolvedValueOnce({
+        plan: makePlan({
+          trip_id: 'trip_ambiguous',
+          destination: 'Paris, Ile-de-France, France',
+          destination_place: {
+            label: 'Paris, Ile-de-France, France',
+            canonical_name: 'Paris',
+            latitude: 48.85341,
+            longitude: 2.3488,
+            country_code: 'FR',
+            country: 'France',
+            admin1: 'Ile-de-France',
+            timezone: 'Europe/Paris',
+            resolution_source: 'user_selected',
+          },
+        }),
+        summary: {
+          active_trip_id: 'trip_ambiguous',
+          counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+        },
+      });
+
+    render(<PlanDetails />);
+    await screen.findByText('Paris');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('Confirm destination')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Paris, Ile-de-France, France/i }));
+
+    await waitFor(() => {
+      expect(updateTravelPlan).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(updateTravelPlan).mock.calls[1]?.[2]).toEqual(
+      expect.objectContaining({
+        destination: 'Paris',
+        destination_place: expect.objectContaining({
+          canonical_name: 'Paris',
+          resolution_source: 'user_selected',
+          timezone: 'Europe/Paris',
+        }),
+      }),
+    );
+    await screen.findByText('Paris, Ile-de-France, France');
   });
 });

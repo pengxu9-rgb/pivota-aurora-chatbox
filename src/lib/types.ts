@@ -123,7 +123,7 @@ export interface ProductAnalysisResult {
 export interface DiagnosisResult {
   skinType?: SkinType;
   concerns: SkinConcern[];
-  currentRoutine: 'none' | 'basic' | 'full';
+  currentRoutine: string | Record<string, unknown> | unknown[] | null;
   barrierStatus?: 'healthy' | 'impaired' | 'unknown';
 }
 

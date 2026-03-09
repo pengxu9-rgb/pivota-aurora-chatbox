@@ -24,6 +24,8 @@ const asStringArray = (value: unknown, limit = 8): string[] => {
 const CARD_TYPES = new Set([
   'recommendations',
   'product_verdict',
+  'product_parse',
+  'product_analysis',
   'compatibility',
   'routine',
   'triage',
@@ -37,6 +39,7 @@ const CARD_TYPES = new Set([
   'diagnosis_gate',
   'analysis_summary',
   'analysis_story_v2',
+  'routine_fit_summary',
   'confidence_notice',
   'budget_gate',
   'gate_notice',
@@ -45,12 +48,15 @@ const CARD_TYPES = new Set([
 const fallbackTitleForType = (type: string): string => {
   const token = asString(type).toLowerCase();
   if (token === 'recommendations') return 'Recommendations';
+  if (token === 'product_parse') return 'Product parse';
+  if (token === 'product_analysis') return 'Product deep scan';
   if (token === 'ingredient_hub') return 'Ingredient hub';
   if (token === 'ingredient_goal_match') return 'Ingredient goal match';
   if (token === 'aurora_ingredient_report') return 'Ingredient report';
   if (token === 'diagnosis_gate') return 'Quick skin profile first';
   if (token === 'analysis_summary') return 'Skin summary';
   if (token === 'analysis_story_v2') return 'Analysis story';
+  if (token === 'routine_fit_summary') return 'Routine fit';
   if (token === 'confidence_notice') return 'Confidence notice';
   if (token === 'budget_gate') return 'Budget';
   if (token === 'gate_notice') return 'Gate notice';

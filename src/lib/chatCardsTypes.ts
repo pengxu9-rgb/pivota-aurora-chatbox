@@ -1,6 +1,8 @@
 export type ChatCardV1Type =
   | 'recommendations'
   | 'product_verdict'
+  | 'product_parse'
+  | 'product_analysis'
   | 'compatibility'
   | 'routine'
   | 'triage'
@@ -14,6 +16,7 @@ export type ChatCardV1Type =
   | 'diagnosis_gate'
   | 'analysis_summary'
   | 'analysis_story_v2'
+  | 'routine_fit_summary'
   | 'confidence_notice'
   | 'budget_gate'
   | 'gate_notice';

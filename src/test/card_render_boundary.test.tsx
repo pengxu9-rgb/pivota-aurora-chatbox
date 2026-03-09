@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
+import { analytics } from '@/lib/analytics';
 
 const ThrowingCard = () => {
   throw new Error('render boom');
@@ -26,6 +27,48 @@ describe('CardRenderBoundary', () => {
       ).toBeInTheDocument();
       expect(screen.getByTestId('healthy-card')).toBeInTheDocument();
     } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('emits a telemetry event when analytics context is available', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const analyticsSpy = vi.spyOn(analytics, 'emit').mockImplementation(() => {});
+    try {
+      render(
+        <CardRenderBoundary
+          language="EN"
+          cardType="product_analysis"
+          cardId="card_analysis_1"
+          analyticsCtx={{
+            brief_id: 'brief_test_1',
+            trace_id: 'trace_test_1',
+            aurora_uid: 'aurora_test_1',
+            lang: 'en',
+            state: 'PRODUCT_LINK_EVAL',
+          }}
+        >
+          <ThrowingCard />
+        </CardRenderBoundary>,
+      );
+
+      expect(analyticsSpy).toHaveBeenCalledWith(
+        'ui_card_render_failed',
+        'brief_test_1',
+        'trace_test_1',
+        expect.objectContaining({
+          aurora_uid: 'aurora_test_1',
+          lang: 'en',
+          state: 'PRODUCT_LINK_EVAL',
+          card_type: 'product_analysis',
+          card_id: 'card_analysis_1',
+          error_name: 'Error',
+          error_message: 'render boom',
+        }),
+      );
+    } finally {
+      analytics.clear();
+      analyticsSpy.mockRestore();
       errorSpy.mockRestore();
     }
   });
