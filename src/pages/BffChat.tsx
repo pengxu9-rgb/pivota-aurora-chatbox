@@ -132,6 +132,7 @@ import {
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { pickProductImageUrl } from '@/lib/productImage';
+import type { TravelProductLookupQuery } from '@/lib/auroraEnvStress';
 import { filterContradictoryFragranceFlags } from '@/lib/sensitivityFlags';
 import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
@@ -145,6 +146,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Copy,
   ExternalLink,
   FlaskConical,
@@ -4169,6 +4171,7 @@ function BffCardView({
   analyticsCtx,
   analysisPhotoRefs,
   sessionPhotos,
+  onTravelProductLookup,
 }: {
   card: Card;
   turnCards?: Card[];
@@ -4211,6 +4214,7 @@ function BffCardView({
   analyticsCtx?: AnalyticsContext;
   analysisPhotoRefs?: AnalysisPhotoRef[];
   sessionPhotos?: Session['photos'];
+  onTravelProductLookup?: (query: TravelProductLookupQuery) => void;
 }) {
   const cardType = String(card.type || '').toLowerCase();
 
@@ -4399,6 +4403,7 @@ function BffCardView({
                   : 'Refine recommendations with my AM/PM routine',
             })
           }
+          onProductLookup={onTravelProductLookup}
         />
       );
     }
@@ -4679,6 +4684,7 @@ function BffCardView({
                 : 'Refine recommendations with my AM/PM routine',
           })
         }
+        onProductLookup={onTravelProductLookup}
       />
     );
   }
@@ -7225,6 +7231,19 @@ export default function BffChat() {
   const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
   const [alternativesSheetOpen, setAlternativesSheetOpen] = useState(false);
   const [alternativesSheetTracks, setAlternativesSheetTracks] = useState<ProductAlternativeTrack[]>([]);
+  const [travelProductSheetOpen, setTravelProductSheetOpen] = useState(false);
+  const [travelProductSheetQuery, setTravelProductSheetQuery] = useState<TravelProductLookupQuery | null>(null);
+  const [travelProductSheetResults, setTravelProductSheetResults] = useState<Array<{
+    product_id: string | null;
+    merchant_id: string | null;
+    name: string;
+    brand: string;
+    image_url: string;
+    price: number | null;
+    currency: string | null;
+  }>>([]);
+  const [travelProductSheetLoading, setTravelProductSheetLoading] = useState(false);
+  const travelProductLookupRequestRef = useRef(0);
   const diagnosisV2StateRef = useRef<DiagnosisV2FlowState>({
     goals: [],
     customInput: undefined,
@@ -11272,6 +11291,73 @@ export default function BffChat() {
     [headers, language],
   );
 
+  const extractProductsFromSearchResponse = useCallback((resp: any) => {
+    const candidates = [
+      resp?.products,
+      resp?.data?.products,
+      resp?.items,
+      resp?.data?.items,
+      resp?.results,
+      resp?.data?.results,
+      Array.isArray(resp?.data) ? resp.data : null,
+    ];
+    const items = candidates.find((value) => Array.isArray(value)) as any[] | undefined;
+    return (items || [])
+      .map((raw: any) => ({
+        product_id: (raw.product_id || raw.productId || raw.sku_id || null) as string | null,
+        merchant_id: (raw.merchant_id || raw.merchantId || null) as string | null,
+        name: String(raw.name || raw.display_name || raw.displayName || '').trim(),
+        brand: String(raw.brand || '').trim(),
+        image_url: pickProductImageUrl(raw),
+        price: (typeof raw.price === 'number' ? raw.price : typeof raw.price_amount === 'number' ? raw.price_amount : typeof raw.sale_price === 'number' ? raw.sale_price : null) as number | null,
+        currency: (raw.currency || null) as string | null,
+      }))
+      .filter((item) => item.name);
+  }, []);
+
+  const onTravelProductLookup = useCallback(
+    async (query: TravelProductLookupQuery) => {
+      const requestId = travelProductLookupRequestRef.current + 1;
+      travelProductLookupRequestRef.current = requestId;
+      setTravelProductSheetQuery(query);
+      setTravelProductSheetResults([]);
+      setTravelProductSheetOpen(true);
+      setTravelProductSheetLoading(true);
+      try {
+        const resp = await resolveProductsSearch({
+          query: query.searchQuery,
+          limit: 8,
+          preferBrand: query.preferBrand || null,
+        });
+        if (requestId !== travelProductLookupRequestRef.current) return;
+        const products = extractProductsFromSearchResponse(resp);
+        setTravelProductSheetResults(products.slice(0, 8));
+      } catch {
+        if (requestId !== travelProductLookupRequestRef.current) return;
+        setTravelProductSheetResults([]);
+      } finally {
+        if (requestId !== travelProductLookupRequestRef.current) return;
+        setTravelProductSheetLoading(false);
+      }
+    },
+    [resolveProductsSearch, extractProductsFromSearchResponse],
+  );
+
+  const openTravelProductPdp = useCallback(
+    (product: { product_id: string | null; merchant_id: string | null; name: string; brand: string }) => {
+      const productId = product.product_id;
+      if (productId) {
+        const url = buildPdpUrl({ product_id: productId, merchant_id: product.merchant_id });
+        openPdpDrawer({ url, title: product.name });
+      } else {
+        const query = `${product.brand || ''} ${product.name || ''}`.trim();
+        const fallbackUrl = buildGoogleSearchFallbackUrl(query, language);
+        if (fallbackUrl) window.open(fallbackUrl, '_blank');
+      }
+    },
+    [language, openPdpDrawer],
+  );
+
   return (
     <div className="chat-container">
       <header className="chat-header">
@@ -11494,7 +11580,7 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={photoSheetOpen}
-            title={language === 'CN' ? '上传照片（更准确）' : 'Upload photos (recommended)'}
+            title={language === 'CN' ? '上传照片（推荐）' : 'Upload photo (recommended)'}
             onClose={() => {
               if (isLoading || photoUploading) return;
               setPhotoSheetOpen(false);
@@ -12155,6 +12241,80 @@ export default function BffChat() {
             </div>
           </Sheet>
 
+          <Sheet
+            open={travelProductSheetOpen}
+            title={travelProductSheetQuery?.categoryTitle || (language === 'CN' ? '推荐产品' : 'Recommended products')}
+            onClose={() => setTravelProductSheetOpen(false)}
+            onOpenMenu={() => {
+              setTravelProductSheetOpen(false);
+              setSidebarOpen(true);
+            }}
+          >
+            {travelProductSheetLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+              </div>
+            ) : null}
+            {!travelProductSheetLoading && travelProductSheetResults.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <Search className="h-8 w-8 text-muted-foreground/40" />
+                <div className="text-sm text-muted-foreground">
+                  {language === 'CN' ? '暂未找到匹配产品' : 'No matching products found'}
+                </div>
+                {travelProductSheetQuery ? (
+                  <button
+                    type="button"
+                    className="chip-button chip-button-primary"
+                    onClick={() => {
+                      const q = `${travelProductSheetQuery.preferBrand || ''} ${travelProductSheetQuery.searchQuery}`.trim();
+                      const url = buildGoogleSearchFallbackUrl(q, language);
+                      if (url) window.open(url, '_blank');
+                    }}
+                  >
+                    {language === 'CN' ? '在 Google 搜索' : 'Search on Google'}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {!travelProductSheetLoading && travelProductSheetResults.length > 0 ? (
+              <div className="space-y-2">
+                {travelProductSheetQuery?.ingredientHints ? (
+                  <div className="rounded-lg bg-muted/30 px-2.5 py-1.5 text-[10px] italic text-muted-foreground">
+                    {travelProductSheetQuery.ingredientHints}
+                  </div>
+                ) : null}
+                {travelProductSheetResults.map((product, idx) => (
+                  <button
+                    key={product.product_id || `tp_${idx}`}
+                    type="button"
+                    onClick={() => openTravelProductPdp(product)}
+                    className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-background/60 p-3 text-left transition-colors hover:bg-muted/30"
+                  >
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-muted">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
+                          {(product.brand || product.name || 'P').slice(0, 1).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {product.brand ? <div className="text-[10px] text-muted-foreground">{product.brand}</div> : null}
+                      <div className="truncate text-sm font-medium text-foreground">{product.name}</div>
+                      {product.price != null ? (
+                        <div className="mt-0.5 text-sm font-semibold text-foreground">
+                          {product.currency || '$'}{typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
+                        </div>
+                      ) : null}
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </Sheet>
+
           {error ? (
             <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
               {error}
@@ -12315,6 +12475,7 @@ export default function BffChat() {
                               lang: toLangPref(language),
                               state: agentState,
                             }}
+                            onTravelProductLookup={onTravelProductLookup}
                           />
                         </CardRenderBoundary>,
                       ];

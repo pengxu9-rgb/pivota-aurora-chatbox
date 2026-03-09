@@ -130,6 +130,71 @@ describe('EnvStressCard travel readiness', () => {
     expect(onOpenCheckin).toHaveBeenCalledTimes(1);
   });
 
+  it('builds product-oriented lookup queries when the travel sheet handler is available', () => {
+    const onProductLookup = vi.fn();
+
+    render(
+      <EnvStressCard
+        payload={{
+          schema_version: 'aurora.ui.env_stress.v1',
+          ess: 61,
+          tier: 'Moderate',
+          radar: [{ axis: 'Hydration', value: 58 }],
+          notes: [],
+          travel_readiness: {
+            destination_context: {
+              destination: 'Singapore',
+              start_date: '2026-03-01',
+              end_date: '2026-03-05',
+              env_source: 'weather_api',
+              epi: 59,
+            },
+            categorized_kit: [
+              {
+                id: 'moisturization',
+                title: 'Warmer / more humid',
+                climate_link: 'Humidity 52% -> 74% (+22%)',
+                why: 'Switch to a lighter hydrating layer.',
+                ingredient_logic: 'Humectants and lighter gels.',
+                preparations: [{ name: 'Gel moisturizer', detail: 'Lightweight daytime layer' }],
+                brand_suggestions: [
+                  {
+                    product: 'Hydra Gel Cream',
+                    brand: 'Aurora Lab',
+                    reason: 'Keeps hydration steady without a heavy finish.',
+                    match_status: 'catalog_verified',
+                  },
+                ],
+              },
+            ],
+            shopping_preview: {
+              buying_channels: ['beauty_retail'],
+            },
+          },
+        }}
+        language="EN"
+        onProductLookup={onProductLookup}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Gel moisturizer'));
+    expect(onProductLookup).toHaveBeenNthCalledWith(1, {
+      searchQuery: 'Gel moisturizer',
+      categoryTitle: 'Warmer / more humid',
+      ingredientHints: 'Humectants and lighter gels.',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse products (1)' }));
+    expect(onProductLookup).toHaveBeenNthCalledWith(2, {
+      searchQuery: 'Hydra Gel Cream',
+      categoryTitle: 'Warmer / more humid',
+      ingredientHints: 'Humectants and lighter gels.',
+      preferBrand: 'Aurora Lab',
+    });
+    expect(onProductLookup.mock.calls[1]?.[0]?.searchQuery).not.toBe('Warmer / more humid');
+    expect(screen.queryByRole('button', { name: 'View suggested products (1)' })).not.toBeInTheDocument();
+  });
+
   it('falls back to legacy notes when travel_readiness is absent', () => {
     render(
       <EnvStressCard

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -62,6 +62,16 @@ function makeV1Response(args?: Partial<ChatResponseV1>): ChatResponseV1 {
     },
     session_patch: args?.session_patch ?? {},
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('BffChat env stress recommendation routing', () => {
@@ -337,6 +347,271 @@ describe('BffChat env stress recommendation routing', () => {
     expect(payload?.action?.data?.source_card_type).toBe('travel');
     expect(String(payload?.action?.data?.reply_text || '')).not.toMatch(/travel|weather/i);
     expect(payload?.session?.meta?.last_travel_readiness?.destination).toBe('Paris');
+  });
+
+  it('opens the travel product sheet and extracts products from data.items responses', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string, _headers?: unknown, opts?: unknown) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_travel_products',
+            trace_id: 'trace_chat_travel_products',
+            assistant_text: 'Travel picks are ready.',
+            cards: [
+              {
+                id: 'travel_with_products',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 47,
+                      tier: 'Medium',
+                      radar: [{ axis: 'Weather', value: 43 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Singapore',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 52,
+                        },
+                        categorized_kit: [
+                          {
+                            id: 'sun_protection',
+                            title: 'Warmer / more humid',
+                            climate_link: 'UV 4 -> 7 (+3)',
+                            why: 'Keep UV protection light and easy to reapply.',
+                            ingredient_logic: 'Lightweight UV filters work best here.',
+                            preparations: [{ name: 'SPF fluid', detail: 'Reapply outdoors' }],
+                            brand_suggestions: [
+                              {
+                                product: 'Daily UV Fluid',
+                                brand: 'Aurora Lab',
+                                reason: 'Light texture for humid weather.',
+                                match_status: 'catalog_verified',
+                              },
+                            ],
+                          },
+                        ],
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy', 'ecommerce'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: [],
+                          improve_by: [],
+                        },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+
+      if (path === '/agent/shop/v1/invoke') {
+        const body = JSON.parse(String((opts as any)?.body || '{}'));
+        expect(body?.operation).toBe('find_products_multi');
+        expect(body?.payload?.search?.query).toBe('SPF fluid');
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                productId: 'prod_uv_fluid',
+                merchantId: 'merchant_1',
+                displayName: 'Daily UV Fluid',
+                brand: 'Aurora Lab',
+                price_amount: 32,
+                currency: '$',
+              },
+            ],
+          },
+        });
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const prepTrigger = await screen.findByText('SPF fluid');
+    fireEvent.click(prepTrigger);
+
+    expect(await screen.findByText('Daily UV Fluid')).toBeInTheDocument();
+    expect(screen.queryByText('No matching products found')).not.toBeInTheDocument();
+  });
+
+  it('keeps the latest travel product results when lookups resolve out of order', async () => {
+    const mock = vi.mocked(bffJson);
+    const searchRequests = new Map<string, ReturnType<typeof createDeferred<any>>>();
+
+    mock.mockImplementation((path: string, _headers?: unknown, opts?: unknown) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_travel_race',
+            trace_id: 'trace_chat_travel_race',
+            assistant_text: 'Travel picks are ready.',
+            cards: [
+              {
+                id: 'travel_with_two_lookups',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 49,
+                      tier: 'Medium',
+                      radar: [{ axis: 'Weather', value: 41 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Tokyo',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 55,
+                        },
+                        categorized_kit: [
+                          {
+                            id: 'sun_protection',
+                            title: 'Sun protection',
+                            ingredient_logic: 'Photostable UV filters.',
+                            preparations: [{ name: 'SPF fluid', detail: 'Reapply at midday' }],
+                            brand_suggestions: [],
+                          },
+                          {
+                            id: 'masks',
+                            title: 'Masks',
+                            ingredient_logic: 'Recovery mask for the first night.',
+                            preparations: [{ name: 'Sleeping mask', detail: 'Use after the flight' }],
+                            brand_suggestions: [],
+                          },
+                        ],
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: [],
+                          improve_by: [],
+                        },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+
+      if (path === '/agent/shop/v1/invoke') {
+        const body = JSON.parse(String((opts as any)?.body || '{}'));
+        const query = String(body?.payload?.search?.query || '');
+        const deferred = createDeferred<any>();
+        searchRequests.set(query, deferred);
+        return deferred.promise;
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const firstPrep = await screen.findByText('SPF fluid');
+    const secondPrep = await screen.findByText('Sleeping mask');
+
+    fireEvent.click(firstPrep);
+    fireEvent.click(secondPrep);
+
+    await waitFor(() => {
+      expect(searchRequests.has('SPF fluid')).toBe(true);
+      expect(searchRequests.has('Sleeping mask')).toBe(true);
+    });
+
+    await act(async () => {
+      searchRequests.get('Sleeping mask')?.resolve({
+        items: [
+          {
+            productId: 'prod_sleep_mask',
+            merchantId: 'merchant_mask',
+            name: 'Sleep Recovery Mask',
+            brand: 'Aurora Lab',
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText('Sleep Recovery Mask')).toBeInTheDocument();
+
+    await act(async () => {
+      searchRequests.get('SPF fluid')?.resolve({
+        items: [
+          {
+            productId: 'prod_spf_fluid',
+            merchantId: 'merchant_spf',
+            name: 'Daily SPF Fluid',
+            brand: 'Aurora Lab',
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Sleep Recovery Mask')).toBeInTheDocument();
+      expect(screen.queryByText('Daily SPF Fluid')).not.toBeInTheDocument();
+    });
   });
 
   it('renders contributor breakdown from travel_structured env payload when drivers exist', async () => {

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Globe } from 'lucide-react';
+import { Globe, ChevronRight, Search } from 'lucide-react';
 
 import { EnvStressBreakdown } from '@/components/aurora/charts/EnvStressBreakdown';
 import { EnvStressRadar } from '@/components/aurora/charts/EnvStressRadar';
@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { normalizeEnvStressUiModelV1 } from '@/lib/auroraUiContracts';
 import { cn } from '@/lib/utils';
 import type { Language } from '@/lib/types';
-import type { CategorizedKitEntry } from '@/lib/auroraEnvStress';
+import type { CategorizedKitEntry, TravelProductLookupQuery } from '@/lib/auroraEnvStress';
 
 type MetricDelta = {
   home?: number | null;
@@ -56,6 +56,59 @@ function formatBrandMatchStatus(language: Language, status?: string | null) {
 
 function safeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '') : [];
+}
+
+function pickFirstText(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function buildTravelLookupSearchQuery(language: Language, rawTerm: string | null | undefined) {
+  const term = typeof rawTerm === 'string' ? rawTerm.trim() : '';
+  if (!term) return language === 'CN' ? '护肤产品' : 'skincare';
+
+  const normalized = term.toLowerCase();
+  const englishHints = [
+    'skincare',
+    'sunscreen',
+    'spf',
+    'serum',
+    'cream',
+    'cleanser',
+    'mask',
+    'moisturizer',
+    'moisturiser',
+    'lotion',
+    'balm',
+    'gel',
+    'essence',
+    'toner',
+    'ampoule',
+    'mist',
+  ];
+  const chineseHints = ['护肤', '防晒', '面霜', '乳', '精华', '面膜', '喷雾', '洁面', '爽肤水', '修护', '保湿', '舒缓'];
+  const hasSkincareHint =
+    englishHints.some((hint) => normalized.includes(hint)) ||
+    chineseHints.some((hint) => term.includes(hint));
+
+  if (hasSkincareHint) return term;
+  return language === 'CN' ? `${term} 护肤` : `${term} skincare`;
+}
+
+function buildConcernBrowseLookup(entry: CategorizedKitEntry, language: Language): TravelProductLookupQuery {
+  const firstSuggestedProduct = entry.brand_suggestions?.find((item) => typeof item.product === 'string' && item.product.trim())?.product ?? null;
+  const firstPreparation = entry.preparations.find((item) => typeof item.name === 'string' && item.name.trim())?.name ?? null;
+  const preferBrand = entry.brand_suggestions?.find((item) => typeof item.brand === 'string' && item.brand.trim())?.brand ?? null;
+  const searchSeed = pickFirstText(firstSuggestedProduct, firstPreparation, entry.title);
+
+  return {
+    searchQuery: buildTravelLookupSearchQuery(language, searchSeed),
+    categoryTitle: entry.title,
+    ingredientHints: entry.ingredient_logic,
+    preferBrand,
+  };
 }
 
 type StructuredSections = {
@@ -198,11 +251,25 @@ function ConcernCard({
   entry,
   language,
   index,
+  onProductLookup,
 }: {
   entry: CategorizedKitEntry;
   language: Language;
   index: number;
+  onProductLookup?: (query: TravelProductLookupQuery) => void;
 }) {
+  const handlePrepClick = (prepName: string) => {
+    onProductLookup?.({
+      searchQuery: buildTravelLookupSearchQuery(language, prepName),
+      categoryTitle: entry.title,
+      ingredientHints: entry.ingredient_logic,
+    });
+  };
+
+  const handleBrowseProducts = () => {
+    onProductLookup?.(buildConcernBrowseLookup(entry, language));
+  };
+
   return (
     <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
       <div className="flex items-start justify-between gap-2">
@@ -229,19 +296,46 @@ function ConcernCard({
           </div>
           <ul className="mt-1 space-y-0.5">
             {entry.preparations.map((prep, pIdx) => (
-              <li key={`prep_${pIdx}_${prep.name}`} className="flex items-start gap-1.5">
+              <li
+                key={`prep_${pIdx}_${prep.name}`}
+                role={onProductLookup ? 'button' : undefined}
+                tabIndex={onProductLookup ? 0 : undefined}
+                onClick={() => handlePrepClick(prep.name)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handlePrepClick(prep.name);
+                  }
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg',
+                  onProductLookup && 'cursor-pointer hover:bg-muted/40 px-1.5 py-1 -mx-1.5 transition-colors',
+                )}
+              >
                 <span className="text-foreground/90 shrink-0">•</span>
-                <span>
+                <span className="flex-1 min-w-0">
                   <span className="text-foreground/90">{prep.name}</span>
                   {prep.detail ? <span className="text-muted-foreground/70"> — {prep.detail}</span> : null}
                 </span>
+                {onProductLookup ? <ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0" /> : null}
               </li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      {entry.brand_suggestions?.length ? (
+      {onProductLookup ? (
+        <button
+          type="button"
+          onClick={handleBrowseProducts}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background/60 px-3 py-1.5 text-[10px] font-medium text-foreground/70 transition-colors hover:bg-muted/40"
+        >
+          <Search className="h-3 w-3" />
+          {language === 'CN'
+            ? `浏览推荐产品${entry.brand_suggestions?.length ? ` (${entry.brand_suggestions.length})` : ''}`
+            : `Browse products${entry.brand_suggestions?.length ? ` (${entry.brand_suggestions.length})` : ''}`}
+        </button>
+      ) : entry.brand_suggestions?.length ? (
         <Accordion type="single" collapsible className="mt-2 w-full">
           <AccordionItem value={`brands_${index}`} className="border-b-0">
             <AccordionTrigger className="py-1.5 text-[10px] font-medium text-foreground/70 hover:no-underline">
@@ -280,10 +374,12 @@ function ConcernRecommendationsSection({
   language,
   travelReadiness,
   sections,
+  onProductLookup,
 }: {
   language: Language;
   travelReadiness: Record<string, any>;
   sections: StructuredSections;
+  onProductLookup?: (query: TravelProductLookupQuery) => void;
 }) {
   const categorizedKit: CategorizedKitEntry[] | undefined = travelReadiness.categorized_kit;
   const hasCategorizedKit = Array.isArray(categorizedKit) && categorizedKit.length > 0;
@@ -295,7 +391,7 @@ function ConcernRecommendationsSection({
           {language === 'CN' ? '护肤关注事项' : 'Skincare concerns & preparation'}
         </div>
         {categorizedKit!.map((entry, idx) => (
-          <ConcernCard key={entry.id || `ck_${idx}`} entry={entry} language={language} index={idx} />
+          <ConcernCard key={entry.id || `ck_${idx}`} entry={entry} language={language} index={idx} onProductLookup={onProductLookup} />
         ))}
 
         <BuyingChannelsFooter language={language} travelReadiness={travelReadiness} />
@@ -654,12 +750,14 @@ export function EnvStressCard({
   onOpenCheckin,
   onOpenRecommendations,
   onRefineRoutine,
+  onProductLookup,
 }: {
   payload: unknown;
   language: Language;
   onOpenCheckin?: () => void;
   onOpenRecommendations?: () => void;
   onRefineRoutine?: () => void;
+  onProductLookup?: (query: TravelProductLookupQuery) => void;
 }) {
   const { model, didWarn } = normalizeEnvStressUiModelV1(payload);
 
@@ -818,6 +916,7 @@ export function EnvStressCard({
                 language={language}
                 travelReadiness={travelReadiness}
                 sections={sections}
+                onProductLookup={onProductLookup}
               />
 
               {/* --- SECTION 3: Situational Advice --- */}

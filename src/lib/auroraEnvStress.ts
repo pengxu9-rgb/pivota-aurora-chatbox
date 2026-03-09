@@ -114,6 +114,13 @@ export type CategorizedKitEntry = {
   brand_suggestions?: CategorizedKitBrandSuggestion[] | null;
 };
 
+export type TravelProductLookupQuery = {
+  searchQuery: string;
+  categoryTitle: string;
+  ingredientHints?: string | null;
+  preferBrand?: string | null;
+};
+
 export type TravelStoreExample = {
   name: string;
   type?: string | null;
