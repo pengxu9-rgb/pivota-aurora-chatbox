@@ -83,7 +83,7 @@ describe('PhotoUploadCard smoke', () => {
     await screen.findByText('High drift risk');
 
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: 'Upload photos' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload photo' }));
 
     expect(onAction).not.toHaveBeenCalled();
     expect(screen.getByText('Some photos are outside the guide frame.')).toBeInTheDocument();
@@ -125,9 +125,50 @@ describe('PhotoUploadCard smoke', () => {
 
     await screen.findByText('Usable but off');
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: 'Upload photos' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload photo' }));
 
     await waitFor(() => expect(onAction).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('Some photos are outside the guide frame.')).not.toBeInTheDocument();
+  });
+
+  it('uses one-photo hint and keeps the optional second slot collapsible', async () => {
+    detectImpl = async () => [
+      {
+        boundingBox: {
+          x: 180,
+          y: 180,
+          width: 720,
+          height: 720,
+        },
+      },
+    ];
+
+    const onAction = vi.fn();
+    const { container } = render(<PhotoUploadCard onAction={onAction} language="EN" />);
+
+    expect(screen.getByText('One clear photo is all you need to start')).toBeInTheDocument();
+    expect(screen.queryByText('Add a second photo under different lighting for better accuracy (optional)')).not.toBeInTheDocument();
+
+    uploadToFirstSlot(container);
+
+    await screen.findByText('Frame good');
+    const addSecondPhoto = screen.getByRole('button', {
+      name: 'Add a second photo under different lighting for better accuracy (optional)',
+    });
+    expect(addSecondPhoto).toBeInTheDocument();
+
+    fireEvent.click(addSecondPhoto);
+    expect(screen.getByText('optional')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide optional photo' })).toBeInTheDocument();
+
+    const fileInputs = Array.from(container.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
+    expect(fileInputs.length).toBe(2);
+    fireEvent.change(fileInputs[1], { target: { files: [new File(['indoor'], 'indoor.jpg', { type: 'image/jpeg' })] } });
+
+    await screen.findByAltText('indoor_white');
+    await screen.findAllByText('Frame good');
+    fireEvent.click(screen.getByRole('button', { name: 'Hide optional photo' }));
+
+    expect(screen.getByRole('button', { name: 'Review optional photo' })).toBeInTheDocument();
   });
 });

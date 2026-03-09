@@ -9730,7 +9730,7 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={photoSheetOpen}
-            title={language === 'CN' ? '上传照片（更准确）' : 'Upload photos (recommended)'}
+            title={language === 'CN' ? '上传照片（推荐）' : 'Upload photo (recommended)'}
             onClose={() => {
               if (isLoading || photoUploading) return;
               setPhotoSheetOpen(false);

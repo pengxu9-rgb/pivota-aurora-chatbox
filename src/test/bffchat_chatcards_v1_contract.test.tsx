@@ -629,7 +629,7 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     fireEvent.submit(form as HTMLFormElement);
 
     await screen.findByText('Skin Identity');
-    expect(screen.getByRole('button', { name: 'Upload photos (recommended)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Upload photo (recommended)' })).toBeInTheDocument();
   });
 
   it('uses effect_review adapter when effect_review_structured section is present', async () => {
