@@ -220,6 +220,41 @@ const makeEmptyRoutineDraft = (): RoutineDraft => ({
   notes: '',
 });
 
+const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | null => {
+  if (!currentRoutine || typeof currentRoutine !== 'object') return null;
+  const raw = currentRoutine as Record<string, unknown>;
+  if (raw.schema_version !== 'aurora.routine_intake.v2') return null;
+
+  const draft = makeEmptyRoutineDraft();
+
+  const fillSlots = (
+    steps: unknown,
+    target: Record<string, RoutineSlotValue>,
+  ) => {
+    if (!Array.isArray(steps)) return;
+    for (const entry of steps) {
+      if (!entry || typeof entry !== 'object') continue;
+      const step = String((entry as any).step || '').toLowerCase();
+      const product = String((entry as any).product || '').trim();
+      if (!step || !product) continue;
+      if (!(step in target)) continue;
+      const pid = String((entry as any).product_id || '').trim();
+      target[step] = {
+        text: product,
+        resolvedProduct: pid
+          ? { product_id: pid, sku_id: (entry as any).sku_id ?? null, name: product, display_name: product }
+          : null,
+      };
+    }
+  };
+
+  fillSlots(raw.am, draft.am as unknown as Record<string, RoutineSlotValue>);
+  fillSlots(raw.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
+  draft.notes = String(raw.notes || '').trim();
+
+  return hasAnyRoutineDraftInput(draft) ? draft : null;
+};
+
 const slotText = (slot: RoutineSlotValue): string => String(slot?.text || '').trim();
 
 const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
@@ -333,7 +368,29 @@ const shouldFallbackToLegacyDiagnosis = (err: unknown): boolean => {
   if (!(err instanceof PivotaAgentBffError)) return false;
   if (err.status === 404) return true;
   const body = err.responseBody as any;
-  return String(body?.error || '').trim() === 'DIAGNOSIS_V2_NOT_ENABLED';
+  const errorCode = String(body?.error || '').trim();
+  return (
+    errorCode === 'DIAGNOSIS_V2_NOT_ENABLED' ||
+    errorCode === 'LLM_PROVIDER_UNAVAILABLE'
+  );
+};
+
+const shouldFallbackDiagnosisV2StreamError = (err: unknown): boolean => {
+  if (!(err instanceof Error)) return false;
+  const errorCode = String(err.message || '').trim();
+  return errorCode === 'LLM_PROVIDER_UNAVAILABLE';
+};
+
+const diagnosisV2TransientErrorMessage = (err: unknown, lang: string): string => {
+  const isCN = lang === 'CN';
+  if (err instanceof PivotaAgentBffError) {
+    const body = err.responseBody as any;
+    const reason = String(body?.reason || body?.error || '').trim();
+    if (reason.includes('TIMEOUT') || reason.includes('timeout')) {
+      return isCN ? '分析超时，请稍后重试' : 'Analysis timed out — please try again';
+    }
+  }
+  return isCN ? '分析暂时遇到问题，请重试' : 'Analysis encountered a temporary issue — please retry';
 };
 
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
@@ -1204,6 +1261,165 @@ const uniqueStrings = (items: unknown): string[] => {
   return out;
 };
 
+const isProductParseCard = (card: Card | null | undefined): boolean =>
+  String(card?.type || '').trim().toLowerCase() === 'product_parse';
+
+const isProductAnalysisCard = (card: Card | null | undefined): boolean =>
+  String(card?.type || '').trim().toLowerCase() === 'product_analysis';
+
+const productAnalysisPayloadFromCard = (card: Card | null | undefined): Record<string, unknown> | null =>
+  isProductAnalysisCard(card) ? asObject(card?.payload) : null;
+
+const productAnalysisAssessmentFromPayload = (payload: Record<string, unknown> | null): Record<string, unknown> | null =>
+  asObject(payload?.assessment);
+
+const hasStructuredHowToUse = (value: unknown): boolean => {
+  const howToUse = asObject(value);
+  if (!howToUse) return false;
+  return Boolean(
+    toTrimmedString(howToUse.when) ||
+      toTrimmedString(howToUse.frequency) ||
+      toTrimmedString(howToUse.order_in_routine) ||
+      uniqueStrings(asArray(howToUse.pairing_rules)).length ||
+      uniqueStrings(asArray(howToUse.stop_signs)).length,
+  );
+};
+
+const hasProductIdentity = (value: unknown): boolean => {
+  const product = asObject(value);
+  if (!product) return false;
+  return Boolean(
+    toTrimmedString(product.product_id) ||
+      toTrimmedString(product.sku_id) ||
+      toTrimmedString(product.display_name) ||
+      toTrimmedString(product.name) ||
+      toTrimmedString(product.url),
+  );
+};
+
+const hasEffectiveProductAnalysis = (payload: Record<string, unknown> | null): boolean => {
+  const assessment = productAnalysisAssessmentFromPayload(payload);
+  const verdict = toTrimmedString(assessment?.verdict).toLowerCase();
+  if (verdict && verdict !== 'unknown' && verdict !== '未知') return true;
+  const verdictLevel = toTrimmedString(assessment?.verdict_level).toLowerCase();
+  return ['recommended', 'cautiously_ok', 'needs_verification', 'not_recommended'].includes(verdictLevel);
+};
+
+const hasRenderableProductAnalysisContent = (payload: Record<string, unknown> | null): boolean => {
+  if (!payload) return false;
+  const assessment = productAnalysisAssessmentFromPayload(payload);
+  const evidence = asObject(payload.evidence);
+  const science = asObject(evidence?.science);
+  const evidenceSocial = asObject(evidence?.social_signals);
+  const payloadSocial = asObject(payload.social_signals);
+  const socialSummary = asObject(payloadSocial?.overall_summary);
+  const anchorProduct = asObject(assessment?.anchor_product || assessment?.anchorProduct);
+  const product = asObject(payload.product);
+
+  const hasSummaryText = [
+    assessment?.summary,
+    assessment?.quick_summary,
+    assessment?.quickSummary,
+    assessment?.follow_up_question,
+    assessment?.followUpQuestion,
+  ].some((value) => Boolean(toTrimmedString(value)));
+
+  const hasAssessmentLists = [
+    uniqueStrings(asArray(assessment?.reasons)).length,
+    uniqueStrings(asArray(assessment?.top_takeaways || assessment?.topTakeaways)).length,
+    uniqueStrings(asArray(assessment?.formula_intent || assessment?.formulaIntent)).length,
+    uniqueStrings(asArray(assessment?.best_for || assessment?.bestFor)).length,
+    uniqueStrings(asArray(assessment?.not_for || assessment?.notFor)).length,
+    uniqueStrings(asArray(assessment?.if_not_ideal || assessment?.ifNotIdeal)).length,
+    uniqueStrings(asArray(assessment?.better_pairing || assessment?.betterPairing)).length,
+    asArray(assessment?.watchouts).filter((item) => {
+      if (typeof item === 'string') return Boolean(toTrimmedString(item));
+      const row = asObject(item);
+      return Boolean(toTrimmedString(row?.issue || row?.name || row?.text));
+    }).length,
+  ].some((count) => count > 0);
+
+  const hasEvidenceLists = [
+    uniqueStrings(asArray(science?.key_ingredients || science?.keyIngredients)).length,
+    uniqueStrings(asArray(science?.mechanisms)).length,
+    uniqueStrings(asArray(science?.fit_notes || science?.fitNotes)).length,
+    uniqueStrings(asArray(science?.risk_notes || science?.riskNotes)).length,
+    uniqueStrings(asArray(evidence?.expert_notes || evidence?.expertNotes)).length,
+    uniqueStrings(asArray(evidenceSocial?.typical_positive || evidenceSocial?.typicalPositive)).length,
+    uniqueStrings(asArray(evidenceSocial?.typical_negative || evidenceSocial?.typicalNegative)).length,
+    uniqueStrings(asArray(evidenceSocial?.risk_for_groups || evidenceSocial?.riskForGroups)).length,
+    uniqueStrings(asArray(socialSummary?.top_pos_themes || socialSummary?.topPosThemes)).length,
+    uniqueStrings(asArray(socialSummary?.top_neg_themes || socialSummary?.topNegThemes)).length,
+    uniqueStrings(asArray(socialSummary?.watchouts)).length,
+    asArray(evidence?.sources).map((item) => asObject(item)).filter(Boolean).length,
+  ].some((count) => count > 0);
+
+  const hasAlternatives = ['competitors', 'dupes', 'related_products'].some((blockName) => {
+    const block = asObject(payload[blockName]);
+    return asArray(block?.candidates).map((item) => asObject(item)).filter(Boolean).length > 0;
+  });
+
+  return Boolean(
+    hasSummaryText ||
+      hasAssessmentLists ||
+      hasEvidenceLists ||
+      hasStructuredHowToUse(assessment?.how_to_use || assessment?.howToUse) ||
+      hasProductIdentity(anchorProduct) ||
+      hasProductIdentity(product) ||
+      hasAlternatives,
+  );
+};
+
+const isSeverelyDegradedProductAnalysis = (payload: Record<string, unknown> | null): boolean => {
+  if (!payload) return true;
+  const evidence = asObject(payload.evidence);
+  const codes = uniqueStrings([
+    ...asArray(payload.missing_info),
+    ...asArray(payload.user_facing_gaps),
+    ...asArray(payload.internal_debug_codes),
+    ...asArray(evidence?.missing_info),
+  ])
+    .map((code) => String(code || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  return codes.some((code) =>
+    /(analysis_limited|analysis_in_progress|evidence_missing|upstream_missing_or_unstructured|product_not_resolved|catalog_backend_not_configured|catalog_no_match|url_fetch_(?:blocked|forbidden|timeout|failed)|on_page_fetch_blocked|official_page_fetch_blocked)/i
+      .test(code),
+  );
+};
+
+const shouldHideProductParseForAnalysisPayload = (payload: Record<string, unknown> | null): boolean => {
+  if (!hasRenderableProductAnalysisContent(payload)) return false;
+  if (hasEffectiveProductAnalysis(payload)) return true;
+  return !isSeverelyDegradedProductAnalysis(payload);
+};
+
+const collapseProductParseWhenUsefulAnalysisPresent = (cards: Card[]): Card[] => {
+  if (!Array.isArray(cards) || cards.length < 2) return cards;
+  const hasUsefulAnalysis = cards.some((card) => shouldHideProductParseForAnalysisPayload(productAnalysisPayloadFromCard(card)));
+  if (!hasUsefulAnalysis) return cards;
+  return cards.filter((card) => !isProductParseCard(card));
+};
+
+const removeProductParseCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  const out: ChatItem[] = [];
+  for (const item of items) {
+    if (item.kind !== 'cards') {
+      out.push(item);
+      continue;
+    }
+    const filteredCards = item.cards.filter((card) => !isProductParseCard(card));
+    if (!filteredCards.length) continue;
+    if (filteredCards.length === item.cards.length) {
+      out.push(item);
+      continue;
+    }
+    out.push({ ...item, cards: filteredCards });
+  }
+  return out;
+};
+
 type StoryRecoShortlistSeed = {
   source: 'ingredient_plan_v2' | 'recommendations';
   product: Record<string, unknown>;
@@ -1212,6 +1428,14 @@ type StoryRecoShortlistSeed = {
 };
 
 const toTrimmedString = (value: unknown): string => String(asString(value) || '').trim();
+
+const normalizeProductNameKey = (value: unknown): string =>
+  toTrimmedString(value)
+    .toLowerCase()
+    .replace(/^https?:\/\/\S+/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const normalizeStoryRecoCandidate = (
   raw: unknown,
@@ -6473,13 +6697,19 @@ function BffCardView({
               </details>
             ) : null}
 
-            <RoutineCompatibilityFooter
+            <CardRenderBoundary
               language={language}
-              baseProduct={compatibilityBaseProduct}
-              routineProducts={routineCompatibilityProducts}
-              resolveProductsSearch={resolveProductsSearch}
-              analyticsCtx={analyticsCtx}
-            />
+              cardType="product_analysis_routine_compatibility"
+              cardId={`${card.card_id || 'product_analysis'}::routine_compatibility`}
+            >
+              <RoutineCompatibilityFooter
+                language={language}
+                baseProduct={compatibilityBaseProduct}
+                routineProducts={routineCompatibilityProducts}
+                resolveProductsSearch={resolveProductsSearch}
+                analyticsCtx={analyticsCtx}
+              />
+            </CardRenderBoundary>
 
           </div>
         );
@@ -7080,7 +7310,10 @@ export default function BffChat() {
           ? { ...prev }
           : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
 
-        if (profilePatch) merged.profile = profilePatch;
+        if (profilePatch) {
+          const baseProfile = asObject(merged.profile) || {};
+          merged.profile = { ...baseProfile, ...profilePatch };
+        }
 
         const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
         if (recentLogs.length) merged.recent_logs = recentLogs;
@@ -7103,9 +7336,12 @@ export default function BffChat() {
     const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
     const passiveFilteredCards = filterPassiveAdvisoryCards(gatedCards, FF_SHOW_PASSIVE_GATES);
-    const normalizedCards = collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards)));
+    const normalizedCards = collapseProductParseWhenUsefulAnalysisPresent(
+      collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards))),
+    );
     const cards = suppressAnalysisCardsForTravelEnvTurn(normalizedCards);
     const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+    const hasUsefulProductAnalysisCard = cards.some((card) => shouldHideProductParseForAnalysisPayload(productAnalysisPayloadFromCard(card)));
     const hasRecommendationsCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'recommendations');
     const routeTelemetry = asObject((enhancedEnv as unknown as Record<string, unknown>)?.telemetry);
     const routeFailureClass = typeof routeTelemetry?.route_failure_class === 'string' ? routeTelemetry.route_failure_class : '';
@@ -7159,9 +7395,13 @@ export default function BffChat() {
 
     if (nextItems.length) {
       setItems((prev) => {
-        const base = hasAnalysisSummaryCard
-          ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
-          : prev;
+        let base = prev;
+        if (hasAnalysisSummaryCard) {
+          base = removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(base));
+        }
+        if (hasUsefulProductAnalysisCard) {
+          base = removeProductParseCardsFromHistory(base);
+        }
         return [...base, ...nextItems];
       });
     }
@@ -7433,9 +7673,12 @@ export default function BffChat() {
 
       const rawCards = response.cards.map(toLegacyCard);
       const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
-      const normalizedCards = collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards)));
+      const normalizedCards = collapseProductParseWhenUsefulAnalysisPresent(
+        collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards))),
+      );
       const cards = suppressAnalysisCardsForTravelEnvTurn(normalizedCards);
       const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+      const hasUsefulProductAnalysisCard = cards.some((card) => shouldHideProductParseForAnalysisPayload(productAnalysisPayloadFromCard(card)));
 
       if (cards.length) {
         nextItems.push({
@@ -7475,9 +7718,13 @@ export default function BffChat() {
 
       if (nextItems.length) {
         setItems((prev) => {
-          const base = hasAnalysisSummaryCard
-            ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
-            : prev;
+          let base = prev;
+          if (hasAnalysisSummaryCard) {
+            base = removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(base));
+          }
+          if (hasUsefulProductAnalysisCard) {
+            base = removeProductParseCardsFromHistory(base);
+          }
           return [...base, ...nextItems];
         });
       }
@@ -8541,7 +8788,7 @@ export default function BffChat() {
           appendLegacyDiagnosisGate();
           return;
         }
-        setError(toBffErrorMessage(err));
+        setError(diagnosisV2TransientErrorMessage(err, language));
       } finally {
         setChatBusy(false);
       }
@@ -8715,19 +8962,26 @@ export default function BffChat() {
           flushEvent();
         }
       } catch (err) {
-        setError(toBffErrorMessage(err));
+        if (shouldFallbackDiagnosisV2StreamError(err)) {
+          appendLegacyDiagnosisGate();
+          return;
+        }
+        setError(diagnosisV2TransientErrorMessage(err, language));
       } finally {
         setChatBusy(false);
       }
     },
-    [appendDiagnosisV2Card, authSession?.token, buildDiagnosisFetchHeaders, language, sendDiagnosisV2Telemetry],
+    [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildDiagnosisFetchHeaders, language, sendDiagnosisV2Telemetry],
   );
 
   const openRoutineIntakeSheet = useCallback(() => {
-    setRoutineDraft(makeEmptyRoutineDraft());
+    const profileRoutine = (profileSnapshot ?? bootstrapInfo?.profile) as Record<string, unknown> | null | undefined;
+    const currentRoutine = profileRoutine?.currentRoutine;
+    const prefilled = buildRoutineDraftFromProfile(currentRoutine);
+    setRoutineDraft(prefilled ?? makeEmptyRoutineDraft());
     setRoutineTab('am');
     setRoutineSheetOpen(true);
-  }, []);
+  }, [profileSnapshot, bootstrapInfo?.profile]);
 
   const runDiagnosisV2RouteAction = useCallback(
     async (actionType: 'direct_reco' | 'setup_routine' | 'start_checkin' | 'intake_optimize', payload?: Record<string, unknown>) => {
@@ -8887,11 +9141,8 @@ export default function BffChat() {
             reasons: parseMissingReasons.slice(0, 6),
           });
         }
+        const hasParseCard = Boolean(parseCard);
         let parseEnvelopeApplied = false;
-        if (parsedProduct) {
-          applyEnvelope(parseEnv);
-          parseEnvelopeApplied = true;
-        }
         const analyzeBody = parsedProduct
           ? asUrl
             ? { product: parsedProduct, url: asUrl }
@@ -8907,7 +9158,7 @@ export default function BffChat() {
             body: JSON.stringify(analyzeBody),
           });
         } catch (err) {
-          if (!parseEnvelopeApplied) {
+          if (hasParseCard && !parseEnvelopeApplied) {
             applyEnvelope(parseEnv);
             parseEnvelopeApplied = true;
           }
@@ -8922,6 +9173,7 @@ export default function BffChat() {
           analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
             ? (analyzeCard.payload as Record<string, unknown>)
             : null;
+        const shouldHideParseFallback = shouldHideProductParseForAnalysisPayload(analyzePayload);
         const verdict = (asString((analyzeAssessment as any)?.verdict) || '').trim().toLowerCase();
         const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
         const analyzeMissingReasons = uniqueStrings([
@@ -8957,7 +9209,7 @@ export default function BffChat() {
             blocked_reason: blockedReason,
           });
         }
-        if (!parseEnvelopeApplied && !hasEffectiveVerdict) {
+        if (hasParseCard && !parseEnvelopeApplied && !shouldHideParseFallback) {
           applyEnvelope(parseEnv);
           parseEnvelopeApplied = true;
         }
