@@ -79,12 +79,14 @@ const translations = {
     'diagnosis_v2.btn.skip': "Skip",
 
     // S3 Photo Option
-    's3.intro': "Optional: add 1–2 photos for more precise recommendations.",
-    's3.tip': "Best with: (1) Natural daylight near a window + (2) Indoor white light.",
+    's3.intro': "Upload a photo for personalized skin analysis.",
+    's3.tip': "One clear photo is enough to get started. A second under different lighting can improve accuracy.",
     's3.warning': "Please avoid filters/beauty mode.",
+    's3.one_photo_hint': "One clear photo is all you need to start",
     's3.slot.daylight': "Natural daylight (near a window)",
     's3.slot.indoor': "Indoor white light",
-    's3.btn.upload': "Upload photos",
+    's3.slot.secondary_prompt': "Add a second photo under different lighting for better accuracy (optional)",
+    's3.btn.upload': "Upload photo",
     's3.btn.skip': "Skip photos",
     's3.btn.sample': "Try sample photos",
     's3.uploading': "Uploading...",
@@ -306,11 +308,13 @@ const translations = {
     'diagnosis_v2.btn.skip': "跳过",
 
     // S3 Photo Option
-    's3.intro': "可选：上传1-2张照片获得更精准推荐。",
-    's3.tip': "最佳：①靠窗自然光 ②室内白光。",
+    's3.intro': "上传一张照片，获取个性化肤质分析。",
+    's3.tip': "一张清晰照片即可开始分析。补拍不同光线下的第二张可以提升准确度。",
     's3.warning': "请避免滤镜/美颜。",
+    's3.one_photo_hint': "一张清晰照片即可开始",
     's3.slot.daylight': "自然光（靠窗）",
     's3.slot.indoor': "室内白光",
+    's3.slot.secondary_prompt': "补拍不同光线下的照片，提升准确度（可选）",
     's3.btn.upload': "上传照片",
     's3.btn.skip': "跳过照片",
     's3.btn.sample': "用示例照片",

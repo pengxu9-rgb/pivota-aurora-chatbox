@@ -130,21 +130,10 @@ export function SkinIdentityCard({ payload, onAction, language }: SkinIdentityCa
 
           {payload.photoHint !== false ? (
             <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground">
-              {language === 'EN' ? (
-                <>
-                  Best photo lighting:
-                  <div className="mt-1">1) Natural daylight near a window</div>
-                  <div>2) Indoor white light</div>
-                  <div className="mt-1">Avoid filters/beauty mode.</div>
-                </>
-              ) : (
-                <>
-                  最佳拍摄光线：
-                  <div className="mt-1">1）窗边自然光</div>
-                  <div>2）室内白光</div>
-                  <div className="mt-1">请避免滤镜/美颜。</div>
-                </>
-              )}
+              <div className="font-medium text-foreground/90">{t('s3.intro', language)}</div>
+              <div className="mt-1">{t('s3.one_photo_hint', language)}</div>
+              <div className="mt-1">{t('s3.tip', language)}</div>
+              <div className="mt-1">{t('s3.warning', language)}</div>
             </div>
           ) : null}
         </CardContent>
@@ -156,7 +145,7 @@ export function SkinIdentityCard({ payload, onAction, language }: SkinIdentityCa
             className={cn('w-full rounded-xl text-white', 'bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 hover:brightness-110', 'shadow-sm')}
           >
             <Camera className="h-4 w-4 mr-2" />
-            {language === 'EN' ? 'Upload photos (recommended)' : '上传照片（更准确）'}
+            {language === 'EN' ? 'Upload photo (recommended)' : '上传照片（推荐）'}
           </Button>
           <Button type="button" variant="ghost" className="w-full justify-center" onClick={() => onAction('profile_confirm')}>
             {language === 'EN' ? 'Continue without photos' : '先不传照片，继续'}
