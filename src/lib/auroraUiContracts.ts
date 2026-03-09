@@ -201,6 +201,17 @@ function normalizeBrandMatchStatus(value: unknown): 'kb_verified' | 'catalog_ver
   return 'llm_only';
 }
 
+function normalizeCategorizedKitMatchStatus(
+  value: unknown,
+): 'kb_verified' | 'catalog_verified' | 'llm_only' | 'llm_generated' | null {
+  const token = normalizeOptionalText(value, 32)?.toLowerCase();
+  if (!token) return null;
+  if (token === 'kb_verified' || token === 'catalog_verified' || token === 'llm_only' || token === 'llm_generated') {
+    return token;
+  }
+  return 'llm_only';
+}
+
 function normalizeProductSource(value: unknown): 'catalog' | 'rule_fallback' | 'llm_generated' | undefined {
   const token = normalizeOptionalText(value, 32)?.toLowerCase();
   if (token === 'catalog' || token === 'rule_fallback' || token === 'llm_generated') return token;
@@ -361,6 +372,58 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       })
       .filter(Boolean)
       .slice(0, 4) as any;
+  }
+
+  const categorizedKit = Array.isArray(value.categorized_kit) ? value.categorized_kit : [];
+  if (categorizedKit.length) {
+    out.categorized_kit = categorizedKit
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const id = normalizeOptionalText(row.id, 80);
+        const title = normalizeOptionalText(row.title, 120);
+        if (!id && !title) return null;
+
+        const preparations = Array.isArray(row.preparations) ? row.preparations : [];
+        const brandSuggestions = Array.isArray(row.brand_suggestions) ? row.brand_suggestions : [];
+
+        return {
+          id: id || title || "categorized_kit",
+          title: title || id || "categorized_kit",
+          climate_link: normalizeOptionalText(row.climate_link, 220),
+          why: normalizeOptionalText(row.why, 280),
+          ingredient_logic: normalizeOptionalText(row.ingredient_logic, 260),
+          preparations: preparations
+            .map((preparation) => {
+              const prepRow = isPlainObject(preparation) ? preparation : {};
+              const name = normalizeOptionalText(prepRow.name, 140);
+              if (!name) return null;
+              return {
+                name,
+                detail: normalizeOptionalText(prepRow.detail, 200),
+              };
+            })
+            .filter(Boolean)
+            .slice(0, 6) as any,
+          reapply_rule: normalizeOptionalText(row.reapply_rule, 200),
+          brand_suggestions: brandSuggestions
+            .map((suggestion) => {
+              const suggestionRow = isPlainObject(suggestion) ? suggestion : {};
+              const brand = normalizeOptionalText(suggestionRow.brand, 80);
+              const product = normalizeOptionalText(suggestionRow.product, 140);
+              if (!brand && !product) return null;
+              return {
+                brand,
+                product,
+                reason: normalizeOptionalText(suggestionRow.reason, 200),
+                match_status: normalizeCategorizedKitMatchStatus(suggestionRow.match_status),
+              };
+            })
+            .filter(Boolean)
+            .slice(0, 4) as any,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 10) as any;
   }
 
   const categoryRecommendations = Array.isArray(value.category_recommendations) ? value.category_recommendations : [];
