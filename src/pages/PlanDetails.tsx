@@ -76,6 +76,29 @@ const buildValidationError = (draft: EditDraft, language: Language): string | nu
   return null;
 };
 
+const buildTravelPlanSessionPatch = (plan: TravelPlanCardModel | null): Record<string, unknown> | undefined => {
+  if (!plan) return undefined;
+  const travelPlan: Record<string, unknown> = {
+    destination: String(plan.destination || '').trim(),
+    start_date: String(plan.start_date || '').trim(),
+    end_date: String(plan.end_date || '').trim(),
+  };
+  if (plan.destination_place && typeof plan.destination_place === 'object') {
+    travelPlan.destination_place = plan.destination_place;
+  }
+  if (typeof plan.itinerary === 'string' && plan.itinerary.trim()) {
+    travelPlan.itinerary = plan.itinerary.trim();
+  }
+  if (Number.isFinite(Number(plan.indoor_outdoor_ratio)) && plan.indoor_outdoor_ratio != null) {
+    travelPlan.indoor_outdoor_ratio = Number(plan.indoor_outdoor_ratio);
+  }
+  if (typeof plan.trip_id === 'string' && plan.trip_id.trim()) {
+    travelPlan.trip_id = plan.trip_id.trim();
+  }
+  if (!travelPlan.destination || !travelPlan.start_date || !travelPlan.end_date) return undefined;
+  return { profile: { travel_plan: travelPlan } };
+};
+
 const getStatusLabel = (status: TravelPlanCardModel['status'], language: Language): string => {
   if (status === 'in_trip') return language === 'CN' ? '行程中' : 'In trip';
   if (status === 'upcoming') return language === 'CN' ? '即将出行' : 'Upcoming';
@@ -299,6 +322,7 @@ export default function PlanDetails() {
       kind: 'query',
       title: language === 'CN' ? `旅行护肤：${plan.destination}` : `Travel skincare: ${plan.destination}`,
       query,
+      ...(buildTravelPlanSessionPatch(plan) ? { session_patch: buildTravelPlanSessionPatch(plan) } : {}),
     });
   };
 

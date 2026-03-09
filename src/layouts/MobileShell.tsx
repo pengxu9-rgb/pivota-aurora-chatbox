@@ -49,10 +49,18 @@ export default function MobileShell() {
       const lang = toUiLang();
       const sp = new URLSearchParams();
       let search = '';
+      let navigationState: { session_patch: Record<string, unknown> } | undefined;
 
       try {
         const headers = makeDefaultHeaders(lang);
         const briefId = headers.brief_id;
+        navigationState =
+          intent.kind === 'query' &&
+          intent.session_patch &&
+          typeof intent.session_patch === 'object' &&
+          !Array.isArray(intent.session_patch)
+            ? { session_patch: intent.session_patch }
+            : undefined;
 
         sp.set('brief_id', briefId);
         sp.set('trace_id', headers.trace_id);
@@ -105,7 +113,7 @@ export default function MobileShell() {
 
       setComposerOpen(false);
       setSidebarOpen(false);
-      navigate({ pathname: '/chat', ...(search ? { search } : {}) });
+      navigate({ pathname: '/chat', ...(search ? { search } : {}) }, navigationState ? { state: navigationState } : undefined);
     },
     [navigate],
   );

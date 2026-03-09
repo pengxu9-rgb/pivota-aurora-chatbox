@@ -68,7 +68,20 @@ describe('Plans page behavior', () => {
       },
     });
     vi.mocked(createTravelPlan).mockResolvedValue({
-      plan: makePlan({ trip_id: 'trip_new' }),
+      plan: makePlan({
+        trip_id: 'trip_new',
+        destination_place: {
+          label: 'Tokyo, Tokyo, Japan',
+          canonical_name: 'Tokyo',
+          latitude: 35.6895,
+          longitude: 139.69171,
+          country_code: 'JP',
+          country: 'Japan',
+          admin1: 'Tokyo',
+          timezone: 'Asia/Tokyo',
+          resolution_source: 'auto_resolved',
+        },
+      }),
       summary: {
         active_trip_id: 'trip_new',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
@@ -125,6 +138,17 @@ describe('Plans page behavior', () => {
     expect(outletContext.startChat).toHaveBeenCalledWith(
       expect.objectContaining({
         query: expect.stringContaining('Destination: Tokyo'),
+        session_patch: expect.objectContaining({
+          profile: expect.objectContaining({
+            travel_plan: expect.objectContaining({
+              destination: 'Tokyo',
+              destination_place: expect.objectContaining({
+                canonical_name: 'Tokyo',
+                timezone: 'Asia/Tokyo',
+              }),
+            }),
+          }),
+        }),
       }),
     );
     expect(toast).toHaveBeenCalled();
@@ -163,7 +187,22 @@ describe('Plans page behavior', () => {
 
   it('starts chat only when Open in chat is clicked', async () => {
     vi.mocked(listTravelPlans).mockResolvedValueOnce({
-      plans: [makePlan({ trip_id: 'trip_chat' })],
+      plans: [
+        makePlan({
+          trip_id: 'trip_chat',
+          destination_place: {
+            label: 'Tokyo, Tokyo, Japan',
+            canonical_name: 'Tokyo',
+            latitude: 35.6895,
+            longitude: 139.69171,
+            country_code: 'JP',
+            country: 'Japan',
+            admin1: 'Tokyo',
+            timezone: 'Asia/Tokyo',
+            resolution_source: 'auto_resolved',
+          },
+        }),
+      ],
       summary: {
         active_trip_id: 'trip_chat',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
@@ -179,6 +218,16 @@ describe('Plans page behavior', () => {
       expect.objectContaining({
         kind: 'query',
         title: 'Travel skincare plan',
+        session_patch: expect.objectContaining({
+          profile: expect.objectContaining({
+            travel_plan: expect.objectContaining({
+              trip_id: 'trip_chat',
+              destination_place: expect.objectContaining({
+                canonical_name: 'Tokyo',
+              }),
+            }),
+          }),
+        }),
       }),
     );
   });
@@ -264,6 +313,51 @@ describe('Plans page behavior', () => {
     await waitFor(() => {
       expect(outletContext.startChat).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('shows the real Greenland candidate when destination input is geographically ambiguous', async () => {
+    vi.mocked(createTravelPlan).mockRejectedValueOnce(
+      new PivotaAgentBffError('Request failed: 409 Conflict', 409, {
+        error: 'DESTINATION_AMBIGUOUS',
+        normalized_query: 'Greenland',
+        candidates: [
+          {
+            label: 'Greenland',
+            canonical_name: 'Greenland',
+            latitude: 71.70694,
+            longitude: -42.6043,
+            country_code: 'GL',
+            country: 'Greenland',
+            admin1: '',
+            timezone: 'America/Nuuk',
+          },
+          {
+            label: 'Greenland, Arkansas, United States',
+            canonical_name: 'Greenland',
+            latitude: 35.99453,
+            longitude: -94.1752,
+            country_code: 'US',
+            country: 'United States',
+            admin1: 'Arkansas',
+            timezone: 'America/Chicago',
+          },
+        ],
+      }) as never,
+    );
+
+    render(<Plans />);
+    await screen.findByText('Create new plan');
+
+    fireEvent.change(screen.getByPlaceholderText('e.g. Tokyo / Paris'), {
+      target: { value: 'Greenland' },
+    });
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2099-07-01' } });
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2099-07-05' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save plan' }));
+
+    expect(await screen.findByText('Confirm destination')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Greenland.*America\/Nuuk/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Greenland, Arkansas, United States/i })).toBeInTheDocument();
   });
 
   it('keeps plan details collapsed until user expands', async () => {

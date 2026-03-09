@@ -173,8 +173,10 @@ describe('EnvStressCard travel readiness', () => {
     );
 
     expect(screen.getByText('Climate baseline estimate')).toBeInTheDocument();
+    expect(screen.getByText('Destination climate')).toBeInTheDocument();
     expect(screen.getByText(/Live weather is unavailable, so the guidance below uses destination climate patterns/i)).toBeInTheDocument();
     expect(screen.queryByText('Daily forecast (expand)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Destination delta')).not.toBeInTheDocument();
     expect(screen.getByText('Travel skincare kit')).toBeInTheDocument();
   });
 
