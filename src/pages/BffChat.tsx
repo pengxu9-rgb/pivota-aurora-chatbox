@@ -1,18 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
-import { bffJson, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
-import { retryWithBackoff } from '@/utils/retryWithBackoff';
+import { bffJson, bffChatStream, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
+import type { SSEResultEvent } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
 import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
-import { DiagnosisV2IntroCard } from '@/components/chat/cards/DiagnosisV2IntroCard';
-import { DiagnosisV2LoginPromptCard } from '@/components/chat/cards/DiagnosisV2LoginPromptCard';
-import { DiagnosisV2PhotoPromptCard } from '@/components/chat/cards/DiagnosisV2PhotoPromptCard';
-import { DiagnosisV2ResultCard } from '@/components/chat/cards/DiagnosisV2ResultCard';
-import { DiagnosisV2ThinkingCard } from '@/components/chat/cards/DiagnosisV2ThinkingCard';
 import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
 import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
@@ -22,7 +17,7 @@ import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompa
 import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
 import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
-import { AuroraLoadingCard, type AuroraLoadingIntent } from '@/components/aurora/cards/AuroraLoadingCard';
+import { AuroraLoadingCard, type AuroraLoadingIntent, type ThinkingStep } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
 import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
@@ -30,9 +25,7 @@ import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
-import { RoutineFitSummaryCard } from '@/components/aurora/cards/RoutineFitSummaryCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
-import { IngredientPlanCardV1 } from '@/components/chat/cards/IngredientPlanCardV1';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
@@ -46,7 +39,6 @@ import { enrichPhotoModulesPayloadWithSessionPreview } from '@/lib/photoModulesF
 import { looksLikeProductPicksRawText } from '@/lib/productPicks';
 import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
 import type { CompatibilityProductInput } from '@/lib/routineCompatibility/types';
-import { parseCurrentRoutine } from '@/lib/currentRoutineState';
 import {
   inferTextExplicitTransition,
   normalizeAgentState,
@@ -62,7 +54,6 @@ import {
   emitPdpLatencyMs,
   emitPdpOpenPath,
   emitRecommendationDetailsSheetOpened,
-  emitAlternativesFailed,
   emitAuroraEmptyRecommendationsContractViolation,
   emitAuroraProductAnalysisDegraded,
   emitAuroraProductAlternativesFiltered,
@@ -91,23 +82,12 @@ import {
   emitMemoryWritten,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
-import { buildChatSession, mergeSessionProfiles } from '@/lib/chatSession';
+import { buildChatSession } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
-import type {
-  DiagnosisResult,
-  DiagnosisV2ResultPayload,
-  DiagnosisV2ThinkingStep,
-  FlowState,
-  Language as UiLanguage,
-  Offer,
-  Product,
-  Session,
-  SkinConcern,
-  SkinType,
-} from '@/lib/types';
+import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
-import { AURORA_AUTH_SESSION_CHANGED_EVENT, clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
+import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
 import {
   getLangMismatchHintMutedUntil,
   getLangPref,
@@ -124,7 +104,6 @@ import { parseChatResponseV1 } from '@/lib/chatCardsParser';
 import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
 import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
 import { toast } from '@/components/ui/use-toast';
-import { ProductSearchInput, type ResolvedProduct } from '@/components/ui/ProductSearchInput';
 import {
   buildPdpUrl,
   extractPdpTargetFromProductGroupId,
@@ -132,12 +111,12 @@ import {
 } from '@/lib/pivotaShop';
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { pickProductImageUrl } from '@/lib/productImage';
-import type { TravelProductLookupQuery } from '@/lib/auroraEnvStress';
-import { filterContradictoryFragranceFlags } from '@/lib/sensitivityFlags';
 import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
+import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
+import { saveAuroraProfileCache } from '@/lib/userProfile';
 import {
   Activity,
   ArrowRight,
@@ -146,7 +125,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
-  ChevronRight,
   Copy,
   ExternalLink,
   FlaskConical,
@@ -164,35 +142,11 @@ import {
   X,
 } from 'lucide-react';
 
-function buildEmptyAuthDraft(email = '') {
-  return {
-    email,
-    code: '',
-    password: '',
-    newPassword: '',
-    newPasswordConfirm: '',
-  };
-}
-
 type ChatItem =
   | { id: string; role: 'user' | 'assistant'; kind: 'text'; content: string }
   | { id: string; role: 'assistant'; kind: 'cards'; cards: Card[]; meta?: Pick<V1Envelope, 'request_id' | 'trace_id' | 'events'> }
   | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
   | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: ReturnWelcomeSummary | null };
-
-type DiagnosisV2FlowState = {
-  goals: string[];
-  customInput?: string;
-  followupAnswers: Record<string, unknown>;
-  resultPayload: DiagnosisV2ResultPayload | null;
-  routineSkeleton: Record<string, unknown> | null;
-  checkinBinding: Record<string, unknown> | null;
-};
-
-type PendingDiagnosisAuthResume = {
-  goals: string[];
-  customInput?: string;
-};
 
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
@@ -202,103 +156,62 @@ type ProductAlternativeTrackItem = {
 };
 
 type ProductAlternativeTrack = {
-  key: 'replace' | 'pair' | 'empty';
+  key: 'replace' | 'pair';
   title: string;
   subtitle: string;
   items: ProductAlternativeTrackItem[];
-  notes?: string[];
-  noResultReason?: string | null;
   filteredCount: number;
 };
 
-type RoutineSlotValue = {
-  text: string;
-  resolvedProduct: ResolvedProduct | null;
-};
-
-const emptySlot = (): RoutineSlotValue => ({ text: '', resolvedProduct: null });
-
 type RoutineDraft = {
-  am: { cleanser: RoutineSlotValue; treatment: RoutineSlotValue; moisturizer: RoutineSlotValue; spf: RoutineSlotValue };
-  pm: { cleanser: RoutineSlotValue; treatment: RoutineSlotValue; moisturizer: RoutineSlotValue };
+  am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
+  pm: { cleanser: string; treatment: string; moisturizer: string };
   notes: string;
 };
 
 const makeEmptyRoutineDraft = (): RoutineDraft => ({
-  am: { cleanser: emptySlot(), treatment: emptySlot(), moisturizer: emptySlot(), spf: emptySlot() },
-  pm: { cleanser: emptySlot(), treatment: emptySlot(), moisturizer: emptySlot() },
+  am: { cleanser: '', treatment: '', moisturizer: '', spf: '' },
+  pm: { cleanser: '', treatment: '', moisturizer: '' },
   notes: '',
 });
 
-const buildRoutineDraftFromProfile = (currentRoutine: unknown): RoutineDraft | null => {
-  const parsedRoutine = parseCurrentRoutine(currentRoutine);
-  if (!parsedRoutine) return null;
-
-  const draft = makeEmptyRoutineDraft();
-
-  const stepAliases: Record<string, string> = { sunscreen: 'spf', serum: 'treatment', toner: 'treatment' };
-
-  const fillSlots = (
-    steps: unknown,
-    target: Record<string, RoutineSlotValue>,
-  ) => {
-    if (!Array.isArray(steps)) return;
-    for (const entry of steps) {
-      if (!entry || typeof entry !== 'object') continue;
-      const rec = entry as Record<string, unknown>;
-      const rawStep = String(rec.step || '').toLowerCase();
-      const product = String(rec.product || '').trim();
-      if (!rawStep || !product) continue;
-      const step = stepAliases[rawStep] ?? rawStep;
-      if (!(step in target)) continue;
-      const pid = String(rec.product_id || '').trim();
-      target[step] = {
-        text: product,
-        resolvedProduct: pid
-          ? { product_id: pid, sku_id: rec.sku_id != null ? String(rec.sku_id) : null, name: product, display_name: product }
-          : null,
-      };
-    }
-  };
-
-  fillSlots(parsedRoutine.am, draft.am as unknown as Record<string, RoutineSlotValue>);
-  fillSlots(parsedRoutine.pm, draft.pm as unknown as Record<string, RoutineSlotValue>);
-  draft.notes = String(parsedRoutine.notes || '').trim();
-
-  return hasAnyRoutineDraftInput(draft) ? draft : null;
-};
-
-const slotText = (slot: RoutineSlotValue): string => String(slot?.text || '').trim();
-
 const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
   const values = [
-    slotText(draft.am.cleanser),
-    slotText(draft.am.treatment),
-    slotText(draft.am.moisturizer),
-    slotText(draft.am.spf),
-    slotText(draft.pm.cleanser),
-    slotText(draft.pm.treatment),
-    slotText(draft.pm.moisturizer),
-    String(draft.notes || '').trim(),
+    draft.am.cleanser,
+    draft.am.treatment,
+    draft.am.moisturizer,
+    draft.am.spf,
+    draft.pm.cleanser,
+    draft.pm.treatment,
+    draft.pm.moisturizer,
+    draft.notes,
   ];
-  return values.some(Boolean);
+  return values.some((v) => Boolean(String(v || '').trim()));
 };
 
-type RoutinePayloadStep = { step: string; product: string; product_id?: string; sku_id?: string };
+const hasAnyRoutineAmInput = (draft: RoutineDraft): boolean => {
+  const values = [draft.am.cleanser, draft.am.treatment, draft.am.moisturizer, draft.am.spf];
+  return values.some((v) => Boolean(String(v || '').trim()));
+};
+
+const copyRoutineAmToPm = (draft: RoutineDraft): RoutineDraft => ({
+  ...draft,
+  pm: {
+    ...draft.pm,
+    cleanser: String(draft.am.cleanser || ''),
+    treatment: String(draft.am.treatment || ''),
+    moisturizer: String(draft.am.moisturizer || ''),
+  },
+});
 
 const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
-  const am: RoutinePayloadStep[] = [];
-  const pm: RoutinePayloadStep[] = [];
+  const am: Array<{ step: string; product: string }> = [];
+  const pm: Array<{ step: string; product: string }> = [];
 
-  const pushStep = (list: RoutinePayloadStep[], step: string, slot: RoutineSlotValue) => {
-    const v = slotText(slot);
+  const pushStep = (list: Array<{ step: string; product: string }>, step: string, value: string) => {
+    const v = String(value || '').trim();
     if (!v) return;
-    list.push({
-      step,
-      product: v.slice(0, 500),
-      ...(slot.resolvedProduct?.product_id ? { product_id: slot.resolvedProduct.product_id } : {}),
-      ...(slot.resolvedProduct?.sku_id ? { sku_id: slot.resolvedProduct.sku_id } : {}),
-    });
+    list.push({ step, product: v.slice(0, 500) });
   };
 
   pushStep(am, 'cleanser', draft.am.cleanser);
@@ -313,7 +226,7 @@ const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
   const notes = String(draft.notes || '').trim();
 
   return {
-    schema_version: 'aurora.routine_intake.v2',
+    schema_version: 'aurora.routine_intake.v1',
     am,
     pm,
     ...(notes ? { notes: notes.slice(0, 1200) } : {}),
@@ -323,12 +236,10 @@ const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
 const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) => {
   const lines: string[] = [];
 
-  const add = (label: string, slot: RoutineSlotValue) => {
-    const v = slotText(slot);
+  const add = (label: string, value: string) => {
+    const v = String(value || '').trim();
     if (!v) return;
-    const resolved = slot.resolvedProduct?.display_name || slot.resolvedProduct?.name;
-    const suffix = resolved && resolved !== v ? ` [\u2713 ${resolved}]` : slot.resolvedProduct ? ' [\u2713]' : '';
-    lines.push(`${label}: ${v}${suffix}`);
+    lines.push(`${label}: ${v}`);
   };
 
   lines.push('AM');
@@ -346,7 +257,7 @@ const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) =>
   const notes = String(draft.notes || '').trim();
   if (notes) {
     lines.push('');
-    lines.push(language === 'CN' ? `\u5907\u6ce8: ${notes}` : `Notes: ${notes}`);
+    lines.push(language === 'CN' ? `备注: ${notes}` : `Notes: ${notes}`);
   }
 
   return lines.join('\n').trim();
@@ -377,26 +288,6 @@ const toBffErrorMessage = (err: unknown): string => {
   return err instanceof Error ? err.message : String(err);
 };
 
-const shouldFallbackToLegacyDiagnosis = (err: unknown): boolean => {
-  if (!(err instanceof PivotaAgentBffError)) return false;
-  if (err.status === 404) return true;
-  const body = err.responseBody as any;
-  const errorCode = String(body?.error || '').trim();
-  return errorCode === 'DIAGNOSIS_V2_NOT_ENABLED' || errorCode === 'LLM_PROVIDER_UNAVAILABLE';
-};
-
-const diagnosisV2TransientErrorMessage = (err: unknown, lang: string): string => {
-  const isCN = lang === 'CN';
-  if (err instanceof PivotaAgentBffError) {
-    const body = err.responseBody as any;
-    const reason = String(body?.reason || body?.error || '').trim();
-    if (reason.includes('TIMEOUT') || reason.includes('timeout')) {
-      return isCN ? '分析超时，请稍后重试' : 'Analysis timed out — please try again';
-    }
-  }
-  return isCN ? '分析暂时遇到问题，请重试' : 'Analysis encountered a temporary issue — please retry';
-};
-
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
 
 const FF_RETURN_WELCOME = (() => {
@@ -420,13 +311,6 @@ const FF_SHOW_PASSIVE_GATES = (() => {
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
 })();
 
-const FF_CARD_FIRST_DEDUPE = (() => {
-  const raw = String(import.meta.env.VITE_AURORA_CARD_FIRST_DEDUPE_V1 ?? 'true')
-    .trim()
-    .toLowerCase();
-  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
-})();
-
 const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
 
 const getInitialLanguage = (): UiLanguage => (getLangPref() === 'cn' ? 'CN' : 'EN');
@@ -436,6 +320,15 @@ const parseUiLanguageToken = (raw: unknown): UiLanguage | null => {
   const token = String(raw || '').trim().toUpperCase();
   if (token === 'CN' || token === 'EN') return token;
   return null;
+};
+
+const resolveIntroHintForLanguage = (introHint: ChatResponseV1['intro_hint'], language: UiLanguage): string => {
+  if (typeof introHint === 'string') return introHint.trim();
+  if (!introHint || typeof introHint !== 'object') return '';
+
+  const preferred = language === 'CN' ? asString(introHint.zh) : asString(introHint.en);
+  const fallback = language === 'CN' ? asString(introHint.en) : asString(introHint.zh);
+  return preferred || fallback;
 };
 
 const toUiLanguageName = (lang: UiLanguage, copyLanguage: UiLanguage): string => {
@@ -554,7 +447,7 @@ const buildQuickProfileBindChip = (language: UiLanguage): SuggestedChip => {
   const isCN = language === 'CN';
   return {
     chip_id: 'chip_login_sync_profile',
-    label: isCN ? '登录并同步资料' : 'Sign in to sync profile',
+    label: isCN ? '登录并绑定资料' : 'Sign in to sync profile',
     kind: 'quick_reply',
     data: { trigger_source: 'chip' },
   };
@@ -656,10 +549,6 @@ const nextAgentStateForChip = (chipId: string): AgentState | null => {
       return 'RECO_GATE';
     case 'chip.action.reco_routine':
       return 'RECO_GATE';
-    case 'chip.intake.upload_photos':
-      return 'DIAG_PHOTO_OPTIN';
-    case 'chip.intake.skip_analysis':
-      return 'DIAG_ANALYSIS_SUMMARY';
     default:
       return null;
   }
@@ -685,54 +574,6 @@ const iconForChip = (chipId: string): IconType => {
 type ChipVisualRole = 'primary' | 'skip' | 'default';
 
 const normalizeChipToken = (input: unknown): string => String(input || '').trim().toLowerCase();
-
-const inferLegacyChipActionId = (rawId: unknown, rawLabel: unknown): string | null => {
-  const id = normalizeChipToken(rawId);
-  const label = normalizeChipToken(rawLabel);
-
-  if (id.includes('chip.intake.upload_photos') || id.includes('chip_intake_upload_photos') || id === 'diag.upload_photo') {
-    return 'chip.intake.upload_photos';
-  }
-  if (id.includes('chip.intake.skip_analysis') || id.includes('chip_intake_skip_analysis')) {
-    return 'chip.intake.skip_analysis';
-  }
-  if (id === 'analysis_get_recommendations') return 'analysis_continue';
-  if (id === 'analysis_optimize_existing') return 'analysis_review_products';
-  if (
-    id.startsWith('chip.') ||
-    id.startsWith('analysis_') ||
-    id.startsWith('ingredient.') ||
-    id.startsWith('profile_') ||
-    id.startsWith('diag.')
-  ) {
-    return id;
-  }
-
-  if (/upload (a )?photo|upload selfie|上传.*照片|上传自拍/.test(label)) return 'chip.intake.upload_photos';
-  if (/skip photo|skip and analyze|skip analysis|跳过.*照片|低置信度/.test(label)) return 'chip.intake.skip_analysis';
-  return null;
-};
-
-const dedupeSuggestedChips = (chips: SuggestedChip[]): SuggestedChip[] => {
-  const seen = new Set<string>();
-  const out: SuggestedChip[] = [];
-  for (const chip of chips) {
-    const chipData = asObject(chip.data) || {};
-    const actionId = asString((chipData as any).action_id) || inferLegacyChipActionId(chip.chip_id, chip.label) || '';
-    const actionKey = normalizeChipToken(actionId);
-    const labelKey = normalizeSelectionKey(chip.label || '');
-    const chipKey = normalizeSelectionKey(chip.chip_id || '');
-    const dedupeKey = actionKey ? `action:${actionKey}` : labelKey ? `label:${labelKey}` : `chip:${chipKey}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    if (actionKey && !asString((chipData as any).action_id)) {
-      out.push({ ...chip, data: { ...chipData, action_id: actionKey } });
-    } else {
-      out.push(chip);
-    }
-  }
-  return out;
-};
 
 const includesAnyToken = (value: string, tokens: readonly string[]): boolean =>
   tokens.some((token) => value.includes(token));
@@ -778,7 +619,6 @@ const primaryChipScore = (chip: SuggestedChip): number => {
     'reco',
     'recommend',
     'analysis_continue',
-    'analysis_get_recommendations',
     'start_diagnosis',
     'start.diagnosis',
     'upload_photos',
@@ -916,13 +756,6 @@ const collapseAnalysisSummaryCards = (cards: Card[]): Card[] => {
   return out;
 };
 
-const collapseStoryVsSummary = (cards: Card[]): Card[] => {
-  if (!Array.isArray(cards) || cards.length < 2) return cards;
-  const hasStory = cards.some((c) => String(c?.type || '').trim().toLowerCase() === 'analysis_story_v2');
-  if (!hasStory) return cards;
-  return cards.filter((c) => String(c?.type || '').trim().toLowerCase() !== 'analysis_summary');
-};
-
 const removePhotoConfirmCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
   if (!Array.isArray(items) || items.length === 0) return items;
   const out: ChatItem[] = [];
@@ -961,26 +794,6 @@ const removeAnalysisSummaryCardsFromHistory = (items: ChatItem[]): ChatItem[] =>
   return out;
 };
 
-const CARD_FIRST_DEDUPE_TYPES = new Set([
-  'analysis_summary',
-  'skin_status',
-  'routine',
-  'analysis_story_v2',
-  'confidence_notice',
-  'diagnosis_gate',
-  'diagnosis_v2_login_prompt',
-  'diagnosis_v2_intro',
-  'diagnosis_v2_photo_prompt',
-  'diagnosis_v2_result',
-  'profile',
-]);
-
-const hasCardFirstDedupeCard = (cards: Card[]): boolean => {
-  if (!FF_CARD_FIRST_DEDUPE) return false;
-  if (!Array.isArray(cards) || cards.length === 0) return false;
-  return cards.some((card) => CARD_FIRST_DEDUPE_TYPES.has(String(card?.type || '').trim().toLowerCase()));
-};
-
 type RecoItem = Record<string, unknown> & { slot?: string };
 
 const isEnvStressCard = (card: Card): boolean => {
@@ -1002,57 +815,6 @@ const isEnvStressCard = (card: Card): boolean => {
       ? norm(String((payload as any).schema_version || ''))
       : '';
   return Boolean(schema && (schema.includes('env_stress') || schema.includes('environment_stress')));
-};
-
-const isTravelCard = (card: Card): boolean => {
-  const norm = (input: string) =>
-    String(input || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-
-  const type = norm(String(card?.type || ''));
-  if (!type) return false;
-  if (type === 'travel') return true;
-  if (type.includes('travel')) return true;
-
-  const payload =
-    card?.payload && typeof card.payload === 'object' && !Array.isArray(card.payload)
-      ? (card.payload as Record<string, unknown>)
-      : null;
-  const schema = payload && typeof payload.schema_version === 'string' ? norm(String(payload.schema_version || '')) : '';
-  if (schema.includes('travel')) return true;
-
-  const sections = Array.isArray(payload?.sections)
-    ? payload?.sections
-    : Array.isArray((card as Record<string, unknown>)?.sections)
-      ? ((card as Record<string, unknown>).sections as unknown[])
-      : [];
-  return sections.some((section) => {
-    const row = section && typeof section === 'object' && !Array.isArray(section) ? (section as Record<string, unknown>) : null;
-    if (!row) return false;
-    const kind = norm(String(row.kind || row.type || ''));
-    if (kind.includes('travel')) return true;
-    const envPayload =
-      row.env_payload && typeof row.env_payload === 'object' && !Array.isArray(row.env_payload)
-        ? (row.env_payload as Record<string, unknown>)
-        : null;
-    const envSchema = envPayload && typeof envPayload.schema_version === 'string'
-      ? norm(String(envPayload.schema_version || ''))
-      : '';
-    return envSchema.includes('travel') || envSchema.includes('env_stress') || envSchema.includes('environment_stress');
-  });
-};
-
-const suppressAnalysisCardsForTravelEnvTurn = (cards: Card[]): Card[] => {
-  if (!Array.isArray(cards) || cards.length === 0) return cards;
-  const hasTravelOrEnv = cards.some((card) => isTravelCard(card) || isEnvStressCard(card));
-  if (!hasTravelOrEnv) return cards;
-  return cards.filter((card) => {
-    const type = String(card?.type || '').trim().toLowerCase();
-    return type !== 'analysis_summary' && type !== 'analysis_story_v2';
-  });
 };
 
 const isConflictHeatmapCard = (card: Card): boolean => {
@@ -1122,6 +884,33 @@ const filterPassiveAdvisoryChips = (chips: SuggestedChip[], showPassive: boolean
     return !isPassiveProfileChipId(chipId);
   });
 };
+const normalizeChipDedupToken = (value: unknown): string => String(value ?? '').trim().toLowerCase();
+const buildChipDedupKey = (chip: SuggestedChip): string => {
+  const data = asObject((chip as any)?.data) ?? {};
+  const actionId = normalizeChipDedupToken((data as any).action_id);
+  if (actionId) return `action:${actionId}`;
+  const followUpOptionId = normalizeChipDedupToken((data as any).follow_up_option_id);
+  if (followUpOptionId) return `followup_option:${followUpOptionId}`;
+  const chipId = normalizeChipDedupToken((chip as any)?.chip_id);
+  if (chipId) return `chip:${chipId}`;
+  const label = normalizeChipDedupToken((chip as any)?.label);
+  const replyText = normalizeChipDedupToken((data as any).reply_text);
+  return `text:${label}::${replyText}`;
+};
+const dedupeSuggestedChips = (chips: SuggestedChip[], max = 12): SuggestedChip[] => {
+  const out: SuggestedChip[] = [];
+  const seen = new Set<string>();
+  const rows = Array.isArray(chips) ? chips : [];
+  for (const chip of rows) {
+    if (!chip || typeof chip !== 'object') continue;
+    const key = buildChipDedupKey(chip);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(chip);
+    if (out.length >= max) break;
+  }
+  return out;
+};
 const asNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
@@ -1155,6 +944,16 @@ const isInternalKbCitationId = (raw: string): boolean => {
   if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v)) return true;
   return false;
 };
+
+const FRAGRANCE_FREE_RE = /\b(no fragrance|fragrance[\s-]*free|without fragrance|fragrance not listed|no parfum)\b/i;
+
+function filterContradictoryFragranceFlags(flags: string[]): string[] {
+  const hasDescriptiveFragranceFree = flags.some(
+    (f) => f.length > 12 && FRAGRANCE_FREE_RE.test(f),
+  );
+  if (!hasDescriptiveFragranceFree) return flags;
+  return flags.filter((f) => f.toLowerCase() !== 'fragrance');
+}
 
 const ACK_PREFIX_WITH_PUNCT_RE =
   /^(?:got it|okay|ok|sure|great|understood|received|收到|好的|明白了|已收到)\s*(?:✅|☑️|✔️)?\s*(?:[—–-]|[,，:：]|[.!?。！？])\s*/i;
@@ -1217,6 +1016,30 @@ const looksLikeWeatherOrEnvironmentQuestion = (text: string): boolean => {
   return false;
 };
 
+type ThinkingStepSetter = React.Dispatch<React.SetStateAction<ThinkingStep[]>>;
+const startSimulatedThinking = (
+  steps: string[],
+  setter: ThinkingStepSetter,
+  intervalMs = 1200,
+): (() => void) => {
+  let idx = 0;
+  const timer = setInterval(() => {
+    idx += 1;
+    if (idx < steps.length) {
+      setter((prev) => {
+        const updated = prev.map((s) => ({ ...s, completed: true }));
+        return [...updated, { step: `sim_${idx}`, message: steps[idx], completed: false }];
+      });
+    }
+  }, intervalMs);
+  return () => clearInterval(timer);
+};
+
+const ANALYSIS_SIM_STEPS: Record<string, string[]> = {
+  EN: ['Scanning skin features...', 'Cross-referencing conditions...', 'Building skin blueprint...', 'Preparing results...'],
+  CN: ['正在扫描皮肤特征...', '交叉检查肤况...', '构建肤质蓝图...', '正在准备结果...'],
+};
+
 const inferAuroraLoadingIntent = (message?: string, action?: V1Action): AuroraLoadingIntent => {
   const msg = String(message || '').trim();
   if (looksLikeWeatherOrEnvironmentQuestion(msg)) return 'environment';
@@ -1264,175 +1087,6 @@ const uniqueStrings = (items: unknown): string[] => {
   }
   return out;
 };
-
-const toTrimmedString = (value: unknown): string => String(asString(value) || '').trim();
-
-const isProductParseCard = (card: Card | null | undefined): boolean =>
-  String(card?.type || '').trim().toLowerCase() === 'product_parse';
-
-const isProductAnalysisCard = (card: Card | null | undefined): boolean =>
-  String(card?.type || '').trim().toLowerCase() === 'product_analysis';
-
-const productAnalysisPayloadFromCard = (card: Card | null | undefined): Record<string, unknown> | null =>
-  isProductAnalysisCard(card) ? asObject(card?.payload) : null;
-
-const productAnalysisAssessmentFromPayload = (payload: Record<string, unknown> | null): Record<string, unknown> | null =>
-  asObject(payload?.assessment);
-
-const hasStructuredHowToUse = (value: unknown): boolean => {
-  const howToUse = asObject(value);
-  if (!howToUse) return false;
-  return Boolean(
-    toTrimmedString(howToUse.when) ||
-      toTrimmedString(howToUse.frequency) ||
-      toTrimmedString(howToUse.order_in_routine) ||
-      uniqueStrings(asArray(howToUse.pairing_rules)).length ||
-      uniqueStrings(asArray(howToUse.stop_signs)).length,
-  );
-};
-
-const hasProductIdentity = (value: unknown): boolean => {
-  const product = asObject(value);
-  if (!product) return false;
-  return Boolean(
-    toTrimmedString(product.product_id) ||
-      toTrimmedString(product.sku_id) ||
-      toTrimmedString(product.display_name) ||
-      toTrimmedString(product.name) ||
-      toTrimmedString(product.url),
-  );
-};
-
-const hasEffectiveProductAnalysis = (payload: Record<string, unknown> | null): boolean => {
-  const assessment = productAnalysisAssessmentFromPayload(payload);
-  const verdict = toTrimmedString(assessment?.verdict).toLowerCase();
-  if (verdict && verdict !== 'unknown' && verdict !== '未知') return true;
-  const verdictLevel = toTrimmedString(assessment?.verdict_level).toLowerCase();
-  return ['recommended', 'cautiously_ok', 'needs_verification', 'not_recommended'].includes(verdictLevel);
-};
-
-const hasRenderableProductAnalysisContent = (payload: Record<string, unknown> | null): boolean => {
-  if (!payload) return false;
-  const assessment = productAnalysisAssessmentFromPayload(payload);
-  const evidence = asObject(payload.evidence);
-  const science = asObject(evidence?.science);
-  const evidenceSocial = asObject(evidence?.social_signals);
-  const payloadSocial = asObject(payload.social_signals);
-  const socialSummary = asObject(payloadSocial?.overall_summary);
-  const anchorProduct = asObject(assessment?.anchor_product || assessment?.anchorProduct);
-  const product = asObject(payload.product);
-
-  const hasSummaryText = [
-    assessment?.summary,
-    assessment?.quick_summary,
-    assessment?.quickSummary,
-    assessment?.follow_up_question,
-    assessment?.followUpQuestion,
-  ].some((value) => Boolean(toTrimmedString(value)));
-
-  const hasAssessmentLists = [
-    uniqueStrings(asArray(assessment?.reasons)).length,
-    uniqueStrings(asArray(assessment?.top_takeaways || assessment?.topTakeaways)).length,
-    uniqueStrings(asArray(assessment?.formula_intent || assessment?.formulaIntent)).length,
-    uniqueStrings(asArray(assessment?.best_for || assessment?.bestFor)).length,
-    uniqueStrings(asArray(assessment?.not_for || assessment?.notFor)).length,
-    uniqueStrings(asArray(assessment?.if_not_ideal || assessment?.ifNotIdeal)).length,
-    uniqueStrings(asArray(assessment?.better_pairing || assessment?.betterPairing)).length,
-    asArray(assessment?.watchouts).filter((item) => {
-      if (typeof item === 'string') return Boolean(toTrimmedString(item));
-      const row = asObject(item);
-      return Boolean(toTrimmedString(row?.issue || row?.name || row?.text));
-    }).length,
-  ].some((count) => count > 0);
-
-  const hasEvidenceLists = [
-    uniqueStrings(asArray(science?.key_ingredients || science?.keyIngredients)).length,
-    uniqueStrings(asArray(science?.mechanisms)).length,
-    uniqueStrings(asArray(science?.fit_notes || science?.fitNotes)).length,
-    uniqueStrings(asArray(science?.risk_notes || science?.riskNotes)).length,
-    uniqueStrings(asArray(evidence?.expert_notes || evidence?.expertNotes)).length,
-    uniqueStrings(asArray(evidenceSocial?.typical_positive || evidenceSocial?.typicalPositive)).length,
-    uniqueStrings(asArray(evidenceSocial?.typical_negative || evidenceSocial?.typicalNegative)).length,
-    uniqueStrings(asArray(evidenceSocial?.risk_for_groups || evidenceSocial?.riskForGroups)).length,
-    uniqueStrings(asArray(socialSummary?.top_pos_themes || socialSummary?.topPosThemes)).length,
-    uniqueStrings(asArray(socialSummary?.top_neg_themes || socialSummary?.topNegThemes)).length,
-    uniqueStrings(asArray(socialSummary?.watchouts)).length,
-    asArray(evidence?.sources).map((item) => asObject(item)).filter(Boolean).length,
-  ].some((count) => count > 0);
-
-  const hasAlternatives = ['competitors', 'dupes', 'related_products'].some((blockName) => {
-    const block = asObject(payload[blockName]);
-    return asArray(block?.candidates).map((item) => asObject(item)).filter(Boolean).length > 0;
-  });
-
-  return Boolean(
-    hasSummaryText ||
-      hasAssessmentLists ||
-      hasEvidenceLists ||
-      hasStructuredHowToUse(assessment?.how_to_use || assessment?.howToUse) ||
-      hasProductIdentity(anchorProduct) ||
-      hasProductIdentity(product) ||
-      hasAlternatives,
-  );
-};
-
-const isSeverelyDegradedProductAnalysis = (payload: Record<string, unknown> | null): boolean => {
-  if (!payload) return true;
-  const evidence = asObject(payload.evidence);
-  const codes = uniqueStrings([
-    ...asArray(payload.missing_info),
-    ...asArray(payload.user_facing_gaps),
-    ...asArray(payload.internal_debug_codes),
-    ...asArray(evidence?.missing_info),
-  ])
-    .map((code) => String(code || '').trim().toLowerCase())
-    .filter(Boolean);
-
-  return codes.some((code) =>
-    /(analysis_limited|analysis_in_progress|evidence_missing|upstream_missing_or_unstructured|product_not_resolved|catalog_backend_not_configured|catalog_no_match|url_fetch_(?:blocked|forbidden|timeout|failed)|on_page_fetch_blocked|official_page_fetch_blocked)/i
-      .test(code),
-  );
-};
-
-const shouldHideProductParseForAnalysisPayload = (payload: Record<string, unknown> | null): boolean => {
-  if (!hasRenderableProductAnalysisContent(payload)) return false;
-  if (hasEffectiveProductAnalysis(payload)) return true;
-  return !isSeverelyDegradedProductAnalysis(payload);
-};
-
-const collapseProductParseWhenUsefulAnalysisPresent = (cards: Card[]): Card[] => {
-  if (!Array.isArray(cards) || cards.length < 2) return cards;
-  const hasUsefulAnalysis = cards.some((card) => shouldHideProductParseForAnalysisPayload(productAnalysisPayloadFromCard(card)));
-  if (!hasUsefulAnalysis) return cards;
-  return cards.filter((card) => !isProductParseCard(card));
-};
-
-const removeProductParseCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
-  if (!Array.isArray(items) || items.length === 0) return items;
-  const out: ChatItem[] = [];
-  for (const item of items) {
-    if (item.kind !== 'cards') {
-      out.push(item);
-      continue;
-    }
-    const filteredCards = item.cards.filter((card) => !isProductParseCard(card));
-    if (!filteredCards.length) continue;
-    if (filteredCards.length === item.cards.length) {
-      out.push(item);
-      continue;
-    }
-    out.push({ ...item, cards: filteredCards });
-  }
-  return out;
-};
-
-const normalizeProductNameKey = (value: unknown): string =>
-  toTrimmedString(value)
-    .toLowerCase()
-    .replace(/^https?:\/\/\S+/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 
 type IngredientRenderMode = 'show_products' | 'empty_match' | 'pending_match';
 
@@ -1735,18 +1389,12 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
 
   const priceObj = asObject((r as any).price);
   if (price == null && priceObj) {
-    const amount = asNumber((priceObj as any).amount);
-    const amountCurrency = asString((priceObj as any).currency);
-    if (amount != null && Number.isFinite(amount) && amount > 0) {
-      price = amount;
-      currency = amountCurrency || currency;
-    }
     const usd = asNumber(priceObj.usd ?? priceObj.USD);
     const cny = asNumber(priceObj.cny ?? priceObj.CNY);
-    if (price == null && usd != null) {
+    if (usd != null) {
       price = usd;
       currency = 'USD';
-    } else if (price == null && cny != null) {
+    } else if (cny != null) {
       price = cny;
       currency = 'CNY';
     }
@@ -1818,6 +1466,22 @@ const mapQuickProfileToAuroraProfilePatch = (patch: QuickProfileProfilePatch): R
   return Object.keys(out).length ? out : null;
 };
 
+const profileRecoCompleteness = (profile: Record<string, unknown> | null | undefined) => {
+  const p = profile ?? {};
+  const goals = (p as any).goals;
+  const dims = {
+    skinType: Boolean(asString((p as any).skinType)),
+    barrierStatus: Boolean(asString((p as any).barrierStatus)),
+    sensitivity: Boolean(asString((p as any).sensitivity)),
+    goals: Array.isArray(goals) ? goals.length > 0 : Boolean(asString(goals)),
+  };
+  const score = Object.values(dims).filter(Boolean).length;
+  const missing = Object.entries(dims)
+    .filter(([, ok]) => !ok)
+    .map(([k]) => k);
+  return { score, missing };
+};
+
 const getIngredientFitProfileStatus = (profile: Record<string, unknown> | null | undefined) => {
   const p = profile ?? {};
   const goals = (p as any).goals;
@@ -1883,7 +1547,9 @@ const readBootstrapInfoFromSessionBootstrapCard = (env: V1Envelope): BootstrapIn
   const patch: BootstrapInfoPatch = {};
   if (Object.prototype.hasOwnProperty.call(p, 'profile')) {
     const rawProfile = (p as any).profile;
-    patch.profile = asObject(rawProfile) ?? (rawProfile == null ? null : null);
+    const profileObj = asObject(rawProfile);
+    const normalized = normalizeProfileFromBootstrap(profileObj);
+    patch.profile = profileObj ? { ...profileObj, ...(normalized || {}), ...(normalized?.region ? { region: normalized.region } : {}) } : null;
   }
   if (Object.prototype.hasOwnProperty.call(p, 'recent_logs')) {
     patch.recent_logs = asArray((p as any).recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
@@ -1906,7 +1572,11 @@ const readBootstrapInfoFromSessionPatch = (env: V1Envelope): BootstrapInfoPatch 
   if (!patch) return null;
 
   const out: BootstrapInfoPatch = {};
-  if (Object.prototype.hasOwnProperty.call(patch, 'profile')) out.profile = asObject(patch.profile) ?? (patch.profile == null ? null : null);
+  if (Object.prototype.hasOwnProperty.call(patch, 'profile')) {
+    const profileObj = asObject(patch.profile);
+    const normalized = normalizeProfileFromBootstrap(profileObj);
+    out.profile = profileObj ? { ...profileObj, ...(normalized || {}), ...(normalized?.region ? { region: normalized.region } : {}) } : null;
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'recent_logs'))
     out.recent_logs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
   if (Object.prototype.hasOwnProperty.call(patch, 'checkin_due')) out.checkin_due = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
@@ -2064,9 +1734,6 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
       CN: 'INCIDecoder 结果未通过交叉验证，已阻断 KB 回写',
       EN: 'INCIDecoder result was not cross-validated and was blocked from KB persistence',
     },
-    pdp_contract_repaired: { CN: '已修复异常商品结构', EN: 'Repaired malformed product payload' },
-    pdp_contract_invalid_dropped: { CN: '已拦截损坏的商品结构', EN: 'Blocked malformed product payload' },
-    reco_contract_invalid: { CN: '推荐结果结构损坏', EN: 'Recommendation payload was malformed' },
     version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
     'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
     'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
@@ -2096,320 +1763,10 @@ function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unkno
   return NON_SKINCARE_ALTERNATIVE_RE.test(signal);
 }
 
-const isRawPdpResponseLike = (value: unknown): value is Record<string, unknown> => {
-  const row = asObject(value);
-  if (!row) return false;
-  const hasSubject = asObject((row as any).subject);
-  const hasModules = Array.isArray((row as any).modules);
-  return Boolean(hasSubject && (hasModules || toTrimmedString((row as any).pdp_version) || toTrimmedString((row as any).status)));
-};
-
-const recoverRecoItemFromRawPdpResponse = (
-  raw: unknown,
-  carry?: Record<string, unknown> | null,
-): RecoItem | null => {
-  const source = asObject(raw);
-  if (!isRawPdpResponseLike(source)) return null;
-  const subject = asObject((source as any).subject);
-  const modules = asArray((source as any).modules);
-  const canonicalModule = modules
-    .map((module) => asObject(module))
-    .find((module) => toTrimmedString(module?.type).toLowerCase() === 'canonical');
-  const canonicalData = asObject(canonicalModule?.data);
-  const pdpPayload = asObject(canonicalData?.pdp_payload);
-  const product = asObject(pdpPayload?.product);
-  const brandObj = asObject(product?.brand);
-  const categoryPath = uniqueStrings(asArray(product?.category_path));
-  const categoryTail = categoryPath.length ? categoryPath[categoryPath.length - 1] : '';
-  const title =
-    toTrimmedString(product?.title) ||
-    toTrimmedString(product?.name) ||
-    toTrimmedString(carry?.name) ||
-    toTrimmedString(carry?.title) ||
-    toTrimmedString(carry?.display_name) ||
-    toTrimmedString(carry?.displayName) ||
-    categoryTail ||
-    '';
-  const brand =
-    toTrimmedString(brandObj?.name) ||
-    toTrimmedString(product?.brand_name) ||
-    toTrimmedString(product?.brandName) ||
-    toTrimmedString(product?.brand) ||
-    toTrimmedString(carry?.brand) ||
-    '';
-  const productId =
-    toTrimmedString((subject as any)?.canonical_product_ref?.product_id) ||
-    toTrimmedString((subject as any)?.canonicalProductRef?.product_id) ||
-    toTrimmedString((canonicalData as any)?.canonical_product_ref?.product_id) ||
-    toTrimmedString((canonicalData as any)?.canonicalProductRef?.product_id) ||
-    toTrimmedString(product?.product_id) ||
-    toTrimmedString(product?.productId) ||
-    toTrimmedString((subject as any)?.id) ||
-    '';
-  const merchantId =
-    toTrimmedString((subject as any)?.canonical_product_ref?.merchant_id) ||
-    toTrimmedString((subject as any)?.canonicalProductRef?.merchant_id) ||
-    toTrimmedString((canonicalData as any)?.canonical_product_ref?.merchant_id) ||
-    toTrimmedString((canonicalData as any)?.canonicalProductRef?.merchant_id) ||
-    toTrimmedString(product?.merchant_id) ||
-    toTrimmedString(product?.merchantId) ||
-    '';
-  const directUrl =
-    toTrimmedString(carry?.pdp_url) ||
-    toTrimmedString(carry?.url) ||
-    toTrimmedString(carry?.product_url) ||
-    toTrimmedString(product?.pdp_url) ||
-    toTrimmedString(product?.pdpUrl) ||
-    toTrimmedString(product?.url) ||
-    toTrimmedString(product?.product_url) ||
-    toTrimmedString(product?.productUrl) ||
-    '';
-  if (!title && !brand && !productId && !directUrl) return null;
-
-  const nextSku: Record<string, unknown> = {
-    ...(productId ? { product_id: productId } : {}),
-    ...(merchantId ? { merchant_id: merchantId } : {}),
-    ...(brand ? { brand } : {}),
-    ...(title ? { name: title, title, display_name: title } : {}),
-    ...(categoryPath.length ? { category_path: categoryPath } : {}),
-    ...(directUrl ? { url: directUrl, pdp_url: directUrl } : {}),
-  };
-  const category =
-    toTrimmedString(carry?.category) ||
-    toTrimmedString(carry?.category_name) ||
-    toTrimmedString(product?.category) ||
-    toTrimmedString(product?.category_name) ||
-    toTrimmedString(product?.categoryName) ||
-    categoryTail ||
-    '';
-  if (category) {
-    nextSku.category = category;
-  }
-
-  return {
-    ...(carry || {}),
-    ...(productId ? { product_id: productId } : {}),
-    ...(merchantId ? { merchant_id: merchantId } : {}),
-    ...(brand ? { brand } : {}),
-    ...(title ? { name: title, title, display_name: title, displayName: title } : {}),
-    ...(category ? { category, category_name: category } : {}),
-    ...(categoryPath.length ? { category_path: categoryPath } : {}),
-    ...(directUrl ? { pdp_url: directUrl, url: directUrl, product_url: directUrl } : {}),
-    sku: nextSku,
-    metadata: {
-      ...(asObject((carry as any)?.metadata) || {}),
-      pdp_contract_repaired: true,
-      pdp_contract_source: 'get_pdp_v2',
-    },
-  };
-};
-
-const normalizeRecoItemForRender = (value: unknown): RecoItem | null => {
-  const base = asObject(value);
-  if (!base) return null;
-
-  const recoveredBase = recoverRecoItemFromRawPdpResponse(base);
-  const withBaseRepair = recoveredBase || base;
-  const productNode = asObject((withBaseRepair as any).product) || asObject((withBaseRepair as any).sku);
-  const recoveredProduct = recoverRecoItemFromRawPdpResponse(productNode, withBaseRepair);
-  const next = recoveredProduct || withBaseRepair;
-
-  if (isRawPdpResponseLike(next)) return null;
-  if (isRawPdpResponseLike((next as any).product) || isRawPdpResponseLike((next as any).sku)) return null;
-
-  const sku = asObject((next as any).sku) || asObject((next as any).product);
-  const label =
-    toTrimmedString((next as any).name) ||
-    toTrimmedString((next as any).title) ||
-    toTrimmedString((next as any).display_name) ||
-    toTrimmedString((next as any).displayName) ||
-    toTrimmedString(sku?.name) ||
-    toTrimmedString((sku as any)?.title) ||
-    toTrimmedString((sku as any)?.display_name) ||
-    toTrimmedString((sku as any)?.displayName) ||
-    '';
-  const openSignal =
-    toTrimmedString((next as any).url) ||
-    toTrimmedString((next as any).pdp_url) ||
-    toTrimmedString((next as any).product_url) ||
-    toTrimmedString((next as any)?.canonical_product_ref?.product_id) ||
-    toTrimmedString((sku as any)?.product_id) ||
-    '';
-  if (!label && !openSignal) return null;
-  return next as RecoItem;
-};
-
-const extractRecoItemIdentity = (value: unknown) => {
-  const row = asObject(value) || {};
-  const sku = asObject((row as any).sku) || asObject((row as any).product) || null;
-  const categoryPath = uniqueStrings([
-    ...asArray((row as any).category_path).map((item) => asString(item)),
-    ...asArray((sku as any)?.category_path).map((item) => asString(item)),
-  ]);
-  const categoryTail = categoryPath.length ? categoryPath[categoryPath.length - 1] : '';
-  const brand =
-    toTrimmedString((row as any).brand) ||
-    toTrimmedString((sku as any)?.brand) ||
-    toTrimmedString((sku as any)?.Brand) ||
-    '';
-  const name =
-    toTrimmedString((row as any).name) ||
-    toTrimmedString((row as any).title) ||
-    toTrimmedString((row as any).display_name) ||
-    toTrimmedString((row as any).displayName) ||
-    toTrimmedString((sku as any)?.name) ||
-    toTrimmedString((sku as any)?.title) ||
-    toTrimmedString((sku as any)?.display_name) ||
-    toTrimmedString((sku as any)?.displayName) ||
-    '';
-  const category =
-    toTrimmedString((row as any).category) ||
-    toTrimmedString((row as any).category_name) ||
-    toTrimmedString((row as any).categoryName) ||
-    toTrimmedString((sku as any)?.category) ||
-    toTrimmedString((sku as any)?.category_name) ||
-    toTrimmedString((sku as any)?.categoryName) ||
-    categoryTail ||
-    '';
-  const step =
-    toTrimmedString((row as any).step) ||
-    category ||
-    '';
-  return { row, sku, brand, name, category, step };
-};
-
-const deriveTravelRecoFallbackReasons = ({
-  item,
-  recommendationMeta,
-  language,
-}: {
-  item: RecoItem;
-  recommendationMeta: Record<string, unknown> | null;
-  language: 'EN' | 'CN';
-}): string[] => {
-  const sourceMode = toTrimmedString((recommendationMeta as any)?.source_mode).toLowerCase();
-  const triggerSource = toTrimmedString((recommendationMeta as any)?.trigger_source).toLowerCase();
-  const taskMode = toTrimmedString((recommendationMeta as any)?.task_mode).toLowerCase();
-  if (sourceMode !== 'travel_handoff' && triggerSource !== 'travel_handoff' && taskMode !== 'travel_readiness_products') {
-    return [];
-  }
-
-  const identity = extractRecoItemIdentity(item);
-  const signal = [
-    identity.step,
-    identity.category,
-    identity.name,
-    identity.brand,
-    toTrimmedString((item as any).slot),
-    ...asArray((item as any).tags).map((entry) => asString(entry)),
-  ]
-    .join(' ')
-    .toLowerCase();
-  const destination = toTrimmedString((recommendationMeta as any)?.destination);
-  const tripLabel = destination
-    ? language === 'CN'
-      ? `${destination} 这趟行程`
-      : `For ${destination}`
-    : language === 'CN'
-      ? '这趟行程'
-      : 'For this trip';
-
-  if (/(spf|sunscreen|sun screen|uv|防晒|晒后)/i.test(signal)) {
-    return [
-      language === 'CN'
-        ? `${tripLabel}里 UV 暴露是主风险，这个选择优先补足白天防护。`
-        : `${tripLabel}, UV exposure is the main daytime risk, so this keeps protection consistent.`,
-    ];
-  }
-  if (/(cleanser|face wash|wash|foam|micellar|洁面|洗面|清洁)/i.test(signal)) {
-    return [
-      language === 'CN'
-        ? `${tripLabel}更容易叠加汗水、防晒和潮湿闷感，这类洁面更适合晚间卸除残留。`
-        : `${tripLabel}, sweat, sunscreen, and humidity buildup make this useful for a cleaner PM reset.`,
-    ];
-  }
-  if (/(barrier|repair|moistur|cream|lotion|balm|hydrat|soothing|修护|屏障|保湿|面霜|乳液|舒缓)/i.test(signal)) {
-    return [
-      language === 'CN'
-        ? `${tripLabel}会叠加空调和环境切换，这类修护保湿更适合稳住屏障和干燥紧绷。`
-        : `${tripLabel}, air-conditioning and climate shifts can stress the barrier, so this supports hydration and recovery.`,
-    ];
-  }
-  if (/(mask|mist|喷雾|面膜)/i.test(signal)) {
-    return [
-      language === 'CN'
-        ? `${tripLabel}里它更适合作为临时补水和舒缓恢复步骤。`
-        : `${tripLabel}, this works as an easy hydration and recovery step when skin feels depleted.`,
-    ];
-  }
-  return [];
-};
-
-const collectRecoReasonLines = ({
-  item,
-  recommendationMeta,
-  language,
-}: {
-  item: RecoItem;
-  recommendationMeta: Record<string, unknown> | null;
-  language: 'EN' | 'CN';
-}): string[] => {
-  const row = asObject(item) || {};
-  const whyCandidate = asObject((row as any).why_candidate || (row as any).whyCandidate) || null;
-  const evidencePack = asObject((row as any).evidence_pack) || asObject((row as any).evidencePack) || null;
-  const explicitReasons = uniqueStrings([
-    ...asArray((row as any).reasons).map((entry) => asString(entry)),
-    ...asArray((row as any).notes).map((entry) => asString(entry)),
-    ...asArray((row as any).why).map((entry) => asString(entry)),
-    asString((row as any).reason),
-    typeof (row as any).why === 'string' ? asString((row as any).why) : '',
-    ...asArray((row as any).compare_highlights || (row as any).compareHighlights).map((entry) => asString(entry)),
-    ...(whyCandidate
-      ? [
-          asString((whyCandidate as any).summary),
-          ...asArray((whyCandidate as any).reasons_user_visible || (whyCandidate as any).reasonsUserVisible).map((entry) => asString(entry)),
-          ...asArray((whyCandidate as any).reasons).map((entry) => asString(entry)),
-        ]
-      : []),
-    ...(evidencePack
-      ? [
-          asString((evidencePack as any).summary),
-          ...asArray((evidencePack as any).comparisonNotes ?? (evidencePack as any).comparison_notes).map((entry) => asString(entry)),
-        ]
-      : []),
-  ])
-    .map((entry) => stripInternalKbRefsFromText(entry).trim())
-    .filter(Boolean)
-    .slice(0, 4);
-
-  if (explicitReasons.length) return explicitReasons;
-  return deriveTravelRecoFallbackReasons({ item, recommendationMeta, language });
-};
-
-type LazyRecoAlternativesLoadResult = {
-  ok?: boolean;
-  alternatives: Array<Record<string, unknown>>;
-  noResultReason?: string | null;
-  alternativesCandidateCount?: number;
-  alternativesSelectedCount?: number;
-  requestId?: string | null;
-  traceId?: string | null;
-  llmTrace?: Record<string, unknown> | null;
-  sourceMode?: string | null;
-  failureClass?: string | null;
-  fallbackSource?: string | null;
-  refreshPending?: boolean;
-  refreshAfterMs?: number;
-  attemptCount?: number;
-  circuitState?: string | null;
-  upstreamRequestId?: string | null;
-};
-
 export function RecommendationsCard({
   card,
   language,
   debug,
-  onAction,
   resolveOffers,
   resolveProductRef,
   resolveProductsSearch,
@@ -2422,7 +1779,6 @@ export function RecommendationsCard({
   card: Card;
   language: 'EN' | 'CN';
   debug: boolean;
-  onAction?: (actionId: string, data?: Record<string, any>) => void;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
   resolveProductRef?: (args: {
     query: string;
@@ -2446,8 +1802,7 @@ export function RecommendationsCard({
     anchorProductId?: string | null;
     productInput?: string | null;
     product?: Record<string, unknown> | null;
-    ingredientContext?: Record<string, unknown> | null;
-  }) => Promise<LazyRecoAlternativesLoadResult | null>;
+  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
 }) {
   type PdpOpenState = 'idle' | 'resolving' | 'opening_internal' | 'opening_external' | 'done' | 'error';
   type PdpOpenPath = 'group' | 'ref' | 'resolve' | 'external';
@@ -2480,19 +1835,7 @@ export function RecommendationsCard({
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
   const payload = asObject(card.payload) || {};
-  const payloadIngredientContext =
-    asObject((payload as any).ingredient_context) ||
-    asObject((payload as any).recommendation_meta?.ingredient_context) ||
-    null;
-  const rawItems = asArray(payload.recommendations) as RecoItem[];
-  const items = rawItems
-    .map((item) => normalizeRecoItemForRender(item))
-    .filter(Boolean) as RecoItem[];
-  const droppedMalformedRecoCount = Math.max(0, rawItems.length - items.length);
-  const externalDiscoveryCtas = asArray((payload as any).external_search_ctas).filter(
-    (cta): cta is { title: string; url: string; source?: string; reason?: string } =>
-      Boolean(cta && typeof cta === 'object' && (cta as any).url && (cta as any).title),
-  ).slice(0, 6);
+  const items = asArray(payload.recommendations) as RecoItem[];
   const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
   const hasMissingAlternatives =
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
@@ -2781,18 +2124,7 @@ export function RecommendationsCard({
               const resp = await resolveProductRef({
                 query: resolveQuery,
                 lang: language === 'CN' ? 'cn' : 'en',
-                ...(card.hints
-                  ? {
-                      hints: {
-                        ...card.hints,
-                        interaction_action: 'view_details',
-                      },
-                    }
-                  : {
-                      hints: {
-                        interaction_action: 'view_details',
-                      },
-                    }),
+                ...(card.hints ? { hints: card.hints } : {}),
                 signal: controller.signal,
               });
               const strictTarget = extractStablePdpTargetFromProductsResolveResponse(resp);
@@ -2948,8 +2280,7 @@ export function RecommendationsCard({
   };
 
   const renderStep = (item: RecoItem, idx: number) => {
-    const identity = extractRecoItemIdentity(item);
-    const sku = identity.sku;
+    const sku = asObject(item.sku) || asObject(item.product) || null;
     const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
     const skuRef = asObject((sku as any)?.product_ref) || asObject((sku as any)?.productRef) || null;
     const itemCanonicalTop =
@@ -2978,8 +2309,14 @@ export function RecommendationsCard({
       asString((sku as any)?.product_group_id) ||
       asString((sku as any)?.productGroupId) ||
       null;
-    const brand = identity.brand || null;
-    const name = identity.name || null;
+    const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
+    const nameFromName = asString(sku?.name) || asString((sku as any)?.Name) || null;
+    const nameFromDisplay = asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
+    const name =
+      (nameFromName && !looksLikeOpaqueId(nameFromName) ? nameFromName : null) ||
+      nameFromDisplay ||
+      nameFromName ||
+      null;
     const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
     const canonicalProductId =
       asString((itemCanonicalRef as any)?.product_id) ||
@@ -3085,12 +2422,8 @@ export function RecommendationsCard({
       (q ? `q:${q}` : null) ||
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
     const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
-    const step = identity.step || (language === 'CN' ? '步骤' : 'Step');
+    const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
-    const reasonLines = collectRecoReasonLines({ item, recommendationMeta, language });
-    const supportingNotes = uniqueStrings(
-      notes.filter((note) => !reasonLines.some((reason) => reason.toLowerCase() === note.toLowerCase())),
-    );
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
     const keyActives = asArray(evidencePack?.keyActives ?? evidencePack?.key_actives)
@@ -3138,6 +2471,17 @@ export function RecommendationsCard({
         .slice(0, 8);
 
       const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
+      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
+        candidate: {
+          name: text,
+          display_name: text,
+          why_candidate: { summary: text },
+          tradeoff_notes: [text],
+        },
+        block: 'related_products',
+        rank: rank + 1,
+        intent: 'pair',
+      }));
 
       const tracks: ProductAlternativeTrack[] = [];
       if (replaceItems.length) {
@@ -3149,13 +2493,12 @@ export function RecommendationsCard({
           filteredCount: 0,
         });
       }
-      if (pairNotes.length) {
+      if (pairItems.length) {
         tracks.push({
           key: 'pair',
           title: language === 'CN' ? '搭配与组合建议' : 'Pairing suggestions',
           subtitle: language === 'CN' ? '可叠加或互补使用的建议' : 'Items/steps that pair or complement this choice',
-          items: [],
-          notes: pairNotes,
+          items: pairItems,
           filteredCount: 0,
         });
       }
@@ -3163,112 +2506,13 @@ export function RecommendationsCard({
     };
 
     const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
-    const buildAlternativesEmptyTrack = (reasonCode: string | null): ProductAlternativeTrack[] => {
-      const reasonText = reasonCode
-        ? (language === 'CN'
-            ? `当前没有可用候选（${reasonCode}）。`
-            : `No available alternatives right now (${reasonCode}).`)
-        : (language === 'CN' ? '当前暂无可用替代候选。' : 'No available alternatives right now.');
-      return [
-        {
-          key: 'empty',
-          title: language === 'CN' ? '暂无替代候选' : 'No alternatives yet',
-          subtitle: language === 'CN' ? '你仍可继续查看详情或稍后重试' : 'You can still view details or retry shortly',
-          items: [],
-          notes: [reasonText],
-          noResultReason: reasonCode || null,
-          filteredCount: 0,
-        },
-      ];
-    };
     const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
     const alternativesBusyKey = anchorId || `q:${(resolveQuery || q || '').slice(0, 180)}`;
     const isLazyAlternativesBusy = lazyAlternativesBusyKey === alternativesBusyKey;
     const canLoadAlternatives = Boolean(loadAlternativesForItem) && Boolean(anchorId || resolveQuery || q);
     const canOpenSheet = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
     const canOpenPdp = Boolean(anchorId);
-    const canOpenDetails = canOpenPdp;
-
-    const openAlternatives = () => {
-      if (!canOpenSheet || !onOpenAlternativesSheet) return;
-      if (detailsTracks.length > 0) {
-        onOpenAlternativesSheet(detailsTracks);
-        return;
-      }
-      if (!(loadAlternativesForItem && canLoadAlternatives)) return;
-      setLazyAlternativesBusyKey(alternativesBusyKey);
-      const lazyArgs = {
-        anchorProductId: anchorProductIdForAlternatives,
-        productInput: resolveQuery || q || null,
-        product: asObject(item),
-        ingredientContext: payloadIngredientContext,
-      };
-      void loadAlternativesForItem(lazyArgs)
-        .then((resp) => {
-          if (resp && resp.ok === false) {
-            const failureClass = asString(resp.failureClass);
-            toast({
-              title: language === 'CN' ? '暂无可用替代结果' : 'Alternatives are unavailable right now',
-              description:
-                language === 'CN'
-                  ? `模型本轮未返回可用 alternatives（${failureClass || 'unknown'}）。请稍后重试。`
-                  : `Model did not return usable alternatives in this attempt (${failureClass || 'unknown'}). Please retry shortly.`,
-            });
-            return;
-          }
-          const remoteAlternatives = asArray(resp && resp.alternatives)
-            .map((row) => asObject(row))
-            .filter(Boolean) as Array<Record<string, unknown>>;
-          const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
-          if (tracks.length) {
-            onOpenAlternativesSheet(tracks);
-            if (resp?.sourceMode === 'local_fallback' && resp?.refreshPending) {
-              toast({
-                title: language === 'CN' ? '先展示快速候选，正在增强结果' : 'Showing quick candidates, refining in background',
-                description:
-                  language === 'CN'
-                    ? '当前先返回可用对比项，系统会在后台刷新更完整的 alternatives。'
-                    : 'Fast fallback alternatives are shown first. A richer LLM result is being refreshed.',
-              });
-            }
-            if (resp?.refreshPending && loadAlternativesForItem) {
-              const delayMs = Number.isFinite(Number(resp?.refreshAfterMs))
-                ? Math.max(300, Math.min(6000, Number(resp?.refreshAfterMs)))
-                : 1200;
-              window.setTimeout(() => {
-                void loadAlternativesForItem(lazyArgs).then((refreshResp) => {
-                  const refreshedAlternatives = asArray(refreshResp && refreshResp.alternatives)
-                    .map((row) => asObject(row))
-                    .filter(Boolean) as Array<Record<string, unknown>>;
-                  const refreshedTracks = buildStepAlternativesSheetTracks(
-                    refreshedAlternatives,
-                    pairingRules,
-                    comparisonNotes,
-                  );
-                  if (refreshedTracks.length) {
-                    onOpenAlternativesSheet(refreshedTracks);
-                  }
-                });
-              }, delayMs);
-            }
-            return;
-          }
-          const emptyTracks = buildAlternativesEmptyTrack(asString(resp?.noResultReason));
-          onOpenAlternativesSheet(emptyTracks);
-        })
-        .catch(() => {
-          toast({
-            title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
-            description:
-              language === 'CN'
-                ? '请稍后重试，当前推荐卡已可继续使用。'
-                : 'Please retry shortly. Current recommendation cards are still usable.',
-          });
-        })
-        .finally(() => {
-          setLazyAlternativesBusyKey((prev) => (prev === alternativesBusyKey ? null : prev));
-        });
-    };
+    const canOpenDetails = canOpenPdp || canOpenSheet;
 
     return (
       <div key={`${step}_${idx}`} className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm">
@@ -3290,8 +2534,49 @@ export function RecommendationsCard({
             <button
               type="button"
               className="chip-button text-[11px]"
-              disabled={isResolving || !canOpenDetails}
+              disabled={isResolving || isLazyAlternativesBusy || !canOpenDetails}
               onClick={() => {
+                if (canOpenSheet && onOpenAlternativesSheet) {
+                  if (detailsTracks.length > 0) {
+                    onOpenAlternativesSheet(detailsTracks);
+                  } else if (loadAlternativesForItem && canLoadAlternatives) {
+                    setLazyAlternativesBusyKey(alternativesBusyKey);
+                    void loadAlternativesForItem({
+                      anchorProductId: anchorProductIdForAlternatives,
+                      productInput: resolveQuery || q || null,
+                      product: asObject(item),
+                    })
+                      .then((resp) => {
+                        const remoteAlternatives = asArray(resp && resp.alternatives)
+                          .map((row) => asObject(row))
+                          .filter(Boolean) as Array<Record<string, unknown>>;
+                        const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
+                        if (tracks.length) {
+                          onOpenAlternativesSheet(tracks);
+                        } else {
+                          toast({
+                            title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
+                            description:
+                              language === 'CN'
+                                ? '已保留当前推荐结果，稍后可重试查看更多对比和搭配建议。'
+                                : 'Current recommendations are kept. Retry later for more alternatives and pairing ideas.',
+                          });
+                        }
+                      })
+                      .catch(() => {
+                        toast({
+                          title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
+                          description:
+                            language === 'CN'
+                              ? '请稍后重试，当前推荐卡已可继续使用。'
+                              : 'Please retry shortly. Current recommendation cards are still usable.',
+                        });
+                      })
+                      .finally(() => {
+                        setLazyAlternativesBusyKey((prev) => (prev === alternativesBusyKey ? null : prev));
+                      });
+                  }
+                }
                 if (canOpenPdp && anchorId) {
                   void openPdpFromCard({
                     anchor_key: anchorId,
@@ -3312,32 +2597,8 @@ export function RecommendationsCard({
                 <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span>
               ) : null}
             </button>
-            <button
-              type="button"
-              className="chip-button text-[11px]"
-              disabled={isLazyAlternativesBusy || !canOpenSheet}
-              onClick={openAlternatives}
-            >
-              {language === 'CN' ? '看替代项' : 'See alternatives'}
-              {isLazyAlternativesBusy ? (
-                <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span>
-              ) : null}
-            </button>
           </div>
         </div>
-
-        {reasonLines.length ? (
-          <div className="mt-2 rounded-xl border border-primary/15 bg-primary/5 p-3">
-            <div className="text-[11px] font-semibold text-foreground">
-              {language === 'CN' ? '推荐理由' : 'Why this fits'}
-            </div>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-foreground/85">
-              {reasonLines.slice(0, 3).map((reason) => (
-                <li key={reason}>{reason}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
 
         {keyActives.length ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -3352,9 +2613,9 @@ export function RecommendationsCard({
           </div>
         ) : null}
 
-        {supportingNotes.length ? (
+        {notes.length ? (
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-            {supportingNotes.slice(0, 3).map((n) => (
+            {notes.slice(0, 3).map((n) => (
               <li key={n}>{n}</li>
             ))}
           </ul>
@@ -3717,39 +2978,20 @@ export function RecommendationsCard({
     'recent_logs_missing',
     'itinerary_unknown',
     'analysis_missing',
-    'upstream_analysis_missing',
     'evidence_missing',
     'upstream_missing_or_unstructured',
     'upstream_missing_or_empty',
     'alternatives_partial',
   ]);
-  const internalOnlyWarningCodes = new Set([
-    'analysis_missing',
-    'upstream_analysis_missing',
-    'recent_logs_missing',
-    'itinerary_unknown',
-    'evidence_missing',
-    'upstream_missing_or_unstructured',
-    'upstream_missing_or_empty',
-  ]);
 
   const rawMissing = uniqueStrings(
     Array.isArray(payload.missing_info) && payload.missing_info.length ? (payload.missing_info as unknown[]) : [],
   );
-  const rawWarningsLegacy = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
-  const rawWarningsUserVisible = uniqueStrings((payload as any)?.warning_codes_user_visible);
-  const rawWarningsInternal = uniqueStrings((payload as any)?.warning_codes_internal);
-  const resolvedWarnings = rawWarningsUserVisible.length
-    ? rawWarningsUserVisible
-    : uniqueStrings(rawWarningsLegacy.filter((code) => !internalOnlyWarningCodes.has(String(code || '').trim())));
+  const rawWarnings = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
 
   const warningCandidates = debug
-    ? uniqueStrings([
-      ...resolvedWarnings,
-      ...rawWarningsInternal,
-      ...rawMissing.filter((c) => warningLike.has(String(c))),
-    ])
-    : resolvedWarnings;
+    ? uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))])
+    : uniqueStrings(rawWarnings);
   const showWarnings = warningCandidates.slice(0, 6);
   const suppressWhenRecoPresent = new Set([
     'analysis_missing',
@@ -3771,22 +3013,14 @@ export function RecommendationsCard({
     .filter(Boolean)
     .join(' · ');
   const recommendationMeta = asObject((payload as any).recommendation_meta);
-  const recommendationTriggerSource = (asString((recommendationMeta as any)?.trigger_source) || '').toLowerCase();
-  const recommendationRecomputeFromProfileUpdate =
-    (recommendationMeta as any)?.recompute_from_profile_update === true ||
-    (recommendationMeta as any)?.recomputeFromProfileUpdate === true;
   const recommendationBasis = (() => {
     if (!recommendationMeta) return null;
-    const source = (asString((recommendationMeta as any).source_mode) || '').toLowerCase();
+    const source = asString((recommendationMeta as any).source_mode).toLowerCase();
     const sourceLabel =
       source === 'llm_primary'
         ? language === 'CN'
           ? 'LLM 主推荐'
           : 'LLM primary'
-        : source === 'travel_handoff'
-        ? language === 'CN'
-          ? '旅行上下文推荐'
-          : 'travel handoff'
         : source === 'artifact_matcher'
         ? language === 'CN'
           ? '结构化诊断匹配'
@@ -3808,7 +3042,7 @@ export function RecommendationsCard({
     if ((recommendationMeta as any).used_safety_flags === true) {
       flags.push(language === 'CN' ? '安全约束' : 'safety constraints');
     }
-    const envSource = (asString((recommendationMeta as any).env_source) || '').toLowerCase();
+    const envSource = asString((recommendationMeta as any).env_source).toLowerCase();
     const envLabel =
       envSource === 'weather_api'
         ? language === 'CN'
@@ -3840,19 +3074,6 @@ export function RecommendationsCard({
       ? `本次依据：${contextText} · 路径：${sourceLabel}${extrasText}`
       : `Based on: ${contextText} · Path: ${sourceLabel}${extrasText}`;
   })();
-  const recommendationTailHint = recommendationMeta
-    ? recommendationRecomputeFromProfileUpdate
-      ? language === 'CN'
-        ? '已按你最新补充的信息自动重算本轮推荐。'
-        : 'Recommendations were automatically re-computed from your latest profile update.'
-      : recommendationTriggerSource === 'ingredient_driven'
-        ? language === 'CN'
-          ? '你可以继续补充肤质/敏感度/当前 routine，我会自动优化下一轮推荐。'
-          : 'Add skin type/sensitivity/current routine to automatically improve the next recommendation round.'
-        : language === 'CN'
-          ? '可继续补充 profile/routine，系统会自动优化下一轮推荐。'
-          : 'You can add profile/routine details and the system will auto-optimize the next recommendation round.'
-    : null;
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
     if (!list.length) return null;
@@ -3878,10 +3099,10 @@ export function RecommendationsCard({
   const toRoutineSteps = (list: RecoItem[]) =>
     list
       .map((item, idx) => {
-        const identity = extractRecoItemIdentity(item);
-        const brand = identity.brand;
-        const name = identity.name;
-        const step = identity.step || identity.category || '';
+        const sku = asObject(item.sku) || asObject(item.product) || null;
+        const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || '';
+        const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || '';
+        const step = asString(item.step) || asString(item.category) || '';
         const typeRaw =
           (asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
         const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
@@ -3899,12 +3120,8 @@ export function RecommendationsCard({
 
   const amSteps = toRoutineSteps(groups.am);
   const pmSteps = toRoutineSteps(groups.pm);
-
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
   const unexpectedEmptyRecommendations = items.length === 0 && ingredientRenderMode === 'show_products';
-  const recoContractFailure =
-    droppedMalformedRecoCount > 0 ||
-    toTrimmedString((payload as any).products_empty_reason) === 'reco_contract_invalid';
   const emptyRecommendationsViolationRef = useRef(false);
 
   useEffect(() => {
@@ -3930,7 +3147,7 @@ export function RecommendationsCard({
     const emptyActions = asArray((payload as any).empty_match_actions);
     const ingredientQuery = asString(
       (payload as any)?.ingredient_evidence?.query ??
-      payloadIngredientContext?.query ??
+      (payload as any)?.ingredient_context?.query ??
       (payload as any)?.recommendation_meta?.ingredient_query,
     ) || '';
     return (
@@ -3986,41 +3203,15 @@ export function RecommendationsCard({
     return (
       <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
         <div className="text-sm font-medium text-foreground">
-          {recoContractFailure
-            ? (language === 'CN'
-              ? '这轮推荐结果结构异常，已拦截损坏的商品数据。'
-              : 'This recommendation payload was malformed, so broken product rows were blocked.')
-            : (language === 'CN'
-              ? '这轮推荐还没有形成可展示的产品清单。'
-              : 'This recommendation round did not produce a displayable product shortlist yet.')}
+          {language === 'CN'
+            ? '这轮推荐还没有形成可展示的产品清单。'
+            : 'This recommendation round did not produce a displayable product shortlist yet.'}
         </div>
         <div className="text-xs text-muted-foreground">
-          {recoContractFailure
-            ? (language === 'CN'
-              ? '请重试一次推荐；前端不会展示原始 JSON 或 unknown.response。'
-              : 'Retry this recommendation round. Raw JSON and unknown.response rows are suppressed.')
-            : (language === 'CN'
-              ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
-              : 'Retry shortly, or add your current routine / skin context before trying again.')}
+          {language === 'CN'
+            ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
+            : 'Retry shortly, or add your current routine / skin context before trying again.'}
         </div>
-        {recoContractFailure && onAction ? (
-          <div className="pt-1">
-            <button
-              type="button"
-              className="chip-button text-[11px]"
-              onClick={() =>
-                onAction('chip.start.reco_products', {
-                  reply_text: language === 'CN' ? '重新获取产品推荐' : 'Retry product recommendations',
-                  force_route: 'reco_products',
-                  trigger_source: 'reco_contract_retry',
-                  source_card_type: 'recommendations',
-                })
-              }
-            >
-              {language === 'CN' ? '重试推荐' : 'Retry recommendations'}
-            </button>
-          </div>
-        ) : null}
       </div>
     );
   }
@@ -4036,11 +3227,6 @@ export function RecommendationsCard({
       {recommendationBasis ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           {recommendationBasis}
-        </div>
-      ) : null}
-      {recommendationTailHint ? (
-        <div className="rounded-2xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
-          {recommendationTailHint}
         </div>
       ) : null}
 
@@ -4098,44 +3284,6 @@ export function RecommendationsCard({
         </div>
       ) : null}
 
-      {externalDiscoveryCtas.length > 0 ? (
-        <div className="rounded-2xl border border-border/60 bg-muted/30 p-3 space-y-2">
-          <div className="text-xs font-semibold text-muted-foreground">
-            {language === 'CN'
-              ? items.length > 0
-                ? '以下产品可在品牌官网或搜索中查看（非 Pivota 直购）'
-                : '已根据成分分析找到相关产品，可前往品牌官网或搜索了解'
-              : items.length > 0
-                ? 'Also available directly from brand or search (not via Pivota)'
-                : 'Products matched by ingredient analysis — visit brand site or search to explore'}
-          </div>
-          <div className="flex flex-col gap-2">
-            {externalDiscoveryCtas.map((cta, idx) => (
-              <button
-                key={`discovery_cta_${idx}`}
-                type="button"
-                className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/80 px-3 py-2 text-sm text-left hover:bg-muted/60 transition-colors"
-                onClick={() => {
-                  try {
-                    window.open(cta.url, '_blank', 'noopener,noreferrer');
-                  } catch {
-                    // Ignore popup-blocked errors for external discovery CTA clicks.
-                  }
-                }}
-              >
-                <span className="flex-1 min-w-0">
-                  <span className="block font-medium truncate">{cta.title}</span>
-                  {cta.source && cta.source !== 'external' ? (
-                    <span className="block text-xs text-muted-foreground truncate">{cta.source}</span>
-                  ) : null}
-                </span>
-                <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       {displayWarnings.length && (debug || warningLabels) ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           {language === 'CN' ? '提示：' : 'Note: '}
@@ -4148,7 +3296,6 @@ export function RecommendationsCard({
 
 function BffCardView({
   card,
-  turnCards,
   language,
   debug,
   meta,
@@ -4171,10 +3318,8 @@ function BffCardView({
   analyticsCtx,
   analysisPhotoRefs,
   sessionPhotos,
-  onTravelProductLookup,
 }: {
   card: Card;
-  turnCards?: Card[];
   language: UiLanguage;
   debug: boolean;
   meta?: Pick<V1Envelope, 'request_id' | 'trace_id' | 'events'>;
@@ -4209,22 +3354,15 @@ function BffCardView({
     anchorProductId?: string | null;
     productInput?: string | null;
     product?: Record<string, unknown> | null;
-    ingredientContext?: Record<string, unknown> | null;
-  }) => Promise<LazyRecoAlternativesLoadResult | null>;
+  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
   analyticsCtx?: AnalyticsContext;
   analysisPhotoRefs?: AnalysisPhotoRef[];
   sessionPhotos?: Session['photos'];
-  onTravelProductLookup?: (query: TravelProductLookupQuery) => void;
 }) {
   const cardType = String(card.type || '').toLowerCase();
 
   const payloadObj = asObject(card.payload);
   const payload = payloadObj ?? (card.payload as any);
-  const payloadIngredientContext =
-    asObject((payload as any)?.ingredient_context) ||
-    asObject((payload as any)?.recommendation_meta?.ingredient_context) ||
-    null;
-  const ingredientRenderMode = deriveIngredientRenderMode(asObject(payload));
   const [feedbackBusyByKey, setFeedbackBusyByKey] = useState<Record<string, boolean>>({});
   const [feedbackSavedByKey, setFeedbackSavedByKey] = useState<Record<string, RecoEmployeeFeedbackType>>({});
   const [feedbackErrorByKey, setFeedbackErrorByKey] = useState<Record<string, string>>({});
@@ -4323,7 +3461,21 @@ function BffCardView({
         nextQuestionBusy={Boolean(ingredientQuestionBusy)}
         onSelectNextQuestion={onIngredientQuestionSelect}
         onOpenProfile={onOpenProfile}
-        onAction={onAction}
+        onPollResearch={(query) =>
+          onAction('ingredient.research.poll', {
+            action_id: 'ingredient.research.poll',
+            ingredient_query: query,
+            normalized_query: query,
+            entry_source: 'ingredient_report_card',
+          })
+        }
+        onRetryResearch={(query) =>
+          onAction('ingredient.lookup', {
+            action_id: 'ingredient.lookup',
+            ingredient_query: query,
+            entry_source: 'ingredient_report_card_retry',
+          })
+        }
       />
     );
   }
@@ -4391,8 +3543,6 @@ function BffCardView({
                   ? '请给我完整护肤产品推荐。'
                   : 'Show full skincare product recommendations.',
               force_route: 'reco_products',
-              trigger_source: 'travel_handoff',
-              source_card_type: 'travel',
             })
           }
           onRefineRoutine={() =>
@@ -4403,7 +3553,6 @@ function BffCardView({
                   : 'Refine recommendations with my AM/PM routine',
             })
           }
-          onProductLookup={onTravelProductLookup}
         />
       );
     }
@@ -4672,8 +3821,6 @@ function BffCardView({
                 ? '请给我完整护肤产品推荐。'
                 : 'Show full skincare product recommendations.',
             force_route: 'reco_products',
-            trigger_source: 'travel_handoff',
-            source_card_type: 'env_stress',
           })
         }
         onRefineRoutine={() =>
@@ -4684,7 +3831,6 @@ function BffCardView({
                 : 'Refine recommendations with my AM/PM routine',
           })
         }
-        onProductLookup={onTravelProductLookup}
       />
     );
   }
@@ -4714,7 +3860,6 @@ function BffCardView({
           sanitizer_drop_count: sanitizer_drops.length,
         });
       }
-      if (!debug) return null;
       return (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-muted-foreground">
           {language === 'CN'
@@ -4759,47 +3904,36 @@ function BffCardView({
     return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
   }
 
-  if (cardType === 'diagnosis_v2_login_prompt') {
-    return <DiagnosisV2LoginPromptCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
-  }
-
-  if (cardType === 'diagnosis_v2_intro') {
-    return <DiagnosisV2IntroCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
-  }
-
-  if (cardType === 'diagnosis_v2_photo_prompt') {
-    return <DiagnosisV2PhotoPromptCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
-  }
-
-  if (cardType === 'diagnosis_v2_thinking') {
-    const steps = Array.isArray((payload as any)?.steps) ? ((payload as any).steps as DiagnosisV2ThinkingStep[]) : [];
-    return <DiagnosisV2ThinkingCard steps={steps} language={language} />;
-  }
-
-  if (cardType === 'diagnosis_v2_result') {
-    return <DiagnosisV2ResultCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
-  }
-
   if (cardType === 'analysis_summary') {
     const analysisObj = asObject((payload as any).analysis) || {};
-    const analysis = analysisObj as any;
+    const featuresRaw = asArray((analysisObj as any).features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+    const features = featuresRaw
+      .map((f) => ({
+        observation: asString(f.observation) || '',
+        confidence: (asString(f.confidence) || 'somewhat_sure') as 'pretty_sure' | 'somewhat_sure' | 'not_sure',
+      }))
+      .filter((f) => Boolean(f.observation))
+      .slice(0, 8);
+    const analysis = {
+      features,
+      strategy: asString((analysisObj as any).strategy) || '',
+      needs_risk_check: (analysisObj as any).needs_risk_check === true,
+    };
 
     const analysisSource = asString((payload as any).analysis_source) || '';
     const photoQc = asArray((payload as any).photo_qc).map((v) => asString(v)).filter(Boolean) as string[];
     const lowConfidence = resolveAnalysisSummaryLowConfidence(payload as Record<string, unknown>, Array.isArray(card.field_missing) ? card.field_missing : []);
     const photosProvided = (payload as any).photos_provided === true;
-    const usedPhotos = (payload as any).used_photos === true;
 
     return (
       <AnalysisSummaryCard
         payload={{
-          analysis,
+          analysis: analysis as any,
           session,
           low_confidence: lowConfidence,
           photos_provided: photosProvided,
           photo_qc: photoQc,
           analysis_source: analysisSource,
-          used_photos: usedPhotos,
         }}
         onAction={(id, data) => onAction(id, data)}
         language={language}
@@ -4808,23 +3942,7 @@ function BffCardView({
   }
 
   if (cardType === 'analysis_story_v2') {
-    return (
-      <AnalysisStoryCard
-        payload={payload as Record<string, unknown>}
-        language={language}
-        onAction={(id, data) => onAction(id, data)}
-      />
-    );
-  }
-
-  if (cardType === 'routine_fit_summary') {
-    return (
-      <RoutineFitSummaryCard
-        payload={payload as Record<string, unknown>}
-        language={language}
-        onAction={(id, data) => onAction(id, data)}
-      />
-    );
+    return <AnalysisStoryCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
   if (cardType === 'routine_prompt') {
@@ -4858,11 +3976,62 @@ function BffCardView({
   }
 
   if (cardType === 'ingredient_plan') {
+    const planObj = asObject((payload as any).plan) ?? asObject(payload) ?? {};
+    const intensity = asString((planObj as any).intensity) || asString((payload as any).intensity) || 'balanced';
+    const targets = asArray((planObj as any).targets ?? (payload as any).targets)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const avoid = asArray((planObj as any).avoid ?? (payload as any).avoid)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const conflicts = asArray((planObj as any).conflicts ?? (payload as any).conflicts)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+
     return (
-      <IngredientPlanCardV1
-        payload={payload as Record<string, unknown>}
-        language={language}
-      />
+      <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+        <div className="text-xs font-semibold text-foreground">
+          {language === 'CN' ? `强度：${intensity}` : `Intensity: ${intensity}`}
+        </div>
+        {targets.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '推荐成分' : 'Target ingredients'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {targets.slice(0, 6).map((item, idx) => (
+                <li key={`target_${idx}`}>
+                  {asString((item as any).ingredient_id) || asString((item as any).ingredientId) || 'ingredient'}
+                  {Number.isFinite(Number((item as any).priority)) ? ` · P${Math.round(Number((item as any).priority))}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {avoid.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '需规避/谨慎' : 'Avoid / caution'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {avoid.slice(0, 6).map((item, idx) => (
+                <li key={`avoid_${idx}`}>
+                  {asString((item as any).ingredient_id) || 'ingredient'}
+                  {asString((item as any).severity) ? ` · ${asString((item as any).severity)}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {conflicts.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '冲突说明' : 'Conflicts'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {conflicts.slice(0, 4).map((item, idx) => (
+                <li key={`conflict_${idx}`}>
+                  {asString((item as any).description) || asString((item as any).message) || ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -4994,7 +4163,7 @@ function BffCardView({
     .map((item) => asObject(item))
     .filter(Boolean)
     .map((source) => ({
-      type: (asString((source as any)?.type) || '').toLowerCase(),
+      type: asString((source as any)?.type).toLowerCase(),
       url: asString((source as any)?.url),
       label: asString((source as any)?.label),
     }))
@@ -5045,13 +4214,8 @@ function BffCardView({
       };
     }
 
-    const severeRiskSignal = socialRisks.some((line) =>
-      /\b(severe|burn|swelling|allerg|anaphyl|rash|hives|breakout|barrier damage)\b|严重|灼烧|红肿|过敏|爆痘/i.test(String(line || '')),
-    );
-    const cautionByNegative = neg >= pos + 2;
-    const cautionByRisk = severeRiskSignal ? (risk >= 2 && neg >= 1) : (risk >= 4 && neg >= 2);
     const tone: 'positive' | 'mixed' | 'caution' =
-      pos >= neg + 2 ? 'positive' : cautionByNegative || cautionByRisk ? 'caution' : 'mixed';
+      pos >= neg + 2 ? 'positive' : neg >= pos + 2 || risk >= 2 ? 'caution' : 'mixed';
 
     const headline =
       language === 'CN'
@@ -5116,7 +4280,6 @@ function BffCardView({
           card={card}
           language={language}
           debug={debug}
-          onAction={onAction}
           resolveOffers={resolveOffers}
           resolveProductRef={resolveProductRef}
           resolveProductsSearch={resolveProductsSearch}
@@ -5237,7 +4400,7 @@ function BffCardView({
         const product = productRaw ? toUiProduct(productRaw, language) : null;
         const productOffers = productRaw ? toAnchorOffers(productRaw, language) : [];
         const confidence = asNumber((payload as any).confidence);
-        const parseSource = (asString((payload as any).parse_source || (payload as any).parseSource) || '').toLowerCase();
+        const parseSource = asString((payload as any).parse_source || (payload as any).parseSource).toLowerCase();
         const parseSourceLabel = (() => {
           if (!parseSource || parseSource === 'none') return '';
           const labels: Record<string, { CN: string; EN: string }> = {
@@ -5351,29 +4514,11 @@ function BffCardView({
         const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
 
         // ─── V4 payload fields ────────────────────────────────────────────────
+        // Detect V4 by presence of verdict_level field
         const verdictLevel = asString((assessment as any)?.verdict_level) || null;
         const isV4Payload = Boolean(verdictLevel);
-        const isDataQualityNarrativeLine = (line: string) =>
-          /official[-\s]?page inci extraction was blocked|incidecoder|regulatory source|retail pdp|cross-?check with package inci|version verification|ingredient-source consistency is limited|官网成分抓取受限|监管源|零售页补充|需与包装\s*inci\s*复核|版本核对|成分证据一致度偏低/i
-            .test(String(line || '').trim());
-        const isLikelyInvalidIngredientTokenV4 = (raw: string) => {
-          const token = String(raw || '').trim();
-          if (!token) return true;
-          if (/^key ingredients?[:\s]?/i.test(token)) return true;
-          if (/^active ingredients?[:\s]?/i.test(token)) return true;
-          if (/^other ingredients?[:\s]?/i.test(token)) return true;
-          if (/^ingredients?[:\s]?/i.test(token)) return true;
-          if (/^full ingredients?[:\s]?/i.test(token)) return true;
-          if (/^inactive ingredients?[:\s]?/i.test(token)) return true;
-          if (/[:：]$/.test(token)) return true;
-          return false;
-        };
         const dataQualityBanner = asString((assessment as any)?.data_quality_banner) || null;
-        const v4TopTakeaways = isV4Payload
-          ? uniqueStrings(asArray((assessment as any)?.top_takeaways))
-              .filter((line) => !isDataQualityNarrativeLine(String(line || '')))
-              .slice(0, 5)
-          : [];
+        const v4TopTakeaways = isV4Payload ? uniqueStrings(asArray((assessment as any)?.top_takeaways)).slice(0, 5) : [];
         const v4BestFor = isV4Payload ? uniqueStrings(asArray((assessment as any)?.best_for)).slice(0, 5) : [];
         const v4WatchoutsRaw = isV4Payload ? asArray((assessment as any)?.watchouts) : [];
         const v4Watchouts = v4WatchoutsRaw
@@ -5390,8 +4535,6 @@ function BffCardView({
               what_to_do: whatToDo,
             };
           })
-          .filter((item) => item && !/^(fit signal|匹配点|适配信号)[:：]?/i.test(String(item.issue || '').trim()))
-          .filter((item) => item && !isDataQualityNarrativeLine(String(item.issue || '')))
           .filter(Boolean) as Array<{ issue: string; status: string; what_to_do: string }>;
         const v4HowToUse = isV4Payload
           ? (() => {
@@ -5415,9 +4558,7 @@ function BffCardView({
                 const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
                 if (!o) return null;
                 const fn = asString(o.function);
-                const ingredients = uniqueStrings(asArray(o.ingredients))
-                  .filter((name) => !isLikelyInvalidIngredientTokenV4(String(name || '')))
-                  .slice(0, 8);
+                const ingredients = uniqueStrings(asArray(o.ingredients)).filter(Boolean).slice(0, 8);
                 const confidence = asString(o.confidence);
                 if (!fn || !ingredients.length) return null;
                 return { function: fn, ingredients, confidence };
@@ -5430,6 +4571,7 @@ function BffCardView({
           : null;
         const inciConsensusTier = asString(inciStatus?.consensus_tier) || null;
 
+        // Verdict-level color coding (V4)
         const verdictLevelStyle = (() => {
           if (!verdictLevel) return null;
           const vl = verdictLevel.toLowerCase();
@@ -5461,7 +4603,6 @@ function BffCardView({
           return '○';
         };
         // ─────────────────────────────────────────────────────────────────────
-
         const profilePromptRaw = asObject((payload as any).profile_prompt || (payload as any).profilePrompt) || null;
         const competitorsObj = asObject((payload as any).competitors) || null;
         const relatedProductsObj = asObject((payload as any).related_products || (payload as any).relatedProducts) || null;
@@ -5609,13 +4750,6 @@ function BffCardView({
           if (/as we wrote in our lengthy retinol description/i.test(token)) return true;
           if (/read more|learn more|discover|shop now|add to cart|selected because|strong category\/use-case/i.test(token)) return true;
           if (/\b(how to use|faq|privacy policy|terms of use|copyright)\b/i.test(token)) return true;
-          if (/^key ingredients?[:\s]?/i.test(token)) return true;
-          if (/^active ingredients?[:\s]?/i.test(token)) return true;
-          if (/^other ingredients?[:\s]?/i.test(token)) return true;
-          if (/^ingredients?[:\s]?/i.test(token)) return true;
-          if (/^full ingredients?[:\s]?/i.test(token)) return true;
-          if (/^inactive ingredients?[:\s]?/i.test(token)) return true;
-          if (/[:：]$/.test(token)) return true;
           if (/[?!]/.test(token)) return true;
           return false;
         };
@@ -5633,16 +4767,10 @@ function BffCardView({
           patterns: RegExp[];
         }> = [
           {
-            key: 'hydration',
-            title: language === 'CN' ? 'Hydration support' : 'Hydration support',
-            colorClass: 'border-cyan-200 bg-cyan-50 text-cyan-800',
-            patterns: [/\b(glycerin|hyaluron|hyaluronic|sodium pca|urea|trehalose|betaine)\b/i],
-          },
-          {
             key: 'barrier',
             title: language === 'CN' ? 'Barrier support' : 'Barrier support',
             colorClass: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-            patterns: [/\b(ceramide|cholesterol|fatty acid|panthenol|beta[-\s]?glucan|allantoin|squalane)\b/i],
+            patterns: [/\b(ceramide|cholesterol|fatty acid|panthenol|beta[-\s]?glucan|allantoin|squalane|glycerin|hyaluron)\b/i],
           },
           {
             key: 'acne',
@@ -5740,8 +4868,6 @@ function BffCardView({
           ...evidenceMechanisms,
         ])
           .filter((line) => !shouldDropProfileLine(line))
-          .filter((line) => !isDataQualityNarrativeLine(line))
-          .filter((line) => !/^detected key ingredients[:：]/i.test(String(line || '').trim()))
           .slice(0, 6);
         const bestForSignalsRaw = uniqueStrings([
           ...assessmentBestFor,
@@ -5782,17 +4908,7 @@ function BffCardView({
               ? '如果重点是控痘，优先低刺激控油路线，避免同晚叠加强活性。'
               : 'If acne control is the priority, prefer low-irritation oil-control pairing and avoid same-night strong active stacking.']
             : []),
-        ])
-          .filter((line) => !/\bsingle-variable pm iteration\b|keep consistent daytime spf/i.test(String(line || '').toLowerCase()))
-          .filter((line) => !/\b(pair|layer|combine|use)\b.*\b(same product|this product itself|anchor product)\b/i.test(String(line || '').toLowerCase()))
-          .filter((line) => {
-            const anchorName = asString((anchorRaw as any)?.name) || asString((anchorRaw as any)?.display_name) || '';
-            if (!anchorName) return true;
-            const lineKey = normalizeProductNameKey(line);
-            const anchorKey = normalizeProductNameKey(anchorName);
-            return !(lineKey && anchorKey && lineKey.includes(anchorKey));
-          })
-          .slice(0, 3);
+        ]).slice(0, 3);
         const profilePromptNeeded = profilePromptRaw?.needed === true || rawMissing.includes('profile_not_provided');
         const followUpQuestion = assessmentFollowUpQuestion || (
           profilePromptNeeded
@@ -5886,7 +5002,7 @@ function BffCardView({
           ...expertNotes.filter((note) => /(evidence source|ingredient list|inci|entries|product page|parsed)/i.test(String(note || ''))),
         ]).slice(0, 3);
 
-        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine(bootstrapInfo?.profile?.currentRoutine);
+        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine((bootstrapInfo?.profile as any)?.currentRoutine);
         const compatibilityBaseProduct: CompatibilityProductInput = {
           id:
             asString((anchorRaw as any)?.product_id) ||
@@ -5969,6 +5085,7 @@ function BffCardView({
           <div className="space-y-3">
             {product ? <AuroraAnchorCard product={product} offers={anchorOffers} language={language} hidePriceWhenUnknown /> : null}
 
+            {/* V4: Data quality banner — shown at the top when non-null */}
             {dataQualityBanner ? (
               <div className="rounded-2xl border border-orange-500/30 bg-orange-50/60 px-3 py-2 text-xs text-orange-800">
                 <span className="mr-1 font-semibold">{language === 'CN' ? '数据质量提示：' : 'Data quality note:'}</span>
@@ -5976,6 +5093,7 @@ function BffCardView({
               </div>
             ) : null}
 
+            {/* V4: verdict_level badge (replaces legacy verdict badge when V4 payload detected) */}
             {isV4Payload && verdictLevelLabel ? (
               <div className="flex flex-wrap items-center gap-2">
                 <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictLevelStyle || verdictStyle}`}>
@@ -5999,6 +5117,7 @@ function BffCardView({
               </div>
             ) : null}
 
+            {/* V4: compact top takeaways (replaces keyTakeawayLines when V4) */}
             {isV4Payload && v4TopTakeaways.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '核心结论' : 'Key takeaways'}</div>
@@ -6128,6 +5247,7 @@ function BffCardView({
               </div>
             ) : null}
 
+            {/* V4: best_for from assessment — shown alongside legacy best_for when available */}
             {isV4Payload && v4BestFor.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
@@ -6191,6 +5311,7 @@ function BffCardView({
               </div>
             ) : null}
 
+            {/* V4: structured watchouts with confirmed/possible/unknown status icons */}
             {isV4Payload && v4Watchouts.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">
@@ -6227,6 +5348,7 @@ function BffCardView({
               </div>
             ) : null}
 
+            {/* V4: structured how_to_use with when/frequency/order/pairing/stop_signs */}
             {isV4Payload && v4HowToUse ? (
               <details
                 open
@@ -6303,6 +5425,7 @@ function BffCardView({
               </details>
             ) : null}
 
+            {/* V4: key_ingredients_by_function grouped display */}
             {isV4Payload && v4KeyIngredientsByFunction.length ? (
               <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
@@ -6341,6 +5464,7 @@ function BffCardView({
               </details>
             ) : null}
 
+            {/* V4: product type reasoning */}
             {isV4Payload && v4ProductTypeReasoning ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">{language === 'CN' ? '产品分类：' : 'Product type: '}</span>
@@ -6497,6 +5621,7 @@ function BffCardView({
               </div>
             ) : null}
 
+            {/* G3: when all three alternative sections are empty, show a single line instead of empty blocks */}
             {!hasAlternatives && (rawCompetitorCandidates.length > 0 || rawRelatedCandidates.length > 0 || rawDupeCandidates.length > 0) ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
                 {language === 'CN' ? '暂未找到合适的替代品或搭配建议。' : 'No alternatives found for this product.'}
@@ -6885,20 +6010,13 @@ function BffCardView({
               </details>
             ) : null}
 
-            <CardRenderBoundary
+            <RoutineCompatibilityFooter
               language={language}
-              cardType="product_analysis_routine_compatibility"
-              cardId={`${card.card_id || 'product_analysis'}::routine_compatibility`}
+              baseProduct={compatibilityBaseProduct}
+              routineProducts={routineCompatibilityProducts}
+              resolveProductsSearch={resolveProductsSearch}
               analyticsCtx={analyticsCtx}
-            >
-              <RoutineCompatibilityFooter
-                language={language}
-                baseProduct={compatibilityBaseProduct}
-                routineProducts={routineCompatibilityProducts}
-                resolveProductsSearch={resolveProductsSearch}
-                analyticsCtx={analyticsCtx}
-              />
-            </CardRenderBoundary>
+            />
 
           </div>
         );
@@ -6924,19 +6042,6 @@ function BffCardView({
         const originalRaw = asObject((payload as any).original) || asObject((payload as any).original_product) || asObject((payload as any).originalProduct);
         const dupeRaw = asObject((payload as any).dupe) || asObject((payload as any).dupe_product) || asObject((payload as any).dupeProduct);
         const similarity = asNumber((payload as any).similarity);
-        const compareQuality = (asString((payload as any).compare_quality || (payload as any).compareQuality) || 'full').toLowerCase();
-        const limitedReasonToken = asString((payload as any).limited_reason || (payload as any).limitedReason) || null;
-        const isLimitedCompare = compareQuality === 'limited';
-        const limitedReason = (() => {
-          if (!limitedReasonToken) return null;
-          const token = String(limitedReasonToken).trim().toLowerCase();
-          if (token === 'tradeoffs_detail_missing') {
-            return language === 'CN'
-              ? '缺少可用的取舍细节。请提供更明确的平替链接或完整产品名后重试。'
-              : 'Tradeoff detail is missing. Provide a clearer dupe link or full product name and compare again.';
-          }
-          return limitedReasonToken;
-        })();
 
         const tradeoffs = uniqueStrings((payload as any).tradeoffs);
         const tradeoffsDetail = asObject((payload as any).tradeoffs_detail || (payload as any).tradeoffsDetail) || null;
@@ -6953,9 +6058,7 @@ function BffCardView({
           ...(priceDeltaUsd != null ? [`Price delta (USD): ${priceDeltaUsd}`] : []),
         ].filter(Boolean);
 
-        const tradeoffNote = isLimitedCompare
-          ? undefined
-          : (tradeoffNoteParts.length ? tradeoffNoteParts.slice(0, 2).join(' · ') : tradeoffs[0] || undefined);
+        const tradeoffNote = tradeoffNoteParts.length ? tradeoffNoteParts.slice(0, 2).join(' · ') : tradeoffs[0] || undefined;
 
         const original = toDupeProduct(originalRaw, language);
         const dupe = toDupeProduct(dupeRaw, language);
@@ -6990,12 +6093,9 @@ function BffCardView({
               missingActives={missingActives}
               addedBenefits={addedBenefits}
               labels={labels as any}
-              quality={isLimitedCompare ? 'limited' : 'full'}
-              limitedReason={limitedReason || undefined}
-              basicCompare={Array.isArray((payload as any).basic_compare) ? ((payload as any).basic_compare as unknown[]).map((v) => String(v ?? '').trim()).filter(Boolean) : []}
             />
 
-            {tradeoffs.length && !isLimitedCompare ? (
+            {tradeoffs.length ? (
               <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
                   <span>{language === 'CN' ? '更多取舍细节' : 'More tradeoffs'}</span>
@@ -7065,9 +6165,6 @@ function BffCardView({
   );
 }
 
-export { buildRoutineDraftFromProfile, makeEmptyRoutineDraft, hasAnyRoutineDraftInput };
-export type { RoutineDraft };
-
 export default function BffChat() {
   const initialLanguageRef = useRef<UiLanguage | null>(null);
   if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
@@ -7092,42 +6189,24 @@ export default function BffChat() {
     [navigate],
   );
 
-  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'profile' | 'checkin' | 'diagnosis_v2';
+  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'checkin';
   const searchParams = useMemo(() => {
     try {
       const sp = new URLSearchParams(location.search);
       const openRaw = String(sp.get('open') || '').trim().toLowerCase();
-      const goalsRaw = String(sp.get('goals') || '').trim();
-      let diagnosisGoals: string[] = [];
-      if (goalsRaw) {
-        try {
-          const parsedGoals = JSON.parse(goalsRaw);
-          if (Array.isArray(parsedGoals)) {
-            diagnosisGoals = parsedGoals.map((goal) => String(goal || '').trim()).filter(Boolean);
-          }
-        } catch {
-          diagnosisGoals = [];
-        }
-      }
       return {
         brief_id: String(sp.get('brief_id') || '').trim(),
         trace_id: String(sp.get('trace_id') || '').trim(),
         q: String(sp.get('q') || '').trim(),
         chip_id: String(sp.get('chip_id') || '').trim(),
         open: (
-          openRaw === 'photo' ||
-          openRaw === 'routine' ||
-          openRaw === 'auth' ||
-          openRaw === 'profile' ||
-          openRaw === 'checkin' ||
-          openRaw === 'diagnosis_v2'
+          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'checkin'
             ? openRaw
             : null
         ) as DeepLinkOpen | null,
-        diagnosis_goals: diagnosisGoals,
       };
     } catch {
-      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null, diagnosis_goals: [] as string[] };
+      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null };
     }
   }, [location.search]);
 
@@ -7146,7 +6225,6 @@ export default function BffChat() {
   });
   const [sessionState, setSessionState] = useState<string>('idle');
   const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(null);
-  const lastTravelReadinessRef = useRef<Record<string, unknown> | null>(null);
   const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
   const agentStateRef = useRef<AgentState>('IDLE_CHAT');
   useEffect(() => {
@@ -7187,23 +6265,21 @@ export default function BffChat() {
   const [routineFormBusy, setRoutineFormBusy] = useState(false);
   const isLoading = chatBusy || analysisBusy;
   const [loadingIntent, setLoadingIntent] = useState<AuroraLoadingIntent>('default');
+  const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
+  const [streamedText, setStreamedText] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
+  const streamEndpointDisabledRef = useRef(false);
   const sessionStartedEmittedRef = useRef(false);
   const returnVisitEmittedRef = useRef(false);
   const openIntentConsumedRef = useRef<string | null>(null);
   const actionIntentConsumedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const lastIngredientCtxRef = useRef<Record<string, unknown> | null>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
-  const [pendingSessionProfilePatch, setPendingSessionProfilePatch] = useState<Record<string, unknown> | null>(() => {
-    const routeState = asObject(location.state);
-    const sessionPatch = asObject(routeState?.session_patch);
-    return asObject(sessionPatch?.profile) || null;
-  });
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
+  const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
 
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
@@ -7219,7 +6295,13 @@ export default function BffChat() {
   const [authSession, setAuthSession] = useState(() => loadAuroraAuthSession());
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
   const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
-  const [authDraft, setAuthDraft] = useState(() => buildEmptyAuthDraft(authSession?.email ?? ''));
+  const [authDraft, setAuthDraft] = useState(() => ({
+    email: authSession?.email ?? '',
+    code: '',
+    password: '',
+    newPassword: '',
+    newPasswordConfirm: '',
+  }));
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
@@ -7231,28 +6313,6 @@ export default function BffChat() {
   const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
   const [alternativesSheetOpen, setAlternativesSheetOpen] = useState(false);
   const [alternativesSheetTracks, setAlternativesSheetTracks] = useState<ProductAlternativeTrack[]>([]);
-  const [travelProductSheetOpen, setTravelProductSheetOpen] = useState(false);
-  const [travelProductSheetQuery, setTravelProductSheetQuery] = useState<TravelProductLookupQuery | null>(null);
-  const [travelProductSheetResults, setTravelProductSheetResults] = useState<Array<{
-    product_id: string | null;
-    merchant_id: string | null;
-    name: string;
-    brand: string;
-    image_url: string;
-    price: number | null;
-    currency: string | null;
-  }>>([]);
-  const [travelProductSheetLoading, setTravelProductSheetLoading] = useState(false);
-  const travelProductLookupRequestRef = useRef(0);
-  const diagnosisV2StateRef = useRef<DiagnosisV2FlowState>({
-    goals: [],
-    customInput: undefined,
-    followupAnswers: {},
-    resultPayload: null,
-    routineSkeleton: null,
-    checkinBinding: null,
-  });
-  const pendingDiagnosisAuthResumeRef = useRef<PendingDiagnosisAuthResume | null>(null);
 
   const [productDraft, setProductDraft] = useState('');
   const [dupeDraft, setDupeDraft] = useState({ original: '' });
@@ -7277,40 +6337,6 @@ export default function BffChat() {
     notes: '',
   });
 
-  const resetAuthUi = useCallback((nextEmail = '') => {
-    setAuthMode('code');
-    setAuthStage('email');
-    setAuthDraft(buildEmptyAuthDraft(nextEmail));
-    setAuthError(null);
-    setAuthNotice(null);
-  }, []);
-
-  const buildRequestHeaders = useCallback(
-    (authToken?: string | null) => {
-      const token = String(authToken || '').trim();
-      const { auth_token: _ignoredAuthToken, ...restHeaders } = headers;
-      return { ...restHeaders, lang: language, ...(token ? { auth_token: token } : {}) };
-    },
-    [headers, language],
-  );
-
-  const buildDiagnosisFetchHeaders = useCallback(
-    (authToken?: string | null, accept = 'application/json') => {
-      const requestHeaders = buildRequestHeaders(authToken);
-      return {
-        Accept: accept,
-        'Content-Type': 'application/json',
-        'X-Aurora-Uid': requestHeaders.aurora_uid ?? '',
-        'X-Trace-ID': requestHeaders.trace_id,
-        'X-Brief-ID': requestHeaders.brief_id,
-        'X-Lang': requestHeaders.lang,
-        'X-Aurora-Lang': requestHeaders.lang === 'CN' ? 'cn' : 'en',
-        ...(requestHeaders.auth_token ? { Authorization: `Bearer ${requestHeaders.auth_token}` } : {}),
-      };
-    },
-    [buildRequestHeaders],
-  );
-
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, lang: language }));
   }, [language]);
@@ -7318,6 +6344,18 @@ export default function BffChat() {
   useEffect(() => {
     setHeaders((prev) => ({ ...prev, auth_token: authSession?.token }));
   }, [authSession?.token]);
+
+  useEffect(() => {
+    const email = String(authSession?.email || '').trim();
+    if (!email) return;
+    const normalized = normalizeProfileFromBootstrap(profileSnapshot ?? bootstrapInfo?.profile ?? null);
+    if (!normalized) return;
+    saveAuroraProfileCache(email, {
+      displayName: normalized.displayName || '',
+      avatarUrl: normalized.avatarUrl || '',
+      region: normalized.region || '',
+    });
+  }, [authSession?.email, bootstrapInfo?.profile, profileSnapshot]);
 
   useEffect(() => {
     setLangPref(toLangPref(language));
@@ -7360,13 +6398,7 @@ export default function BffChat() {
         anchorKey?: string | null;
       },
     ) => {
-      const normalizedTracks = Array.isArray(tracks)
-        ? tracks.filter((track) => {
-            const hasItems = Array.isArray(track.items) && track.items.length > 0;
-            const hasNotes = Array.isArray(track.notes) && track.notes.length > 0;
-            return hasItems || hasNotes;
-          })
-        : [];
+      const normalizedTracks = Array.isArray(tracks) ? tracks.filter((track) => Array.isArray(track.items) && track.items.length > 0) : [];
       if (!normalizedTracks.length) return;
       setAlternativesSheetTracks(normalizedTracks);
       setAlternativesSheetOpen(true);
@@ -7394,26 +6426,16 @@ export default function BffChat() {
       anchorProductId,
       productInput,
       product,
-      ingredientContext,
     }: {
       anchorProductId?: string | null;
       productInput?: string | null;
       product?: Record<string, unknown> | null;
-      ingredientContext?: Record<string, unknown> | null;
-    }): Promise<LazyRecoAlternativesLoadResult | null> => {
+    }): Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null> => {
       const requestHeaders = { ...headers, lang: language };
-      const analyticsCtx: AnalyticsContext = {
-        brief_id: headers.brief_id,
-        trace_id: headers.trace_id,
-        aurora_uid: headers.aurora_uid,
-        lang: toLangPref(language),
-        state: agentState,
-      };
       const body = {
         ...(String(productInput || '').trim() ? { product_input: String(productInput || '').trim().slice(0, 240) } : {}),
         ...(String(anchorProductId || '').trim() ? { anchor_product_id: String(anchorProductId || '').trim().slice(0, 180) } : {}),
         ...(product && typeof product === 'object' ? { product } : {}),
-        ...(ingredientContext && typeof ingredientContext === 'object' ? { ingredient_context: ingredientContext } : {}),
         max_total: 6,
         include_debug: Boolean(debug),
       };
@@ -7422,75 +6444,15 @@ export default function BffChat() {
         const resp = await fetchRecoAlternatives(requestHeaders, body, { timeoutMs: RECO_ALTERNATIVES_LAZY_TIMEOUT_MS });
         const alternatives = asArray(resp && resp.alternatives).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
         const llmTrace = asObject(resp && resp.llm_trace) || null;
-        const sourceMode = typeof resp?.source_mode === 'string' ? resp.source_mode : null;
-        const failureClass = typeof resp?.failure_class === 'string' ? resp.failure_class : null;
-        const fallbackSource = typeof resp?.fallback_source === 'string' ? resp.fallback_source : null;
-        const refreshPending = resp?.refresh_pending === true;
-        const refreshAfterMs = Number.isFinite(Number(resp?.refresh_after_ms)) ? Number(resp?.refresh_after_ms) : 0;
-        const attemptCount = Number.isFinite(Number(resp?.attempt_count)) ? Number(resp?.attempt_count) : 0;
-        const circuitState = typeof resp?.circuit_state === 'string' ? resp.circuit_state : null;
-        const noResultReason = typeof resp?.no_result_reason === 'string' ? resp.no_result_reason : null;
-        const alternativesCandidateCount = Number.isFinite(Number(resp?.alternatives_candidate_count))
-          ? Math.max(0, Math.trunc(Number(resp?.alternatives_candidate_count)))
-          : 0;
-        const alternativesSelectedCount = Number.isFinite(Number(resp?.alternatives_selected_count))
-          ? Math.max(0, Math.trunc(Number(resp?.alternatives_selected_count)))
-          : 0;
-        const upstreamRequestId =
-          typeof resp?.upstream_request_id === 'string'
-            ? resp.upstream_request_id
-            : typeof (llmTrace as any)?.upstream_request_id === 'string'
-              ? String((llmTrace as any).upstream_request_id)
-              : null;
-        const ok = resp?.ok !== false;
-        const requestId = typeof resp?.request_id === 'string' ? resp.request_id : null;
-        const traceId = typeof resp?.trace_id === 'string' ? resp.trace_id : null;
-        if (!ok) {
-          emitAlternativesFailed(analyticsCtx, {
-            failure_class: failureClass || 'unknown',
-            source_mode: sourceMode || null,
-            request_id: requestId,
-            trace_id: traceId,
-            attempt_count: attemptCount || null,
-            anchor_product_id: String(anchorProductId || '').trim() || null,
-            circuit_state: circuitState,
-            upstream_request_id: upstreamRequestId,
-          });
-        }
-        return {
-          ok,
-          alternatives,
-          ...(requestId ? { requestId } : {}),
-          ...(traceId ? { traceId } : {}),
-          ...(llmTrace ? { llmTrace } : {}),
-          ...(sourceMode ? { sourceMode } : {}),
-          ...(failureClass ? { failureClass } : {}),
-          ...(fallbackSource ? { fallbackSource } : {}),
-          ...(noResultReason ? { noResultReason } : {}),
-          ...(alternativesCandidateCount >= 0 ? { alternativesCandidateCount } : {}),
-          ...(alternativesSelectedCount >= 0 ? { alternativesSelectedCount } : {}),
-          ...(refreshPending ? { refreshPending: true } : {}),
-          ...(refreshAfterMs > 0 ? { refreshAfterMs } : {}),
-          ...(attemptCount > 0 ? { attemptCount } : {}),
-          ...(circuitState ? { circuitState } : {}),
-          ...(upstreamRequestId ? { upstreamRequestId } : {}),
-        };
+        return { alternatives, ...(llmTrace ? { llmTrace } : {}) };
       } catch (err) {
-        emitAlternativesFailed(analyticsCtx, {
-          failure_class: 'network_error',
-          source_mode: 'transport_error',
-          request_id: null,
-          trace_id: headers.trace_id,
-          attempt_count: null,
-          anchor_product_id: String(anchorProductId || '').trim() || null,
-        });
         if (debug) {
           console.warn('[RecoAlternatives] lazy load failed', err);
         }
         return null;
       }
     },
-    [agentState, debug, headers, language],
+    [debug, headers, language],
   );
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
@@ -7502,34 +6464,17 @@ export default function BffChat() {
       const next = (enhancedEnv.session_patch as Record<string, unknown>)['next_state'];
       if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
       const nextMeta = asObject(patch.meta);
-      const lastTravelReadiness = asObject(patch.last_travel_readiness) ?? asObject(patch.lastTravelReadiness);
-      if (lastTravelReadiness) lastTravelReadinessRef.current = lastTravelReadiness;
-      if (nextMeta || lastTravelReadiness) {
-        setSessionMeta((prev) => {
-          const base = asObject(prev) || {};
-          const merged = nextMeta ? { ...base, ...nextMeta } : { ...base };
-          if (lastTravelReadiness) merged.last_travel_readiness = lastTravelReadiness;
-          return merged;
-        });
-      }
+      if (nextMeta) setSessionMeta(nextMeta);
 
       const profilePatch = asObject(patch.profile);
-      if (profilePatch) {
-        setProfileSnapshot((prev) => {
-          const base = asObject(prev) || {};
-          return { ...base, ...profilePatch };
-        });
-      }
+      if (profilePatch) setProfileSnapshot(profilePatch);
 
       setBootstrapInfo((prev) => {
         const merged: BootstrapInfo = prev
           ? { ...prev }
           : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
 
-        if (profilePatch) {
-          const baseProfile = asObject(merged.profile) || {};
-          merged.profile = { ...baseProfile, ...profilePatch };
-        }
+        if (profilePatch) merged.profile = profilePatch;
 
         const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
         if (recentLogs.length) merged.recent_logs = recentLogs;
@@ -7542,26 +6487,19 @@ export default function BffChat() {
       });
     }
 
+    const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
+    const hasEnvelopeCards = rawCards.length > 0;
+
     const nextItems: ChatItem[] = [];
-    if (enhancedEnv.assistant_message?.content) {
+    if (enhancedEnv.assistant_message?.content && !hasEnvelopeCards) {
       const raw = String(enhancedEnv.assistant_message.content || '');
       const cleaned = debug ? raw : stripInternalKbRefsFromText(raw);
       if (cleaned.trim()) nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: cleaned });
     }
-
-    const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
     const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
     const passiveFilteredCards = filterPassiveAdvisoryCards(gatedCards, FF_SHOW_PASSIVE_GATES);
-    const normalizedCards = collapseProductParseWhenUsefulAnalysisPresent(
-      collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards))),
-    );
-    const cards = suppressAnalysisCardsForTravelEnvTurn(normalizedCards);
+    const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards));
     const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
-    const hasUsefulProductAnalysisCard = cards.some((card) => shouldHideProductParseForAnalysisPayload(productAnalysisPayloadFromCard(card)));
-    const hasRecommendationsCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'recommendations');
-    const routeTelemetry = asObject((enhancedEnv as unknown as Record<string, unknown>)?.telemetry);
-    const routeFailureClass = typeof routeTelemetry?.route_failure_class === 'string' ? routeTelemetry.route_failure_class : '';
-    const routeDecision = typeof routeTelemetry?.route_decision === 'string' ? routeTelemetry.route_decision : '';
     const cardTypes = new Set(cards.map((card) => String(card?.type || '').trim().toLowerCase()).filter(Boolean));
     if (cardTypes.has('ingredient_goal_match') || cardTypes.has('aurora_ingredient_report') || cardTypes.has('ingredient_hub')) {
       const analyticsCtx: AnalyticsContext = {
@@ -7588,22 +6526,20 @@ export default function BffChat() {
         meta: { request_id: enhancedEnv.request_id, trace_id: enhancedEnv.trace_id, events: enhancedEnv.events },
       });
     }
-    if (!hasRecommendationsCard && routeFailureClass) {
-      const retryHint =
-        language === 'CN'
-          ? `推荐链路本轮降级（${routeFailureClass}）。你可以直接重试“给我产品推荐”。`
-          : `Recommendation route degraded this turn (${routeFailureClass}). You can retry with "recommend products".`;
-      const shouldShowRetryHint = routeDecision === 'travel_then_reco' || routeDecision === 'travel_only';
-      if (shouldShowRetryHint) {
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: retryHint });
-      }
-    }
 
-    const suppressChips = hasCardFirstDedupeCard(cards);
+    const suppressChips = cards.length
+      ? cards.some((c) => {
+          const t = String((c as any)?.type || '').toLowerCase();
+          return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
+        })
+      : false;
 
-    const visibleChips = filterPassiveAdvisoryChips(
-      Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
-      FF_SHOW_PASSIVE_GATES,
+    const visibleChips = dedupeSuggestedChips(
+      filterPassiveAdvisoryChips(
+        Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
+        FF_SHOW_PASSIVE_GATES,
+      ),
+      12,
     );
     if (!suppressChips && visibleChips.length) {
       nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: visibleChips });
@@ -7611,13 +6547,9 @@ export default function BffChat() {
 
     if (nextItems.length) {
       setItems((prev) => {
-        let base = prev;
-        if (hasAnalysisSummaryCard) {
-          base = removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(base));
-        }
-        if (hasUsefulProductAnalysisCard) {
-          base = removeProductParseCardsFromHistory(base);
-        }
+        const base = hasAnalysisSummaryCard
+          ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
+          : prev;
         return [...base, ...nextItems];
       });
     }
@@ -7695,40 +6627,6 @@ export default function BffChat() {
       }
 
       setError(null);
-
-      const responseSessionPatch = asObject((response as any).session_patch);
-      if (responseSessionPatch) {
-        const next = asString(responseSessionPatch.next_state);
-        if (next) setSessionState(next);
-
-        const nextMeta = asObject(responseSessionPatch.meta);
-        const lastTravelReadiness = asObject(responseSessionPatch.last_travel_readiness) ?? asObject(responseSessionPatch.lastTravelReadiness);
-        if (lastTravelReadiness) lastTravelReadinessRef.current = lastTravelReadiness;
-        if (nextMeta || lastTravelReadiness) {
-          setSessionMeta((prev) => {
-            const base = asObject(prev) || {};
-            const merged = nextMeta ? { ...base, ...nextMeta } : { ...base };
-            if (lastTravelReadiness) merged.last_travel_readiness = lastTravelReadiness;
-            return merged;
-          });
-        }
-
-        const profileFromPatch = asObject(responseSessionPatch.profile);
-        if (profileFromPatch) {
-          setProfileSnapshot((prev) => {
-            const base = asObject(prev) || {};
-            return { ...base, ...profileFromPatch };
-          });
-          setBootstrapInfo((prev) => {
-            const merged: BootstrapInfo = prev
-              ? { ...prev }
-              : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
-            const baseProfile = asObject(merged.profile) || {};
-            merged.profile = { ...baseProfile, ...profileFromPatch };
-            return merged;
-          });
-        }
-      }
 
       const profilePatch = asObject(response.ops.profile_patch[0]) || null;
       const routinePatch = asObject(response.ops.routine_patch[0]) || null;
@@ -7834,52 +6732,52 @@ export default function BffChat() {
         },
       });
 
-      const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => {
-        const metadata = asObject(reply.metadata) || {};
-        const inferredActionId = asString((metadata as any).action_id) || inferLegacyChipActionId(reply.id, reply.label);
-        return {
-          chip_id: `quick_${reply.id}`,
-          label: reply.label,
-          kind: 'quick_reply',
-          data: {
-            ...metadata,
-            ...(inferredActionId ? { action_id: inferredActionId } : {}),
-            reply_text: reply.value || reply.label,
-            trigger_source: 'chip',
-          },
-        };
-      };
+      const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => ({
+        chip_id: `quick_${reply.id}`,
+        label: reply.label,
+        kind: 'quick_reply',
+        data: {
+          ...(reply.metadata || {}),
+          reply_text: reply.value || reply.label,
+          trigger_source: 'chip',
+        },
+      });
 
       const followUpToChips = (followUp: ChatResponseV1['follow_up_questions'][number]): SuggestedChip[] => {
         if (!Array.isArray(followUp.options) || followUp.options.length === 0) return [];
-        return followUp.options.slice(0, 3).map((option) => {
-          const metadata = asObject(option.metadata) || {};
-          const inferredActionId = asString((metadata as any).action_id) || inferLegacyChipActionId(option.id, option.label);
-          return {
-            chip_id: `fup_${followUp.id}_${option.id}`,
-            label: option.label,
-            kind: 'quick_reply',
-            data: {
-              ...metadata,
-              ...(inferredActionId ? { action_id: inferredActionId } : {}),
-              follow_up_id: followUp.id,
-              follow_up_question: followUp.question,
-              follow_up_required: followUp.required,
-              reply_text: option.value || option.label,
-              trigger_source: 'chip',
-            },
-          };
-        });
+        return followUp.options.slice(0, 3).map((option) => ({
+          chip_id: `fup_${followUp.id}_${option.id}`,
+          label: option.label,
+          kind: 'quick_reply',
+          data: {
+            ...(option.metadata || {}),
+            follow_up_id: followUp.id,
+            follow_up_option_id: option.id,
+            follow_up_question: followUp.question,
+            follow_up_required: followUp.required,
+            reply_text: option.value || option.label,
+            trigger_source: 'chip',
+          },
+        }));
       };
 
-      const suggestedChips = dedupeSuggestedChips([
-        ...response.suggested_quick_replies.map(quickReplyToChip),
-        ...response.follow_up_questions.flatMap(followUpToChips),
-      ]).slice(0, 12);
+      const suggestedChips = dedupeSuggestedChips(
+        [
+          ...response.suggested_quick_replies.map(quickReplyToChip),
+          ...response.follow_up_questions.flatMap(followUpToChips),
+        ],
+        12,
+      );
+
+      const introHint = resolveIntroHintForLanguage(response.intro_hint, language);
+      const hasStructuredCards = response.cards.length > 0;
 
       const nextItems: ChatItem[] = [];
-      if (assistantText.trim()) {
+      if (assistantText.trim() && !hasStructuredCards) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: assistantText });
+      }
+      if (introHint) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: introHint });
       }
       if (autoFollowNotice) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: autoFollowNotice });
@@ -7893,12 +6791,8 @@ export default function BffChat() {
 
       const rawCards = response.cards.map(toLegacyCard);
       const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
-      const normalizedCards = collapseProductParseWhenUsefulAnalysisPresent(
-        collapseStoryVsSummary(collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards))),
-      );
-      const cards = suppressAnalysisCardsForTravelEnvTurn(normalizedCards);
+      const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards));
       const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
-      const hasUsefulProductAnalysisCard = cards.some((card) => shouldHideProductParseForAnalysisPayload(productAnalysisPayloadFromCard(card)));
 
       if (cards.length) {
         nextItems.push({
@@ -7930,7 +6824,12 @@ export default function BffChat() {
         });
       }
 
-      const suppressChips = hasCardFirstDedupeCard(cards);
+      const suppressChips = cards.length
+        ? cards.some((c) => {
+            const t = String((c as any)?.type || '').toLowerCase();
+            return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
+          })
+        : false;
 
       if (!suppressChips && suggestedChips.length) {
         nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: suggestedChips });
@@ -7938,13 +6837,9 @@ export default function BffChat() {
 
       if (nextItems.length) {
         setItems((prev) => {
-          let base = prev;
-          if (hasAnalysisSummaryCard) {
-            base = removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(base));
-          }
-          if (hasUsefulProductAnalysisCard) {
-            base = removeProductParseCardsFromHistory(base);
-          }
+          const base = hasAnalysisSummaryCard
+            ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
+            : prev;
           return [...base, ...nextItems];
         });
       }
@@ -7973,13 +6868,13 @@ export default function BffChat() {
   const bootstrap = useCallback(async () => {
     setChatBusy(true);
     try {
-      const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
+      const requestHeaders = { ...headers, lang: language };
       const langPref = toLangPref(language);
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
       const info = readBootstrapInfo(env);
       setBootstrapInfo(info);
-      const profile = info?.profile ?? null;
-      setProfileSnapshot(profile);
+      const profile = info?.profile;
+      if (profile) setProfileSnapshot(profile);
       const isReturning = Boolean(info?.is_returning);
       const returnWelcomeSummary = buildReturnWelcomeSummary({
         profile,
@@ -8019,7 +6914,7 @@ export default function BffChat() {
 
       if (isReturning && !returnVisitEmittedRef.current) {
         returnVisitEmittedRef.current = true;
-        const currentRoutine = profile?.currentRoutine ?? null;
+        const currentRoutine = profile ? (profile as any).currentRoutine : null;
         emitUiReturnVisit(analyticsCtx, {
           days_since_last: returnWelcomeSummary.days_since_last ?? 0,
           has_active_plan:
@@ -8053,7 +6948,7 @@ export default function BffChat() {
           kind: 'quick_reply',
           data: {
             reply_text: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
-            include_alternatives: false,
+            include_alternatives: true,
           },
         },
         {
@@ -8112,13 +7007,11 @@ export default function BffChat() {
     } finally {
       setChatBusy(false);
     }
-  }, [agentState, authSession?.token, buildRequestHeaders, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [agentState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
 
   const startNewChat = useCallback(() => {
     setError(null);
     setSessionState('idle');
-    setSessionMeta(null);
-    lastTravelReadinessRef.current = null;
     setAgentStateSafe('IDLE_CHAT');
     setQuickProfileStep('skin_feel');
     setQuickProfileDraft({});
@@ -8131,6 +7024,7 @@ export default function BffChat() {
     setSessionPhotos({});
     setBootstrapInfo(null);
     setIngredientQuestionBusy(false);
+    pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;
@@ -8179,24 +7073,7 @@ export default function BffChat() {
   const saveProfile = useCallback(async () => {
     setChatBusy(true);
     try {
-      const patch: Record<string, unknown> = {};
-      if (profileDraft.skinType.trim()) patch.skinType = profileDraft.skinType.trim();
-      if (profileDraft.sensitivity.trim()) patch.sensitivity = profileDraft.sensitivity.trim();
-      if (profileDraft.barrierStatus.trim()) patch.barrierStatus = profileDraft.barrierStatus.trim();
-      if (profileDraft.region.trim()) patch.region = profileDraft.region.trim();
-      if (profileDraft.budgetTier.trim()) patch.budgetTier = profileDraft.budgetTier.trim();
-      if (profileDraft.age_band.trim()) patch.age_band = profileDraft.age_band.trim();
-      if (profileDraft.pregnancy_status.trim()) patch.pregnancy_status = profileDraft.pregnancy_status.trim();
-      if (profileDraft.lactation_status.trim()) patch.lactation_status = profileDraft.lactation_status.trim();
-      if (profileDraft.high_risk_medications_text.trim()) {
-        const meds = profileDraft.high_risk_medications_text
-          .split(/[,\n，]/)
-          .map((item) => item.trim())
-          .filter(Boolean)
-          .slice(0, 20);
-        if (meds.length) patch.high_risk_medications = meds;
-      }
-      if (profileDraft.goals.length) patch.goals = profileDraft.goals;
+      const patch = buildProfileUpdatePatch(profileDraft);
 
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
@@ -8326,10 +7203,6 @@ export default function BffChat() {
         hydration: Math.max(0, Math.min(5, Math.trunc(checkinDraft.hydration))),
       };
       if (checkinDraft.notes.trim()) payload.notes = checkinDraft.notes.trim();
-      const activeRoutineId = bootstrapInfo?.profile?.active_routine_id;
-      if (typeof activeRoutineId === 'string' && activeRoutineId.trim()) {
-        payload.routine_id = activeRoutineId.trim();
-      }
 
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/tracker/log', requestHeaders, {
@@ -8356,7 +7229,7 @@ export default function BffChat() {
                 ? '根据我最新打卡刷新推荐，并说明你参考了哪些变化。'
                 : 'Refresh recommendations based on my latest check-in and show what changed.',
             reco_refresh_reason: refreshReason,
-            include_alternatives: false,
+            include_alternatives: true,
           },
         };
         setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'chips', chips: [refreshChip] }]);
@@ -8367,31 +7240,19 @@ export default function BffChat() {
     } finally {
       setChatBusy(false);
     }
-  }, [applyEnvelope, bootstrapInfo, checkinDraft, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [applyEnvelope, checkinDraft, headers, language, tryApplyEnvelopeFromBffError]);
 
-  const refreshBootstrapInfo = useCallback(async (authTokenOverride?: string | null) => {
+  const refreshBootstrapInfo = useCallback(async () => {
     try {
-      const resolvedAuthToken = authTokenOverride === undefined ? (authSession?.token ?? null) : authTokenOverride;
-      const requestHeaders = buildRequestHeaders(resolvedAuthToken);
+      const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
       const info = readBootstrapInfo(env);
-      setBootstrapInfo(info);
-      setProfileSnapshot(info?.profile ?? null);
+      if (info) setBootstrapInfo(info);
+      if (info?.profile) setProfileSnapshot(info.profile);
     } catch {
       // ignore
     }
-  }, [authSession?.token, buildRequestHeaders]);
-
-  useEffect(() => {
-    const onAuthChanged = () => {
-      const nextSession = loadAuroraAuthSession();
-      setAuthSession(nextSession);
-      resetAuthUi(nextSession?.email ?? '');
-      void refreshBootstrapInfo(nextSession?.token ?? null);
-    };
-    window.addEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
-    return () => window.removeEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, onAuthChanged);
-  }, [refreshBootstrapInfo, resetAuthUi]);
+  }, [headers, language]);
 
   const persistQuickProfilePatch = useCallback(
     async (profilePatch: QuickProfileProfilePatch, auroraProfilePatch: Record<string, unknown> | null) => {
@@ -8482,8 +7343,7 @@ export default function BffChat() {
       setAuthSession(nextSession);
       setAuthDraft((prev) => ({ ...prev, code: '' }));
       setAuthSheetOpen(false);
-      await refreshBootstrapInfo(nextSession.token);
-      await resumePendingDiagnosisAfterAuth(nextSession.token);
+      await refreshBootstrapInfo();
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -8519,8 +7379,7 @@ export default function BffChat() {
       setAuthSession(nextSession);
       setAuthDraft((prev) => ({ ...prev, password: '' }));
       setAuthSheetOpen(false);
-      await refreshBootstrapInfo(nextSession.token);
-      await resumePendingDiagnosisAfterAuth(nextSession.token);
+      await refreshBootstrapInfo();
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -8590,12 +7449,13 @@ export default function BffChat() {
     } finally {
       clearAuroraAuthSession();
       setAuthSession(null);
-      resetAuthUi();
+      setAuthStage('email');
+      setAuthDraft({ email: '', code: '', password: '', newPassword: '', newPasswordConfirm: '' });
       setAuthSheetOpen(false);
       setAuthLoading(false);
-      await refreshBootstrapInfo(null);
+      await refreshBootstrapInfo();
     }
-  }, [headers, language, refreshBootstrapInfo, resetAuthUi]);
+  }, [headers, language, refreshBootstrapInfo]);
 
   const handlePickPhoto = useCallback(() => {
     setPromptRoutineAfterPhoto(false);
@@ -8608,13 +7468,11 @@ export default function BffChat() {
       setPhotoUploading(true);
       let result: AnalysisPhotoRef | null = null;
       try {
-        const { compressImage } = await import('@/utils/compressImage');
-        const compressed = await compressImage(file, { maxEdge: 1024, quality: 0.8 });
         const requestHeaders = { ...headers, lang: language };
         const form = new FormData();
         form.append('slot_id', slotId);
         form.append('consent', consent ? 'true' : 'false');
-        form.append('photo', compressed, compressed.name || `photo_${slotId}.jpg`);
+        form.append('photo', file, file.name || `photo_${slotId}.jpg`);
 
         const confirmEnv = await bffJson<V1Envelope>('/v1/photos/upload', requestHeaders, {
           method: 'POST',
@@ -8742,7 +7600,13 @@ export default function BffChat() {
             ? Boolean(profileCurrentRoutine.trim())
             : Boolean(profileCurrentRoutine && typeof profileCurrentRoutine === 'object');
         setAnalysisBusy(true);
+        setThinkingSteps([{
+          step: 'sim_0',
+          message: language === 'CN' ? '正在上传照片并分析肤况...' : 'Uploading photos and analyzing skin...',
+          completed: false,
+        }]);
         setError(null);
+        const stopPhotoSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
         try {
           setSessionState('S4_ANALYSIS_LOADING');
           const requestHeaders = { ...headers, lang: language };
@@ -8752,17 +7616,16 @@ export default function BffChat() {
             ...(hasCurrentRoutine ? { currentRoutine: profileCurrentRoutine } : {}),
           };
           const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-              method: 'POST',
-              body: JSON.stringify(body),
-              timeoutMs: 55000,
-            });
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
           applyEnvelope(env);
         } catch (err) {
-          if (!tryApplyEnvelopeFromBffError(err)) {
-            setError(language === 'CN' ? '皮肤分析暂时遇到问题，请重试' : 'Skin analysis encountered a temporary issue — please retry');
-          }
+          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
+          stopPhotoSim();
           setAnalysisBusy(false);
+          setThinkingSteps([]);
         }
         return;
       }
@@ -8818,24 +7681,20 @@ export default function BffChat() {
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
       setChatBusy(true);
+      setThinkingSteps([{
+        step: 'sim_0',
+        message: language === 'CN' ? '正在读取你的档案...' : 'Reading your profile...',
+        completed: false,
+      }]);
+      setStreamedText('');
       const timeoutMs = isRoutineChatAction(action) ? ROUTINE_CHAT_TIMEOUT_MS : CHAT_TIMEOUT_MS;
       try {
         const requestHeaders = { ...headers, lang: language };
-        const effectiveSessionMeta = (() => {
-          const base = asObject(sessionMeta);
-          const carriedTravelReadiness = asObject(lastTravelReadinessRef.current);
-          if (!carriedTravelReadiness) return base;
-          return {
-            ...(base || {}),
-            last_travel_readiness: carriedTravelReadiness,
-          };
-        })();
         const session = buildChatSession({
           state: sessionState,
           profileSnapshot,
           bootstrapProfile: bootstrapInfo?.profile ?? null,
-          sessionProfilePatch: pendingSessionProfilePatch,
-          sessionMeta: effectiveSessionMeta,
+          sessionMeta,
         });
         const body: Record<string, unknown> = {
           session,
@@ -8849,55 +7708,66 @@ export default function BffChat() {
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
 
-        const chatCall = () => bffJson<unknown>('/v1/chat', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(body),
-          timeoutMs,
-        });
-        const bodyRaw = await chatCall();
-        const parsedV1 = parseChatResponseV1(bodyRaw);
-        if (parsedV1) {
-          applyChatResponseV1(parsedV1);
-          if (pendingSessionProfilePatch) {
-            setProfileSnapshot((prev) => mergeSessionProfiles(prev, pendingSessionProfilePatch));
-            setBootstrapInfo((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    profile: mergeSessionProfiles(asObject(prev.profile) || null, pendingSessionProfilePatch),
-                  }
-                : prev,
-            );
-            setPendingSessionProfilePatch(null);
+        let parsedStreamResponse: ChatResponseV1 | null = null;
+        let usedStream = false;
+
+        if (!streamEndpointDisabledRef.current) {
+          try {
+            await bffChatStream(requestHeaders, body, {
+              onThinking: (event) => {
+                setThinkingSteps((prev) => {
+                  const updated = prev.map((s) => ({ ...s, completed: true }));
+                  return [...updated, { step: event.step, message: event.message, completed: false }];
+                });
+              },
+              onChunk: (event) => {
+                setStreamedText((prev) => prev + event.text);
+              },
+              onResult: (event) => {
+                parsedStreamResponse = parseChatResponseV1(event);
+              },
+            }, { timeoutMs });
+            if (!parsedStreamResponse) {
+              throw new Error('Invalid /v1/chat/stream result: expected ChatCards v1 schema.');
+            }
+            usedStream = true;
+          } catch {
+            streamEndpointDisabledRef.current = true;
+          }
+        }
+
+        if (!usedStream) {
+          const simSteps = language === 'CN'
+            ? ['正在读取你的档案...', '搜索知识库...', '运行安全检查...', '生成回复中...']
+            : ['Reading your profile...', 'Searching knowledge base...', 'Running safety checks...', 'Generating response...'];
+          const stopSim = startSimulatedThinking(simSteps, setThinkingSteps);
+          try {
+            const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+              method: 'POST',
+              body: JSON.stringify(body),
+              timeoutMs,
+            });
+            const parsedV1 = parseChatResponseV1(bodyRaw);
+            if (!parsedV1) {
+              throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+            }
+            applyChatResponseV1(parsedV1);
+          } finally {
+            stopSim();
           }
           return;
         }
 
-        // Backward compatibility: some deployments may still return legacy envelope shape.
-        const env = asObject(bodyRaw);
-        if (env && typeof env.request_id === 'string' && Array.isArray(env.cards)) {
-          applyEnvelope(env as V1Envelope);
-          if (pendingSessionProfilePatch) {
-            setProfileSnapshot((prev) => mergeSessionProfiles(prev, pendingSessionProfilePatch));
-            setBootstrapInfo((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    profile: mergeSessionProfiles(asObject(prev.profile) || null, pendingSessionProfilePatch),
-                  }
-                : prev,
-            );
-            setPendingSessionProfilePatch(null);
-          }
-          return;
+        if (parsedStreamResponse) {
+          applyChatResponseV1(parsedStreamResponse);
         }
-
-        throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema or legacy envelope.');
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
         setLoadingIntent('default');
+        setThinkingSteps([]);
+        setStreamedText('');
       }
     },
     [
@@ -8905,451 +7775,15 @@ export default function BffChat() {
       anchorProductId,
       anchorProductUrl,
       applyChatResponseV1,
-      applyEnvelope,
       bootstrapInfo?.profile,
       debug,
       headers,
       language,
       profileSnapshot,
-      pendingSessionProfilePatch,
       sessionMeta,
       sessionState,
       tryApplyEnvelopeFromBffError,
     ]
-  );
-
-  const sendDiagnosisV2Telemetry = useCallback(
-    async (
-      events: Array<{
-        event_name: string;
-        diagnosis_id?: string | null;
-        data?: Record<string, unknown>;
-      }>,
-    ) => {
-      if (!Array.isArray(events) || events.length === 0) return;
-      try {
-        const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
-        await bffJson<{ ok: boolean; accepted: number }>('/v1/diagnosis/telemetry', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify({
-            events: events.map((event) => ({
-              event_name: event.event_name,
-              diagnosis_id: event.diagnosis_id ?? null,
-              timestamp: Date.now(),
-              data: event.data ?? {},
-            })),
-          }),
-          timeoutMs: 5000,
-        });
-      } catch {
-        // Telemetry must not block the user flow.
-      }
-    },
-    [authSession?.token, buildRequestHeaders],
-  );
-
-  const appendDiagnosisV2Card = useCallback((cardType: string, payload: Record<string, unknown>, replaceItemId?: string | null) => {
-    setItems((prev) => {
-      const base = replaceItemId ? prev.filter((item) => item.id !== replaceItemId) : prev;
-      return [
-        ...base,
-        {
-          id: nextId(),
-          role: 'assistant',
-          kind: 'cards',
-          cards: [{ card_id: `${cardType}_${Date.now()}`, type: cardType, payload }],
-        },
-      ];
-    });
-  }, []);
-
-  const appendLegacyDiagnosisGate = useCallback(() => {
-    setSessionState('S2_DIAGNOSIS');
-    setItems((prev) => [
-      ...prev,
-      {
-        id: nextId(),
-        role: 'assistant',
-        kind: 'cards',
-        cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
-      },
-    ]);
-  }, []);
-
-  const startDiagnosisV2 = useCallback(
-    async ({
-      goals,
-      customInput,
-      skipLogin,
-      userText,
-      authTokenOverride,
-    }: {
-      goals: string[];
-      customInput?: string;
-      skipLogin?: boolean;
-      userText?: string;
-      authTokenOverride?: string | null;
-    }) => {
-      const normalizedGoals = Array.isArray(goals) ? goals.map((goal) => String(goal || '').trim()).filter(Boolean) : [];
-      if (normalizedGoals.length === 0) {
-        setError(language === 'CN' ? '请至少选择一个护肤目标' : 'Please select at least one skincare goal');
-        return;
-      }
-
-      diagnosisV2StateRef.current = {
-        goals: normalizedGoals,
-        customInput: customInput || undefined,
-        followupAnswers: {},
-        resultPayload: null,
-        routineSkeleton: null,
-        checkinBinding: null,
-      };
-
-      if (userText) {
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
-      }
-
-      setSessionState('S2_DIAGNOSIS');
-      setChatBusy(true);
-      setError(null);
-      try {
-        const requestHeaders = buildRequestHeaders(
-          authTokenOverride === undefined ? (authSession?.token ?? null) : authTokenOverride,
-        );
-        const response = await bffJson<{
-          ok: boolean;
-          stage?: 'login_prompt' | 'intro';
-          card?: { type: string; payload: Record<string, unknown> };
-          is_cold_start?: boolean;
-        }>('/v1/diagnosis/start', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify({
-            goals: normalizedGoals,
-            ...(customInput ? { custom_input: customInput } : {}),
-            ...(skipLogin ? { skip_login: true } : {}),
-            language,
-          }),
-        });
-
-        if (response?.ok && response.card?.type && response.card.payload) {
-          appendDiagnosisV2Card(response.card.type, response.card.payload);
-          void sendDiagnosisV2Telemetry([
-            {
-              event_name: skipLogin ? 'diagnosis_v2_skip_login' : 'diagnosis_v2_start',
-              diagnosis_id: diagnosisV2StateRef.current.resultPayload?.diagnosis_id ?? null,
-              data: {
-                stage: response.stage ?? null,
-                goals: normalizedGoals,
-                is_cold_start: response.is_cold_start ?? null,
-              },
-            },
-          ]);
-        }
-      } catch (err) {
-        if (shouldFallbackToLegacyDiagnosis(err)) {
-          appendLegacyDiagnosisGate();
-          return;
-        }
-        setError(diagnosisV2TransientErrorMessage(err, language));
-      } finally {
-        setChatBusy(false);
-      }
-    },
-    [appendDiagnosisV2Card, appendLegacyDiagnosisGate, authSession?.token, buildRequestHeaders, language, sendDiagnosisV2Telemetry],
-  );
-
-  const resumePendingDiagnosisAfterAuth = useCallback(
-    async (authToken: string | null | undefined) => {
-      const pending = pendingDiagnosisAuthResumeRef.current;
-      if (!pending || !authToken) return;
-      pendingDiagnosisAuthResumeRef.current = null;
-      await startDiagnosisV2({
-        goals: pending.goals,
-        customInput: pending.customInput,
-        authTokenOverride: authToken,
-      });
-    },
-    [startDiagnosisV2],
-  );
-
-  const submitDiagnosisV2 = useCallback(
-    async ({
-      goals,
-      customInput,
-      followupAnswers,
-      skipPhoto,
-      userText,
-    }: {
-      goals: string[];
-      customInput?: string;
-      followupAnswers: Record<string, unknown>;
-      skipPhoto?: boolean;
-      userText?: string;
-    }) => {
-      const normalizedGoals = Array.isArray(goals) ? goals.map((goal) => String(goal || '').trim()).filter(Boolean) : [];
-      if (normalizedGoals.length === 0) {
-        setError(language === 'CN' ? '请至少选择一个护肤目标' : 'Please select at least one skincare goal');
-        return;
-      }
-
-      diagnosisV2StateRef.current.goals = normalizedGoals;
-      diagnosisV2StateRef.current.customInput = customInput || undefined;
-      diagnosisV2StateRef.current.followupAnswers = followupAnswers || {};
-
-      if (userText) {
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
-      }
-
-      setChatBusy(true);
-      setError(null);
-
-      try {
-        const response = await fetch('/v1/diagnosis/answer', {
-          method: 'POST',
-          headers: buildDiagnosisFetchHeaders(authSession?.token ?? null, 'text/event-stream, application/json'),
-          body: JSON.stringify({
-            goals: normalizedGoals,
-            ...(customInput ? { custom_input: customInput } : {}),
-            followup_answers: followupAnswers || {},
-            ...(skipPhoto ? { skip_photo: true } : {}),
-            language,
-          }),
-        });
-
-        if (!response.ok) {
-          let serverMessage = '';
-          try {
-            const errorBody = await response.json();
-            serverMessage = asString((errorBody as any)?.error);
-          } catch {
-            serverMessage = '';
-          }
-          throw new Error(serverMessage || `HTTP ${response.status}`);
-        }
-
-        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-        if (!contentType.includes('text/event-stream')) {
-          const json = await response.json();
-          if (json?.ok && json.card?.type && json.card.payload) {
-            appendDiagnosisV2Card(json.card.type, json.card.payload);
-            if (json.card.type === 'diagnosis_v2_result') {
-              diagnosisV2StateRef.current.resultPayload = json.card.payload as DiagnosisV2ResultPayload;
-            }
-            void sendDiagnosisV2Telemetry([
-              {
-                event_name: skipPhoto ? 'diagnosis_v2_skip_photo' : 'diagnosis_v2_submit',
-                diagnosis_id: diagnosisV2StateRef.current.resultPayload?.diagnosis_id ?? null,
-                data: {
-                  stage: json.stage ?? null,
-                  goals: normalizedGoals,
-                },
-              },
-            ]);
-          }
-          return;
-        }
-
-        const thinkingItemId = nextId();
-        const thinkingSteps: DiagnosisV2ThinkingStep[] = [];
-        setItems((prev) => [
-          ...prev,
-          {
-            id: thinkingItemId,
-            role: 'assistant',
-            kind: 'cards',
-            cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking', payload: { steps: [] } }],
-          },
-        ]);
-
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let currentEvent = 'message';
-        let dataLines: string[] = [];
-
-        const applyThinkingSteps = () => {
-          setItems((prev) =>
-            prev.map((item) =>
-              item.id === thinkingItemId
-                ? {
-                    ...item,
-                    cards: [{ card_id: `thinking_${Date.now()}`, type: 'diagnosis_v2_thinking', payload: { steps: [...thinkingSteps] } }],
-                  }
-                : item,
-            ),
-          );
-        };
-
-        const flushEvent = () => {
-          if (dataLines.length === 0) {
-            currentEvent = 'message';
-            return;
-          }
-
-          try {
-            const eventPayload = JSON.parse(dataLines.join('\n'));
-            if (currentEvent === 'thinking_step') {
-              thinkingSteps.push(eventPayload as DiagnosisV2ThinkingStep);
-              applyThinkingSteps();
-            } else if (currentEvent === 'result' && eventPayload?.ok && eventPayload.card?.type === 'diagnosis_v2_result') {
-              diagnosisV2StateRef.current.resultPayload = eventPayload.card.payload as DiagnosisV2ResultPayload;
-              appendDiagnosisV2Card(eventPayload.card.type, eventPayload.card.payload, thinkingItemId);
-              void sendDiagnosisV2Telemetry([
-                {
-                  event_name: skipPhoto ? 'diagnosis_v2_skip_photo' : 'diagnosis_v2_submit',
-                  diagnosis_id: eventPayload.card.payload?.diagnosis_id ?? null,
-                  data: {
-                    stage: eventPayload.stage ?? 'result',
-                    goals: normalizedGoals,
-                  },
-                },
-              ]);
-            } else if (currentEvent === 'error') {
-              throw new Error(asString(eventPayload?.error) || 'Diagnosis failed');
-            }
-          } finally {
-            currentEvent = 'message';
-            dataLines = [];
-          }
-        };
-
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split(/\r?\n/);
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              if (!line) {
-                flushEvent();
-                continue;
-              }
-              if (line.startsWith('event:')) {
-                currentEvent = line.slice(6).trim() || 'message';
-                continue;
-              }
-              if (line.startsWith('data:')) {
-                dataLines.push(line.slice(5).trimStart());
-              }
-            }
-          }
-          flushEvent();
-        }
-      } catch (err) {
-        setError(diagnosisV2TransientErrorMessage(err, language));
-      } finally {
-        setChatBusy(false);
-      }
-    },
-    [appendDiagnosisV2Card, authSession?.token, buildDiagnosisFetchHeaders, language, sendDiagnosisV2Telemetry],
-  );
-
-  const openRoutineIntakeSheet = useCallback(() => {
-    const source = profileSnapshot ?? bootstrapInfo?.profile ?? null;
-    const currentRoutine = source?.currentRoutine;
-    const prefilled = buildRoutineDraftFromProfile(currentRoutine);
-    setRoutineDraft(prefilled ?? makeEmptyRoutineDraft());
-    setRoutineTab('am');
-    setRoutineSheetOpen(true);
-  }, [profileSnapshot, bootstrapInfo?.profile]);
-
-  const runDiagnosisV2RouteAction = useCallback(
-    async (actionType: 'direct_reco' | 'setup_routine' | 'start_checkin' | 'intake_optimize', payload?: Record<string, unknown>) => {
-      const resultPayload = diagnosisV2StateRef.current.resultPayload;
-      if (!resultPayload?.diagnosis_id) {
-        setError(language === 'CN' ? '缺少诊断结果，暂时无法继续' : 'Diagnosis result is missing');
-        return;
-      }
-
-      setChatBusy(true);
-      setError(null);
-
-      try {
-        const requestHeaders = buildRequestHeaders(authSession?.token ?? null);
-        let routineSkeleton = diagnosisV2StateRef.current.routineSkeleton;
-
-        if (actionType === 'setup_routine') {
-          const blueprintResult = await bffJson<{ ok: boolean; routine_skeleton?: Record<string, unknown> }>(
-            '/v1/diagnosis/blueprint-to-routine',
-            requestHeaders,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                diagnosis_id: resultPayload.diagnosis_id,
-                routine_blueprint: resultPayload.routine_blueprint,
-              }),
-            },
-          );
-          routineSkeleton = asObject(blueprintResult?.routine_skeleton);
-          diagnosisV2StateRef.current.routineSkeleton = routineSkeleton;
-        }
-
-        if (actionType === 'start_checkin') {
-          const bindResult = await bffJson<{ ok: boolean; binding?: Record<string, unknown> }>(
-            '/v1/diagnosis/bind-checkin',
-            requestHeaders,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                diagnosis_id: resultPayload.diagnosis_id,
-              }),
-            },
-          );
-          diagnosisV2StateRef.current.checkinBinding = asObject(bindResult?.binding);
-        }
-
-        const routeResult = await bffJson<{
-          ok: boolean;
-          redirect_to?: string;
-          action?: V1Action;
-        }>('/v1/diagnosis/route-action', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify({
-            action_type: actionType,
-            diagnosis_id: resultPayload.diagnosis_id,
-            goal_profile: resultPayload.goal_profile,
-            routine_blueprint: resultPayload.routine_blueprint,
-            ...(routineSkeleton ? { routine_skeleton: routineSkeleton } : {}),
-            ...(payload ? { payload } : {}),
-          }),
-        });
-
-        const nextAction = routeResult?.action;
-        if (!nextAction) {
-          throw new Error(language === 'CN' ? '路由动作缺失' : 'Missing routed action');
-        }
-
-        void sendDiagnosisV2Telemetry([
-          {
-            event_name: 'diagnosis_v2_result_action',
-            diagnosis_id: resultPayload.diagnosis_id,
-            data: {
-              action_type: actionType,
-              redirect_to: routeResult.redirect_to ?? null,
-            },
-          },
-        ]);
-
-        const normalizedActionId = normalizeChipToken(nextAction.action_id);
-        if (normalizedActionId === 'chip.start.routine') {
-          openRoutineIntakeSheet();
-          return;
-        }
-        if (normalizedActionId === 'chip.start.checkin') {
-          setCheckinSheetOpen(true);
-          return;
-        }
-
-        await sendChat(undefined, nextAction);
-      } catch (err) {
-        setError(toBffErrorMessage(err));
-      } finally {
-        setChatBusy(false);
-      }
-    },
-    [authSession?.token, buildRequestHeaders, language, openRoutineIntakeSheet, sendChat, sendDiagnosisV2Telemetry],
   );
 
   const parseMaybeUrl = useCallback((text: string) => {
@@ -9413,8 +7847,11 @@ export default function BffChat() {
             reasons: parseMissingReasons.slice(0, 6),
           });
         }
-        const hasParseCard = Boolean(parseCard);
         let parseEnvelopeApplied = false;
+        if (parsedProduct) {
+          applyEnvelope(parseEnv);
+          parseEnvelopeApplied = true;
+        }
         const analyzeBody = parsedProduct
           ? asUrl
             ? { product: parsedProduct, url: asUrl }
@@ -9430,7 +7867,7 @@ export default function BffChat() {
             body: JSON.stringify(analyzeBody),
           });
         } catch (err) {
-          if (hasParseCard && !parseEnvelopeApplied) {
+          if (!parseEnvelopeApplied) {
             applyEnvelope(parseEnv);
             parseEnvelopeApplied = true;
           }
@@ -9445,7 +7882,6 @@ export default function BffChat() {
           analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
             ? (analyzeCard.payload as Record<string, unknown>)
             : null;
-        const shouldHideParseFallback = shouldHideProductParseForAnalysisPayload(analyzePayload);
         const verdict = (asString((analyzeAssessment as any)?.verdict) || '').trim().toLowerCase();
         const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
         const analyzeMissingReasons = uniqueStrings([
@@ -9481,7 +7917,7 @@ export default function BffChat() {
             blocked_reason: blockedReason,
           });
         }
-        if (hasParseCard && !parseEnvelopeApplied && !shouldHideParseFallback) {
+        if (!parseEnvelopeApplied && !hasEffectiveVerdict) {
           applyEnvelope(parseEnv);
           parseEnvelopeApplied = true;
         }
@@ -9537,203 +7973,13 @@ export default function BffChat() {
 
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
-      const resolvedActionId =
-        actionId === 'analysis_optimize_existing'
-          ? 'analysis_review_products'
-          : actionId;
-      const normalizedActionId = normalizeChipToken(actionId);
-      const normalizedResolvedActionId = normalizeChipToken(resolvedActionId);
-      const normalizedCtaAction = normalizeChipToken(asString((data as any)?.cta_action));
-      const shouldOpenRoutineIntakeLocally =
-        normalizedActionId === 'chip.start.routine' ||
-        normalizedResolvedActionId === 'chip.start.routine' ||
-        normalizedActionId === 'chip.intake.paste_routine' ||
-        normalizedResolvedActionId === 'chip.intake.paste_routine' ||
-        normalizedActionId === 'open_routine_intake' ||
-        normalizedResolvedActionId === 'open_routine_intake' ||
-        normalizedCtaAction === 'open_routine_intake';
-      if (shouldOpenRoutineIntakeLocally) {
-        const userText =
-          asString((data as any)?.reply_text) ||
-          asString((data as any)?.action_label) ||
-          (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
-        openRoutineIntakeSheet();
-        return;
-      }
-      const requestProductRecommendationsFromAnalysis = async (
-        triggerActionId: 'analysis_continue' | 'analysis_get_recommendations',
-        triggerData?: Record<string, any>,
-      ) => {
-        const fromState = agentState;
-        const ctx: AnalyticsContext = {
-          brief_id: headers.brief_id,
-          trace_id: headers.trace_id,
-          aurora_uid: headers.aurora_uid,
-          lang: toLangPref(language),
-          state: fromState,
-        };
-        const validation = validateRequestedTransition({
-          from_state: fromState,
-          trigger_source: 'action',
-          trigger_id: triggerActionId,
-          requested_next_state: 'RECO_GATE',
-        });
-        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
-        if (!validation.ok) {
-          console.warn('[StateMachine] soft fallback on action transition', {
-            actionId: triggerActionId,
-            fromState,
-            reason: validation.reason,
-          });
-        }
-        if (resolvedNextState !== fromState) {
-          emitAgentStateEntered(
-            { ...ctx, state: resolvedNextState },
-            { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: triggerActionId },
-          );
-          setAgentStateSafe(resolvedNextState);
-        }
-        if (resolvedNextState === 'RECO_GATE') {
-          emitUiRecosRequested(
-            { ...ctx, state: resolvedNextState },
-            {
-              entry_point: 'action',
-              prior_value_moment: triggerActionId === 'analysis_get_recommendations' ? 'analysis_story_v2' : 'analysis_summary',
-            },
-          );
-        }
-        setItems((prev) => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'user',
-            kind: 'text',
-            content: language === 'CN' ? '查看产品推荐' : 'See product recommendations',
-          },
-        ]);
-        const replyText =
-          language === 'CN'
-            ? '推荐一些产品（并给出可购买的链接/入口）。'
-            : 'Recommend a few products (with purchasable links/CTAs).';
-        await sendChat(
-          undefined,
-          {
-            action_id: 'chip.start.reco_products',
-            kind: 'chip',
-            data: {
-              reply_text: replyText,
-              force_route: 'reco_products',
-              ...(asString((triggerData as any)?.trigger_source)
-                ? { trigger_source: asString((triggerData as any).trigger_source) }
-                : {}),
-              ...(asString((triggerData as any)?.source_card_type)
-                ? { source_card_type: asString((triggerData as any).source_card_type) }
-                : {}),
-            },
-          },
-          {
-            client_state: fromState,
-            requested_transition: { trigger_source: 'action', trigger_id: triggerActionId, requested_next_state: resolvedNextState },
-          },
-        );
-      };
-
       if (actionId === 'diagnosis_skip') {
+        pendingActionAfterDiagnosisRef.current = null;
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
         ]);
         setSessionState('idle');
-        return;
-      }
-
-      if (actionId === 'login_then_diagnose') {
-        const pendingGoalsRaw = Array.isArray((data as any)?.pending_goals)
-          ? (data as any).pending_goals
-          : diagnosisV2StateRef.current.goals;
-        const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
-        pendingDiagnosisAuthResumeRef.current = {
-          goals: pendingGoals,
-          customInput: diagnosisV2StateRef.current.customInput,
-        };
-        resetAuthUi(authDraft.email);
-        setAuthSheetOpen(true);
-        return;
-      }
-
-      if (actionId === 'skip_login') {
-        const pendingGoalsRaw = Array.isArray((data as any)?.pending_goals)
-          ? (data as any).pending_goals
-          : diagnosisV2StateRef.current.goals;
-        const pendingGoals = pendingGoalsRaw.map((goal: unknown) => String(goal || '').trim()).filter(Boolean);
-        pendingDiagnosisAuthResumeRef.current = null;
-        await startDiagnosisV2({
-          goals: pendingGoals,
-          customInput: diagnosisV2StateRef.current.customInput,
-          skipLogin: true,
-          userText: language === 'CN' ? '先不登录，直接开始' : 'Skip login and continue',
-        });
-        return;
-      }
-
-      if (actionId === 'diagnosis_v2_skip') {
-        setItems((prev) => [
-          ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过这一步' : 'Skip this step' },
-        ]);
-        setSessionState('idle');
-        return;
-      }
-
-      if (actionId === 'diagnosis_v2_submit') {
-        const goals = Array.isArray((data as any)?.goals) ? (data as any).goals.map((goal: unknown) => String(goal || '').trim()).filter(Boolean) : [];
-        const customInput = typeof (data as any)?.customInput === 'string' ? (data as any).customInput.trim() : undefined;
-        const followupAnswers = asObject((data as any)?.followupAnswers) || {};
-        await submitDiagnosisV2({
-          goals,
-          customInput,
-          followupAnswers,
-          userText: language === 'CN' ? `开始分析：${goals.join('、')}` : `Analyzing: ${goals.join(', ')}`,
-        });
-        return;
-      }
-
-      if (actionId === 'take_photo') {
-        setItems((prev) => [
-          ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '我来上传照片' : 'I will add photos' },
-        ]);
-        void sendDiagnosisV2Telemetry([
-          {
-            event_name: 'diagnosis_v2_take_photo',
-            diagnosis_id: diagnosisV2StateRef.current.resultPayload?.diagnosis_id ?? null,
-            data: { goals: diagnosisV2StateRef.current.goals },
-          },
-        ]);
-        handlePickPhoto();
-        return;
-      }
-
-      if (actionId === 'skip_photo') {
-        await submitDiagnosisV2({
-          goals: diagnosisV2StateRef.current.goals,
-          customInput: diagnosisV2StateRef.current.customInput,
-          followupAnswers: diagnosisV2StateRef.current.followupAnswers,
-          skipPhoto: true,
-          userText: language === 'CN' ? '跳过照片，继续分析' : 'Skip photo and continue',
-        });
-        return;
-      }
-
-      if (
-        actionId === 'direct_reco' ||
-        actionId === 'setup_routine' ||
-        actionId === 'start_checkin' ||
-        actionId === 'intake_optimize' ||
-        actionId === 'add_travel'
-      ) {
-        await runDiagnosisV2RouteAction(actionId === 'add_travel' ? 'intake_optimize' : actionId, data);
         return;
       }
 
@@ -9748,13 +7994,22 @@ export default function BffChat() {
           return;
         }
 
+        const pending = pendingActionAfterDiagnosisRef.current;
+        pendingActionAfterDiagnosisRef.current = null;
+
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
             role: 'user',
             kind: 'text',
-            content: language === 'CN' ? '分析我的皮肤' : 'Analyze my skin',
+            content: pending
+              ? language === 'CN'
+                ? '已填写肤况信息（继续推荐）'
+                : 'Saved skin profile (continue recommendations)'
+              : language === 'CN'
+                ? '分析我的皮肤'
+                : 'Analyze my skin',
           },
         ]);
 
@@ -9771,6 +8026,9 @@ export default function BffChat() {
           },
         });
 
+        if (pending) {
+          await sendChat(undefined, pending);
+        }
         return;
       }
 
@@ -9810,12 +8068,6 @@ export default function BffChat() {
           return;
         }
 
-        lastIngredientCtxRef.current = {
-          query: ingredientQuery,
-          ingredient_query: ingredientQuery,
-          entry_source: 'ingredient_report',
-          trigger_source: 'ingredient_report',
-        };
         setItems((prev) => [
           ...prev,
           {
@@ -9831,6 +8083,38 @@ export default function BffChat() {
           data: {
             ...(data || {}),
             ingredient_query: ingredientQuery,
+          },
+        });
+        return;
+      }
+
+      if (actionId === 'ingredient.research.poll') {
+        const ingredientQuery =
+          typeof data?.ingredient_query === 'string'
+            ? data.ingredient_query.trim()
+            : typeof data?.normalized_query === 'string'
+              ? data.normalized_query.trim()
+              : '';
+        if (!ingredientQuery) {
+          setError(language === 'CN' ? '请先输入要查询的成分。' : 'Please enter an ingredient first.');
+          return;
+        }
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? `刷新增强结果：${ingredientQuery}` : `Refresh enhanced result: ${ingredientQuery}`,
+          },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'ingredient.research.poll',
+          kind: 'action',
+          data: {
+            ...(data || {}),
+            ingredient_query: ingredientQuery,
+            normalized_query: ingredientQuery,
           },
         });
         return;
@@ -9862,13 +8146,6 @@ export default function BffChat() {
                 : `Find ingredients by goal: ${goal || 'barrier'} (sensitivity: ${sensitivity || 'unknown'})`,
           },
         ]);
-        lastIngredientCtxRef.current = {
-          goal: goal || 'barrier',
-          sensitivity: sensitivity || 'unknown',
-          entry_source: 'ingredient_hub',
-          trigger_source: 'ingredient_hub',
-          ...(Array.isArray(data?.ingredient_candidates) ? { candidates: data.ingredient_candidates } : {}),
-        };
         await sendChat(undefined, {
           action_id: 'ingredient.by_goal',
           kind: 'action',
@@ -9876,33 +8153,6 @@ export default function BffChat() {
             ...(data || {}),
             goal: goal || 'barrier',
             sensitivity: sensitivity || 'unknown',
-          },
-        });
-        return;
-      }
-
-      if (actionId === 'ingredient.research.poll') {
-        const ingredientQuery =
-          typeof data?.ingredient_query === 'string'
-            ? data.ingredient_query.trim()
-            : typeof data?.query === 'string'
-              ? data.query.trim()
-              : '';
-        setItems((prev) => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'user',
-            kind: 'text',
-            content: language === 'CN' ? '刷新增强结果' : 'Refresh enhanced result',
-          },
-        ]);
-        await sendChat(undefined, {
-          action_id: 'ingredient.research.poll',
-          kind: 'action',
-          data: {
-            ...(data || {}),
-            ...(ingredientQuery ? { ingredient_query: ingredientQuery } : {}),
           },
         });
         return;
@@ -10021,42 +8271,9 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'profile_upload_selfie' || actionId === 'analysis_upload_selfie') {
+      if (actionId === 'profile_upload_selfie') {
         setPromptRoutineAfterPhoto(true);
         setPhotoSheetOpen(true);
-        return;
-      }
-
-      if (actionId === 'analysis_skip_photo' || actionId === 'analysis_continue_without_products') {
-        const userText =
-          actionId === 'analysis_skip_photo'
-            ? language === 'CN'
-              ? '先不上传照片，继续文本深挖'
-              : 'Skip selfie for now and continue text deepening'
-            : language === 'CN'
-              ? '先不补充产品，继续下一步'
-              : 'Continue without adding products for now';
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
-        await sendChat(undefined, {
-          action_id: actionId,
-          kind: 'action',
-          data: { reply_text: userText },
-        });
-        return;
-      }
-
-      if (actionId === 'analysis_reaction_select') {
-        const reaction = typeof data?.reaction === 'string' ? data.reaction.trim() : '';
-        if (!reaction) return;
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: reaction }]);
-        await sendChat(undefined, {
-          action_id: 'analysis_reaction_select',
-          kind: 'action',
-          data: {
-            reaction,
-            reply_text: reaction,
-          },
-        });
         return;
       }
 
@@ -10113,8 +8330,10 @@ export default function BffChat() {
         return;
       }
 
-      if (resolvedActionId === 'analysis_review_products') {
-        openRoutineIntakeSheet();
+      if (actionId === 'analysis_review_products') {
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '评估我现在用的产品' : 'Review my current products' },
@@ -10205,27 +8424,73 @@ export default function BffChat() {
         return;
       }
 
-      if (resolvedActionId === 'analysis_continue' || resolvedActionId === 'analysis_get_recommendations') {
-        await requestProductRecommendationsFromAnalysis(resolvedActionId, data);
+      const msg =
+        actionId === 'analysis_continue'
+          ? null
+          : actionId === 'analysis_gentler'
+            ? language === 'CN'
+              ? '给我更温和的方案'
+              : 'Make it gentler'
+            : actionId === 'analysis_simple'
+              ? language === 'CN'
+                ? '给我更简单的方案'
+                : 'Make it simpler'
+              : null;
+
+      if (actionId === 'analysis_continue') {
+        // Explicitly request recommendations via a chip trigger so the backend
+        // can safely allow recommendation cards (no accidental auto-push).
+        const fromState = agentState;
+        const ctx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: fromState,
+        };
+        const validation = validateRequestedTransition({
+          from_state: fromState,
+          trigger_source: 'action',
+          trigger_id: actionId,
+          requested_next_state: 'RECO_GATE',
+        });
+        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
+        if (!validation.ok) {
+          console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
+        }
+        if (resolvedNextState !== fromState) {
+          emitAgentStateEntered(
+            { ...ctx, state: resolvedNextState },
+            { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+          );
+          setAgentStateSafe(resolvedNextState);
+        }
+        if (resolvedNextState === 'RECO_GATE') {
+          emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
+        }
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: t('s5.btn.continue', language) },
+        ]);
+        await sendChat(undefined, {
+          action_id: 'chip.action.reco_routine',
+          kind: 'chip',
+          data: {
+            reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
+            include_alternatives: true,
+          },
+        }, {
+          client_state: fromState,
+          requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
+        });
         return;
       }
-
-      const msg =
-        resolvedActionId === 'analysis_gentler'
-          ? language === 'CN'
-            ? '给我更温和的方案'
-            : 'Make it gentler'
-          : resolvedActionId === 'analysis_simple'
-            ? language === 'CN'
-              ? '给我更简单的方案'
-              : 'Make it simpler'
-            : null;
 
       if (msg) {
         setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
         // Make gentler / simpler are explicit *preference* messages (not silent actions).
         // We still send them as chips to keep the recommendation gate explicit.
-        if (resolvedActionId === 'analysis_gentler' || resolvedActionId === 'analysis_simple') {
+        if (actionId === 'analysis_gentler' || actionId === 'analysis_simple') {
           const fromState = agentState;
           const ctx: AnalyticsContext = {
             brief_id: headers.brief_id,
@@ -10255,7 +8520,7 @@ export default function BffChat() {
             emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
           }
           const replyText =
-            resolvedActionId === 'analysis_gentler'
+            actionId === 'analysis_gentler'
               ? language === 'CN'
                 ? '生成一套更温和的早晚护肤 routine（减少刺激，优先修护）。'
                 : 'Build a gentler AM/PM routine (minimize irritation, barrier-first).'
@@ -10277,25 +8542,9 @@ export default function BffChat() {
         return;
       }
 
-      await sendChat(undefined, { action_id: resolvedActionId, kind: 'action', data });
+      await sendChat(undefined, { action_id: actionId, kind: 'action', data });
     },
-    [
-      agentState,
-      anchorProductId,
-      anchorProductUrl,
-      applyEnvelope,
-      handlePickPhoto,
-      headers,
-      language,
-      openRoutineIntakeSheet,
-      runDiagnosisV2RouteAction,
-      sendChat,
-      sendDiagnosisV2Telemetry,
-      setAgentStateSafe,
-      startDiagnosisV2,
-      submitDiagnosisV2,
-      tryApplyEnvelopeFromBffError,
-    ],
+    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
   );
 
   const onProductPicksPrimary = useCallback(async () => {
@@ -10345,20 +8594,13 @@ export default function BffChat() {
 
     const replyText =
       language === 'CN' ? '推荐一些产品（并给出可购买的链接/入口）。' : 'Recommend a few products (with purchasable links/CTAs).';
-    const ingredientCtxData = lastIngredientCtxRef.current && typeof lastIngredientCtxRef.current === 'object'
-      ? lastIngredientCtxRef.current
-      : null;
 
     await sendChat(
       undefined,
       {
         action_id: 'chip.start.reco_products',
         kind: 'chip',
-        data: {
-          reply_text: replyText,
-          include_alternatives: false,
-          ...(ingredientCtxData || {}),
-        },
+        data: { reply_text: replyText, include_alternatives: true },
       },
       {
         client_state: fromState,
@@ -10382,22 +8624,27 @@ export default function BffChat() {
     const fromRoutineForm = opts?.fromRoutineForm === true;
     if (fromRoutineForm) setRoutineFormBusy(true);
     setAnalysisBusy(true);
+    setThinkingSteps([{
+      step: 'sim_0',
+      message: language === 'CN' ? '正在快速分析肤质...' : 'Running quick skin analysis...',
+      completed: false,
+    }]);
     setError(null);
+    const stopQuickSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
     try {
       setSessionState('S4_ANALYSIS_LOADING');
       const requestHeaders = { ...headers, lang: language };
       const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify({ use_photo: false }),
-          timeoutMs: 55000,
-        });
+        method: 'POST',
+        body: JSON.stringify({ use_photo: false }),
+      });
       applyEnvelope(env);
     } catch (err) {
-      if (!tryApplyEnvelopeFromBffError(err)) {
-        setError(language === 'CN' ? '皮肤分析暂时遇到问题，请重试' : 'Skin analysis encountered a temporary issue — please retry');
-      }
+      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
+      stopQuickSim();
       setAnalysisBusy(false);
+      setThinkingSteps([]);
       if (fromRoutineForm) setRoutineFormBusy(false);
     }
   }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
@@ -10418,8 +8665,14 @@ export default function BffChat() {
       const fromRoutineForm = opts?.fromRoutineForm === true;
       if (fromRoutineForm) setRoutineFormBusy(true);
       setAnalysisBusy(true);
+      setThinkingSteps([{
+        step: 'sim_0',
+        message: language === 'CN' ? '正在结合你的护肤步骤分析...' : 'Analyzing with your routine...',
+        completed: false,
+      }]);
       setError(null);
       const requestHeaders = { ...headers, lang: language };
+      const stopRoutineSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
 
       try {
         setSessionState('S4_ANALYSIS_LOADING');
@@ -10431,17 +8684,16 @@ export default function BffChat() {
           ...(usePhoto ? { photos } : {}),
         };
         const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(body),
-            timeoutMs: 55000,
-          });
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
         applyEnvelope(envAnalysis);
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) {
-          setError(language === 'CN' ? '皮肤分析暂时遇到问题，请重试' : 'Skin analysis encountered a temporary issue — please retry');
-        }
+        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
+        stopRoutineSim();
         setAnalysisBusy(false);
+        setThinkingSteps([]);
         if (fromRoutineForm) setRoutineFormBusy(false);
       }
     },
@@ -10543,12 +8795,8 @@ export default function BffChat() {
       const id = String(chip.chip_id || '').trim();
       const chipData = asObject(chip.data) || {};
       const actionIdOverride = asString((chipData as any).action_id);
-      const inferredActionId = inferLegacyChipActionId(id, chip.label);
       const clientAction = (asString((chipData as any).client_action) || '').toLowerCase();
-      const effectiveActionId = actionIdOverride || inferredActionId || id;
-      const normalizedChipId = normalizeChipToken(id);
-      const normalizedEffectiveActionId = normalizeChipToken(effectiveActionId);
-      const normalizedCtaAction = normalizeChipToken(asString((chipData as any).cta_action));
+      const effectiveActionId = actionIdOverride || id;
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
       const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
@@ -10559,7 +8807,7 @@ export default function BffChat() {
         if (qpQuestionId === 'skip') return 'IDLE_CHAT';
         if (qpQuestionId === 'opt_in_more' && qpAnswer === 'no') return 'IDLE_CHAT';
         if (qpQuestionId === 'rx_flag') return 'IDLE_CHAT';
-        return nextAgentStateForChip(effectiveActionId) ?? nextAgentStateForChip(id) ?? fromState;
+        return nextAgentStateForChip(id) ?? fromState;
       })();
       const toState = requestedToState;
 
@@ -10585,10 +8833,10 @@ export default function BffChat() {
         emitAgentProfileQuestionAnswered(ctx, { question_id: qpQuestionId, answer_type: qpAnswer });
 
         const finishQuickProfile = (args: { didSkip: boolean; draft: QuickProfileProfilePatch }) => {
-          const shouldShowSyncPrompt = !args.didSkip && !authSession;
-          const syncNotice = language === 'CN'
-            ? '已临时保存到当前设备；登录后可跨设备同步。'
-            : 'Saved on this device; sign in to sync across devices.';
+          const shouldShowBindPrompt = !args.didSkip && !authSession;
+          const bindNotice = language === 'CN'
+            ? '已临时保存到当前设备；登录后可绑定并跨设备同步。'
+            : 'Saved on this device; sign in to bind and sync across devices.';
 
           setAgentStateSafe('IDLE_CHAT');
           setQuickProfileStep('skin_feel');
@@ -10603,8 +8851,8 @@ export default function BffChat() {
               ...stripReturnWelcome(prev),
               { id: nextId(), role: 'assistant', kind: 'text', content },
             ];
-            if (shouldShowSyncPrompt) {
-              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: syncNotice });
+            if (shouldShowBindPrompt) {
+              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: bindNotice });
               nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: [buildQuickProfileBindChip(language)] });
             }
             nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: buildQuickProfileExitChips(language) });
@@ -10670,25 +8918,6 @@ export default function BffChat() {
           setQuickProfileBusy(false);
         }
 
-        return;
-      }
-
-      const shouldOpenRoutineIntakeLocally =
-        normalizedChipId === 'chip.start.routine' ||
-        normalizedChipId === 'chip.intake.paste_routine' ||
-        normalizedChipId === 'open_routine_intake' ||
-        normalizedEffectiveActionId === 'chip.start.routine' ||
-        normalizedEffectiveActionId === 'chip.intake.paste_routine' ||
-        normalizedEffectiveActionId === 'open_routine_intake' ||
-        normalizedCtaAction === 'open_routine_intake' ||
-        normalizedEffectiveActionId === 'routine_generate';
-      if (shouldOpenRoutineIntakeLocally) {
-        const userText =
-          asString((chipData as any).reply_text) ||
-          asString(chip.label) ||
-          (language === 'CN' ? '补全 AM/PM routine' : 'Complete AM/PM routine');
-        setItems((prev) => [...stripReturnWelcome(prev), { id: nextId(), role: 'user', kind: 'text', content: userText }]);
-        openRoutineIntakeSheet();
         return;
       }
 
@@ -10778,7 +9007,10 @@ export default function BffChat() {
 
       if (id === 'chip_login_sync_profile') {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
-        resetAuthUi(authDraft.email);
+        setAuthError(null);
+        setAuthNotice(null);
+        setAuthStage('email');
+        setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
         setAuthSheetOpen(true);
         return;
       }
@@ -10791,23 +9023,49 @@ export default function BffChat() {
       }
 
       if (id === 'chip_start_diagnosis' || id === 'chip.start.diagnosis') {
-        setItems((prev) => [...stripReturnWelcome(prev), userItem]);
-        await startDiagnosisV2({
-          goals: ['barrier_repair'],
-          userText: undefined,
-        });
+        setSessionState('S2_DIAGNOSIS');
+        setItems((prev) => [
+          ...stripReturnWelcome(prev),
+          userItem,
+          {
+            id: nextId(),
+            role: 'assistant',
+            kind: 'cards',
+            cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
+          },
+        ]);
         return;
       }
 
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
 
+      // If the user explicitly requests product recommendations but lacks a minimal profile,
+      // the backend will gate. Remember this intent so we can resume recommendations
+      // immediately after the user completes the diagnosis card.
+      if (id === 'chip.start.reco_products' || id === 'chip_get_recos') {
+        const { score } = profileRecoCompleteness(profileSnapshot ?? bootstrapInfo?.profile ?? null);
+        if (score < 3) {
+          pendingActionAfterDiagnosisRef.current = {
+            action_id: chip.chip_id,
+            kind: 'chip',
+            data: chip.data,
+          };
+        } else {
+          pendingActionAfterDiagnosisRef.current = null;
+        }
+      }
+
       if (id === 'chip_update_products') {
-        openRoutineIntakeSheet();
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
         return;
       }
 
       if (id === 'chip_eval_routine') {
-        openRoutineIntakeSheet();
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
         return;
       }
 
@@ -10824,35 +9082,25 @@ export default function BffChat() {
 
       const isCameraClientAction =
         clientAction === 'open_camera' ||
-        normalizedEffectiveActionId === 'diag.upload_photo' ||
-        normalizedEffectiveActionId === 'chip.intake.upload_photos' ||
-        normalizedEffectiveActionId === 'chip_intake_upload_photos' ||
-        normalizedEffectiveActionId === 'analysis_upload_selfie' ||
-        normalizedEffectiveActionId === 'profile_upload_selfie' ||
-        normalizedChipId === 'chip.intake.upload_photos' ||
-        normalizedChipId === 'chip_intake_upload_photos' ||
-        normalizedChipId.includes('chip.intake.upload_photos');
+        effectiveActionId === 'diag.upload_photo' ||
+        effectiveActionId === 'chip.intake.upload_photos' ||
+        id === 'chip.intake.upload_photos';
       if (isCameraClientAction) {
-        setAgentStateSafe('DIAG_PHOTO_OPTIN');
         setPromptRoutineAfterPhoto(true);
         setPhotoSheetAutoOpenSlot('daylight');
         setPhotoSheetAutoOpenNonce((prev) => prev + 1);
         setPhotoSheetOpen(true);
         return;
       }
-      const isSkipAnalysisChip =
-        normalizedEffectiveActionId === 'chip.intake.skip_analysis' ||
-        normalizedEffectiveActionId === 'chip_intake_skip_analysis' ||
-        normalizedChipId === 'chip.intake.skip_analysis' ||
-        normalizedChipId === 'chip_intake_skip_analysis' ||
-        normalizedChipId.includes('chip.intake.skip_analysis');
-      if (isSkipAnalysisChip) {
-        setPromptRoutineAfterPhoto(false);
-        await runLowConfidenceSkinAnalysis();
+      if (id === 'chip.intake.paste_routine') {
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
         return;
       }
-      if (id === 'chip.intake.paste_routine') {
-        openRoutineIntakeSheet();
+      if (id === 'chip.intake.skip_analysis') {
+        setRoutineSheetOpen(false);
+        await runLowConfidenceSkinAnalysis();
         return;
       }
       if (id === 'chip.start.evaluate') {
@@ -10866,28 +9114,15 @@ export default function BffChat() {
         return;
       }
 
-      const baseActionPayloadData =
+      const actionPayloadData =
         actionIdOverride && actionIdOverride !== chip.chip_id
           ? { ...chipData, chip_id: chip.chip_id }
           : chip.data;
-      const effectiveChipId = actionIdOverride || inferredActionId || chip.chip_id;
-      const isRecoChip = effectiveChipId === 'chip.start.reco_products' || effectiveChipId === 'chip_get_recos';
-      const chipProductCandidates = Array.isArray((chip.data as any)?.product_candidates)
-        ? (chip.data as any).product_candidates
-        : null;
-      const actionPayloadData =
-        isRecoChip && lastIngredientCtxRef.current
-          ? {
-            ...baseActionPayloadData,
-            ...lastIngredientCtxRef.current,
-            ...(chipProductCandidates ? { product_candidates: chipProductCandidates } : {}),
-          }
-          : baseActionPayloadData;
 
       await sendChat(
         undefined,
         {
-          action_id: effectiveChipId,
+          action_id: actionIdOverride || chip.chip_id,
           kind: 'chip',
           data: actionPayloadData,
         },
@@ -10896,19 +9131,17 @@ export default function BffChat() {
     },
     [
       agentState,
-      authDraft.email,
+      bootstrapInfo?.profile,
       headers,
       language,
+      profileSnapshot,
       quickProfileBusy,
       quickProfileDraft,
-      openRoutineIntakeSheet,
       runLowConfidenceSkinAnalysis,
       sendChat,
-      resetAuthUi,
       authSession,
       persistQuickProfilePatch,
       setAgentStateSafe,
-      startDiagnosisV2,
     ]
   );
 
@@ -10962,8 +9195,6 @@ export default function BffChat() {
 
     setError(null);
     setSessionState('idle');
-    setSessionMeta(null);
-    lastTravelReadinessRef.current = null;
     setAgentStateSafe('IDLE_CHAT');
     setQuickProfileStep('skin_feel');
     setQuickProfileDraft({});
@@ -10976,6 +9207,7 @@ export default function BffChat() {
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setBootstrapInfo(null);
+    pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;
@@ -11005,14 +9237,7 @@ export default function BffChat() {
       return;
     }
 
-    const sig = [
-      searchParams.brief_id,
-      searchParams.trace_id,
-      searchParams.open,
-      searchParams.diagnosis_goals.join(','),
-    ]
-      .map((v) => String(v || ''))
-      .join('|');
+    const sig = [searchParams.brief_id, searchParams.trace_id, searchParams.open].map((v) => String(v || '')).join('|');
     if (openIntentConsumedRef.current === sig) return;
     openIntentConsumedRef.current = sig;
 
@@ -11022,22 +9247,19 @@ export default function BffChat() {
       setPhotoSheetOpen(true);
     }
     if (searchParams.open === 'routine') {
-      openRoutineIntakeSheet();
-    }
-    if (searchParams.open === 'profile') {
-      setProfileSheetOpen(true);
+      setRoutineDraft(makeEmptyRoutineDraft());
+      setRoutineTab('am');
+      setRoutineSheetOpen(true);
     }
     if (searchParams.open === 'checkin') {
       setCheckinSheetOpen(true);
     }
     if (searchParams.open === 'auth') {
-      resetAuthUi(authDraft.email);
+      setAuthError(null);
+      setAuthNotice(null);
+      setAuthStage('email');
+      setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
       setAuthSheetOpen(true);
-    }
-    if (searchParams.open === 'diagnosis_v2') {
-      void startDiagnosisV2({
-        goals: searchParams.diagnosis_goals.length ? searchParams.diagnosis_goals : ['barrier_repair'],
-      });
     }
     const suppressRoutineAutoChip = searchParams.open === 'routine' && searchParams.chip_id === 'chip.start.routine';
 
@@ -11046,10 +9268,6 @@ export default function BffChat() {
       let changed = false;
       if (sp.has('open')) {
         sp.delete('open');
-        changed = true;
-      }
-      if (sp.has('goals')) {
-        sp.delete('goals');
         changed = true;
       }
       if (suppressRoutineAutoChip && sp.get('chip_id') === 'chip.start.routine') {
@@ -11071,7 +9289,7 @@ export default function BffChat() {
     } catch {
       // ignore
     }
-  }, [authDraft.email, headers.brief_id, headers.trace_id, navigate, openRoutineIntakeSheet, resetAuthUi, searchParams, startDiagnosisV2]);
+  }, [headers.brief_id, headers.trace_id, navigate, searchParams]);
 
   useEffect(() => {
     if (!hasBootstrapped) return;
@@ -11212,7 +9430,6 @@ export default function BffChat() {
         aliases?: Array<string | null | undefined>;
         brand?: string | null;
         title?: string | null;
-        interaction_action?: string | null;
       };
       signal?: AbortSignal;
     }) => {
@@ -11289,73 +9506,6 @@ export default function BffChat() {
       }
     },
     [headers, language],
-  );
-
-  const extractProductsFromSearchResponse = useCallback((resp: any) => {
-    const candidates = [
-      resp?.products,
-      resp?.data?.products,
-      resp?.items,
-      resp?.data?.items,
-      resp?.results,
-      resp?.data?.results,
-      Array.isArray(resp?.data) ? resp.data : null,
-    ];
-    const items = candidates.find((value) => Array.isArray(value)) as any[] | undefined;
-    return (items || [])
-      .map((raw: any) => ({
-        product_id: (raw.product_id || raw.productId || raw.sku_id || null) as string | null,
-        merchant_id: (raw.merchant_id || raw.merchantId || null) as string | null,
-        name: String(raw.name || raw.display_name || raw.displayName || '').trim(),
-        brand: String(raw.brand || '').trim(),
-        image_url: pickProductImageUrl(raw),
-        price: (typeof raw.price === 'number' ? raw.price : typeof raw.price_amount === 'number' ? raw.price_amount : typeof raw.sale_price === 'number' ? raw.sale_price : null) as number | null,
-        currency: (raw.currency || null) as string | null,
-      }))
-      .filter((item) => item.name);
-  }, []);
-
-  const onTravelProductLookup = useCallback(
-    async (query: TravelProductLookupQuery) => {
-      const requestId = travelProductLookupRequestRef.current + 1;
-      travelProductLookupRequestRef.current = requestId;
-      setTravelProductSheetQuery(query);
-      setTravelProductSheetResults([]);
-      setTravelProductSheetOpen(true);
-      setTravelProductSheetLoading(true);
-      try {
-        const resp = await resolveProductsSearch({
-          query: query.searchQuery,
-          limit: 8,
-          preferBrand: query.preferBrand || null,
-        });
-        if (requestId !== travelProductLookupRequestRef.current) return;
-        const products = extractProductsFromSearchResponse(resp);
-        setTravelProductSheetResults(products.slice(0, 8));
-      } catch {
-        if (requestId !== travelProductLookupRequestRef.current) return;
-        setTravelProductSheetResults([]);
-      } finally {
-        if (requestId !== travelProductLookupRequestRef.current) return;
-        setTravelProductSheetLoading(false);
-      }
-    },
-    [resolveProductsSearch, extractProductsFromSearchResponse],
-  );
-
-  const openTravelProductPdp = useCallback(
-    (product: { product_id: string | null; merchant_id: string | null; name: string; brand: string }) => {
-      const productId = product.product_id;
-      if (productId) {
-        const url = buildPdpUrl({ product_id: productId, merchant_id: product.merchant_id });
-        openPdpDrawer({ url, title: product.name });
-      } else {
-        const query = `${product.brand || ''} ${product.name || ''}`.trim();
-        const fallbackUrl = buildGoogleSearchFallbackUrl(query, language);
-        if (fallbackUrl) window.open(fallbackUrl, '_blank');
-      }
-    },
-    [language, openPdpDrawer],
   );
 
   return (
@@ -11489,11 +9639,11 @@ export default function BffChat() {
                   <div className="text-xs text-muted-foreground">
                     {authMode === 'password'
                       ? language === 'CN'
-                        ? '用邮箱 + 密码登录。还没有密码？请先使用验证码登录，登录后可设置密码。'
-                        : "Sign in with email + password. No password yet? Use Email code to sign in first, then set a password."
+                        ? '用邮箱 + 密码登录。如果还没设置密码，请先用验证码登录后在账户里设置。'
+                        : "Sign in with email + password. If you haven't set a password, use email code first, then set one in Account."
                       : language === 'CN'
-                        ? '新用户？直接输入邮箱，系统将自动发送验证码并创建账号。已有账号同样适用。'
-                        : 'New user? Just enter your email — a code will be sent and your account will be created automatically. Works for existing accounts too.'}
+                        ? '输入邮箱获取验证码（用于跨设备保存你的皮肤档案）。'
+                        : 'Enter your email to get a sign-in code (for cross-device profile).'}
                   </div>
 
                   <label className="space-y-1 text-xs text-muted-foreground">
@@ -11580,7 +9730,7 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={photoSheetOpen}
-            title={language === 'CN' ? '上传照片（推荐）' : 'Upload photo (recommended)'}
+            title={language === 'CN' ? '上传照片（更准确）' : 'Upload photos (recommended)'}
             onClose={() => {
               if (isLoading || photoUploading) return;
               setPhotoSheetOpen(false);
@@ -11615,8 +9765,8 @@ export default function BffChat() {
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
                 {language === 'CN'
-                  ? '如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先基于现有信息给你推荐结果。'
-                  : 'If you want, add your current AM/PM products for higher accuracy. You can also skip and I will generate recommendations from available information.'}
+                  ? '如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先给低置信度 7 天安全基线（不评分/不推推荐）。'
+                  : 'If you want, add your current AM/PM products for higher accuracy. You can also skip and I will give a low-confidence 7-day safe baseline first (no scoring, no recommendations).'}
               </div>
 
               <div
@@ -11656,105 +9806,90 @@ export default function BffChat() {
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '洁面' : 'Cleanser'}
-                        <ProductSearchInput
-                          value={routineDraft.am.cleanser.text}
-                          resolvedProduct={routineDraft.am.cleanser.resolvedProduct}
-                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: { ...prev.am.cleanser, text } } }))}
-                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: { text: p.display_name || p.name || prev.am.cleanser.text, resolvedProduct: p } } }))}
-                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: { ...prev.am.cleanser, resolvedProduct: null } } }))}
-                          placeholder={language === 'CN' ? '搜索洁面产品...' : 'Search cleanser...'}
+                        <input
+                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={routineDraft.am.cleanser}
+                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
+                          placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
                           disabled={routineFormBusy}
-                          language={language === 'CN' ? 'CN' : 'EN'}
-                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
-                        <ProductSearchInput
-                          value={routineDraft.am.treatment.text}
-                          resolvedProduct={routineDraft.am.treatment.resolvedProduct}
-                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: { ...prev.am.treatment, text } } }))}
-                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: { text: p.display_name || p.name || prev.am.treatment.text, resolvedProduct: p } } }))}
-                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: { ...prev.am.treatment, resolvedProduct: null } } }))}
-                          placeholder={language === 'CN' ? '搜索精华/活性产品...' : 'Search treatment...'}
+                        <input
+                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={routineDraft.am.treatment}
+                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
+                          placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
                           disabled={routineFormBusy}
-                          language={language === 'CN' ? 'CN' : 'EN'}
-                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
-                        <ProductSearchInput
-                          value={routineDraft.am.moisturizer.text}
-                          resolvedProduct={routineDraft.am.moisturizer.resolvedProduct}
-                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: { ...prev.am.moisturizer, text } } }))}
-                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: { text: p.display_name || p.name || prev.am.moisturizer.text, resolvedProduct: p } } }))}
-                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: { ...prev.am.moisturizer, resolvedProduct: null } } }))}
-                          placeholder={language === 'CN' ? '搜索保湿产品...' : 'Search moisturizer...'}
+                        <input
+                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={routineDraft.am.moisturizer}
+                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
+                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
                           disabled={routineFormBusy}
-                          language={language === 'CN' ? 'CN' : 'EN'}
-                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
-                        <ProductSearchInput
-                          value={routineDraft.am.spf.text}
-                          resolvedProduct={routineDraft.am.spf.resolvedProduct}
-                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: { ...prev.am.spf, text } } }))}
-                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: { text: p.display_name || p.name || prev.am.spf.text, resolvedProduct: p } } }))}
-                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: { ...prev.am.spf, resolvedProduct: null } } }))}
-                          placeholder={language === 'CN' ? '搜索防晒产品...' : 'Search SPF...'}
+                        <input
+                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={routineDraft.am.spf}
+                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
+                          placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
                           disabled={routineFormBusy}
-                          language={language === 'CN' ? 'CN' : 'EN'}
-                          searchFn={resolveProductsSearch}
                         />
                       </label>
                     </div>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-muted-foreground">
+                        {language === 'CN' ? '如果晚上用法和早上一样，可一键复制。' : 'If PM is the same as AM, copy in one tap.'}
+                      </div>
+                      <button
+                        type="button"
+                        className="chip-button !px-3 !py-1.5 text-[11px] whitespace-nowrap"
+                        onClick={() => setRoutineDraft((prev) => copyRoutineAmToPm(prev))}
+                        disabled={routineFormBusy || !hasAnyRoutineAmInput(routineDraft)}
+                      >
+                        {language === 'CN' ? '同 AM' : 'Same as AM'}
+                      </button>
+                    </div>
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '洁面' : 'Cleanser'}
-                        <ProductSearchInput
-                          value={routineDraft.pm.cleanser.text}
-                          resolvedProduct={routineDraft.pm.cleanser.resolvedProduct}
-                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: { ...prev.pm.cleanser, text } } }))}
-                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: { text: p.display_name || p.name || prev.pm.cleanser.text, resolvedProduct: p } } }))}
-                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: { ...prev.pm.cleanser, resolvedProduct: null } } }))}
-                          placeholder={language === 'CN' ? '搜索洁面产品...' : 'Search cleanser...'}
+                        <input
+                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={routineDraft.pm.cleanser}
+                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
+                          placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
                           disabled={routineFormBusy}
-                          language={language === 'CN' ? 'CN' : 'EN'}
-                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
-                        <ProductSearchInput
-                          value={routineDraft.pm.treatment.text}
-                          resolvedProduct={routineDraft.pm.treatment.resolvedProduct}
-                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: { ...prev.pm.treatment, text } } }))}
-                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: { text: p.display_name || p.name || prev.pm.treatment.text, resolvedProduct: p } } }))}
-                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: { ...prev.pm.treatment, resolvedProduct: null } } }))}
-                          placeholder={language === 'CN' ? '搜索精华/活性产品...' : 'Search treatment...'}
+                        <input
+                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={routineDraft.pm.treatment}
+                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
+                          placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
                           disabled={routineFormBusy}
-                          language={language === 'CN' ? 'CN' : 'EN'}
-                          searchFn={resolveProductsSearch}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
                         {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
-                        <ProductSearchInput
-                          value={routineDraft.pm.moisturizer.text}
-                          resolvedProduct={routineDraft.pm.moisturizer.resolvedProduct}
-                          onValueChange={(text) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: { ...prev.pm.moisturizer, text } } }))}
-                          onProductSelect={(p) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: { text: p.display_name || p.name || prev.pm.moisturizer.text, resolvedProduct: p } } }))}
-                          onProductClear={() => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: { ...prev.pm.moisturizer, resolvedProduct: null } } }))}
-                          placeholder={language === 'CN' ? '搜索保湿产品...' : 'Search moisturizer...'}
+                        <input
+                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                          value={routineDraft.pm.moisturizer}
+                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
+                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
                           disabled={routineFormBusy}
-                          language={language === 'CN' ? 'CN' : 'EN'}
-                          searchFn={resolveProductsSearch}
                         />
                       </label>
                     </div>
@@ -11790,10 +9925,6 @@ export default function BffChat() {
                     type="button"
                     className="chip-button"
                     onClick={() => {
-                      const skipText =
-                        language === 'CN'
-                          ? '跳过填写，直接给我推荐结果'
-                          : 'Skip intake and give me recommendations now';
                       setRoutineSheetOpen(false);
                       setRoutineDraft(makeEmptyRoutineDraft());
                       setItems((prev) => [
@@ -11802,23 +9933,14 @@ export default function BffChat() {
                           id: nextId(),
                           role: 'user',
                           kind: 'text',
-                          content: skipText,
+                          content: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
                         },
                       ]);
-                      void sendChat(undefined, {
-                        action_id: 'chip.start.routine',
-                        kind: 'chip',
-                        data: {
-                          reply_text: skipText,
-                          include_alternatives: true,
-                          trigger_source: 'routine_sheet_skip',
-                          skip_routine_intake: true,
-                        },
-                      });
+                      void runLowConfidenceSkinAnalysis({ fromRoutineForm: true });
                     }}
                     disabled={routineFormBusy}
                   >
-                    {language === 'CN' ? '跳过填写，直接推荐' : 'Skip & recommend now'}
+                    {language === 'CN' ? '先给基线' : 'Baseline only'}
                   </button>
                   <button
                     type="button"
@@ -12193,126 +10315,38 @@ export default function BffChat() {
                 <div key={`sheet_${track.key}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
                   <div className="text-sm font-semibold text-foreground">{track.title}</div>
                   <div className="text-xs text-muted-foreground">{track.subtitle}</div>
-                  {track.key === 'pair' || track.key === 'empty' ? (
-                    <div className="mt-2 space-y-2">
-                      {asArray(track.notes).slice(0, 8).map((note, idx) => {
-                        const text = asString(note);
-                        if (!text) return null;
-                        return (
-                          <div key={`${track.key}_note_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2 text-xs text-muted-foreground">
-                            {text}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mt-2 space-y-2">
-                      {track.items.slice(0, 8).map((entry, idx) => {
-                        const candidate = entry.candidate;
-                        const brand = asString(candidate.brand);
-                        const name =
-                          asString(candidate.name) ||
-                          asString((candidate as any).display_name) ||
-                          asString((candidate as any).displayName);
-                        if (!name) return null;
-                        const why = uniqueStrings([
-                          asString((candidate as any)?.why_candidate?.summary),
-                          ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
-                          ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
-                        ])[0];
-                        const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
-                        const tradeoff = uniqueStrings([
-                          ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
-                          ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
-                        ])[0];
-                        return (
-                          <div key={`${track.key}_${brand || 'brandless'}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
-                            <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand ? `${brand} - ` : ''}${name}`}</div>
-                            {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
-                            {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
-                            {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <div className="mt-2 space-y-2">
+                    {track.items.slice(0, 8).map((entry, idx) => {
+                      const candidate = entry.candidate;
+                      const brand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+                      const name =
+                        asString(candidate.name) ||
+                        asString((candidate as any).display_name) ||
+                        asString((candidate as any).displayName) ||
+                        (language === 'CN' ? '未知产品' : 'Unknown product');
+                      const why = uniqueStrings([
+                        asString((candidate as any)?.why_candidate?.summary),
+                        ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
+                        ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
+                      ])[0];
+                      const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
+                      const tradeoff = uniqueStrings([
+                        ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
+                        ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
+                      ])[0];
+                      return (
+                        <div key={`${track.key}_${brand}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
+                          <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand} - ${name}`}</div>
+                          {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
+                          {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
+                          {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
-          </Sheet>
-
-          <Sheet
-            open={travelProductSheetOpen}
-            title={travelProductSheetQuery?.categoryTitle || (language === 'CN' ? '推荐产品' : 'Recommended products')}
-            onClose={() => setTravelProductSheetOpen(false)}
-            onOpenMenu={() => {
-              setTravelProductSheetOpen(false);
-              setSidebarOpen(true);
-            }}
-          >
-            {travelProductSheetLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-              </div>
-            ) : null}
-            {!travelProductSheetLoading && travelProductSheetResults.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 py-10 text-center">
-                <Search className="h-8 w-8 text-muted-foreground/40" />
-                <div className="text-sm text-muted-foreground">
-                  {language === 'CN' ? '暂未找到匹配产品' : 'No matching products found'}
-                </div>
-                {travelProductSheetQuery ? (
-                  <button
-                    type="button"
-                    className="chip-button chip-button-primary"
-                    onClick={() => {
-                      const q = `${travelProductSheetQuery.preferBrand || ''} ${travelProductSheetQuery.searchQuery}`.trim();
-                      const url = buildGoogleSearchFallbackUrl(q, language);
-                      if (url) window.open(url, '_blank');
-                    }}
-                  >
-                    {language === 'CN' ? '在 Google 搜索' : 'Search on Google'}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            {!travelProductSheetLoading && travelProductSheetResults.length > 0 ? (
-              <div className="space-y-2">
-                {travelProductSheetQuery?.ingredientHints ? (
-                  <div className="rounded-lg bg-muted/30 px-2.5 py-1.5 text-[10px] italic text-muted-foreground">
-                    {travelProductSheetQuery.ingredientHints}
-                  </div>
-                ) : null}
-                {travelProductSheetResults.map((product, idx) => (
-                  <button
-                    key={product.product_id || `tp_${idx}`}
-                    type="button"
-                    onClick={() => openTravelProductPdp(product)}
-                    className="flex w-full items-center gap-3 rounded-xl border border-border/60 bg-background/60 p-3 text-left transition-colors hover:bg-muted/30"
-                  >
-                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-muted">
-                      {product.image_url ? (
-                        <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
-                          {(product.brand || product.name || 'P').slice(0, 1).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {product.brand ? <div className="text-[10px] text-muted-foreground">{product.brand}</div> : null}
-                      <div className="truncate text-sm font-medium text-foreground">{product.name}</div>
-                      {product.price != null ? (
-                        <div className="mt-0.5 text-sm font-semibold text-foreground">
-                          {product.currency || '$'}{typeof product.price === 'number' ? product.price.toFixed(2) : product.price}
-                        </div>
-                      ) : null}
-                    </div>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </Sheet>
 
           {error ? (
@@ -12435,17 +10469,9 @@ export default function BffChat() {
                           language={language}
                           cardType={String(card.type || '')}
                           cardId={card.card_id}
-                          analyticsCtx={{
-                            brief_id: headers.brief_id,
-                            trace_id: headers.trace_id,
-                            aurora_uid: headers.aurora_uid,
-                            lang: toLangPref(language),
-                            state: agentState,
-                          }}
                         >
                           <BffCardView
                             card={card}
-                            turnCards={cards}
                             language={language}
                             debug={debug}
                             meta={item.meta}
@@ -12475,7 +10501,6 @@ export default function BffChat() {
                               lang: toLangPref(language),
                               state: agentState,
                             }}
-                            onTravelProductLookup={onTravelProductLookup}
                           />
                         </CardRenderBoundary>,
                       ];
@@ -12498,7 +10523,7 @@ export default function BffChat() {
 	            </div>
 	          ) : null}
 
-	          {isLoading ? <AuroraLoadingCard language={language} intent={loadingIntent} /> : null}
+	          {isLoading ? <AuroraLoadingCard language={language} intent={loadingIntent} thinkingSteps={thinkingSteps} streamedText={streamedText || undefined} /> : null}
 	          <div ref={bottomRef} />
 	        </div>
 	      </main>

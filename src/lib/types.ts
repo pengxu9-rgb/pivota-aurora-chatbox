@@ -25,7 +25,6 @@ export type BudgetTier = '$' | '$$' | '$$$';
 export type CheckoutOutcome = 'success' | 'failure_payment' | 'failure_expired';
 
 export type RecommendationSourceMode = 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
-export type RecommendationTriggerSource = 'goal_driven' | 'ingredient_driven' | 'profile_refine_rerun';
 
 export interface AuroraAnalysisMeta {
   detector_source: string;
@@ -37,11 +36,11 @@ export interface AuroraAnalysisMeta {
 
 export interface AuroraRecommendationMeta {
   source_mode: RecommendationSourceMode;
-  trigger_source?: RecommendationTriggerSource | null;
-  recompute_from_profile_update?: boolean;
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
+  trigger_source?: string | null;
+  recompute_from_profile_update?: boolean;
   llm_trace?: {
     template_id?: string;
     prompt_hash?: string;
@@ -51,13 +50,6 @@ export interface AuroraRecommendationMeta {
     cache_hit?: boolean;
     provider?: string | null;
     model?: string | null;
-    provider_status?: number | string | null;
-    provider_error_code?: string | null;
-    retry_after_ms?: number | null;
-    queue_wait_ms?: number | null;
-    provider_latency_ms?: number | null;
-    upstream_request_id?: string | null;
-    circuit_state?: string | null;
     [k: string]: unknown;
   } | null;
   env_source?: string | null;
@@ -77,13 +69,6 @@ export interface AuroraRecoRefreshHint {
   should_refresh: boolean;
   reason: string;
   effective_window_days: number;
-}
-
-export interface AuroraEnvelopeTelemetry {
-  route_decision?: string;
-  route_failure_class?: string | null;
-  mixed_reco_requested?: boolean;
-  [k: string]: unknown;
 }
 
 export type SkinType = 'oily' | 'dry' | 'combination' | 'normal' | 'sensitive';
@@ -123,7 +108,7 @@ export interface ProductAnalysisResult {
 export interface DiagnosisResult {
   skinType?: SkinType;
   concerns: SkinConcern[];
-  currentRoutine: string | Record<string, unknown> | unknown[] | null;
+  currentRoutine: 'none' | 'basic' | 'full';
   barrierStatus?: 'healthy' | 'impaired' | 'unknown';
 }
 
@@ -187,65 +172,18 @@ export interface Session {
   productAnalysis?: ProductAnalysisResult;
 }
 
-export interface QualityInfo {
-  grade: 'pass' | 'degraded' | 'fail';
-  message?: string;
-  issues?: string[];
-  confidence_penalty?: number;
-  factors?: {
-    blur: number | null;
-    exposure: number | null;
-    wb: number | null;
-    coverage: number | null;
-  };
-}
-
-export interface AnalysisFinding {
-  cue: string;
-  where: string;
-  severity: 'mild' | 'moderate' | 'high';
-  confidence: 'low' | 'med' | 'high';
-  evidence: string;
-}
-
 export interface AnalysisResult {
   features: AnalysisFeature[];
   strategy: string;
   needs_risk_check: boolean;
   risk_answered?: boolean;
   using_actives?: boolean;
-  primary_question?: string;
-  conditional_followups?: string[];
-  ask_3_questions?: string[];
-  reasoning?: string[];
-  deepening?: AnalysisDeepening;
-  evidence_refs?: AnalysisEvidenceRef[];
-  routine_expert?: RoutineExpertV1 | string | Record<string, unknown>;
-  quality?: QualityInfo;
-  findings?: AnalysisFinding[];
-  guidance_brief?: string[];
-  insufficient_visual_detail?: boolean;
-  next_step_options?: Array<{ id: string; label: string }>;
-  two_week_focus?: string[];
+  routine_expert?: RoutineExpertV1;
 }
 
 export interface AnalysisFeature {
   observation: string;
   confidence: 'pretty_sure' | 'somewhat_sure' | 'not_sure';
-}
-
-export interface AnalysisDeepening {
-  phase: 'photo_optin' | 'products' | 'reactions' | 'refined';
-  next_phase?: 'photo_optin' | 'products' | 'reactions' | 'refined';
-  question?: string;
-  options?: string[];
-}
-
-export interface AnalysisEvidenceRef {
-  id: string;
-  title: string;
-  url: string;
-  why_relevant?: string;
 }
 
 export type RoutineIssueSeverity = 'high' | 'medium' | 'low';
@@ -450,110 +388,4 @@ export interface CardAction {
   label: string;
   variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
   data?: Record<string, any>;
-}
-
-export type DiagnosisV2GoalPreset =
-  | 'anti_aging_face'
-  | 'eye_anti_aging'
-  | 'post_procedure_repair'
-  | 'barrier_repair'
-  | 'sun_protection'
-  | 'brightening'
-  | 'neck_care'
-  | 'daily_maintenance'
-  | 'mask_special'
-  | 'custom';
-
-export interface DiagnosisV2GoalProfile {
-  selected_goals: string[];
-  custom_input?: string;
-  constraints: string[];
-  post_procedure_meta?: {
-    days_since: number;
-    skin_broken: boolean;
-    procedure_type?: string;
-  };
-}
-
-export interface DiagnosisV2FollowupQuestion {
-  id: string;
-  question: string;
-  options: { id: string; label: string; value?: string }[];
-  required?: boolean;
-}
-
-export interface DiagnosisV2IntroPayload {
-  goal_profile: DiagnosisV2GoalProfile;
-  is_cold_start: boolean;
-  question_strategy: 'default' | 'state_probe';
-  followup_questions: DiagnosisV2FollowupQuestion[];
-  actions: { type: string; label: string; payload?: Record<string, any> }[];
-}
-
-export interface DiagnosisV2InferredAxis {
-  axis: string;
-  level: 'low' | 'moderate' | 'high' | 'severe';
-  confidence: number;
-  evidence: string[];
-  trend: 'improved' | 'stable' | 'worsened' | 'new';
-  previous_level?: 'low' | 'moderate' | 'high' | 'severe';
-}
-
-export interface DiagnosisV2Strategy {
-  title: string;
-  why: string;
-  timeline: string;
-  do_list: string[];
-  avoid_list: string[];
-}
-
-export interface DiagnosisV2RoutineBlueprint {
-  am_steps: string[];
-  pm_steps: string[];
-  conflict_rules: string[];
-}
-
-export interface DiagnosisV2ImprovementTip {
-  tip: string;
-  action_type: 'take_photo' | 'setup_routine' | 'start_checkin' | 'add_travel' | 'intake_optimize';
-  action_label: string;
-}
-
-export interface DiagnosisV2ResultPayload {
-  diagnosis_id: string;
-  diagnosis_seq: number;
-  goal_profile: DiagnosisV2GoalProfile;
-  is_cold_start: boolean;
-  data_quality: {
-    overall: 'high' | 'medium' | 'low';
-    limits_banner?: string;
-  };
-  inferred_state: {
-    axes: DiagnosisV2InferredAxis[];
-  };
-  strategies: DiagnosisV2Strategy[];
-  routine_blueprint: DiagnosisV2RoutineBlueprint;
-  improvement_path: DiagnosisV2ImprovementTip[];
-  next_actions: { type: string; label: string; payload?: Record<string, any> }[];
-}
-
-export interface DiagnosisV2ThinkingStep {
-  stage: 'goal_understanding' | 'inference' | 'strategy';
-  step: string;
-  text: string;
-  status: 'pending' | 'in_progress' | 'done';
-}
-
-export interface DiagnosisV2LoginPromptPayload {
-  prompt_text: string;
-  login_action: { type: string; label: string; payload?: Record<string, any> };
-  skip_action: { type: string; label: string; payload?: Record<string, any> };
-  pending_goals: string[];
-}
-
-export interface DiagnosisV2PhotoPromptPayload {
-  prompt_text: string;
-  photo_action: { type: string; label: string; payload?: Record<string, any> };
-  skip_action: { type: string; label: string; payload?: Record<string, any> };
-  has_existing_artifact: boolean;
 }

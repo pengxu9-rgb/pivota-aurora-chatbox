@@ -1,4 +1,5 @@
 import { getOrCreateAuroraUid } from './persistence';
+import type { ChatIntroHintV1 } from './chatCardsTypes';
 import { requestWithTimeout } from '@/utils/requestWithTimeout';
 
 export type Language = 'EN' | 'CN';
@@ -16,55 +17,13 @@ export type SuggestedChip = {
   data?: Record<string, unknown>;
 };
 
-export type ProductParseCardPayload = {
-  product?: Record<string, unknown> | null;
-  confidence?: number | null;
-  missing_info?: unknown[];
-  parse_source?: string;
-  [k: string]: unknown;
-};
-
-export type ProductAnalysisCardPayload = {
-  assessment?: Record<string, unknown>;
-  evidence?: Record<string, unknown>;
-  social_signals?: Record<string, unknown>;
-  competitors?: Record<string, unknown>;
-  dupes?: Record<string, unknown>;
-  related_products?: Record<string, unknown>;
-  ingredient_intel?: Record<string, unknown>;
-  inci_status?: Record<string, unknown>;
-  provenance?: Record<string, unknown>;
-  missing_info?: unknown[];
-  user_facing_gaps?: unknown[];
-  confidence?: number | null;
-  [k: string]: unknown;
-};
-
-export type RawBffCardBase = {
+export type Card = {
   card_id: string;
   type: string;
   title?: string;
   payload: Record<string, unknown>;
   field_missing?: Array<Record<string, unknown>>;
 };
-
-export type ProductParseCard = RawBffCardBase & {
-  type: 'product_parse';
-  payload: ProductParseCardPayload;
-};
-
-export type ProductAnalysisCard = RawBffCardBase & {
-  type: 'product_analysis';
-  payload: ProductAnalysisCardPayload;
-};
-
-export type Card =
-  | ProductParseCard
-  | ProductAnalysisCard
-  | (RawBffCardBase & {
-      type: string;
-      payload: Record<string, unknown>;
-    });
 
 export type AnalysisMeta = {
   detector_source: string;
@@ -76,11 +35,11 @@ export type AnalysisMeta = {
 
 export type RecommendationMeta = {
   source_mode: 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
-  trigger_source?: 'goal_driven' | 'ingredient_driven' | 'profile_refine_rerun' | null;
-  recompute_from_profile_update?: boolean;
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
+  trigger_source?: string | null;
+  recompute_from_profile_update?: boolean;
   llm_trace?: {
     template_id?: string;
     prompt_hash?: string;
@@ -90,13 +49,6 @@ export type RecommendationMeta = {
     cache_hit?: boolean;
     provider?: string | null;
     model?: string | null;
-    provider_status?: number | string | null;
-    provider_error_code?: string | null;
-    retry_after_ms?: number | null;
-    queue_wait_ms?: number | null;
-    provider_latency_ms?: number | null;
-    upstream_request_id?: string | null;
-    circuit_state?: string | null;
     [k: string]: unknown;
   } | null;
   env_source?: string | null;
@@ -110,13 +62,6 @@ export type RecoRefreshHint = {
   effective_window_days: number;
 };
 
-export type EnvelopeTelemetry = {
-  route_decision?: string;
-  route_failure_class?: string | null;
-  mixed_reco_requested?: boolean;
-  [k: string]: unknown;
-};
-
 export type V1Envelope = {
   request_id: string;
   trace_id: string;
@@ -128,7 +73,6 @@ export type V1Envelope = {
   analysis_meta?: AnalysisMeta;
   recommendation_meta?: RecommendationMeta;
   reco_refresh_hint?: RecoRefreshHint;
-  telemetry?: EnvelopeTelemetry;
   meta?: Record<string, unknown>;
 };
 
@@ -250,6 +194,191 @@ export const bffJson = async <TResponse>(
   return body as TResponse;
 };
 
+// ─── SSE streaming for /v1/chat/stream ─────────────────────────────────────
+
+export type SSEThinkingEvent = { step: string; message: string };
+export type SSEChunkEvent = { text: string };
+export type SSEResultEvent = {
+  cards: Array<Record<string, unknown>>;
+  ops: Record<string, unknown>;
+  next_actions: Array<Record<string, unknown>>;
+  thinking_steps: SSEThinkingEvent[];
+  intro_hint?: ChatIntroHintV1;
+  meta: {
+    skill_id?: string;
+    task_mode?: string;
+    elapsed_ms?: number;
+    quality_ok?: boolean;
+  };
+};
+
+export type BffStreamCallbacks = {
+  onThinking: (event: SSEThinkingEvent) => void;
+  onChunk: (event: SSEChunkEvent) => void;
+  onResult: (event: SSEResultEvent) => void;
+  onError?: (message: string) => void;
+  onDone?: () => void;
+};
+
+/**
+ * SSE streaming client for /v1/chat/stream.
+ * Consumes server-sent events and dispatches to typed callbacks.
+ */
+export const bffChatStream = async (
+  headers: BffHeaders,
+  body: Record<string, unknown>,
+  callbacks: BffStreamCallbacks,
+  options: { baseUrl?: string; timeoutMs?: number } = {},
+): Promise<void> => {
+  const baseUrl = options.baseUrl ?? getPivotaAgentBaseUrl();
+  const requestUrl = joinUrl(baseUrl, '/v1/chat/stream');
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let sawResult = false;
+  const timeoutMs = options.timeoutMs ?? 90_000;
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => controller.abort(), timeoutMs);
+  }
+
+  try {
+    const res = await fetch(requestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        'X-Aurora-Uid': headers.aurora_uid ?? '',
+        'X-Trace-ID': headers.trace_id,
+        'X-Brief-ID': headers.brief_id,
+        'X-Lang': headers.lang,
+        'X-Aurora-Lang': headers.lang === 'CN' ? 'cn' : 'en',
+        ...(headers.auth_token ? { Authorization: `Bearer ${headers.auth_token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new PivotaAgentBffError(`Stream request failed: ${res.status}`, res.status, errBody);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) {
+      throw new Error('Stream response body was empty.');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const drainBuffer = (flush = false) => {
+      while (true) {
+        const boundary = buffer.match(/\r?\n\r?\n/);
+        if (!boundary || boundary.index == null) break;
+        const frame = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary[0].length);
+        dispatchFrame(frame);
+      }
+
+      if (!flush) return;
+
+      const trailing = buffer.trim();
+      buffer = '';
+      if (trailing) {
+        dispatchFrame(trailing, true);
+      }
+    };
+
+    const dispatchFrame = (frame: string, isTerminalFrame = false) => {
+      const lines = frame.split(/\r?\n/);
+      let eventType = '';
+      const dataLines: string[] = [];
+
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        if (!line || line.startsWith(':')) continue;
+
+        const separatorIdx = line.indexOf(':');
+        const field = separatorIdx === -1 ? line : line.slice(0, separatorIdx);
+        const rawValue = separatorIdx === -1 ? '' : line.slice(separatorIdx + 1);
+        const value = rawValue.startsWith(' ') ? rawValue.slice(1) : rawValue;
+
+        if (field === 'event') {
+          eventType = value.trim();
+        } else if (field === 'data') {
+          dataLines.push(value);
+        }
+      }
+
+      if (!eventType) {
+        if (isTerminalFrame) {
+          throw new Error('Stream closed with an incomplete terminal frame.');
+        }
+        return;
+      }
+
+      if (eventType === 'done') {
+        callbacks.onDone?.();
+        return;
+      }
+
+      const rawPayload = dataLines.join('\n').trim();
+      if (!rawPayload) {
+        if (eventType === 'thinking' || eventType === 'chunk') return;
+        throw new Error(`Stream ${eventType} event was missing data.`);
+      }
+
+      let data: unknown;
+      try {
+        data = JSON.parse(rawPayload);
+      } catch {
+        if (eventType === 'thinking' || eventType === 'chunk') return;
+        throw new Error(`Stream ${eventType} event contained malformed JSON.`);
+      }
+
+      switch (eventType) {
+        case 'thinking':
+          callbacks.onThinking(data as SSEThinkingEvent);
+          break;
+        case 'chunk':
+          callbacks.onChunk(data as SSEChunkEvent);
+          break;
+        case 'result':
+          sawResult = true;
+          callbacks.onResult(data as SSEResultEvent);
+          break;
+        case 'error': {
+          const message =
+            data && typeof data === 'object' && typeof (data as { message?: unknown }).message === 'string'
+              ? (data as { message: string }).message.trim() || 'Unknown error'
+              : 'Unknown error';
+          callbacks.onError?.(message);
+          throw new Error(message);
+        }
+        default:
+          break;
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        drainBuffer(true);
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      drainBuffer();
+    }
+
+    if (!sawResult) {
+      throw new Error('Stream completed without a result event.');
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
 export type RecoEmployeeFeedbackType = 'relevant' | 'not_relevant' | 'wrong_block';
 export type RecoBlockType = 'competitors' | 'dupes' | 'related_products';
 
@@ -285,7 +414,6 @@ export const sendRecoEmployeeFeedback = async (
 export type RecoAlternativesRequest = {
   product_input?: string;
   product?: Record<string, unknown>;
-  ingredient_context?: Record<string, unknown>;
   anchor_product_id?: string;
   max_total?: number;
   include_debug?: boolean;
@@ -295,22 +423,9 @@ export type RecoAlternativesResponse = {
   request_id: string;
   trace_id: string;
   ok: boolean;
-  details_action_triggered?: boolean;
-  alternatives_action_triggered?: boolean;
   alternatives: Array<Record<string, unknown>>;
   field_missing?: Array<Record<string, unknown>>;
   llm_trace?: Record<string, unknown> | null;
-  source_mode?: 'llm' | 'local_fallback' | 'budget_skip' | null;
-  failure_class?: string | null;
-  fallback_source?: string | null;
-  no_result_reason?: string | null;
-  alternatives_candidate_count?: number;
-  alternatives_selected_count?: number;
-  refresh_pending?: boolean;
-  refresh_after_ms?: number;
-  attempt_count?: number;
-  circuit_state?: 'closed' | 'open' | 'half_open' | string | null;
-  upstream_request_id?: string | null;
   debug?: Record<string, unknown>;
 };
 

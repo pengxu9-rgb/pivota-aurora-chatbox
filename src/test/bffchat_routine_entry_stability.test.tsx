@@ -13,6 +13,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
   return {
     ...actual,
     bffJson: vi.fn(),
+    bffChatStream: vi.fn().mockRejectedValue(new Error('stream unavailable in test')),
     sendRecoEmployeeFeedback: vi.fn(),
   };
 });
@@ -83,7 +84,7 @@ describe('Routine entry stability', () => {
       expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
     });
 
-    const cleanserInput = screen.getByLabelText(/Cleanser/i);
+    const cleanserInput = screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i);
     expect(cleanserInput).not.toBeDisabled();
     fireEvent.change(cleanserInput, { target: { value: 'Test cleanser' } });
     expect((cleanserInput as HTMLInputElement).value).toBe('Test cleanser');
@@ -92,57 +93,26 @@ describe('Routine entry stability', () => {
     expect(chatCalls).toHaveLength(0);
   });
 
-  it('opens routine sheet locally when clicking Build an AM/PM routine and does not send /v1/chat', async () => {
+  it('fills PM fields from AM when tapping Same as AM and submits copied routine', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
         return Promise.resolve(
           makeEnvelope({
-            request_id: 'req_bootstrap_local_build',
-            trace_id: 'trace_bootstrap_local_build',
+            request_id: 'req_bootstrap_same_as_am',
+            trace_id: 'trace_bootstrap_same_as_am',
             session_patch: {},
           }),
         );
-      }
-      if (path === '/v1/chat') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_chat_should_not_happen' }));
-      }
-      return Promise.resolve(makeEnvelope());
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
-    const buildRoutineButtons = await screen.findAllByRole('button', { name: 'Build an AM/PM routine' });
-    fireEvent.click(buildRoutineButtons[0] as HTMLButtonElement);
-
-    await screen.findByText(/Add your AM\/PM products/i);
-    const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
-    expect(chatCalls).toHaveLength(0);
-  });
-
-  it('sends chip.start.routine via /v1/chat when skipping routine intake and does not call /v1/analysis/skin', async () => {
-    const mock = vi.mocked(bffJson);
-    mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_bootstrap_skip_path',
-            trace_id: 'trace_bootstrap_skip_path',
-            session_patch: {},
-          }),
-        );
-      }
-      if (path === '/v1/chat') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_chat_skip_path' }));
       }
       if (path === '/v1/analysis/skin') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_analysis_should_not_happen' }));
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analysis_same_as_am',
+            trace_id: 'trace_analysis_same_as_am',
+            session_patch: {},
+          }),
+        );
       }
       return Promise.resolve(makeEnvelope());
     });
@@ -155,20 +125,54 @@ describe('Routine entry stability', () => {
       </MemoryRouter>,
     );
 
-    await screen.findByText(/Add your AM\/PM products/i);
-    fireEvent.click(screen.getByRole('button', { name: 'Skip & recommend now' }));
-
     await waitFor(() => {
-      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
-      expect(chatCalls).toHaveLength(1);
-      const rawBody = String((chatCalls[0]?.[2] as any)?.body || '');
-      expect(rawBody).toContain('"action_id":"chip.start.routine"');
-      expect(rawBody).toContain('"trigger_source":"routine_sheet_skip"');
-      expect(rawBody).toContain('"skip_routine_intake":true');
+      expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
     });
 
-    const analysisCalls = mock.mock.calls.filter((call) => call[0] === '/v1/analysis/skin');
-    expect(analysisCalls).toHaveLength(0);
+    fireEvent.change(screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i), {
+      target: { value: 'Biotherm Force Cleanser' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/niacinamide \/ vitamin C \/ none/i), {
+      target: { value: 'SkinCeuticals C E Ferulic' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/CeraVe PM \/ none/i), {
+      target: { value: 'Biotherm Aquasource Hydra Barrier Cream' },
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: /Evening \(PM\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Same as AM/i }));
+
+    const pmCleanser = screen.getByPlaceholderText(/same as AM \/ or different/i) as HTMLInputElement;
+    const pmTreatment = screen.getByPlaceholderText(/retinol \/ AHA\/BHA \/ none/i) as HTMLInputElement;
+    const pmMoisturizer = screen.getByPlaceholderText(/CeraVe PM \/ none/i) as HTMLInputElement;
+
+    expect(pmCleanser.value).toBe('Biotherm Force Cleanser');
+    expect(pmTreatment.value).toBe('SkinCeuticals C E Ferulic');
+    expect(pmMoisturizer.value).toBe('Biotherm Aquasource Hydra Barrier Cream');
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & analyze/i }));
+
+    await waitFor(() => {
+      const calls = mock.mock.calls.filter((call) => call[0] === '/v1/analysis/skin');
+      expect(calls).toHaveLength(1);
+    });
+
+    const analysisCall = mock.mock.calls.find((call) => call[0] === '/v1/analysis/skin');
+    expect(analysisCall).toBeTruthy();
+    const bodyRaw = String((analysisCall?.[2] as RequestInit | undefined)?.body || '{}');
+    const body = JSON.parse(bodyRaw) as Record<string, any>;
+    const routine = (body.currentRoutine || {}) as Record<string, any>;
+    const amSteps = Array.isArray(routine.am) ? routine.am : [];
+    const pmSteps = Array.isArray(routine.pm) ? routine.pm : [];
+    const pickStep = (steps: Array<Record<string, any>>, step: string) =>
+      String(steps.find((entry) => String(entry.step || '').trim() === step)?.product || '');
+
+    expect(pickStep(amSteps, 'cleanser')).toBe('Biotherm Force Cleanser');
+    expect(pickStep(amSteps, 'treatment')).toBe('SkinCeuticals C E Ferulic');
+    expect(pickStep(amSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
+    expect(pickStep(pmSteps, 'cleanser')).toBe('Biotherm Force Cleanser');
+    expect(pickStep(pmSteps, 'treatment')).toBe('SkinCeuticals C E Ferulic');
+    expect(pickStep(pmSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
   });
 
   it('keeps routine form editable while a normal chat request is timing out', async () => {
@@ -205,7 +209,7 @@ describe('Routine entry stability', () => {
       expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
     });
 
-    const cleanserInput = screen.getByLabelText(/Cleanser/i);
+    const cleanserInput = screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i);
     expect(cleanserInput).not.toBeDisabled();
 
     vi.useFakeTimers();

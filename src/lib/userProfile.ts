@@ -70,6 +70,13 @@ export function saveAuroraUserProfile(email: string, profile: Partial<AuroraUser
   }
 }
 
+export function saveAuroraProfileCache(
+  email: string,
+  profile: Partial<AuroraUserProfile> & Record<string, unknown>,
+): AuroraUserProfile | null {
+  return saveAuroraUserProfile(email, profile);
+}
+
 export function clearAuroraUserProfile(email: string): void {
   if (typeof window === 'undefined') return;
   const normalizedEmail = normalizeEmail(email);

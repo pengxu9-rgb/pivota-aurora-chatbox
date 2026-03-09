@@ -22,10 +22,7 @@ const asStringArray = (value: unknown, limit = 8): string[] => {
 };
 
 const CARD_TYPES = new Set([
-  'recommendations',
   'product_verdict',
-  'product_parse',
-  'product_analysis',
   'compatibility',
   'routine',
   'triage',
@@ -37,9 +34,7 @@ const CARD_TYPES = new Set([
   'ingredient_goal_match',
   'aurora_ingredient_report',
   'diagnosis_gate',
-  'analysis_summary',
   'analysis_story_v2',
-  'routine_fit_summary',
   'confidence_notice',
   'budget_gate',
   'gate_notice',
@@ -47,16 +42,11 @@ const CARD_TYPES = new Set([
 
 const fallbackTitleForType = (type: string): string => {
   const token = asString(type).toLowerCase();
-  if (token === 'recommendations') return 'Recommendations';
-  if (token === 'product_parse') return 'Product parse';
-  if (token === 'product_analysis') return 'Product deep scan';
   if (token === 'ingredient_hub') return 'Ingredient hub';
   if (token === 'ingredient_goal_match') return 'Ingredient goal match';
   if (token === 'aurora_ingredient_report') return 'Ingredient report';
   if (token === 'diagnosis_gate') return 'Quick skin profile first';
-  if (token === 'analysis_summary') return 'Skin summary';
   if (token === 'analysis_story_v2') return 'Analysis story';
-  if (token === 'routine_fit_summary') return 'Routine fit';
   if (token === 'confidence_notice') return 'Confidence notice';
   if (token === 'budget_gate') return 'Budget';
   if (token === 'gate_notice') return 'Gate notice';
@@ -145,6 +135,23 @@ const normalizeCard = (raw: unknown, fallbackId: string): ChatCardV1 | null => {
   };
 };
 
+const normalizeIntroHint = (value: unknown): ChatResponseV1['intro_hint'] | undefined => {
+  const text = asString(value);
+  if (text) return text.slice(0, 500);
+
+  const row = asRecord(value);
+  if (!row) return undefined;
+
+  const en = asString(row.en);
+  const zh = asString(row.zh);
+  if (!en && !zh) return undefined;
+
+  return {
+    ...(en ? { en: en.slice(0, 500) } : {}),
+    ...(zh ? { zh: zh.slice(0, 500) } : {}),
+  };
+};
+
 export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
   const root = asRecord(input);
   if (!root) return null;
@@ -168,7 +175,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
   const opsRaw = asRecord(root.ops) || {};
   const safetyRaw = asRecord(root.safety) || {};
   const telemetryRaw = asRecord(root.telemetry) || {};
-  const sessionPatch = asRecord(root.session_patch) || undefined;
+  const legacySessionPatch = asRecord(root.session_patch) || undefined;
 
   const riskLevelRaw = asString(safetyRaw.risk_level).toLowerCase();
   const riskLevel: ChatResponseV1['safety']['risk_level'] =
@@ -198,11 +205,14 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
         ? telemetryUiLanguage !== telemetryMatchingLanguage
         : false;
 
+  const introHint = normalizeIntroHint(root.intro_hint);
+
   return {
     version: '1.0',
     request_id: requestId,
     trace_id: traceId,
-    assistant_text: assistantText,
+    ...(assistantText ? { assistant_text: assistantText } : {}),
+    ...(introHint ? { intro_hint: introHint } : {}),
     cards: cards.slice(0, 3),
     follow_up_questions: followUps.slice(0, 3),
     suggested_quick_replies: quickReplies.slice(0, 8),
@@ -251,7 +261,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
         : {}),
       ...(telemetryResolutionSource ? { language_resolution_source: telemetryResolutionSource } : {}),
     },
-    ...(sessionPatch ? { session_patch: sessionPatch } : {}),
+    ...(legacySessionPatch ? { legacy_session_patch: legacySessionPatch } : {}),
   };
 };
 
@@ -313,9 +323,9 @@ export const chatResponseV1ToEnvelope = (response: ChatResponseV1): V1Envelope =
     ...response.follow_up_questions.flatMap(followUpQuestionToChips),
   ].slice(0, 12);
 
-  const responsePatch = asRecord(response.session_patch) || {};
+  const legacyPatch = asRecord(response.legacy_session_patch) || {};
   const sessionPatch: Record<string, unknown> = {
-    ...responsePatch,
+    ...legacyPatch,
     chat_v1: {
       safety: response.safety,
       telemetry: response.telemetry,

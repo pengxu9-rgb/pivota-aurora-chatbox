@@ -1,26 +1,37 @@
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
-export type IngredientEvidenceGrade = 'A' | 'B' | 'C' | null;
+export type IngredientEvidenceGrade = 'A' | 'B' | 'C' | 'unknown';
 
-export type IngredientRiskLevel = 'low' | 'medium' | 'high' | null;
+export type IngredientRiskLevel = 'low' | 'medium' | 'high' | 'unknown';
 
-export type IngredientTimeToResults = '2-4w' | '4-8w' | '8-12w' | null;
+export type IngredientTimeToResults = '2-4w' | '4-8w' | '8-12w' | 'unknown';
 
 export type CitationRelevance = 'strong' | 'category' | 'weak';
 
 export type IngredientReportLocale = 'en-US' | 'zh-CN';
+export type IngredientConfidenceLevel = 'low' | 'medium' | 'high';
 
 export type IngredientReportPayloadV1 = {
   schema_version: 'aurora.ingredient_report.v1' | 'aurora.ingredient_report.v2-lite';
   locale: IngredientReportLocale;
+  research_status?: 'none' | 'queued' | 'ready' | 'error' | 'skipped' | 'fallback';
+  research_provider?: string | null;
+  research_error_code?: string | null;
+  normalized_query?: string | null;
+  route_decision_reasons?: string[];
+  route_rule_version?: string | null;
+  kb_revision?: string | null;
+  provider_model_tier?: string | null;
+  provider_circuit_state?: 'open' | 'half_open' | 'closed' | string | null;
+  research_attempts?: Array<{ provider: string; outcome: string; reason_code?: string | null }>;
+  confidence?: IngredientConfidenceLevel;
   ingredient: {
-    key?: string;
     inci: string;
     display_name: string;
     aliases: string[];
+    what_it_is?: string | null;
     alias_source?: 'curated';
     category: string;
-    what_it_is?: string | null;
   };
   verdict: {
     one_liner: string;
@@ -28,21 +39,25 @@ export type IngredientReportPayloadV1 = {
     evidence_grade: IngredientEvidenceGrade;
     irritation_risk: IngredientRiskLevel;
     time_to_results: IngredientTimeToResults;
-    confidence: number | null;
-    confidence_level?: 'low' | 'medium' | 'high';
-    personalization_basis?: 'ingredient' | 'ingredient_family' | 'mixed';
+    confidence: number;
+    confidence_level?: IngredientConfidenceLevel;
+  };
+  usage?: {
+    time?: 'AM' | 'PM' | 'Both' | string;
+    frequency?: string | null;
+    avoid?: string[];
   };
   benefits: Array<{ concern: string; strength: 0 | 1 | 2 | 3; what_it_means: string }>;
   how_to_use: {
-    frequency: string | null;
-    routine_step: string | null;
+    frequency: 'daily' | '3-4x/week' | 'unknown';
+    routine_step: 'serum' | 'cream' | 'cleanser' | 'toner' | 'sunscreen' | 'unknown';
     pair_well: string[];
     consider_separating: string[];
     notes: string[];
   };
   watchouts: Array<{
     issue: string;
-    likelihood: 'uncommon' | 'common' | 'rare' | null;
+    likelihood: 'uncommon' | 'common' | 'rare' | 'unknown';
     what_to_do: string;
   }>;
   use_cases: Array<{
@@ -51,10 +66,11 @@ export type IngredientReportPayloadV1 = {
     routine_tip: string;
     products_from_kb: string[];
   }>;
-  formulation_notes?: string | null;
-  regulatory_notes?: string | null;
-  best_for?: string[];
-  caution_for?: string[];
+  top_products?: {
+    budget: string[];
+    mid: string[];
+    premium: string[];
+  };
   evidence: {
     summary: string;
     citations: Array<{
@@ -62,49 +78,11 @@ export type IngredientReportPayloadV1 = {
       url: string;
       year: number | null;
       source: string | null;
-      relevance: CitationRelevance | null;
+      relevance: CitationRelevance;
     }>;
-    show_citations_by_default: boolean;
+    show_citations_by_default: false;
   };
   next_questions: Array<{ id: string; label: string; chips: string[] }>;
-  research_status?: 'ready' | 'fallback' | 'disabled' | 'provider_unavailable' | 'queued' | 'error' | 'none';
-  research_provider?: 'gemini' | 'openai' | null;
-  research_attempts?: Array<{ provider: string; outcome: string; reason_code: string }>;
-  research_error_code?: string;
-  top_products?: Array<{
-    name: string;
-    brand?: string;
-    category?: string;
-    price_tier?: string;
-    why?: string;
-    pdp_url?: string;
-  }>;
-  updated_at_ms?: number;
-  normalized_query?: string | null;
-  route_decision_reasons?: string[];
-  route_rule_version?: string | null;
-  kb_revision?: string | null;
-  provider_model_tier?: string | null;
-  provider_circuit_state?: 'open' | 'half_open' | 'closed' | string | null;
-  report_state?: {
-    mode: 'deterministic' | 'hybrid' | 'llm_enriched';
-    status: 'ready' | 'partial' | 'pending' | 'failed';
-    completion_score: number;
-    missing_sections: string[];
-    reason_code: 'provider_unavailable' | 'timeout' | 'insufficient_evidence' | 'kb_only' | 'none' | string;
-    family_key?: string | null;
-  };
-  sections?: Array<{
-    id: string;
-    title: string;
-    status?: 'ready' | 'pending' | 'insufficient';
-    source?: 'kb' | 'llm' | 'hybrid';
-  }>;
-  personalized_fit?: {
-    summary?: string;
-    adjustments?: string[];
-    warnings?: string[];
-  };
 };
 
 export type IngredientReportCard = Card & {

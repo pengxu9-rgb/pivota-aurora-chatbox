@@ -1,8 +1,5 @@
 export type ChatCardV1Type =
-  | 'recommendations'
   | 'product_verdict'
-  | 'product_parse'
-  | 'product_analysis'
   | 'compatibility'
   | 'routine'
   | 'triage'
@@ -14,9 +11,7 @@ export type ChatCardV1Type =
   | 'ingredient_goal_match'
   | 'aurora_ingredient_report'
   | 'diagnosis_gate'
-  | 'analysis_summary'
   | 'analysis_story_v2'
-  | 'routine_fit_summary'
   | 'confidence_notice'
   | 'budget_gate'
   | 'gate_notice';
@@ -83,16 +78,24 @@ export type ChatTelemetryV1 = {
   language_resolution_source?: 'header' | 'body' | 'text_detected' | 'mixed_override';
 };
 
+export type ChatIntroHintV1 =
+  | string
+  | {
+      en?: string;
+      zh?: string;
+    };
+
 export type ChatResponseV1 = {
   version: '1.0';
   request_id: string;
   trace_id: string;
-  assistant_text: string;
+  assistant_text?: string;
+  intro_hint?: ChatIntroHintV1;
   cards: ChatCardV1[];
   follow_up_questions: FollowUpQuestionV1[];
   suggested_quick_replies: QuickReplyV1[];
   ops: ChatOpsV1;
   safety: ChatSafetyV1;
   telemetry: ChatTelemetryV1;
-  session_patch?: Record<string, unknown>;
+  legacy_session_patch?: Record<string, unknown>;
 };
