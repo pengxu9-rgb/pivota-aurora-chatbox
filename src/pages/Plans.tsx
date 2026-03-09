@@ -30,9 +30,12 @@ type PlanDraft = {
 
 type PlanChatPayload = {
   destination: string;
+  destination_place?: DestinationPlace | null;
   start_date: string;
   end_date: string;
+  indoor_outdoor_ratio?: number | null;
   itinerary?: string | null;
+  trip_id?: string | null;
 };
 
 type PendingDestinationSelection = {
@@ -111,6 +114,28 @@ const buildPlanChatQuery = (plan: PlanChatPayload, language: Language): string =
   return `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
 };
 
+const buildTravelPlanSessionPatch = (plan: PlanChatPayload): Record<string, unknown> | undefined => {
+  const travelPlan: Record<string, unknown> = {
+    destination: String(plan.destination || '').trim(),
+    start_date: String(plan.start_date || '').trim(),
+    end_date: String(plan.end_date || '').trim(),
+  };
+  if (plan.destination_place && typeof plan.destination_place === 'object') {
+    travelPlan.destination_place = plan.destination_place;
+  }
+  if (typeof plan.itinerary === 'string' && plan.itinerary.trim()) {
+    travelPlan.itinerary = plan.itinerary.trim();
+  }
+  if (Number.isFinite(Number(plan.indoor_outdoor_ratio))) {
+    travelPlan.indoor_outdoor_ratio = Number(plan.indoor_outdoor_ratio);
+  }
+  if (typeof plan.trip_id === 'string' && plan.trip_id.trim()) {
+    travelPlan.trip_id = plan.trip_id.trim();
+  }
+  if (!travelPlan.destination || !travelPlan.start_date || !travelPlan.end_date) return undefined;
+  return { profile: { travel_plan: travelPlan } };
+};
+
 export default function Plans() {
   const { openSidebar, startChat } = useOutletContext<MobileShellContext>();
   const [draft, setDraft] = useState<PlanDraft>(makeEmptyDraft());
@@ -155,6 +180,7 @@ export default function Plans() {
         kind: 'query',
         title: language === 'CN' ? '旅行护肤计划' : 'Travel skincare plan',
         query: buildPlanChatQuery(plan, language),
+        ...(buildTravelPlanSessionPatch(plan) ? { session_patch: buildTravelPlanSessionPatch(plan) } : {}),
       });
     },
     [language, startChat],
@@ -163,9 +189,17 @@ export default function Plans() {
   const handleCreateSuccess = useCallback(
     (created: Awaited<ReturnType<typeof createTravelPlan>>, createPayload: CreateTravelPlanInput) => {
       const planForChat: PlanChatPayload = {
+        trip_id: String((created?.plan as any)?.trip_id || ''),
         destination: String((created?.plan as any)?.destination || createPayload.destination),
+        destination_place: ((created?.plan as any)?.destination_place || (createPayload as any).destination_place || null) as DestinationPlace | null,
         start_date: String((created?.plan as any)?.start_date || createPayload.start_date),
         end_date: String((created?.plan as any)?.end_date || createPayload.end_date),
+        indoor_outdoor_ratio:
+          Number.isFinite(Number((created?.plan as any)?.indoor_outdoor_ratio))
+            ? Number((created?.plan as any)?.indoor_outdoor_ratio)
+            : Number.isFinite(Number((createPayload as any).indoor_outdoor_ratio))
+              ? Number((createPayload as any).indoor_outdoor_ratio)
+              : null,
         itinerary: String((created?.plan as any)?.itinerary || (createPayload as any).itinerary || ''),
       };
       setDraft(makeEmptyDraft());
@@ -180,9 +214,17 @@ export default function Plans() {
   const handleEditSuccess = useCallback(
     (updated: Awaited<ReturnType<typeof updateTravelPlan>>, updatePayload: UpdateTravelPlanInput) => {
       const planForChat: PlanChatPayload = {
+        trip_id: String((updated?.plan as any)?.trip_id || ''),
         destination: String((updated?.plan as any)?.destination || updatePayload.destination || ''),
+        destination_place: ((updated?.plan as any)?.destination_place || (updatePayload as any).destination_place || null) as DestinationPlace | null,
         start_date: String((updated?.plan as any)?.start_date || updatePayload.start_date || ''),
         end_date: String((updated?.plan as any)?.end_date || updatePayload.end_date || ''),
+        indoor_outdoor_ratio:
+          Number.isFinite(Number((updated?.plan as any)?.indoor_outdoor_ratio))
+            ? Number((updated?.plan as any)?.indoor_outdoor_ratio)
+            : Number.isFinite(Number((updatePayload as any).indoor_outdoor_ratio))
+              ? Number((updatePayload as any).indoor_outdoor_ratio)
+              : null,
         itinerary: String((updated?.plan as any)?.itinerary || (updatePayload as any).itinerary || ''),
       };
       setEditingTripId(null);
@@ -382,9 +424,15 @@ export default function Plans() {
 
   const openPlanInChat = (plan: TravelPlanCardModel) => {
     startPlanChat({
+      trip_id: String(plan.trip_id || '').trim(),
       destination: String(plan.destination || '').trim(),
+      destination_place: plan.destination_place || null,
       start_date: String(plan.start_date || ''),
       end_date: String(plan.end_date || ''),
+      indoor_outdoor_ratio:
+        Number.isFinite(Number(plan.indoor_outdoor_ratio)) && plan.indoor_outdoor_ratio != null
+          ? Number(plan.indoor_outdoor_ratio)
+          : null,
       itinerary: String(plan.itinerary || '').trim(),
     });
   };

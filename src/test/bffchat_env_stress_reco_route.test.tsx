@@ -75,6 +75,84 @@ describe('BffChat env stress recommendation routing', () => {
     }
   });
 
+  it('includes one-shot travel_plan.destination_place in the first /v1/chat session payload', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string, _headers?: unknown, opts?: unknown) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap',
+            trace_id: 'trace_bootstrap',
+            session_patch: {},
+            cards: [],
+          }),
+        );
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat',
+            trace_id: 'trace_chat',
+            assistant_text: 'Travel handoff received.',
+          }),
+        );
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: '/chat',
+            search: '?q=Please+build+my+travel+plan',
+            state: {
+              session_patch: {
+                profile: {
+                  travel_plan: {
+                    destination: 'Athens',
+                    start_date: '2026-03-12',
+                    end_date: '2026-03-15',
+                    destination_place: {
+                      label: 'Athens, Attica, Greece',
+                      canonical_name: 'Athens',
+                      latitude: 37.98376,
+                      longitude: 23.72784,
+                      country_code: 'GR',
+                      country: 'Greece',
+                      admin1: 'Attica',
+                      timezone: 'Europe/Athens',
+                      resolution_source: 'user_selected',
+                    },
+                  },
+                },
+              },
+            },
+          } as any,
+        ]}
+      >
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat' && typeof (call?.[2] as any)?.body === 'string');
+      expect(chatCalls.length).toBeGreaterThan(0);
+      const body = JSON.parse(String((chatCalls[0]?.[2] as any).body || '{}'));
+      expect(body?.session?.profile?.travel_plan?.destination_place).toEqual(
+        expect.objectContaining({
+          canonical_name: 'Athens',
+          timezone: 'Europe/Athens',
+        }),
+      );
+    });
+  });
+
   it('sends force_route=reco_products when clicking "See full recommendations" in env card', async () => {
     const mock = vi.mocked(bffJson);
 

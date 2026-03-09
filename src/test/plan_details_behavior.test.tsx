@@ -118,7 +118,23 @@ describe('PlanDetails behavior', () => {
   });
 
   it('opens chat only when Open in chat is clicked', async () => {
-    routeState = { plan: makePlan({ trip_id: 'trip_chat', destination: 'London' }) };
+    routeState = {
+      plan: makePlan({
+        trip_id: 'trip_chat',
+        destination: 'London',
+        destination_place: {
+          label: 'London, England, United Kingdom',
+          canonical_name: 'London',
+          latitude: 51.50853,
+          longitude: -0.12574,
+          country_code: 'GB',
+          country: 'United Kingdom',
+          admin1: 'England',
+          timezone: 'Europe/London',
+          resolution_source: 'auto_resolved',
+        },
+      }),
+    };
     routeParams = { tripId: 'trip_chat' };
 
     render(<PlanDetails />);
@@ -132,6 +148,17 @@ describe('PlanDetails behavior', () => {
       expect.objectContaining({
         kind: 'query',
         title: 'Travel skincare: London',
+        session_patch: expect.objectContaining({
+          profile: expect.objectContaining({
+            travel_plan: expect.objectContaining({
+              trip_id: 'trip_chat',
+              destination_place: expect.objectContaining({
+                canonical_name: 'London',
+                timezone: 'Europe/London',
+              }),
+            }),
+          }),
+        }),
       }),
     );
   });

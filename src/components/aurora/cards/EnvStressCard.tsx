@@ -188,6 +188,8 @@ export function EnvStressCard({
       ].filter(Boolean) as string[],
     [language, travelReadiness],
   );
+  const visibleMetricRows = usesLiveWeather ? metricRows : [];
+  const visibleCompactSignals = usesLiveWeather ? compactSignals : [];
 
   return (
     <motion.div
@@ -241,9 +243,9 @@ export function EnvStressCard({
                 ) : (
                   <span />
                 )}
-                {compactSignals.length ? (
+                {visibleCompactSignals.length ? (
                   <div className="flex flex-wrap justify-end gap-1">
-                    {compactSignals.slice(0, 3).map((line) => (
+                    {visibleCompactSignals.slice(0, 3).map((line) => (
                       <span key={line} className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-[10px] text-foreground/85">
                         {line}
                       </span>
@@ -293,7 +295,13 @@ export function EnvStressCard({
             <>
               <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
                 <div className="font-semibold text-foreground/90">
-                  {language === 'CN' ? '目的地差异' : 'Destination delta'}
+                  {usesClimateFallback
+                    ? language === 'CN'
+                      ? '目的地气候概览'
+                      : 'Destination climate'
+                    : language === 'CN'
+                      ? '目的地差异'
+                      : 'Destination delta'}
                 </div>
                 <div className="mt-1">
                   {language === 'CN' ? '目的地：' : 'Destination: '}
@@ -314,22 +322,22 @@ export function EnvStressCard({
                       : 'Live weather is unavailable, so the guidance below uses destination climate patterns.'}
                   </div>
                 ) : null}
-                {metricRows.length ? (
+                {visibleMetricRows.length ? (
                   <ul className="mt-1.5 space-y-1">
-                    {metricRows.slice(0, 2).map((row) => (
+                    {visibleMetricRows.slice(0, 2).map((row) => (
                       <li key={row.key}>
                         <span className="font-medium text-foreground/90">{row.label}:</span> {row.value}
                       </li>
                     ))}
                   </ul>
                 ) : null}
-                {metricRows.length > 2 ? (
+                {visibleMetricRows.length > 2 ? (
                   <details className="mt-1 text-[11px]">
                     <summary className="cursor-pointer select-none text-muted-foreground">
                       {language === 'CN' ? '展开更多指标' : 'Show more metrics'}
                     </summary>
                     <ul className="mt-1 space-y-1">
-                      {metricRows.slice(2).map((row) => (
+                      {visibleMetricRows.slice(2).map((row) => (
                         <li key={row.key}>
                           <span className="font-medium text-foreground/90">{row.label}:</span> {row.value}
                         </li>

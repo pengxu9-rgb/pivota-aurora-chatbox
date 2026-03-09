@@ -91,7 +91,7 @@ import {
   emitMemoryWritten,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
-import { buildChatSession } from '@/lib/chatSession';
+import { buildChatSession, mergeSessionProfiles } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type {
@@ -6832,6 +6832,11 @@ export default function BffChat() {
   const lastIngredientCtxRef = useRef<Record<string, unknown> | null>(null);
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
+  const [pendingSessionProfilePatch, setPendingSessionProfilePatch] = useState<Record<string, unknown> | null>(() => {
+    const routeState = asObject(location.state);
+    const sessionPatch = asObject(routeState?.session_patch);
+    return asObject(sessionPatch?.profile) || null;
+  });
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
 
   const shop = useShop();
@@ -8432,6 +8437,7 @@ export default function BffChat() {
           state: sessionState,
           profileSnapshot,
           bootstrapProfile: bootstrapInfo?.profile ?? null,
+          sessionProfilePatch: pendingSessionProfilePatch,
           sessionMeta,
         });
         const body: Record<string, unknown> = {
@@ -8455,6 +8461,18 @@ export default function BffChat() {
         const parsedV1 = parseChatResponseV1(bodyRaw);
         if (parsedV1) {
           applyChatResponseV1(parsedV1);
+          if (pendingSessionProfilePatch) {
+            setProfileSnapshot((prev) => mergeSessionProfiles(prev, pendingSessionProfilePatch));
+            setBootstrapInfo((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    profile: mergeSessionProfiles(asObject(prev.profile) || null, pendingSessionProfilePatch),
+                  }
+                : prev,
+            );
+            setPendingSessionProfilePatch(null);
+          }
           return;
         }
 
@@ -8462,6 +8480,18 @@ export default function BffChat() {
         const env = asObject(bodyRaw);
         if (env && typeof env.request_id === 'string' && Array.isArray(env.cards)) {
           applyEnvelope(env as V1Envelope);
+          if (pendingSessionProfilePatch) {
+            setProfileSnapshot((prev) => mergeSessionProfiles(prev, pendingSessionProfilePatch));
+            setBootstrapInfo((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    profile: mergeSessionProfiles(asObject(prev.profile) || null, pendingSessionProfilePatch),
+                  }
+                : prev,
+            );
+            setPendingSessionProfilePatch(null);
+          }
           return;
         }
 
@@ -8484,6 +8514,7 @@ export default function BffChat() {
       headers,
       language,
       profileSnapshot,
+      pendingSessionProfilePatch,
       sessionMeta,
       sessionState,
       tryApplyEnvelopeFromBffError,
