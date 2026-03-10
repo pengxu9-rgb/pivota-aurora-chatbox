@@ -1,10 +1,16 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  isComparableProductLike,
+  looksLikeSelfRef,
+  readComparableIdentity,
+  type ProductLike as GuardProductLike,
+} from '@/lib/dupeCompareGuards';
 import type { Language } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-type ProductLike = Record<string, unknown> | null;
+type ProductLike = GuardProductLike;
 
 type AlternativeLike = Record<string, unknown>;
 
@@ -29,11 +35,21 @@ function uniqueStrings(values: unknown, max = 3): string[] {
 }
 
 function productLabel(product: ProductLike): { brand: string; name: string } {
-  const p = product && typeof product === 'object' && !Array.isArray(product) ? product : null;
-  const brand = asString(p && (p.brand as any));
-  const display = asString(p && ((p.display_name as any) || (p.displayName as any)));
-  const name = asString(p && (p.name as any));
-  return { brand: brand || '', name: display || name || '' };
+  const identity = readComparableIdentity(product);
+  return { brand: identity.brand || '', name: identity.name || '' };
+}
+
+function compareUnavailableReason(original: ProductLike, dupe: ProductLike, language: Language): string {
+  if (!isComparableProductLike(original)) {
+    return language === 'CN' ? '目标商品信息不足，暂时无法对比' : 'Need a clearer target product';
+  }
+  if (!isComparableProductLike(dupe)) {
+    return language === 'CN' ? '候选商品信息不足，暂时无法对比' : 'Candidate details are incomplete';
+  }
+  if (looksLikeSelfRef(original, dupe)) {
+    return language === 'CN' ? '这是同一款商品，无法对比' : 'This is the same product';
+  }
+  return '';
 }
 
 function kindBadge(kindRaw: unknown, language: Language): { label: string; tone: 'default' | 'secondary' } {
@@ -68,6 +84,7 @@ function AlternativeRow({
   const product = (item && typeof item === 'object' ? (item.product as any) : null) as ProductLike;
   const { brand, name } = productLabel(product);
   const { label: kindLabel, tone } = kindBadge((item as any).kind, language);
+  const unavailableReason = onCompare ? compareUnavailableReason(original, product, language) : '';
 
   const reasons = uniqueStrings((item as any).reasons, 2);
   const tradeoffs = uniqueStrings((item as any).tradeoffs, 1);
@@ -100,14 +117,25 @@ function AlternativeRow({
       </div>
 
       {onCompare ? (
-        <Button
-          type="button"
-          variant="secondary"
-          className="h-9 rounded-xl px-3 text-xs font-semibold"
-          onClick={() => onCompare({ original, dupe: product })}
-        >
-          {language === 'CN' ? '对比' : 'Compare'}
-        </Button>
+        <div className="shrink-0 space-y-1 text-right">
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 rounded-xl px-3 text-xs font-semibold"
+            disabled={Boolean(unavailableReason)}
+            onClick={() => {
+              if (unavailableReason) return;
+              onCompare({ original, dupe: product });
+            }}
+          >
+            {language === 'CN' ? '对比' : 'Compare'}
+          </Button>
+          {unavailableReason ? (
+            <div className="max-w-28 text-[11px] leading-tight text-muted-foreground">
+              {unavailableReason}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

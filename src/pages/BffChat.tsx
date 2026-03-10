@@ -65,6 +65,12 @@ import { humanizeKbNote } from "@/lib/auroraKbHumanize";
 import { resolveAnalysisSummaryLowConfidence } from "@/lib/analysisSummary";
 import { normalizePhotoModulesUiModelV1 } from "@/lib/photoModulesContract";
 import { enrichPhotoModulesPayloadWithSessionPreview } from "@/lib/photoModulesFallback";
+import {
+  getComparableDisplayName,
+  isComparableProductLike,
+  looksLikeSelfRef,
+  unwrapProductLike,
+} from "@/lib/dupeCompareGuards";
 import { looksLikeProductPicksRawText } from "@/lib/productPicks";
 import { extractRoutineProductsFromProfileCurrentRoutine } from "@/lib/routineCompatibility/routineSource";
 import type { CompatibilityProductInput } from "@/lib/routineCompatibility/types";
@@ -8253,7 +8259,15 @@ function BffCardView({
 
                                   {originalForCompare || (cUrl && onOpenPdp) ? (
                                     <div className="mt-2 flex flex-wrap gap-2">
-                                      {originalForCompare ? (
+                                      {originalForCompare &&
+                                      isComparableProductLike(
+                                        originalForCompare,
+                                      ) &&
+                                      isComparableProductLike(candidate) &&
+                                      !looksLikeSelfRef(
+                                        originalForCompare,
+                                        candidate,
+                                      ) ? (
                                         <button
                                           type="button"
                                           className="chip-button"
@@ -8506,6 +8520,10 @@ function BffCardView({
                 dupes={dupes as any}
                 comparables={comparables as any}
                 language={language}
+                anchorResolutionStatus={asString(
+                  (payload as any).anchor_resolution_status,
+                )}
+                quality={asObject((payload as any).quality) ?? undefined}
                 onCompare={({ original, dupe }) =>
                   onAction("dupe_compare", { original, dupe })
                 }
@@ -8525,13 +8543,18 @@ function BffCardView({
               asObject((payload as any).dupe_product) ||
               asObject((payload as any).dupeProduct);
             const similarity = asNumber((payload as any).similarity);
-            const compareQuality = asString(
-              (payload as any).compare_quality ||
-                (payload as any).compareQuality,
+            const compareQuality = String(
+              asString(
+                (payload as any).compare_quality ||
+                  (payload as any).compareQuality,
+              ) || "full",
             ).toLowerCase();
             const isLimitedCompare = compareQuality === "limited";
-            const limitedReasonCode = asString(
-              (payload as any).limited_reason || (payload as any).limitedReason,
+            const limitedReasonCode = String(
+              asString(
+                (payload as any).limited_reason ||
+                  (payload as any).limitedReason,
+              ) || "",
             ).toLowerCase();
 
             const tradeoffs = uniqueStrings((payload as any).tradeoffs);
@@ -11508,20 +11531,34 @@ export default function BffChat() {
       }
 
       if (actionId === "dupe_compare") {
-        const original =
-          data?.original && typeof data.original === "object"
-            ? data.original
-            : null;
-        const dupe =
-          data?.dupe && typeof data.dupe === "object" ? data.dupe : null;
-        if (!original || !dupe) return;
+        const original = unwrapProductLike(data?.original);
+        const dupe = unwrapProductLike(data?.dupe);
+        if (!isComparableProductLike(original)) {
+          setError(
+            language === "CN"
+              ? "目标商品信息不足，暂时无法对比。"
+              : "Need a clearer target product before comparing.",
+          );
+          return;
+        }
+        if (!isComparableProductLike(dupe)) {
+          setError(
+            language === "CN"
+              ? "候选商品信息不足，暂时无法对比。"
+              : "Candidate details are incomplete, so compare is unavailable.",
+          );
+          return;
+        }
+        if (looksLikeSelfRef(original, dupe)) {
+          setError(
+            language === "CN"
+              ? "这是同一款商品，无法做平替对比。"
+              : "This candidate is the same product, so compare is unavailable.",
+          );
+          return;
+        }
 
-        const dupeName =
-          typeof (dupe as any)?.display_name === "string"
-            ? String((dupe as any).display_name).trim()
-            : typeof (dupe as any)?.name === "string"
-              ? String((dupe as any).name).trim()
-              : "";
+        const dupeName = getComparableDisplayName(dupe);
         setItems((prev) => [
           ...prev,
           {
