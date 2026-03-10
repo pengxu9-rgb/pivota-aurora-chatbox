@@ -349,7 +349,7 @@ describe('BffChat env stress recommendation routing', () => {
     expect(payload?.session?.meta?.last_travel_readiness?.destination).toBe('Paris');
   });
 
-  it('opens the travel product sheet and extracts products from data.items responses', async () => {
+  it('opens the travel product sheet through the public products search route', async () => {
     const mock = vi.mocked(bffJson);
 
     mock.mockImplementation((path: string, _headers?: unknown, opts?: unknown) => {
@@ -424,23 +424,24 @@ describe('BffChat env stress recommendation routing', () => {
         );
       }
 
-      if (path === '/agent/shop/v1/invoke') {
-        const body = JSON.parse(String((opts as any)?.body || '{}'));
-        expect(body?.operation).toBe('find_products_multi');
-        expect(body?.payload?.search?.query).toBe('SPF fluid');
+      if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
+        const url = new URL(path, 'https://aurora.test');
+        expect(url.searchParams.get('query')).toBe('SPF fluid');
+        expect(url.searchParams.get('limit')).toBe('8');
+        expect(url.searchParams.get('source')).toBe('aurora_chatbox');
+        expect(url.searchParams.get('catalog_surface')).toBe('beauty');
         return Promise.resolve({
-          data: {
-            items: [
-              {
-                productId: 'prod_uv_fluid',
-                merchantId: 'merchant_1',
-                displayName: 'Daily UV Fluid',
-                brand: 'Aurora Lab',
-                price_amount: 32,
-                currency: '$',
-              },
-            ],
-          },
+          status: 'success',
+          products: [
+            {
+              product_id: 'prod_uv_fluid',
+              merchant_id: 'merchant_1',
+              title: 'Daily UV Fluid',
+              brand: 'Aurora Lab',
+              price: 32,
+              currency: '$',
+            },
+          ],
         });
       }
 
@@ -466,6 +467,7 @@ describe('BffChat env stress recommendation routing', () => {
 
     expect(await screen.findByText('Daily UV Fluid')).toBeInTheDocument();
     expect(screen.queryByText('No matching products found')).not.toBeInTheDocument();
+    expect(mock.mock.calls.some((call) => call[0] === '/agent/shop/v1/invoke')).toBe(false);
   });
 
   it('keeps the latest travel product results when lookups resolve out of order', async () => {
@@ -542,9 +544,9 @@ describe('BffChat env stress recommendation routing', () => {
         );
       }
 
-      if (path === '/agent/shop/v1/invoke') {
-        const body = JSON.parse(String((opts as any)?.body || '{}'));
-        const query = String(body?.payload?.search?.query || '');
+      if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
+        const url = new URL(path, 'https://aurora.test');
+        const query = String(url.searchParams.get('query') || '');
         const deferred = createDeferred<any>();
         searchRequests.set(query, deferred);
         return deferred.promise;
@@ -580,11 +582,11 @@ describe('BffChat env stress recommendation routing', () => {
 
     await act(async () => {
       searchRequests.get('Sleeping mask')?.resolve({
-        items: [
+        products: [
           {
-            productId: 'prod_sleep_mask',
-            merchantId: 'merchant_mask',
-            name: 'Sleep Recovery Mask',
+            product_id: 'prod_sleep_mask',
+            merchant_id: 'merchant_mask',
+            title: 'Sleep Recovery Mask',
             brand: 'Aurora Lab',
           },
         ],
@@ -596,11 +598,11 @@ describe('BffChat env stress recommendation routing', () => {
 
     await act(async () => {
       searchRequests.get('SPF fluid')?.resolve({
-        items: [
+        products: [
           {
-            productId: 'prod_spf_fluid',
-            merchantId: 'merchant_spf',
-            name: 'Daily SPF Fluid',
+            product_id: 'prod_spf_fluid',
+            merchant_id: 'merchant_spf',
+            title: 'Daily SPF Fluid',
             brand: 'Aurora Lab',
           },
         ],

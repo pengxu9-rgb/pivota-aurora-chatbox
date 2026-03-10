@@ -19,6 +19,7 @@ import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard, type AuroraLoadingIntent, type ThinkingStep } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
+import { RoutineFitSummaryCard } from '@/components/aurora/cards/RoutineFitSummaryCard';
 import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
 import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
 import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
@@ -87,7 +88,13 @@ import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/retu
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
-import { clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
+import {
+  AURORA_AUTH_SESSION_CHANGED_EVENT,
+  clearAuroraAuthSession,
+  loadAuroraAuthSession,
+  saveAuroraAuthSession,
+} from '@/lib/auth';
+import type { TravelProductLookupQuery } from '@/lib/auroraEnvStress';
 import {
   getLangMismatchHintMutedUntil,
   getLangPref,
@@ -116,6 +123,7 @@ import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
 import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
+import { parseCurrentRoutine } from '@/lib/currentRoutineState';
 import { saveAuroraProfileCache } from '@/lib/userProfile';
 import {
   Activity,
@@ -163,19 +171,19 @@ type ProductAlternativeTrack = {
   filteredCount: number;
 };
 
-type RoutineDraft = {
+export type RoutineDraft = {
   am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
   pm: { cleanser: string; treatment: string; moisturizer: string };
   notes: string;
 };
 
-const makeEmptyRoutineDraft = (): RoutineDraft => ({
+export const makeEmptyRoutineDraft = (): RoutineDraft => ({
   am: { cleanser: '', treatment: '', moisturizer: '', spf: '' },
   pm: { cleanser: '', treatment: '', moisturizer: '' },
   notes: '',
 });
 
-const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
+export const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
   const values = [
     draft.am.cleanser,
     draft.am.treatment,
@@ -187,6 +195,38 @@ const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
     draft.notes,
   ];
   return values.some((v) => Boolean(String(v || '').trim()));
+};
+
+const normalizeRoutineDraftStep = (value: unknown): keyof RoutineDraft['am'] | null => {
+  const token = String(value || '').trim().toLowerCase();
+  if (!token) return null;
+  if (token.includes('cleanser') || token.includes('wash') || token.includes('clean')) return 'cleanser';
+  if (token.includes('spf') || token.includes('sunscreen') || token.includes('sun')) return 'spf';
+  if (token.includes('moistur') || token.includes('cream') || token.includes('lotion')) return 'moisturizer';
+  if (token.includes('treatment') || token.includes('serum') || token.includes('toner') || token.includes('essence') || token.includes('active')) return 'treatment';
+  return null;
+};
+
+export const buildRoutineDraftFromProfile = (value: unknown): RoutineDraft | null => {
+  const parsed = parseCurrentRoutine(value);
+  if (!parsed) return null;
+
+  const draft = makeEmptyRoutineDraft();
+  for (const row of parsed.am) {
+    const slot = normalizeRoutineDraftStep(row?.step);
+    const product = String(row?.product || '').trim();
+    if (!slot || !product) continue;
+    draft.am[slot] = product;
+  }
+  for (const row of parsed.pm) {
+    const slot = normalizeRoutineDraftStep(row?.step);
+    const product = String(row?.product || '').trim();
+    if (!slot || !product || slot === 'spf') continue;
+    draft.pm[slot] = product;
+  }
+  draft.notes = String(parsed.notes || '').trim();
+
+  return hasAnyRoutineDraftInput(draft) ? draft : null;
 };
 
 const hasAnyRoutineAmInput = (draft: RoutineDraft): boolean => {
@@ -1251,7 +1291,7 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
     asString(raw.sku_id ?? raw.skuId ?? raw.product_id ?? raw.productId) ||
     `unknown_${Math.random().toString(16).slice(2)}`.slice(0, 24);
   const brand = asString(raw.brand) || '';
-  const name = asString(raw.name) || asString(raw.display_name ?? raw.displayName) || '';
+  const name = asString(raw.name) || asString(raw.title) || asString(raw.display_name ?? raw.displayName) || '';
   const categoryRaw = asString(raw.category) || asString((raw as any).category_name ?? (raw as any).categoryName) || '';
   const category = (!categoryRaw || isUnknownToken(categoryRaw)) ? inferCategoryFromName(name) : categoryRaw;
   const description = asString(raw.description) || '';
@@ -1284,6 +1324,25 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
   if (keyActives.length) product.key_actives = keyActives;
 
   return product;
+}
+
+function extractProductsFromSearchResponse(input: unknown): Array<Record<string, unknown>> {
+  const root = asObject(input) || {};
+  const rows = (
+    [
+      (root as any).products,
+      (root as any).items,
+      (root as any).results,
+      (root as any).data?.products,
+      (root as any).data?.items,
+      (root as any).data?.results,
+      (root as any).result?.products,
+      (root as any).result?.items,
+      (root as any).result?.results,
+    ].find((value) => Array.isArray(value)) || []
+  ) as unknown[];
+
+  return rows.map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
 }
 
 function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Offer[] {
@@ -1389,9 +1448,13 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
 
   const priceObj = asObject((r as any).price);
   if (price == null && priceObj) {
+    const amount = asNumber((priceObj as any).amount ?? (priceObj as any).value ?? (priceObj as any).price);
     const usd = asNumber(priceObj.usd ?? priceObj.USD);
     const cny = asNumber(priceObj.cny ?? priceObj.CNY);
-    if (usd != null) {
+    if (amount != null) {
+      price = amount;
+      currency = asString((priceObj as any).currency) || currency;
+    } else if (usd != null) {
       price = usd;
       currency = 'USD';
     } else if (cny != null) {
@@ -2279,14 +2342,65 @@ export function RecommendationsCard({
     return language === 'CN' ? '其他' : 'Other';
   };
 
+  const extractRecoDisplayData = useCallback(
+    (item: RecoItem) => {
+      const sku = asObject(item.sku) || asObject(item.product) || null;
+      const modules = asArray((item as any).modules).map((entry) => asObject(entry)).filter(Boolean) as Array<Record<string, unknown>>;
+      const moduleData = modules.map((entry) => asObject((entry as any).data)).find(Boolean) || null;
+      const pdpPayload = asObject((moduleData as any)?.pdp_payload) || asObject((moduleData as any)?.pdpPayload) || null;
+      const pdpProduct = asObject((pdpPayload as any)?.product) || asObject((moduleData as any)?.product) || null;
+      return {
+        sku,
+        brand:
+          asString(sku?.brand) ||
+          asString((sku as any)?.Brand) ||
+          asString((item as any).brand) ||
+          asString((pdpProduct as any)?.brand?.name) ||
+          asString((pdpProduct as any)?.brand) ||
+          null,
+        name:
+          asString(sku?.name) ||
+          asString(sku?.display_name) ||
+          asString((sku as any)?.displayName) ||
+          asString((item as any).name) ||
+          asString((item as any).display_name) ||
+          asString((item as any).displayName) ||
+          asString((item as any).title) ||
+          asString((pdpProduct as any)?.title) ||
+          asString((pdpProduct as any)?.name) ||
+          null,
+        category:
+          asString(item.category) ||
+          asString((item as any).step) ||
+          asString((pdpProduct as any)?.category) ||
+          asString(asArray((pdpProduct as any)?.category_path).slice(-1)[0]) ||
+          null,
+        canonicalProductRef:
+          asObject((item as any).canonical_product_ref) ||
+          asObject((item as any).canonicalProductRef) ||
+          asObject((item as any)?.subject?.canonical_product_ref) ||
+          asObject((item as any)?.subject?.canonicalProductRef) ||
+          asObject((moduleData as any)?.canonical_product_ref) ||
+          asObject((moduleData as any)?.canonicalProductRef) ||
+          null,
+        rawProductId:
+          asString((item as any)?.product_id) ||
+          asString((item as any)?.productId) ||
+          asString((pdpProduct as any)?.product_id) ||
+          asString((pdpProduct as any)?.productId) ||
+          asString((item as any)?.subject?.id) ||
+          null,
+      };
+    },
+    [],
+  );
+
   const renderStep = (item: RecoItem, idx: number) => {
-    const sku = asObject(item.sku) || asObject(item.product) || null;
+    const display = extractRecoDisplayData(item);
+    const sku = display.sku;
     const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
     const skuRef = asObject((sku as any)?.product_ref) || asObject((sku as any)?.productRef) || null;
-    const itemCanonicalTop =
-      asObject((item as any).canonical_product_ref) ||
-      asObject((item as any).canonicalProductRef) ||
-      null;
+    const itemCanonicalTop = display.canonicalProductRef;
     const skuCanonicalTop =
       asObject((sku as any)?.canonical_product_ref) ||
       asObject((sku as any)?.canonicalProductRef) ||
@@ -2309,9 +2423,9 @@ export function RecommendationsCard({
       asString((sku as any)?.product_group_id) ||
       asString((sku as any)?.productGroupId) ||
       null;
-    const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || null;
-    const nameFromName = asString(sku?.name) || asString((sku as any)?.Name) || null;
-    const nameFromDisplay = asString(sku?.display_name) || asString((sku as any)?.displayName) || null;
+    const brand = display.brand;
+    const nameFromName = display.name || asString((sku as any)?.Name) || null;
+    const nameFromDisplay = asString(sku?.display_name) || asString((sku as any)?.displayName) || display.name || null;
     const name =
       (nameFromName && !looksLikeOpaqueId(nameFromName) ? nameFromName : null) ||
       nameFromDisplay ||
@@ -2328,12 +2442,7 @@ export function RecommendationsCard({
       asString((skuRef as any)?.product_id) ||
       asString((skuRef as any)?.productId) ||
       null;
-    const rawProductId =
-      asString((item as any)?.product_id) ||
-      asString((item as any)?.productId) ||
-      asString((sku as any)?.product_id) ||
-      asString((sku as any)?.productId) ||
-      null;
+    const rawProductId = display.rawProductId || asString((sku as any)?.product_id) || asString((sku as any)?.productId) || null;
     const productId = pickPreferredId([canonicalProductId, refProductId, rawProductId], looksLikeOpaqueId);
     const canonicalMerchantId =
       asString((itemCanonicalRef as any)?.merchant_id) ||
@@ -2422,7 +2531,7 @@ export function RecommendationsCard({
       (q ? `q:${q}` : null) ||
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
     const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
-    const step = asString(item.step) || asString(item.category) || (language === 'CN' ? '步骤' : 'Step');
+    const step = asString(item.step) || display.category || (language === 'CN' ? '步骤' : 'Step');
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
@@ -2988,10 +3097,16 @@ export function RecommendationsCard({
     Array.isArray(payload.missing_info) && payload.missing_info.length ? (payload.missing_info as unknown[]) : [],
   );
   const rawWarnings = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
+  const internalWarnings = uniqueStrings(
+    (payload as any)?.warning_codes_internal ?? (payload as any)?.warningCodesInternal ?? [],
+  );
+  const userVisibleWarnings = uniqueStrings(
+    (payload as any)?.warning_codes_user_visible ?? (payload as any)?.warningCodesUserVisible ?? [],
+  );
 
   const warningCandidates = debug
-    ? uniqueStrings([...rawWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))])
-    : uniqueStrings(rawWarnings);
+    ? uniqueStrings([...userVisibleWarnings, ...rawWarnings, ...internalWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))])
+    : uniqueStrings(userVisibleWarnings.length ? userVisibleWarnings : rawWarnings);
   const showWarnings = warningCandidates.slice(0, 6);
   const suppressWhenRecoPresent = new Set([
     'analysis_missing',
@@ -3015,7 +3130,7 @@ export function RecommendationsCard({
   const recommendationMeta = asObject((payload as any).recommendation_meta);
   const recommendationBasis = (() => {
     if (!recommendationMeta) return null;
-    const source = asString((recommendationMeta as any).source_mode).toLowerCase();
+    const source = String(asString((recommendationMeta as any).source_mode) || '').trim().toLowerCase();
     const sourceLabel =
       source === 'llm_primary'
         ? language === 'CN'
@@ -3029,6 +3144,10 @@ export function RecommendationsCard({
           ? language === 'CN'
             ? '上游补全回退'
             : 'upstream fallback'
+          : source === 'travel_handoff'
+            ? language === 'CN'
+              ? '旅行场景接续'
+              : 'travel handoff'
           : language === 'CN'
             ? '规则保守路径'
             : 'rules-only';
@@ -3042,7 +3161,7 @@ export function RecommendationsCard({
     if ((recommendationMeta as any).used_safety_flags === true) {
       flags.push(language === 'CN' ? '安全约束' : 'safety constraints');
     }
-    const envSource = asString((recommendationMeta as any).env_source).toLowerCase();
+    const envSource = String(asString((recommendationMeta as any).env_source) || '').trim().toLowerCase();
     const envLabel =
       envSource === 'weather_api'
         ? language === 'CN'
@@ -3060,6 +3179,12 @@ export function RecommendationsCard({
     const epiRaw = Number((recommendationMeta as any).epi);
     const epi = Number.isFinite(epiRaw) ? Math.round(epiRaw) : null;
     const activeTripId = asString((recommendationMeta as any).active_trip_id);
+    const destination =
+      asString((recommendationMeta as any).destination) ||
+      asString((recommendationMeta as any).destination_name) ||
+      asString((recommendationMeta as any).destination_place?.label) ||
+      asString((recommendationMeta as any).destination_place?.canonical_name) ||
+      null;
     const contextText = flags.length
       ? flags.join(language === 'CN' ? '、' : ', ')
       : language === 'CN'
@@ -3069,10 +3194,11 @@ export function RecommendationsCard({
     if (envLabel) extras.push(language === 'CN' ? `环境来源：${envLabel}` : `Env: ${envLabel}`);
     if (epi != null) extras.push(`EPI: ${epi}`);
     if (activeTripId) extras.push(language === 'CN' ? `行程ID：${activeTripId}` : `Trip: ${activeTripId}`);
+    if (destination) extras.push(language === 'CN' ? `目的地：${destination}` : `Destination: ${destination}`);
     const extrasText = extras.length ? ` · ${extras.join(language === 'CN' ? '；' : ', ')}` : '';
     return language === 'CN'
-      ? `本次依据：${contextText} · 路径：${sourceLabel}${extrasText}`
-      : `Based on: ${contextText} · Path: ${sourceLabel}${extrasText}`;
+      ? `推荐依据：${contextText} · 路径：${sourceLabel}${extrasText}`
+      : `Why this fits: ${contextText} · Path: ${sourceLabel}${extrasText}`;
   })();
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
@@ -3099,12 +3225,12 @@ export function RecommendationsCard({
   const toRoutineSteps = (list: RecoItem[]) =>
     list
       .map((item, idx) => {
-        const sku = asObject(item.sku) || asObject(item.product) || null;
-        const brand = asString(sku?.brand) || asString((sku as any)?.Brand) || '';
-        const name = asString(sku?.name) || asString(sku?.display_name) || asString((sku as any)?.displayName) || '';
-        const step = asString(item.step) || asString(item.category) || '';
+        const display = extractRecoDisplayData(item);
+        const brand = display.brand || '';
+        const name = display.name || '';
+        const step = asString(item.step) || display.category || '';
         const typeRaw =
-          (asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
+          String(asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
         const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
 
         if (!brand && !name) return null;
@@ -3368,6 +3494,15 @@ function BffCardView({
   const [feedbackErrorByKey, setFeedbackErrorByKey] = useState<Record<string, string>>({});
   const alternativesFilterEventKeysRef = useRef<Set<string>>(new Set());
   const howToLayerEventKeysRef = useRef<Set<string>>(new Set());
+  const travelLookupRequestRef = useRef(0);
+  const [travelLookupState, setTravelLookupState] = useState<{
+    categoryTitle: string;
+    query: string;
+    ingredientHints: string | null;
+    loading: boolean;
+    error: string | null;
+    results: Product[];
+  } | null>(null);
 
   const submitRecoFeedback = useCallback(
     async ({
@@ -3440,6 +3575,93 @@ function BffCardView({
   );
 
   const structuredCitations = cardType === 'aurora_structured' ? extractExternalVerificationCitations(payload) : [];
+
+  const handleTravelProductLookup = useCallback(
+    async (lookup: TravelProductLookupQuery) => {
+      if (!resolveProductsSearch) return;
+      const query = String(lookup.searchQuery || '').trim();
+      if (!query) return;
+      const requestId = travelLookupRequestRef.current + 1;
+      travelLookupRequestRef.current = requestId;
+      setTravelLookupState({
+        categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+        query,
+        ingredientHints: asString(lookup.ingredientHints) || null,
+        loading: true,
+        error: null,
+        results: [],
+      });
+
+      try {
+        const resp = await resolveProductsSearch({
+          query,
+          limit: 8,
+          preferBrand: asString(lookup.preferBrand) || null,
+        });
+        if (travelLookupRequestRef.current !== requestId) return;
+        const results = extractProductsFromSearchResponse(resp)
+          .map((row) => toUiProduct(asObject((row as any).product) || row, language))
+          .slice(0, 8);
+        setTravelLookupState({
+          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          query,
+          ingredientHints: asString(lookup.ingredientHints) || null,
+          loading: false,
+          error: null,
+          results,
+        });
+      } catch (err) {
+        if (travelLookupRequestRef.current !== requestId) return;
+        setTravelLookupState({
+          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          query,
+          ingredientHints: asString(lookup.ingredientHints) || null,
+          loading: false,
+          error: err instanceof Error ? err.message : String(err),
+          results: [],
+        });
+      }
+    },
+    [language, resolveProductsSearch],
+  );
+
+  const travelLookupPanel = travelLookupState ? (
+    <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
+      <div className="text-xs font-semibold text-foreground">
+        {language === 'CN' ? '旅行产品查找' : 'Travel product lookup'}
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        {travelLookupState.categoryTitle}
+        {travelLookupState.query ? ` · ${travelLookupState.query}` : ''}
+      </div>
+      {travelLookupState.ingredientHints ? (
+        <div className="mt-1 text-[11px] text-muted-foreground">{travelLookupState.ingredientHints}</div>
+      ) : null}
+      {travelLookupState.loading ? (
+        <div className="mt-3 text-sm text-muted-foreground">{language === 'CN' ? '正在查找…' : 'Searching…'}</div>
+      ) : travelLookupState.error ? (
+        <div className="mt-3 text-sm text-destructive">
+          {language === 'CN' ? '查找失败，请稍后重试。' : 'Lookup failed. Please retry shortly.'}
+        </div>
+      ) : travelLookupState.results.length ? (
+        <div className="mt-3 space-y-2">
+          {travelLookupState.results.map((product, idx) => (
+            <div key={`${product.sku_id}_${idx}`} className="rounded-xl border border-border/50 bg-muted/30 p-2.5">
+              <div className="text-sm font-semibold text-foreground">{product.name}</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {product.brand}
+                {product.category ? ` · ${product.category}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 text-sm text-muted-foreground">
+          {language === 'CN' ? '暂无匹配产品。' : 'No matching products found.'}
+        </div>
+      )}
+    </div>
+  ) : null;
 
   if (!debug && cardType === 'session_bootstrap') return null;
 
@@ -3532,28 +3754,34 @@ function BffCardView({
 
     if (adapterHit?.kind === 'travel') {
       return (
-        <EnvStressCard
-          payload={adapterHit.data.payload}
-          language={language}
-          onOpenCheckin={onOpenCheckin}
-          onOpenRecommendations={() =>
-            onAction('chip.start.reco_products', {
-              reply_text:
-                language === 'CN'
-                  ? '请给我完整护肤产品推荐。'
-                  : 'Show full skincare product recommendations.',
-              force_route: 'reco_products',
-            })
-          }
-          onRefineRoutine={() =>
-            onAction('chip.start.routine', {
-              reply_text:
-                language === 'CN'
-                  ? '用我的 AM/PM routine 进一步细化建议'
-                  : 'Refine recommendations with my AM/PM routine',
-            })
-          }
-        />
+        <div className="space-y-3">
+          <EnvStressCard
+            payload={adapterHit.data.payload}
+            language={language}
+            onOpenCheckin={onOpenCheckin}
+            onOpenRecommendations={() =>
+              onAction('chip.start.reco_products', {
+                reply_text:
+                  language === 'CN'
+                    ? '请给我完整护肤产品推荐。'
+                    : 'Show full skincare product recommendations.',
+                force_route: 'reco_products',
+                trigger_source: 'travel_handoff',
+                source_card_type: 'travel',
+              })
+            }
+            onRefineRoutine={() =>
+              onAction('chip.start.routine', {
+                reply_text:
+                  language === 'CN'
+                    ? '用我的 AM/PM routine 进一步细化建议'
+                    : 'Refine recommendations with my AM/PM routine',
+              })
+            }
+            onProductLookup={handleTravelProductLookup}
+          />
+          {travelLookupPanel}
+        </div>
       );
     }
 
@@ -3810,28 +4038,34 @@ function BffCardView({
 
   if (isEnvStressCard(card)) {
     return (
-      <EnvStressCard
-        payload={payload}
-        language={language}
-        onOpenCheckin={onOpenCheckin}
-        onOpenRecommendations={() =>
-          onAction('chip.start.reco_products', {
-            reply_text:
-              language === 'CN'
-                ? '请给我完整护肤产品推荐。'
-                : 'Show full skincare product recommendations.',
-            force_route: 'reco_products',
-          })
-        }
-        onRefineRoutine={() =>
-          onAction('chip.start.routine', {
-            reply_text:
-              language === 'CN'
-                ? '用我的 AM/PM routine 进一步细化建议'
-                : 'Refine recommendations with my AM/PM routine',
-          })
-        }
-      />
+      <div className="space-y-3">
+        <EnvStressCard
+          payload={payload}
+          language={language}
+          onOpenCheckin={onOpenCheckin}
+          onOpenRecommendations={() =>
+            onAction('chip.start.reco_products', {
+              reply_text:
+                language === 'CN'
+                  ? '请给我完整护肤产品推荐。'
+                  : 'Show full skincare product recommendations.',
+              force_route: 'reco_products',
+              trigger_source: 'travel_handoff',
+              source_card_type: 'travel',
+            })
+          }
+          onRefineRoutine={() =>
+            onAction('chip.start.routine', {
+              reply_text:
+                language === 'CN'
+                  ? '用我的 AM/PM routine 进一步细化建议'
+                  : 'Refine recommendations with my AM/PM routine',
+            })
+          }
+          onProductLookup={handleTravelProductLookup}
+        />
+        {travelLookupPanel}
+      </div>
     );
   }
 
@@ -3860,6 +4094,7 @@ function BffCardView({
           sanitizer_drop_count: sanitizer_drops.length,
         });
       }
+      if (!debug) return null;
       return (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-muted-foreground">
           {language === 'CN'
@@ -3943,6 +4178,10 @@ function BffCardView({
 
   if (cardType === 'analysis_story_v2') {
     return <AnalysisStoryCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'routine_fit_summary') {
+    return <RoutineFitSummaryCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
   if (cardType === 'routine_prompt') {
@@ -4215,7 +4454,7 @@ function BffCardView({
     }
 
     const tone: 'positive' | 'mixed' | 'caution' =
-      pos >= neg + 2 ? 'positive' : neg >= pos + 2 || risk >= 2 ? 'caution' : 'mixed';
+      pos >= neg + 2 ? 'positive' : neg >= pos + 2 || (neg > 0 && risk >= 2) ? 'caution' : 'mixed';
 
     const headline =
       language === 'CN'
@@ -4674,6 +4913,9 @@ function BffCardView({
         const dataNotesFromReasons: string[] = [];
         const detectedIngredientsFromReasons: string[] = [];
         const normalizeIngredientName = (token: string) => String(token || '').replace(/[.;:，。；：]+$/g, '').replace(/\s+/g, ' ').trim();
+        const isDataQualityLine = (line: string) =>
+          /\b(official[-\s]?page|incidecoder|inci extraction|extraction was blocked|ingredient-source consistency|cross-check with package inci|supplement used|source used|version verification)\b/i
+            .test(String(line || '').trim());
 
         rawReasons.forEach((entry) => {
           const line = String(entry || '').trim();
@@ -4747,6 +4989,7 @@ function BffCardView({
           const token = String(raw || '').trim();
           if (!token) return true;
           if (token.length < 2 || token.length > 90) return true;
+          if (/^(key ingredients?|ingredients?|active ingredients?)$/i.test(token)) return true;
           if (/as we wrote in our lengthy retinol description/i.test(token)) return true;
           if (/read more|learn more|discover|shop now|add to cart|selected because|strong category\/use-case/i.test(token)) return true;
           if (/\b(how to use|faq|privacy policy|terms of use|copyright)\b/i.test(token)) return true;
@@ -4867,7 +5110,7 @@ function BffCardView({
           ...formulaIntentFromReasons,
           ...evidenceMechanisms,
         ])
-          .filter((line) => !shouldDropProfileLine(line))
+          .filter((line) => !shouldDropProfileLine(line) && !isDataQualityLine(line))
           .slice(0, 6);
         const bestForSignalsRaw = uniqueStrings([
           ...assessmentBestFor,
@@ -6042,6 +6285,9 @@ function BffCardView({
         const originalRaw = asObject((payload as any).original) || asObject((payload as any).original_product) || asObject((payload as any).originalProduct);
         const dupeRaw = asObject((payload as any).dupe) || asObject((payload as any).dupe_product) || asObject((payload as any).dupeProduct);
         const similarity = asNumber((payload as any).similarity);
+        const compareQuality = asString((payload as any).compare_quality || (payload as any).compareQuality).toLowerCase();
+        const isLimitedCompare = compareQuality === 'limited';
+        const limitedReasonCode = asString((payload as any).limited_reason || (payload as any).limitedReason).toLowerCase();
 
         const tradeoffs = uniqueStrings((payload as any).tradeoffs);
         const tradeoffsDetail = asObject((payload as any).tradeoffs_detail || (payload as any).tradeoffsDetail) || null;
@@ -6058,7 +6304,22 @@ function BffCardView({
           ...(priceDeltaUsd != null ? [`Price delta (USD): ${priceDeltaUsd}`] : []),
         ].filter(Boolean);
 
-        const tradeoffNote = tradeoffNoteParts.length ? tradeoffNoteParts.slice(0, 2).join(' · ') : tradeoffs[0] || undefined;
+        const tradeoffNote = isLimitedCompare
+          ? undefined
+          : tradeoffNoteParts.length
+            ? tradeoffNoteParts.slice(0, 2).join(' · ')
+            : tradeoffs[0] || undefined;
+        const limitedReason = (() => {
+          if (limitedReasonCode === 'tradeoffs_detail_missing') {
+            return language === 'CN'
+              ? '这组对比缺少更完整的取舍细节；补充更明确的平替商品链接或全名后可提升结果。'
+              : 'Tradeoff detail is missing for this pair. Provide a clearer dupe product link/full name to improve tradeoffs.';
+          }
+          if (!limitedReasonCode) return undefined;
+          return language === 'CN'
+            ? '这组对比当前只有简版结果；补充更明确的商品信息后可提升取舍细节。'
+            : 'Comparison details are limited for this pair. Provide clearer product information to improve tradeoffs.';
+        })();
 
         const original = toDupeProduct(originalRaw, language);
         const dupe = toDupeProduct(dupeRaw, language);
@@ -6089,13 +6350,16 @@ function BffCardView({
               original={original as any}
               dupe={dupe as any}
               similarity={typeof similarity === 'number' && Number.isFinite(similarity) ? similarity : undefined}
+              quality={isLimitedCompare ? 'limited' : 'full'}
+              limitedReason={limitedReason}
+              basicCompare={isLimitedCompare ? tradeoffs.slice(0, 4) : []}
               tradeoffNote={tradeoffNote}
               missingActives={missingActives}
               addedBenefits={addedBenefits}
               labels={labels as any}
             />
 
-            {tradeoffs.length ? (
+            {!isLimitedCompare && tradeoffs.length ? (
               <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
                   <span>{language === 'CN' ? '更多取舍细节' : 'More tradeoffs'}</span>
@@ -6209,6 +6473,20 @@ export default function BffChat() {
       return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null };
     }
   }, [location.search]);
+  const initialAuthSessionRef = useRef<{ loaded: boolean; value: ReturnType<typeof loadAuroraAuthSession> }>({
+    loaded: false,
+    value: null,
+  });
+  if (!initialAuthSessionRef.current.loaded) {
+    initialAuthSessionRef.current = {
+      loaded: true,
+      value: loadAuroraAuthSession(),
+    };
+  }
+  const initialAuthSession = initialAuthSessionRef.current.value;
+  const pendingLocationSessionProfilePatchRef = useRef<Record<string, unknown> | null>(
+    asObject((location.state as any)?.session_patch?.profile) || null,
+  );
 
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [langReplyMode, setLangReplyModeState] = useState<LangReplyMode>(() => getLangReplyMode());
@@ -6219,6 +6497,7 @@ export default function BffChat() {
     const traceId = searchParams.trace_id;
     return {
       ...base,
+      ...(initialAuthSession?.token ? { auth_token: initialAuthSession.token } : {}),
       ...(briefId ? { brief_id: briefId.slice(0, 128) } : {}),
       ...(traceId ? { trace_id: traceId.slice(0, 128) } : {}),
     };
@@ -6292,7 +6571,7 @@ export default function BffChat() {
   const [productSheetOpen, setProductSheetOpen] = useState(false);
   const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
   const [authSheetOpen, setAuthSheetOpen] = useState(false);
-  const [authSession, setAuthSession] = useState(() => loadAuroraAuthSession());
+  const [authSession, setAuthSession] = useState(() => initialAuthSession);
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
   const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
   const [authDraft, setAuthDraft] = useState(() => ({
@@ -6630,12 +6909,34 @@ export default function BffChat() {
 
       const profilePatch = asObject(response.ops.profile_patch[0]) || null;
       const routinePatch = asObject(response.ops.routine_patch[0]) || null;
+      const legacySessionPatch = asObject(response.legacy_session_patch) || null;
+      const legacyProfilePatch = asObject((legacySessionPatch as any)?.profile) || null;
+      const legacyMetaPatch = (() => {
+        if (!legacySessionPatch) return null;
+        const explicitMeta = asObject((legacySessionPatch as any).meta) || null;
+        const extraEntries = Object.entries(legacySessionPatch).filter(([key]) => key !== 'profile' && key !== 'meta' && key !== 'next_state');
+        if (!explicitMeta && extraEntries.length === 0) return null;
+        return {
+          ...(explicitMeta || {}),
+          ...Object.fromEntries(extraEntries),
+        };
+      })();
+      const nextSessionState = asString((legacySessionPatch as any)?.next_state);
 
-      if (profilePatch || routinePatch) {
+      if (nextSessionState) setSessionState(nextSessionState);
+      if (legacyMetaPatch) {
+        setSessionMeta((prev) => ({
+          ...(asObject(prev) || {}),
+          ...legacyMetaPatch,
+        }));
+      }
+
+      if (profilePatch || routinePatch || legacyProfilePatch) {
         setProfileSnapshot((prev) => {
           const base = asObject(prev) || {};
           return {
             ...base,
+            ...(legacyProfilePatch || {}),
             ...(profilePatch || {}),
             ...(routinePatch || {}),
           };
@@ -6648,6 +6949,7 @@ export default function BffChat() {
           const baseProfile = asObject(merged.profile) || {};
           merged.profile = {
             ...baseProfile,
+            ...(legacyProfilePatch || {}),
             ...(profilePatch || {}),
             ...(routinePatch || {}),
           };
@@ -6733,10 +7035,11 @@ export default function BffChat() {
       });
 
       const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => ({
-        chip_id: `quick_${reply.id}`,
+        chip_id: reply.id,
         label: reply.label,
         kind: 'quick_reply',
         data: {
+          action_id: reply.id,
           ...(reply.metadata || {}),
           reply_text: reply.value || reply.label,
           trigger_source: 'chip',
@@ -6746,10 +7049,11 @@ export default function BffChat() {
       const followUpToChips = (followUp: ChatResponseV1['follow_up_questions'][number]): SuggestedChip[] => {
         if (!Array.isArray(followUp.options) || followUp.options.length === 0) return [];
         return followUp.options.slice(0, 3).map((option) => ({
-          chip_id: `fup_${followUp.id}_${option.id}`,
+          chip_id: option.id,
           label: option.label,
           kind: 'quick_reply',
           data: {
+            action_id: option.id,
             ...(option.metadata || {}),
             follow_up_id: followUp.id,
             follow_up_option_id: option.id,
@@ -7244,7 +7548,12 @@ export default function BffChat() {
 
   const refreshBootstrapInfo = useCallback(async () => {
     try {
-      const requestHeaders = { ...headers, lang: language };
+      const latestAuthToken = loadAuroraAuthSession()?.token || undefined;
+      const requestHeaders = {
+        ...headers,
+        lang: language,
+        auth_token: latestAuthToken,
+      };
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
       const info = readBootstrapInfo(env);
       if (info) setBootstrapInfo(info);
@@ -7253,6 +7562,28 @@ export default function BffChat() {
       // ignore
     }
   }, [headers, language]);
+
+  useEffect(() => {
+    const handleAuthSessionChanged = () => {
+      const nextSession = loadAuroraAuthSession();
+      setAuthSession(nextSession);
+      setAuthMode('code');
+      setAuthStage('email');
+      setAuthError(null);
+      setAuthNotice(null);
+      setAuthDraft({
+        email: nextSession?.email ?? '',
+        code: '',
+        password: '',
+        newPassword: '',
+        newPasswordConfirm: '',
+      });
+      void refreshBootstrapInfo();
+    };
+
+    window.addEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, handleAuthSessionChanged);
+    return () => window.removeEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, handleAuthSessionChanged);
+  }, [refreshBootstrapInfo]);
 
   const persistQuickProfilePatch = useCallback(
     async (profilePatch: QuickProfileProfilePatch, auroraProfilePatch: Record<string, unknown> | null) => {
@@ -7694,6 +8025,7 @@ export default function BffChat() {
           state: sessionState,
           profileSnapshot,
           bootstrapProfile: bootstrapInfo?.profile ?? null,
+          sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
           sessionMeta,
         });
         const body: Record<string, unknown> = {
@@ -7748,10 +8080,20 @@ export default function BffChat() {
               timeoutMs,
             });
             const parsedV1 = parseChatResponseV1(bodyRaw);
-            if (!parsedV1) {
+            const legacyEnvelope =
+              !parsedV1
+              && bodyRaw
+              && typeof bodyRaw === 'object'
+              && !Array.isArray(bodyRaw)
+              && asString((bodyRaw as Record<string, unknown>).request_id)
+              && asString((bodyRaw as Record<string, unknown>).trace_id)
+                ? (bodyRaw as V1Envelope)
+                : null;
+            if (!parsedV1 && !legacyEnvelope) {
               throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
             }
-            applyChatResponseV1(parsedV1);
+            if (parsedV1) applyChatResponseV1(parsedV1);
+            else if (legacyEnvelope) applyEnvelope(legacyEnvelope);
           } finally {
             stopSim();
           }
@@ -7761,6 +8103,7 @@ export default function BffChat() {
         if (parsedStreamResponse) {
           applyChatResponseV1(parsedStreamResponse);
         }
+        pendingLocationSessionProfilePatchRef.current = null;
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -7774,6 +8117,7 @@ export default function BffChat() {
       agentState,
       anchorProductId,
       anchorProductUrl,
+      applyEnvelope,
       applyChatResponseV1,
       bootstrapInfo?.profile,
       debug,
@@ -7848,10 +8192,6 @@ export default function BffChat() {
           });
         }
         let parseEnvelopeApplied = false;
-        if (parsedProduct) {
-          applyEnvelope(parseEnv);
-          parseEnvelopeApplied = true;
-        }
         const analyzeBody = parsedProduct
           ? asUrl
             ? { product: parsedProduct, url: asUrl }
@@ -9480,26 +9820,20 @@ export default function BffChat() {
           : q;
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      const params = new URLSearchParams({
+        query: queryWithHint,
+        limit: String(requestedLimit),
+        offset: '0',
+        search_all_merchants: 'true',
+        in_stock_only: 'false',
+        lang: language === 'CN' ? 'cn' : 'en',
+        source: 'aurora_chatbox',
+        catalog_surface: 'beauty',
+      });
       try {
-        return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
-          method: 'POST',
+        return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
+          method: 'GET',
           signal: controller.signal,
-          body: JSON.stringify({
-            operation: 'find_products_multi',
-            payload: {
-              search: {
-                query: queryWithHint,
-                in_stock_only: false,
-                search_all_merchants: true,
-                limit: requestedLimit,
-                offset: 0,
-              },
-            },
-            metadata: {
-              source: 'aurora_chatbox',
-              ...(brand ? { prefer_brand: brand } : {}),
-            },
-          }),
         });
       } finally {
         window.clearTimeout(timer);
