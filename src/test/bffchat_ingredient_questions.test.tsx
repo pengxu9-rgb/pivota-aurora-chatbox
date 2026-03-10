@@ -13,6 +13,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
   return {
     ...actual,
     bffJson: vi.fn(),
+    bffChatStream: vi.fn().mockRejectedValue(new Error('stream unavailable in test')),
     sendRecoEmployeeFeedback: vi.fn(),
   };
 });

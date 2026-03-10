@@ -786,7 +786,7 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
   if (key === 'routine_prompt') return language === 'CN' ? '补全 Routine' : 'Complete routine';
   if (key === 'confidence_notice') return language === 'CN' ? '置信度提示' : 'Confidence notice';
-  if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
+  if (key === 'recommendations') return language === 'CN' ? '产品推荐' : 'Product Recommendations';
   if (key === 'product_parse') return language === 'CN' ? '产品解析' : 'Product parse';
   if (key === 'product_analysis') return language === 'CN' ? '单品评估（Deep Scan）' : 'Product deep scan';
   if (key === 'dupe_suggest') return language === 'CN' ? '平替与对标' : 'Dupes + comparables';
@@ -1943,7 +1943,18 @@ export function RecommendationsCard({
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
   const payload = asObject(card.payload) || {};
-  const items = asArray(payload.recommendations) as RecoItem[];
+  const items = (() => {
+    const fromPayload = asArray(payload.recommendations) as RecoItem[];
+    if (fromPayload.length > 0) return fromPayload;
+    const sections = asArray((payload as any).sections);
+    for (const section of sections) {
+      const sec = section && typeof section === 'object' ? section as Record<string, unknown> : null;
+      if (!sec) continue;
+      const products = asArray(sec.products) as RecoItem[];
+      if (products.length > 0) return products;
+    }
+    return [] as RecoItem[];
+  })();
   const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
   const hasMissingAlternatives =
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
@@ -7198,6 +7209,294 @@ export default function BffChat() {
     [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, langReplyMode, language],
   );
 
+  const applyV2Response = useCallback(
+    (response: { cards: Array<Record<string, unknown>>; ops?: Record<string, unknown>; next_actions?: unknown[] }) => {
+      setError(null);
+      const lang = language;
+      const nextItems: ChatItem[] = [];
+
+      const resolveLocalizedString = (value: unknown): string => {
+        if (typeof value === 'string') return value.trim();
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          const obj = value as Record<string, unknown>;
+          const localized = lang === 'CN' ? (obj.zh || obj.cn || obj.en) : (obj.en || obj.zh || obj.cn);
+          return typeof localized === 'string' ? localized.trim() : '';
+        }
+        return '';
+      };
+
+      for (const card of response.cards) {
+        const cardType = String((card as any).card_type || '').toLowerCase();
+
+        if (cardType === 'text_response') {
+          const sections = Array.isArray(card.sections) ? card.sections : [];
+          const textParts: string[] = [];
+          for (const sec of sections) {
+            const section = sec && typeof sec === 'object' ? (sec as Record<string, unknown>) : null;
+            if (!section) continue;
+            const sectionType = String(section.type || '').toLowerCase();
+            if (sectionType === 'text_answer') {
+              const text = lang === 'CN'
+                ? String(section.text_zh || section.text_en || section.text || '').trim()
+                : String(section.text_en || section.text_zh || section.text || '').trim();
+              if (text) textParts.push(text);
+            } else if (sectionType === 'safety_notes') {
+              const notes = Array.isArray(section.notes) ? section.notes : [];
+              const safetyText = notes
+                .map((n: unknown) => typeof n === 'string' ? n.trim() : '')
+                .filter(Boolean)
+                .map((n: string) => `⚠️ ${n}`)
+                .join('\n');
+              if (safetyText) textParts.push(safetyText);
+            }
+          }
+          if (textParts.length) {
+            nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: textParts.join('\n\n') });
+          }
+          continue;
+        }
+
+        if (cardType === 'aurora_ingredient_report') {
+          const sections = Array.isArray(card.sections) ? card.sections : [];
+          const sectionTypes = new Set(
+            sections
+              .filter((s: unknown) => s && typeof s === 'object')
+              .map((s: unknown) => String((s as Record<string, unknown>).type || '')),
+          );
+
+          if (sectionTypes.has('ingredient_list')) {
+            const ingredientLines: string[] = [];
+            for (const sec of sections) {
+              const section = sec && typeof sec === 'object' ? (sec as Record<string, unknown>) : null;
+              if (!section || section.type !== 'ingredient_list') continue;
+              const ingredients = Array.isArray(section.ingredients) ? section.ingredients : [];
+              for (const ing of ingredients) {
+                if (!ing || typeof ing !== 'object') continue;
+                const i = ing as Record<string, unknown>;
+                const name = String(i.name || '').trim();
+                if (!name) continue;
+                const pros = Array.isArray(i.pros) ? i.pros.filter((p: unknown) => typeof p === 'string' && p.trim()).slice(0, 2) : [];
+                const cons = Array.isArray(i.cons) ? i.cons.filter((c: unknown) => typeof c === 'string' && c.trim()).slice(0, 2) : [];
+                const evidence = String(i.evidence_level || '').trim();
+                let line = `**${name}**`;
+                if (pros.length) line += ` — ${(pros as string[]).join('; ')}`;
+                if (cons.length) line += ` ⚠️ ${(cons as string[]).join('; ')}`;
+                if (evidence && evidence !== 'uncertain') line += ` (${evidence})`;
+                ingredientLines.push(line);
+              }
+            }
+            if (ingredientLines.length) {
+              const header = lang === 'CN' ? '**提到的成分：**' : '**Ingredients mentioned:**';
+              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: `${header}\n${ingredientLines.join('\n')}` });
+            }
+            continue;
+          }
+
+          if (sectionTypes.has('ingredient_overview')) {
+            const parts: string[] = [];
+            for (const sec of sections) {
+              const s = sec && typeof sec === 'object' ? (sec as Record<string, unknown>) : null;
+              if (!s) continue;
+              const t = String(s.type || '');
+
+              if (t === 'ingredient_overview') {
+                const name = String(s.ingredient_name || '').trim();
+                const inci = String(s.inci_name || '').trim();
+                const desc = lang === 'CN'
+                  ? String(s.description_zh || s.description_en || '').trim()
+                  : String(s.description_en || s.description_zh || '').trim();
+                const category = String(s.category || '').trim();
+                let header = name ? `**${name}**` : '';
+                if (inci && inci !== name) header += ` (${inci})`;
+                if (category && category !== 'other') header += ` — ${category}`;
+                if (header) parts.push(header);
+                if (desc) parts.push(desc);
+              }
+
+              if (t === 'ingredient_benefits') {
+                const benefits = Array.isArray(s.benefits) ? s.benefits : [];
+                const lines = benefits
+                  .map((b: unknown) => {
+                    if (typeof b === 'string') return b.trim();
+                    if (b && typeof b === 'object') {
+                      const obj = b as Record<string, unknown>;
+                      const text = lang === 'CN'
+                        ? String(obj.benefit_zh || obj.benefit_en || '').trim()
+                        : String(obj.benefit_en || obj.benefit_zh || '').trim();
+                      const evidence = String(obj.evidence_level || '').trim();
+                      return text ? (evidence && evidence !== 'uncertain' ? `${text} (${evidence})` : text) : '';
+                    }
+                    return '';
+                  })
+                  .filter(Boolean)
+                  .slice(0, 5);
+                if (lines.length) {
+                  parts.push(`**${lang === 'CN' ? '功效' : 'Benefits'}:** ${lines.join('; ')}`);
+                }
+              }
+
+              if (t === 'ingredient_claims') {
+                const claims = Array.isArray(s.claims) ? s.claims : [];
+                const lines = claims
+                  .map((c: unknown) => {
+                    if (!c || typeof c !== 'object') return '';
+                    const obj = c as Record<string, unknown>;
+                    const claim = lang === 'CN'
+                      ? String(obj.text_zh || obj.text_en || '').trim()
+                      : String(obj.text_en || obj.text_zh || '').trim();
+                    const badge = String(obj.evidence_badge || '').trim();
+                    return claim ? (badge ? `${claim} (${badge})` : claim) : '';
+                  })
+                  .filter(Boolean)
+                  .slice(0, 4);
+                if (lines.length) {
+                  parts.push(`**${lang === 'CN' ? '证据' : 'Evidence'}:**\n${lines.map((l: string) => `- ${l}`).join('\n')}`);
+                }
+              }
+
+              if (t === 'ingredient_usage') {
+                const howTo = s.how_to_use;
+                if (howTo && typeof howTo === 'object') {
+                  const u = howTo as Record<string, unknown>;
+                  const freq = String(u.frequency || '').trim();
+                  const step = String(u.step || '').trim();
+                  const tips = lang === 'CN'
+                    ? (Array.isArray(u.tips_zh) && u.tips_zh.length ? u.tips_zh : Array.isArray(u.tips_en) ? u.tips_en : [])
+                    : (Array.isArray(u.tips_en) && u.tips_en.length ? u.tips_en : Array.isArray(u.tips_zh) ? u.tips_zh : []);
+                  const tipText = tips.filter((t: unknown) => typeof t === 'string' && t.trim()).slice(0, 3).join('; ');
+                  const usageParts = [step, freq, tipText].filter(Boolean);
+                  if (usageParts.length) {
+                    parts.push(`**${lang === 'CN' ? '用法' : 'How to use'}:** ${usageParts.join(' · ')}`);
+                  }
+                }
+              }
+
+              if (t === 'ingredient_watchouts') {
+                const watchouts = Array.isArray(s.watchouts) ? s.watchouts : [];
+                const lines = watchouts
+                  .map((w: unknown) => {
+                    if (typeof w === 'string') return w.trim();
+                    if (w && typeof w === 'object') {
+                      const obj = w as Record<string, unknown>;
+                      const text = lang === 'CN'
+                        ? String(obj.text_zh || obj.text_en || '').trim()
+                        : String(obj.text_en || obj.text_zh || '').trim();
+                      const severity = String(obj.severity || '').trim();
+                      return text ? (severity ? `${text} [${severity}]` : text) : '';
+                    }
+                    return '';
+                  })
+                  .filter(Boolean)
+                  .slice(0, 3);
+                if (lines.length) {
+                  parts.push(`⚠️ **${lang === 'CN' ? '注意' : 'Watchouts'}:** ${lines.join('; ')}`);
+                }
+              }
+            }
+
+            if (parts.length) {
+              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: parts.join('\n\n') });
+            }
+            continue;
+          }
+        }
+
+        const legacyCard: Card = {
+          card_id: String((card as any).card_id || (card as any).id || `v2_${nextId()}`),
+          type: cardType || 'unknown',
+          title: String((card as any).title || ''),
+          payload: {
+            ...(card.metadata && typeof card.metadata === 'object' ? (card.metadata as Record<string, unknown>) : {}),
+            sections: Array.isArray(card.sections) ? card.sections : [],
+          },
+        };
+        nextItems.push({
+          id: nextId(),
+          role: 'assistant',
+          kind: 'cards',
+          cards: [legacyCard],
+        });
+      }
+
+      const SKILL_TO_CHIP: Record<string, string> = {
+        'ingredient.report': 'chip.start.ingredients.entry',
+        'reco.step_based': 'chip.start.reco_products',
+        'routine.apply_blueprint': 'chip.start.routine',
+        'routine.intake_products': 'chip.start.routine',
+        'routine.audit_optimize': 'chip.start.routine',
+        'product.analyze': 'chip.start.evaluate',
+        'dupe.suggest': 'chip.start.dupes',
+        'dupe.compare': 'chip.start.dupes',
+        'diagnosis_v2.start': 'chip.start.diagnosis',
+        'tracker.checkin_log': 'chip_checkin_now',
+        'explore.add_to_routine': 'chip.action.add_to_routine',
+      };
+
+      const nextActions = Array.isArray(response.next_actions) ? response.next_actions : [];
+      const chips: SuggestedChip[] = [];
+      for (const action of nextActions) {
+        if (!action || typeof action !== 'object') continue;
+        const a = action as Record<string, unknown>;
+        const actionType = String(a.action_type || '').trim().toLowerCase();
+        const label = resolveLocalizedString(a.label) || resolveLocalizedString(a.text);
+        if (!label) continue;
+        const targetSkillId = typeof a.target_skill_id === 'string' ? a.target_skill_id.trim() : '';
+        const params = a.params && typeof a.params === 'object' ? (a.params as Record<string, unknown>) : undefined;
+        const hasProductAnchor =
+          Boolean(params && typeof params.product_anchor === 'object' && !Array.isArray(params.product_anchor));
+
+        if (actionType === 'trigger_photo') {
+          chips.push({
+            chip_id: 'chip.intake.upload_photos',
+            label,
+            kind: 'quick_reply',
+            data: { client_action: 'open_camera', reply_text: label, trigger_source: 'chip' },
+          });
+          continue;
+        }
+
+        const chipId =
+          targetSkillId === 'explore.add_to_routine' && !hasProductAnchor
+            ? undefined
+            : (targetSkillId && SKILL_TO_CHIP[targetSkillId]) || undefined;
+        if (chipId) {
+          chips.push({
+            chip_id: chipId,
+            label,
+            kind: 'quick_reply',
+            data: {
+              action_id: chipId,
+              ...(params ? { ...params } : {}),
+              reply_text: label,
+              trigger_source: 'chip',
+            },
+          });
+          continue;
+        }
+
+        chips.push({
+          chip_id: `v2_chip_${nextId()}`,
+          label,
+          kind: 'quick_reply',
+          data: {
+            ...(params ? { ...params } : {}),
+            reply_text: label,
+            trigger_source: 'chip',
+            v2_freeform_fallback: true,
+          },
+        });
+      }
+      if (chips.length) {
+        nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: chips.slice(0, 12) });
+      }
+
+      if (nextItems.length) {
+        setItems((prev) => [...prev, ...nextItems]);
+      }
+    },
+    [language],
+  );
+
   const tryApplyEnvelopeFromBffError = useCallback(
     (err: unknown) => {
       if (!(err instanceof PivotaAgentBffError)) return false;
@@ -8090,6 +8389,7 @@ export default function BffChat() {
         };
 
         let parsedStreamResponse: ChatResponseV1 | null = null;
+        let parsedStreamV2: { cards: Array<Record<string, unknown>>; ops: Record<string, unknown>; next_actions: unknown[] } | null = null;
         let usedStream = false;
 
         if (!streamEndpointDisabledRef.current) {
@@ -8106,10 +8406,25 @@ export default function BffChat() {
               },
               onResult: (event) => {
                 parsedStreamResponse = parseChatResponseV1(event);
+                if (!parsedStreamResponse) {
+                  const obj = asObject(event);
+                  if (obj && Array.isArray(obj.cards)) {
+                    const hasV2Cards = (obj.cards as unknown[]).some(
+                      (c) => c && typeof c === 'object' && typeof (c as Record<string, unknown>).card_type === 'string',
+                    );
+                    if (hasV2Cards || (obj.cards as unknown[]).length === 0) {
+                      parsedStreamV2 = {
+                        cards: obj.cards as Array<Record<string, unknown>>,
+                        ops: asObject(obj.ops) || {},
+                        next_actions: Array.isArray(obj.next_actions) ? obj.next_actions : [],
+                      };
+                    }
+                  }
+                }
               },
             }, { timeoutMs });
-            if (!parsedStreamResponse) {
-              throw new Error('Invalid /v1/chat/stream result: expected ChatCards v1 schema.');
+            if (!parsedStreamResponse && !parsedStreamV2) {
+              throw new Error('Invalid /v1/chat/stream result: expected ChatCards v1 or v2 schema.');
             }
             usedStream = true;
           } catch {
@@ -8138,11 +8453,26 @@ export default function BffChat() {
               && asString((bodyRaw as Record<string, unknown>).trace_id)
                 ? (bodyRaw as V1Envelope)
                 : null;
-            if (!parsedV1 && !legacyEnvelope) {
-              throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+            const v2Response = (() => {
+              if (parsedV1 || legacyEnvelope) return null;
+              const obj = asObject(bodyRaw);
+              if (!obj || !Array.isArray(obj.cards)) return null;
+              const hasV2Cards = (obj.cards as unknown[]).some(
+                (c) => c && typeof c === 'object' && typeof (c as Record<string, unknown>).card_type === 'string',
+              );
+              if (!hasV2Cards && (obj.cards as unknown[]).length > 0) return null;
+              return {
+                cards: obj.cards as Array<Record<string, unknown>>,
+                ops: asObject(obj.ops) || {},
+                next_actions: Array.isArray(obj.next_actions) ? obj.next_actions : [],
+              };
+            })();
+            if (!parsedV1 && !legacyEnvelope && !v2Response) {
+              throw new Error('Invalid /v1/chat response: expected ChatCards v1 or v2 schema.');
             }
             if (parsedV1) applyChatResponseV1(parsedV1);
             else if (legacyEnvelope) applyEnvelope(legacyEnvelope);
+            else if (v2Response) applyV2Response(v2Response);
           } finally {
             stopSim();
           }
@@ -8151,6 +8481,8 @@ export default function BffChat() {
 
         if (parsedStreamResponse) {
           applyChatResponseV1(parsedStreamResponse);
+        } else if (parsedStreamV2) {
+          applyV2Response(parsedStreamV2);
         }
         pendingLocationSessionProfilePatchRef.current = null;
       } catch (err) {
@@ -8168,6 +8500,7 @@ export default function BffChat() {
       anchorProductUrl,
       applyEnvelope,
       applyChatResponseV1,
+      applyV2Response,
       bootstrapInfo?.profile,
       debug,
       headers,
@@ -9180,6 +9513,8 @@ export default function BffChat() {
       const actionIdOverride = asString((chipData as any).action_id);
       const clientAction = (asString((chipData as any).client_action) || '').toLowerCase();
       const effectiveActionId = actionIdOverride || id;
+      const fallbackReplyText = asString((chipData as any).reply_text) || chip.label;
+      const isV2FreeformFallback = (chipData as any).v2_freeform_fallback === true;
       const qpRaw = (chip.data as any)?.quick_profile;
       const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
       const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
@@ -9494,6 +9829,14 @@ export default function BffChat() {
       if (id === 'chip.start.dupes') {
         setDupeDraft({ original: '' });
         setDupeSheetOpen(true);
+        return;
+      }
+
+      if (isV2FreeformFallback) {
+        await sendChat(fallbackReplyText, undefined, {
+          client_state: fromState,
+          requested_transition: requestedTransition,
+        });
         return;
       }
 
