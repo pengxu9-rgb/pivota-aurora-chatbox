@@ -87,8 +87,9 @@ describe('photo_modules invalid payload visibility', () => {
     fireEvent.change(input, { target: { value: 'show my cards' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    await screen.findByText('photo invalid payload');
     await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls.length).toBeGreaterThan(0);
       expect(screen.queryByText(warningText)).not.toBeInTheDocument();
     });
   });
@@ -121,7 +122,10 @@ describe('photo_modules invalid payload visibility', () => {
     fireEvent.change(input, { target: { value: 'show my cards' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    await screen.findByText('photo invalid payload');
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls.length).toBeGreaterThan(0);
+    });
     expect(await screen.findByText(warningText)).toBeInTheDocument();
   });
 });

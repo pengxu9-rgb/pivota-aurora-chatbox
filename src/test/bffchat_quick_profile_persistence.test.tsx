@@ -167,7 +167,7 @@ describe('BffChat quick profile persistence and bind prompt', () => {
     await openQuickProfile();
     await completeQuickProfile();
 
-    await screen.findByText('Saved on this device; sign in to sync across devices.');
+    await screen.findByText('Saved on this device; sign in to bind and sync across devices.');
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to sync profile' }));
     await screen.findByRole('button', { name: 'Send code' });
     },
@@ -230,7 +230,7 @@ describe('BffChat quick profile persistence and bind prompt', () => {
         const latestHeaders = bootstrapCalls[bootstrapCalls.length - 1]?.[1] as { auth_token?: string };
         expect(latestHeaders.auth_token).toBeUndefined();
       });
-      expect(screen.getByText('New user? Just enter your email — a code will be sent and your account will be created automatically. Works for existing accounts too.')).toBeInTheDocument();
+      expect(screen.getByText('Enter your email to get a sign-in code (for cross-device profile).')).toBeInTheDocument();
       expect(screen.queryByPlaceholderText('Enter password')).not.toBeInTheDocument();
       expect(screen.queryByDisplayValue('stale@example.com')).not.toBeInTheDocument();
     },

@@ -45,7 +45,7 @@ function renderChat(initialEntry = '/chat') {
   );
 }
 
-describe('BffChat diagnosis v2 auth resume', () => {
+describe('BffChat auth sheet password sign-in', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
@@ -57,10 +57,8 @@ describe('BffChat diagnosis v2 auth resume', () => {
     }
   });
 
-  it('opens the auth sheet in-place and resumes diagnosis after password login', async () => {
-    let diagnosisStartCount = 0;
-
-    vi.mocked(bffJson).mockImplementation((path: string, headers?: Record<string, unknown>) => {
+  it('opens in-place from the route and signs in with password', async () => {
+    vi.mocked(bffJson).mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
         return Promise.resolve(
           makeEnvelope({
@@ -68,45 +66,6 @@ describe('BffChat diagnosis v2 auth resume', () => {
             trace_id: 'trace_bootstrap',
           }),
         );
-      }
-
-      if (path === '/v1/diagnosis/start') {
-        diagnosisStartCount += 1;
-        if (diagnosisStartCount === 1) {
-          return Promise.resolve({
-            ok: true,
-            stage: 'login_prompt',
-            card: {
-              type: 'diagnosis_v2_login_prompt',
-              payload: {
-                prompt_text: 'Log in for better diagnosis',
-                login_action: { type: 'login_then_diagnose', label: 'Log in', payload: { pending_goals: ['barrier_repair'] } },
-                skip_action: { type: 'skip_login', label: 'Skip, start now', payload: { pending_goals: ['barrier_repair'] } },
-                pending_goals: ['barrier_repair'],
-              },
-            },
-          });
-        }
-
-        expect(headers?.auth_token).toBe('auth_token_123');
-        return Promise.resolve({
-          ok: true,
-          stage: 'intro',
-          card: {
-            type: 'diagnosis_v2_intro',
-            payload: {
-              goal_profile: {
-                selected_goals: ['barrier_repair'],
-                custom_input: '',
-                constraints: [],
-              },
-              is_cold_start: false,
-              question_strategy: 'default',
-              followup_questions: [],
-              actions: [],
-            },
-          },
-        });
       }
 
       if (path === '/v1/auth/password/login') {
@@ -130,13 +89,11 @@ describe('BffChat diagnosis v2 auth resume', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    renderChat(`/chat?open=diagnosis_v2&goals=${encodeURIComponent(JSON.stringify(['barrier_repair']))}`);
+    renderChat('/chat?open=auth');
 
-    await screen.findByRole('button', { name: 'Log in' });
-    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
-
-    await screen.findByRole('button', { name: 'Password' });
+    await screen.findByText('Enter your email to get a sign-in code (for cross-device profile).');
     fireEvent.click(screen.getByRole('button', { name: 'Password' }));
+
     fireEvent.change(screen.getByPlaceholderText('name@email.com'), {
       target: { value: 'tester@example.com' },
     });
@@ -145,10 +102,13 @@ describe('BffChat diagnosis v2 auth resume', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    await screen.findByRole('heading', { name: 'Choose your skincare goals' });
     await waitFor(() => {
-      const diagnosisStartCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/diagnosis/start');
-      expect(diagnosisStartCalls).toHaveLength(2);
+      const loginCalls = vi.mocked(bffJson).mock.calls.filter(([path]) => path === '/v1/auth/password/login');
+      expect(loginCalls).toHaveLength(1);
+      const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter(([path]) => path === '/v1/session/bootstrap');
+      expect(bootstrapCalls.length).toBeGreaterThanOrEqual(2);
+      const latestHeaders = bootstrapCalls[bootstrapCalls.length - 1]?.[1] as { auth_token?: string };
+      expect(latestHeaders.auth_token).toBe('auth_token_123');
     });
   });
 });

@@ -50,9 +50,10 @@ describe('ingredients v2-lite ui contract', () => {
       />,
     );
 
-    expect(screen.getByText(/personalized baseline/i)).toBeInTheDocument();
-    expect(screen.getByText(/Benefit details are enriching/i)).toBeInTheDocument();
-    expect(screen.getByText(/Watchouts are being enriched/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quick ingredient summary is available\./i)).toBeInTheDocument();
+    expect(screen.getByText(/This is a quick result\. Enhanced evidence is generating\./i)).toBeInTheDocument();
+    expect(screen.getByText(/Insufficient evidence for now\. Refresh later for enhanced details\./i)).toBeInTheDocument();
+    expect(screen.getByText(/No additional watchouts yet\./i)).toBeInTheDocument();
     expect(screen.queryByText(/Ingredient report payload is unavailable\./i)).not.toBeInTheDocument();
   });
 

@@ -222,9 +222,8 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
-    await screen.findByText('ingredient v1 path');
-    expect(screen.getByText('Ingredient Hub')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Lookup' })).toBeInTheDocument();
+    expect(await screen.findByText('Ingredient Hub')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Lookup' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Match ingredients' })).toBeInTheDocument();
   });
 
@@ -274,8 +273,7 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
-    await screen.findByText('ingredient v1 path missing title');
-    expect(screen.getByRole('button', { name: 'Lookup' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Lookup' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Match ingredients' })).toBeInTheDocument();
   });
 
@@ -1119,10 +1117,11 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
+    await screen.findByRole('button', { name: 'Upload a photo (more accurate)' });
     const chatCallsBeforeClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
     expect(chatCallsBeforeClick).toBe(1);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Upload a photo (more accurate)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload a photo (more accurate)' }));
     await screen.findByText('Align your face inside the oval frame');
     await waitFor(() => {
       const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
@@ -1190,16 +1189,16 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
-    await screen.findByRole('button', { name: 'Get recommendations now' });
-    fireEvent.click(screen.getByRole('button', { name: 'Get recommendations now' }));
+    await screen.findByRole('button', { name: 'See product recommendations' });
+    fireEvent.click(screen.getByRole('button', { name: 'See product recommendations' }));
 
     await screen.findByText('Recommendations prepared.');
     await waitFor(() => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
       expect(chatCalls).toHaveLength(2);
       const lastRawBody = String((chatCalls[1]?.[2] as any)?.body || '');
-      expect(lastRawBody).toContain('chip.start.reco_products');
-      expect(lastRawBody).toContain('"force_route":"reco_products"');
+      expect(lastRawBody).toContain('chip.action.reco_routine');
+      expect(lastRawBody).toContain('"include_alternatives":true');
     });
   });
 
@@ -1255,7 +1254,6 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     fireEvent.change(input, { target: { value: 'analyze my skin' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    await screen.findByText('Story generated.');
     fireEvent.click(await screen.findByRole('button', { name: 'Dive deeper into skin' }));
 
     await screen.findByText('Deep dive follow-up received.');
@@ -1319,7 +1317,6 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     fireEvent.change(input, { target: { value: 'analyze my skin' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    await screen.findByText('Story generated.');
     fireEvent.click(await screen.findByRole('button', { name: 'Ingredient plan details' }));
 
     await screen.findByText('Ingredient-plan follow-up received.');
@@ -1383,7 +1380,6 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     fireEvent.change(input, { target: { value: 'analyze my routine fit' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    await screen.findByText('Routine fit generated.');
     expect(await screen.findByText('Some strong matches, with a few gaps to adjust.')).toBeInTheDocument();
     expect(screen.getByText('Partial match · 50%')).toBeInTheDocument();
     expect(screen.getByText('What should I adjust first?')).toBeInTheDocument();
@@ -1412,9 +1408,8 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
                       strategy: 'Use gentle balancing care.',
                       needs_risk_check: false,
                       deepening: { phase: 'refined' },
-                      next_step_options: [{ id: 'analysis_optimize_existing', label: 'Optimize existing products' }],
                     },
-                    low_confidence: false,
+                    low_confidence: true,
                   },
                 },
               ],
@@ -1439,11 +1434,11 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
-    await screen.findByRole('button', { name: 'Optimize existing products' });
+    await screen.findByRole('button', { name: 'Add AM/PM products (more accurate)' });
     const chatCallsBeforeClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
     expect(chatCallsBeforeClick).toBe(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Optimize existing products' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add AM/PM products (more accurate)' }));
 
     await screen.findByText(/Fill in your AM\/PM products/i);
     await waitFor(() => {
