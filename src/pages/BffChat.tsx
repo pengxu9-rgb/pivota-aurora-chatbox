@@ -4631,19 +4631,42 @@ function BffCardView({
       })() : null}
 
       {cardType === 'error' ? (() => {
-        const code = asString((payload as any)?.error) || 'UNKNOWN_ERROR';
+        const errorCode = asString((payload as any)?.error_code || (payload as any)?.error) || 'UNKNOWN_ERROR';
         const status = asNumber((payload as any)?.status);
         const details = (payload as any)?.details ?? null;
+        const sectionsArr = asArray((payload as any)?.sections ?? card.sections).map((s) => asObject(s)).filter(Boolean) as Array<Record<string, unknown>>;
+        const bulletSection = sectionsArr.find((s) => s.kind === 'bullets');
+        const bulletItems = asArray(bulletSection?.items).map((v) => String(v)).filter(Boolean);
+        const actionsArr = asArray((payload as any)?.actions ?? card.actions).map((a) => asObject(a)).filter(Boolean) as Array<Record<string, unknown>>;
+        const retryAction = actionsArr.find((a) => String(a.type || '') === 'retry');
+        const userMessage = bulletItems[0] ||
+          (language === 'CN'
+            ? '请求未能完成，请稍后重试。'
+            : 'The request could not be completed. Please try again shortly.');
         return (
-          <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            <div className="font-semibold">
-              {code}
-              {typeof status === 'number' ? ` (HTTP ${status})` : ''}
+          <div data-testid="chatcards-error-card" className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 p-4 text-sm">
+            <div className="font-semibold text-destructive">
+              {asString(card.title) || (language === 'CN' ? '出了点问题' : 'Something went wrong')}
             </div>
-            {details ? (
-              <pre className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
-                {renderJson(details)}
-              </pre>
+            <div className="text-foreground">{userMessage}</div>
+            {retryAction ? (
+              <button
+                type="button"
+                className="chip-button chip-button-primary"
+                onClick={() => onAction('retry', { error_code: errorCode })}
+              >
+                {asString(retryAction.label as any) || (language === 'CN' ? '重试' : 'Retry')}
+              </button>
+            ) : null}
+            {debug && (details || errorCode !== 'UNKNOWN_ERROR') ? (
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer">{errorCode}{typeof status === 'number' ? ` (HTTP ${status})` : ''}</summary>
+                {details ? (
+                  <pre className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
+                    {renderJson(details)}
+                  </pre>
+                ) : null}
+              </details>
             ) : null}
           </div>
         );
