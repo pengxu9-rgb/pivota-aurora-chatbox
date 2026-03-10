@@ -9818,25 +9818,34 @@ export default function BffChat() {
         brand && !q.toLowerCase().includes(brand.toLowerCase())
           ? `${brand} ${q}`.trim()
           : q;
-      const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
-      const params = new URLSearchParams({
-        query: queryWithHint,
-        limit: String(requestedLimit),
-        offset: '0',
-        search_all_merchants: 'true',
-        in_stock_only: 'false',
-        lang: language === 'CN' ? 'cn' : 'en',
-        source: 'aurora_chatbox',
-        catalog_surface: 'beauty',
-      });
-      try {
-        return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
-          method: 'GET',
-          signal: controller.signal,
+      const runSearch = async (searchQuery: string) => {
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+        const params = new URLSearchParams({
+          query: searchQuery,
+          limit: String(requestedLimit),
+          offset: '0',
+          search_all_merchants: 'true',
+          in_stock_only: 'false',
+          lang: language === 'CN' ? 'cn' : 'en',
+          source: 'aurora_chatbox',
+          catalog_surface: 'beauty',
         });
-      } finally {
-        window.clearTimeout(timer);
+        try {
+          return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
+            method: 'GET',
+            signal: controller.signal,
+          });
+        } finally {
+          window.clearTimeout(timer);
+        }
+      };
+
+      try {
+        return await runSearch(queryWithHint);
+      } catch (err) {
+        if (!brand || queryWithHint === q) throw err;
+        return await runSearch(q);
       }
     },
     [headers, language],
