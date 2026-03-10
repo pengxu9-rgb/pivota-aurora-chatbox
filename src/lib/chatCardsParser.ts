@@ -30,6 +30,7 @@ const CARD_TYPES = new Set([
   'effect_review',
   'travel',
   'nudge',
+  'error',
   'ingredient_hub',
   'ingredient_goal_match',
   'aurora_ingredient_report',
@@ -44,6 +45,7 @@ const CARD_TYPES = new Set([
 
 const fallbackTitleForType = (type: string): string => {
   const token = asString(type).toLowerCase();
+  if (token === 'error') return 'Something went wrong';
   if (token === 'ingredient_hub') return 'Ingredient hub';
   if (token === 'ingredient_goal_match') return 'Ingredient goal match';
   if (token === 'aurora_ingredient_report') return 'Ingredient report';
