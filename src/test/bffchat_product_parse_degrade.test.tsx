@@ -13,6 +13,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
   return {
     ...actual,
     bffJson: vi.fn(),
+    bffChatStream: vi.fn().mockRejectedValue(new Error('stream unavailable in test')),
     sendRecoEmployeeFeedback: vi.fn(),
   };
 });
@@ -56,6 +57,112 @@ describe('BffChat product-parse degraded UX', () => {
         writable: true,
       });
     }
+  });
+
+  it('routes a bare product URL from the main composer into deep scan instead of /v1/chat', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_direct_url', trace_id: 'trace_bootstrap_direct_url' }));
+      }
+      if (path === '/v1/product/parse') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_parse_direct_url',
+            trace_id: 'trace_parse_direct_url',
+            cards: [
+              {
+                card_id: 'parse_direct_url',
+                type: 'product_parse',
+                payload: {
+                  product: {
+                    brand: 'Lab Series',
+                    name: 'Daily Rescue Energizing Face Lotion',
+                    display_name: 'LAB SERIES DAILY RESCUE ENERGIZING FACE LOTION',
+                    url: 'https://www.labseries.com/product/32020/123634/skincare/moisturizerspf/daily-rescue-energizing-lightweight-lotion-moisturizer/daily-rescue',
+                  },
+                  confidence: 0.32,
+                  missing_info: ['heuristic_url_parse', 'anchor_soft_blocked_ambiguous', 'anchor_id_not_used_due_to_low_trust'],
+                  parse_source: 'heuristic_url',
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/product/analyze') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analyze_direct_url',
+            trace_id: 'trace_analyze_direct_url',
+            cards: [
+              {
+                card_id: 'analyze_direct_url',
+                type: 'product_analysis',
+                payload: {
+                  assessment: {
+                    verdict: 'Needs Verification',
+                    summary: 'INCI confidence is low, but watchouts are still explicit.',
+                    reasons: ['INCI confidence is low, but watchouts are still explicit.'],
+                    anchor_product: {
+                      brand: 'LAB SERIES',
+                      name: 'DAILY RESCUE ENERGIZING FACE LOTION',
+                      url: 'https://www.labseries.com/product/32020/123634/skincare/moisturizerspf/daily-rescue-energizing-lightweight-lotion-moisturizer/daily-rescue',
+                    },
+                    watchouts: [
+                      {
+                        issue: 'Contains retinoid-like ingredients with higher irritation/dryness risk early on.',
+                        status: 'possible',
+                        what_to_do: 'Add barrier hydration and reduce frequency.',
+                      },
+                    ],
+                  },
+                  evidence: {
+                    science: { key_ingredients: ['Retinol'], mechanisms: [], fit_notes: [], risk_notes: [] },
+                    social_signals: { typical_positive: [], typical_negative: [], risk_for_groups: [] },
+                    expert_notes: ['Evidence source: ingredient list parsed from labseries.com.'],
+                    missing_info: ['version_verification_needed'],
+                  },
+                  confidence: 0.78,
+                  missing_info: ['incidecoder_source_used', 'version_verification_needed', 'ingredient_concentration_unknown'],
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/chat') {
+        throw new Error('main composer URL should not hit /v1/chat');
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const composer = await screen.findByPlaceholderText(/paste a product link/i);
+    fireEvent.change(composer, {
+      target: {
+        value: 'https://www.labseries.com/product/32020/123634/skincare/moisturizerspf/daily-rescue-energizing-lightweight-lotion-moisturizer/daily-rescue',
+      },
+    });
+    fireEvent.submit(composer.closest('form') as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/needs verification/i).length).toBeGreaterThan(0);
+    });
+
+    const parseCall = mock.mock.calls.find((call) => call[0] === '/v1/product/parse');
+    expect(parseCall).toBeTruthy();
+    expect(JSON.parse(String((parseCall?.[2] as any)?.body || '{}'))).toMatchObject({
+      url: 'https://www.labseries.com/product/32020/123634/skincare/moisturizerspf/daily-rescue-energizing-lightweight-lotion-moisturizer/daily-rescue',
+    });
+    expect(mock.mock.calls.some((call) => call[0] === '/v1/chat')).toBe(false);
   });
 
   it('hides parse-missing card when analyze returns a meaningful verdict', async () => {

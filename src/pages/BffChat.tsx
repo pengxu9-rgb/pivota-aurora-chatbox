@@ -328,6 +328,18 @@ const toBffErrorMessage = (err: unknown): string => {
   return err instanceof Error ? err.message : String(err);
 };
 
+const parseMaybeUrl = (text: string): string | null => {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  try {
+    const u = new URL(t);
+    if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString();
+  } catch {
+    // ignore
+  }
+  return null;
+};
+
 type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
 
 const FF_RETURN_WELCOME = (() => {
@@ -8142,18 +8154,6 @@ export default function BffChat() {
     ]
   );
 
-  const parseMaybeUrl = useCallback((text: string) => {
-    const t = String(text || '').trim();
-    if (!t) return null;
-    try {
-      const u = new URL(t);
-      if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString();
-    } catch {
-      // ignore
-    }
-    return null;
-  }, []);
-
   const runProductDeepScan = useCallback(
     async (rawInput: string) => {
       const inputText = String(rawInput || '').trim();
@@ -8281,7 +8281,7 @@ export default function BffChat() {
         setChatBusy(false);
       }
     },
-    [agentState, applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
+    [agentState, applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
   );
 
   const runDupeSearch = useCallback(
@@ -8320,7 +8320,7 @@ export default function BffChat() {
         setLoadingIntent('default');
       }
     },
-    [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
+    [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
   );
 
   const onCardAction = useCallback(
@@ -9056,6 +9056,12 @@ export default function BffChat() {
     async (raw: string) => {
       const msg = String(raw || '').trim();
       if (!msg) return;
+    const directUrl = parseMaybeUrl(msg);
+    if (directUrl) {
+      setInput('');
+      await runProductDeepScan(directUrl);
+      return;
+    }
     const isTextExplicitQuickProfile = (() => {
       const t = msg.trim().toLowerCase();
       if (!t) return false;
@@ -9135,7 +9141,7 @@ export default function BffChat() {
 
     await sendChat(msg);
     },
-    [agentState, headers, language, sendChat, setAgentStateSafe],
+    [agentState, headers, language, runProductDeepScan, sendChat, setAgentStateSafe],
   );
 
   const onSubmit = useCallback(async () => {
