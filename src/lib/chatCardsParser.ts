@@ -40,6 +40,7 @@ const CARD_TYPES = new Set([
   'confidence_notice',
   'budget_gate',
   'gate_notice',
+  'recommendations',
 ]);
 
 const fallbackTitleForType = (type: string): string => {
