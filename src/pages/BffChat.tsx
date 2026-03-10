@@ -1291,7 +1291,7 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
     asString(raw.sku_id ?? raw.skuId ?? raw.product_id ?? raw.productId) ||
     `unknown_${Math.random().toString(16).slice(2)}`.slice(0, 24);
   const brand = asString(raw.brand) || '';
-  const name = asString(raw.name) || asString(raw.display_name ?? raw.displayName) || '';
+  const name = asString(raw.name) || asString(raw.title) || asString(raw.display_name ?? raw.displayName) || '';
   const categoryRaw = asString(raw.category) || asString((raw as any).category_name ?? (raw as any).categoryName) || '';
   const category = (!categoryRaw || isUnknownToken(categoryRaw)) ? inferCategoryFromName(name) : categoryRaw;
   const description = asString(raw.description) || '';
@@ -1324,6 +1324,25 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
   if (keyActives.length) product.key_actives = keyActives;
 
   return product;
+}
+
+function extractProductsFromSearchResponse(input: unknown): Array<Record<string, unknown>> {
+  const root = asObject(input) || {};
+  const rows = (
+    [
+      (root as any).products,
+      (root as any).items,
+      (root as any).results,
+      (root as any).data?.products,
+      (root as any).data?.items,
+      (root as any).data?.results,
+      (root as any).result?.products,
+      (root as any).result?.items,
+      (root as any).result?.results,
+    ].find((value) => Array.isArray(value)) || []
+  ) as unknown[];
+
+  return rows.map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
 }
 
 function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Offer[] {
@@ -3580,11 +3599,7 @@ function BffCardView({
           preferBrand: asString(lookup.preferBrand) || null,
         });
         if (travelLookupRequestRef.current !== requestId) return;
-        const root = asObject(resp) || {};
-        const rows = asArray((root as any).items ?? (root as any).data?.items ?? (root as any).data?.products)
-          .map((row) => asObject(row))
-          .filter(Boolean) as Array<Record<string, unknown>>;
-        const results = rows
+        const results = extractProductsFromSearchResponse(resp)
           .map((row) => toUiProduct(asObject((row as any).product) || row, language))
           .slice(0, 8);
         setTravelLookupState({
@@ -9805,26 +9820,20 @@ export default function BffChat() {
           : q;
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      const params = new URLSearchParams({
+        query: queryWithHint,
+        limit: String(requestedLimit),
+        offset: '0',
+        search_all_merchants: 'true',
+        in_stock_only: 'false',
+        lang: language === 'CN' ? 'cn' : 'en',
+        source: 'aurora_chatbox',
+        catalog_surface: 'beauty',
+      });
       try {
-        return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
-          method: 'POST',
+        return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
+          method: 'GET',
           signal: controller.signal,
-          body: JSON.stringify({
-            operation: 'find_products_multi',
-            payload: {
-              search: {
-                query: queryWithHint,
-                in_stock_only: false,
-                search_all_merchants: true,
-                limit: requestedLimit,
-                offset: 0,
-              },
-            },
-            metadata: {
-              source: 'aurora_chatbox',
-              ...(brand ? { prefer_brand: brand } : {}),
-            },
-          }),
         });
       } finally {
         window.clearTimeout(timer);
