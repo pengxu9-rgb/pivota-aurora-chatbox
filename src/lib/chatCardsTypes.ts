@@ -7,6 +7,7 @@ export type ChatCardV1Type =
   | 'effect_review'
   | 'travel'
   | 'nudge'
+  | 'error'
   | 'ingredient_hub'
   | 'ingredient_goal_match'
   | 'aurora_ingredient_report'

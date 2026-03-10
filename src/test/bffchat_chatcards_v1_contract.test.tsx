@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,7 +20,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 
 import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
-import { bffJson } from '@/lib/pivotaAgentBff';
+import { bffJson, PivotaAgentBffError } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 import type { ChatResponseV1 } from '@/lib/chatCardsTypes';
 import { analytics } from '@/lib/analytics';
@@ -1450,5 +1450,67 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
       const chatCallsAfterClick = mock.mock.calls.filter((call) => call[0] === '/v1/chat').length;
       expect(chatCallsAfterClick).toBe(1);
     });
+  });
+
+  it('renders error card (not nudge) when backend returns 500 with error envelope', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.reject(
+          new PivotaAgentBffError('Request failed: 500 Internal Server Error', 500, {
+            version: '1.0',
+            request_id: 'req_err_500',
+            trace_id: 'trace_err_500',
+            assistant_text: 'Failed to process chat.',
+            cards: [
+              {
+                id: 'err_req_err_500',
+                type: 'error',
+                priority: 1,
+                title: 'Something went wrong',
+                tags: ['Error'],
+                sections: [
+                  {
+                    kind: 'bullets',
+                    title: 'Details',
+                    items: ['The request could not be completed. Please try again shortly.'],
+                  },
+                ],
+                actions: [{ type: 'retry', label: 'Retry' }],
+                payload: { error_code: 'CHAT_FAILED' },
+              },
+            ],
+            follow_up_questions: [],
+            suggested_quick_replies: [],
+            ops: { thread_ops: [], profile_patch: [], routine_patch: [], experiment_events: [] },
+            safety: { risk_level: 'none', red_flags: [], disclaimer: '' },
+            telemetry: { intent: 'unknown', intent_confidence: 0, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'Build an AM/PM skincare routine' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const errorCard = await screen.findByTestId('chatcards-error-card');
+    const scoped = within(errorCard);
+    expect(scoped.getByText('Something went wrong')).toBeInTheDocument();
+    expect(scoped.getByText(/could not be completed/i)).toBeInTheDocument();
+    expect(scoped.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText('Optional nudge')).not.toBeInTheDocument();
   });
 });
