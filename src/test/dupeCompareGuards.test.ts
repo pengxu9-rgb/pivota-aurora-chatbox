@@ -64,6 +64,22 @@ describe("dupeCompareGuards", () => {
     ).toBe(true);
   });
 
+  it("detects self reference when the anchor brand is split from the name but the candidate name contains the full title", () => {
+    expect(
+      looksLikeSelfRef(
+        {
+          brand: "The Ordinary",
+          name: "Niacinamide 10% + Zinc 1%",
+        },
+        {
+          name: "The Ordinary Niacinamide 10% + Zinc 1%",
+          product_id: "9886499864904",
+          url: "https://agent.pivota.cc/products/9886499864904",
+        },
+      ),
+    ).toBe(true);
+  });
+
   it("keeps same-brand but different-line products comparable", () => {
     expect(
       looksLikeSelfRef(
