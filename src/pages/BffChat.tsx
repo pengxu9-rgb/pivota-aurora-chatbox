@@ -4639,7 +4639,7 @@ function BffCardView({
         const product = productRaw ? toUiProduct(productRaw, language) : null;
         const productOffers = productRaw ? toAnchorOffers(productRaw, language) : [];
         const confidence = asNumber((payload as any).confidence);
-        const parseSource = asString((payload as any).parse_source || (payload as any).parseSource).toLowerCase();
+        const parseSource = (asString((payload as any).parse_source || (payload as any).parseSource) || '').toLowerCase();
         const parseSourceLabel = (() => {
           if (!parseSource || parseSource === 'none') return '';
           const labels: Record<string, { CN: string; EN: string }> = {

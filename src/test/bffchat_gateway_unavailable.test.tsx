@@ -34,6 +34,26 @@ function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   };
 }
 
+const READY_TIMEOUT_MS = 5000;
+
+async function waitForEnabledComposer() {
+  const input = await screen.findByPlaceholderText(/ask a question/i);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
+async function waitForEnabledButton(name: string | RegExp) {
+  const button = await screen.findByRole('button', { name });
+  await waitFor(() => expect(button).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return button;
+}
+
+async function waitForEnabledInput(placeholder: string | RegExp) {
+  const input = await screen.findByPlaceholderText(placeholder);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
 describe('BffChat gateway unavailable UX', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -71,13 +91,13 @@ describe('BffChat gateway unavailable UX', () => {
       expect(bootstrapCalls.length).toBeGreaterThan(0);
     });
 
-    const input = screen.getByPlaceholderText(/ask a question/i);
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'check a product' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
     await waitFor(() => {
       expect(screen.getByText(/Request failed: 503 Service Unavailable|Service is temporarily unavailable/i)).toBeInTheDocument();
-    });
+    }, { timeout: READY_TIMEOUT_MS });
   });
 
   it('surfaces network/CORS message for product analyze failure', async () => {
@@ -120,15 +140,16 @@ describe('BffChat gateway unavailable UX', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    const entry = await waitForEnabledButton(/evaluate a specific product for me/i);
     fireEvent.click(entry);
 
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await waitForEnabledInput(/nivea creme/i);
     fireEvent.change(productInput, { target: { value: 'https://example.com/p/test' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /^analyze$/i })).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
     fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/Gateway is temporarily unreachable or restarting|Failed to fetch/i)).toBeInTheDocument();
-    });
+    }, { timeout: READY_TIMEOUT_MS });
   });
 });

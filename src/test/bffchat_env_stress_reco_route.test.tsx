@@ -74,6 +74,20 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+const READY_TIMEOUT_MS = 5000;
+
+async function waitForEnabledComposer() {
+  const input = await screen.findByPlaceholderText(/ask a question/i);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
+async function waitForEnabledButton(name: string | RegExp) {
+  const button = await screen.findByRole('button', { name });
+  await waitFor(() => expect(button).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return button;
+}
+
 describe('BffChat env stress recommendation routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -151,6 +165,8 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
+    await waitForEnabledComposer();
+
     await waitFor(() => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat' && typeof (call?.[2] as any)?.body === 'string');
       expect(chatCalls.length).toBeGreaterThan(0);
@@ -161,7 +177,7 @@ describe('BffChat env stress recommendation routing', () => {
           timezone: 'Europe/Athens',
         }),
       );
-    });
+    }, { timeout: READY_TIMEOUT_MS });
   });
 
   it('sends force_route=reco_products when clicking "See full recommendations" in env card', async () => {
@@ -306,13 +322,13 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How is the weather in Paris this week?' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
-    const cta = await screen.findByRole('button', { name: 'See full recommendations' });
+    const cta = await waitForEnabledButton('See full recommendations');
     fireEvent.click(cta);
 
     await waitFor(() => {
@@ -456,7 +472,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
@@ -563,7 +579,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
@@ -727,7 +743,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How stressful is my travel environment?' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
@@ -826,7 +842,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Plan my travel skincare for Paris.' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
