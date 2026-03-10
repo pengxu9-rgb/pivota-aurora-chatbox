@@ -1,52 +1,80 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
-import { bffJson, bffChatStream, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
-import type { SSEResultEvent } from '@/lib/pivotaAgentBff';
-import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
-import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
-import { ChatRichText } from '@/components/chat/ChatRichText';
-import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
-import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
-import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
-import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
-import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
-import { ProductAnalysisCard } from '@/components/chat/cards/ProductAnalysisCard';
-import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
-import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompatibilityFooter';
-import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
-import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
-import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
-import { AuroraLoadingCard, type AuroraLoadingIntent, type ThinkingStep } from '@/components/aurora/cards/AuroraLoadingCard';
-import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
-import { RoutineFitSummaryCard } from '@/components/aurora/cards/RoutineFitSummaryCard';
-import { ConflictHeatmapCard } from '@/components/aurora/cards/ConflictHeatmapCard';
-import { DupeComparisonCard } from '@/components/aurora/cards/DupeComparisonCard';
-import { DupeSuggestCard } from '@/components/aurora/cards/DupeSuggestCard';
-import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
-import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
-import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
-import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
-import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
-import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
-import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
-import { IngredientReportCard, type IngredientReportQuestionSelection } from '@/components/aurora/cards/IngredientReportCard';
-import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
-import { augmentEnvelopeWithIngredientReport } from '@/lib/ingredientReportCard';
-import { humanizeKbNote } from '@/lib/auroraKbHumanize';
-import { resolveAnalysisSummaryLowConfidence } from '@/lib/analysisSummary';
-import { normalizePhotoModulesUiModelV1 } from '@/lib/photoModulesContract';
-import { enrichPhotoModulesPayloadWithSessionPreview } from '@/lib/photoModulesFallback';
-import { looksLikeProductPicksRawText } from '@/lib/productPicks';
-import { extractRoutineProductsFromProfileCurrentRoutine } from '@/lib/routineCompatibility/routineSource';
-import type { CompatibilityProductInput } from '@/lib/routineCompatibility/types';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import type {
+  BffHeaders,
+  Card,
+  RecoBlockType,
+  RecoEmployeeFeedbackType,
+  SuggestedChip,
+  V1Action,
+  V1Envelope,
+} from "@/lib/pivotaAgentBff";
+import {
+  bffJson,
+  bffChatStream,
+  fetchRecoAlternatives,
+  makeDefaultHeaders,
+  PivotaAgentBffError,
+  sendRecoEmployeeFeedback,
+} from "@/lib/pivotaAgentBff";
+import type { SSEResultEvent } from "@/lib/pivotaAgentBff";
+import { AnalysisSummaryCard } from "@/components/chat/cards/AnalysisSummaryCard";
+import { CardRenderBoundary } from "@/components/chat/CardRenderBoundary";
+import { ChatRichText } from "@/components/chat/ChatRichText";
+import { ChatCardsV1Card } from "@/components/chat/cards/ChatCardsV1Card";
+import { DiagnosisCard } from "@/components/chat/cards/DiagnosisCard";
+import { IngredientGoalMatchCard } from "@/components/chat/cards/IngredientGoalMatchCard";
+import { IngredientHubCard } from "@/components/chat/cards/IngredientHubCard";
+import { PhotoUploadCard } from "@/components/chat/cards/PhotoUploadCard";
+import { ProductAnalysisCard } from "@/components/chat/cards/ProductAnalysisCard";
+import { QuickProfileFlow } from "@/components/chat/cards/QuickProfileFlow";
+import { RoutineCompatibilityFooter } from "@/components/chat/cards/RoutineCompatibilityFooter";
+import { ReturnWelcomeCard } from "@/components/chat/cards/ReturnWelcomeCard";
+import { ProductPicksCard } from "@/components/chat/cards/ProductPicksCard";
+import { AuroraAnchorCard } from "@/components/aurora/cards/AuroraAnchorCard";
+import {
+  AuroraLoadingCard,
+  type AuroraLoadingIntent,
+  type ThinkingStep,
+} from "@/components/aurora/cards/AuroraLoadingCard";
+import { AuroraReferencesCard } from "@/components/aurora/cards/AuroraReferencesCard";
+import { RoutineFitSummaryCard } from "@/components/aurora/cards/RoutineFitSummaryCard";
+import { ConflictHeatmapCard } from "@/components/aurora/cards/ConflictHeatmapCard";
+import { DupeComparisonCard } from "@/components/aurora/cards/DupeComparisonCard";
+import { DupeSuggestCard } from "@/components/aurora/cards/DupeSuggestCard";
+import { EnvStressCard } from "@/components/aurora/cards/EnvStressCard";
+import { PhotoModulesCard } from "@/components/aurora/cards/PhotoModulesCard";
+import { AnalysisStoryCard } from "@/components/aurora/cards/AnalysisStoryCard";
+import { IngredientPlanCard } from "@/components/aurora/cards/IngredientPlanCard";
+import { CompatibilityInsightsCard } from "@/components/aurora/cards/CompatibilityInsightsCard";
+import { AuroraRoutineCard } from "@/components/aurora/cards/AuroraRoutineCard";
+import { SkinIdentityCard } from "@/components/aurora/cards/SkinIdentityCard";
+import {
+  IngredientReportCard,
+  type IngredientReportQuestionSelection,
+} from "@/components/aurora/cards/IngredientReportCard";
+import { extractExternalVerificationCitations } from "@/lib/auroraExternalVerification";
+import { augmentEnvelopeWithIngredientReport } from "@/lib/ingredientReportCard";
+import { humanizeKbNote } from "@/lib/auroraKbHumanize";
+import { resolveAnalysisSummaryLowConfidence } from "@/lib/analysisSummary";
+import { normalizePhotoModulesUiModelV1 } from "@/lib/photoModulesContract";
+import { enrichPhotoModulesPayloadWithSessionPreview } from "@/lib/photoModulesFallback";
+import { looksLikeProductPicksRawText } from "@/lib/productPicks";
+import { extractRoutineProductsFromProfileCurrentRoutine } from "@/lib/routineCompatibility/routineSource";
+import type { CompatibilityProductInput } from "@/lib/routineCompatibility/types";
 import {
   inferTextExplicitTransition,
   normalizeAgentState,
   validateRequestedTransition,
   type AgentState,
   type RequestedTransition,
-} from '@/lib/agentStateMachine';
+} from "@/lib/agentStateMachine";
 import {
   emitAgentProfileQuestionAnswered,
   emitAgentStateEntered,
@@ -82,19 +110,34 @@ import {
   emitThreadOp,
   emitMemoryWritten,
   type AnalyticsContext,
-} from '@/lib/auroraAnalytics';
-import { buildChatSession } from '@/lib/chatSession';
-import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
-import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
-import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
-import { t } from '@/lib/i18n';
+} from "@/lib/auroraAnalytics";
+import { buildChatSession } from "@/lib/chatSession";
+import {
+  buildReturnWelcomeSummary,
+  type ReturnWelcomeSummary,
+} from "@/lib/returnWelcomeSummary";
+import {
+  patchGlowSessionProfile,
+  type QuickProfileProfilePatch,
+} from "@/lib/glowSessionProfile";
+import type {
+  DiagnosisResult,
+  FlowState,
+  Language as UiLanguage,
+  Offer,
+  Product,
+  Session,
+  SkinConcern,
+  SkinType,
+} from "@/lib/types";
+import { t } from "@/lib/i18n";
 import {
   AURORA_AUTH_SESSION_CHANGED_EVENT,
   clearAuroraAuthSession,
   loadAuroraAuthSession,
   saveAuroraAuthSession,
-} from '@/lib/auth';
-import type { TravelProductLookupQuery } from '@/lib/auroraEnvStress';
+} from "@/lib/auth";
+import type { TravelProductLookupQuery } from "@/lib/auroraEnvStress";
 import {
   getLangMismatchHintMutedUntil,
   getLangPref,
@@ -104,27 +147,40 @@ import {
   setLangReplyMode,
   type LangPref,
   type LangReplyMode,
-} from '@/lib/persistence';
-import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
-import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
-import { parseChatResponseV1 } from '@/lib/chatCardsParser';
-import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
-import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
-import { toast } from '@/components/ui/use-toast';
+} from "@/lib/persistence";
+import {
+  isPhotoUsableForDiagnosis,
+  normalizePhotoQcStatus,
+} from "@/lib/photoQc";
+import {
+  buildGoogleSearchFallbackUrl,
+  normalizeOutboundFallbackUrl,
+} from "@/lib/externalSearchFallback";
+import { parseChatResponseV1 } from "@/lib/chatCardsParser";
+import type {
+  ChatCardV1,
+  ChatResponseV1,
+  QuickReplyV1,
+} from "@/lib/chatCardsTypes";
+import { adaptChatCardForRichRender } from "@/lib/chatCardsAdapters";
+import { toast } from "@/components/ui/use-toast";
 import {
   buildPdpUrl,
   extractPdpTargetFromProductGroupId,
   extractStablePdpTargetFromProductsResolveResponse,
-} from '@/lib/pivotaShop';
-import { filterRecommendationCardsForState } from '@/lib/recoGate';
-import { pickProductImageUrl } from '@/lib/productImage';
-import { useShop } from '@/contexts/shop';
-import { cn } from '@/lib/utils';
-import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
-import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
-import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
-import { parseCurrentRoutine } from '@/lib/currentRoutineState';
-import { saveAuroraProfileCache } from '@/lib/userProfile';
+} from "@/lib/pivotaShop";
+import { filterRecommendationCardsForState } from "@/lib/recoGate";
+import { pickProductImageUrl } from "@/lib/productImage";
+import { useShop } from "@/contexts/shop";
+import { cn } from "@/lib/utils";
+import { AuroraSidebar } from "@/components/mobile/AuroraSidebar";
+import { loadChatHistory, type ChatHistoryItem } from "@/lib/chatHistory";
+import {
+  normalizeProfileFromBootstrap,
+  buildProfileUpdatePatch,
+} from "@/lib/auroraProfile";
+import { parseCurrentRoutine } from "@/lib/currentRoutineState";
+import { saveAuroraProfileCache } from "@/lib/userProfile";
 import {
   Activity,
   ArrowRight,
@@ -148,23 +204,34 @@ import {
   User,
   Wallet,
   X,
-} from 'lucide-react';
+} from "lucide-react";
 
 type ChatItem =
-  | { id: string; role: 'user' | 'assistant'; kind: 'text'; content: string }
-  | { id: string; role: 'assistant'; kind: 'cards'; cards: Card[]; meta?: Pick<V1Envelope, 'request_id' | 'trace_id' | 'events'> }
-  | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
-  | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: ReturnWelcomeSummary | null };
+  | { id: string; role: "user" | "assistant"; kind: "text"; content: string }
+  | {
+      id: string;
+      role: "assistant";
+      kind: "cards";
+      cards: Card[];
+      meta?: Pick<V1Envelope, "request_id" | "trace_id" | "events">;
+    }
+  | { id: string; role: "assistant"; kind: "chips"; chips: SuggestedChip[] }
+  | {
+      id: string;
+      role: "assistant";
+      kind: "return_welcome";
+      summary: ReturnWelcomeSummary | null;
+    };
 
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
   block: RecoBlockType;
   rank: number;
-  intent: 'replace' | 'pair';
+  intent: "replace" | "pair";
 };
 
 type ProductAlternativeTrack = {
-  key: 'replace' | 'pair';
+  key: "replace" | "pair";
   title: string;
   subtitle: string;
   items: ProductAlternativeTrackItem[];
@@ -178,9 +245,9 @@ export type RoutineDraft = {
 };
 
 export const makeEmptyRoutineDraft = (): RoutineDraft => ({
-  am: { cleanser: '', treatment: '', moisturizer: '', spf: '' },
-  pm: { cleanser: '', treatment: '', moisturizer: '' },
-  notes: '',
+  am: { cleanser: "", treatment: "", moisturizer: "", spf: "" },
+  pm: { cleanser: "", treatment: "", moisturizer: "" },
+  notes: "",
 });
 
 export const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
@@ -194,53 +261,86 @@ export const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
     draft.pm.moisturizer,
     draft.notes,
   ];
-  return values.some((v) => Boolean(String(v || '').trim()));
+  return values.some((v) => Boolean(String(v || "").trim()));
 };
 
-const normalizeRoutineDraftStep = (value: unknown): keyof RoutineDraft['am'] | null => {
-  const token = String(value || '').trim().toLowerCase();
+const normalizeRoutineDraftStep = (
+  value: unknown,
+): keyof RoutineDraft["am"] | null => {
+  const token = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!token) return null;
-  if (token.includes('cleanser') || token.includes('wash') || token.includes('clean')) return 'cleanser';
-  if (token.includes('spf') || token.includes('sunscreen') || token.includes('sun')) return 'spf';
-  if (token.includes('moistur') || token.includes('cream') || token.includes('lotion')) return 'moisturizer';
-  if (token.includes('treatment') || token.includes('serum') || token.includes('toner') || token.includes('essence') || token.includes('active')) return 'treatment';
+  if (
+    token.includes("cleanser") ||
+    token.includes("wash") ||
+    token.includes("clean")
+  )
+    return "cleanser";
+  if (
+    token.includes("spf") ||
+    token.includes("sunscreen") ||
+    token.includes("sun")
+  )
+    return "spf";
+  if (
+    token.includes("moistur") ||
+    token.includes("cream") ||
+    token.includes("lotion")
+  )
+    return "moisturizer";
+  if (
+    token.includes("treatment") ||
+    token.includes("serum") ||
+    token.includes("toner") ||
+    token.includes("essence") ||
+    token.includes("active")
+  )
+    return "treatment";
   return null;
 };
 
-export const buildRoutineDraftFromProfile = (value: unknown): RoutineDraft | null => {
+export const buildRoutineDraftFromProfile = (
+  value: unknown,
+): RoutineDraft | null => {
   const parsed = parseCurrentRoutine(value);
   if (!parsed) return null;
 
   const draft = makeEmptyRoutineDraft();
   for (const row of parsed.am) {
     const slot = normalizeRoutineDraftStep(row?.step);
-    const product = String(row?.product || '').trim();
+    const product = String(row?.product || "").trim();
     if (!slot || !product) continue;
     draft.am[slot] = product;
   }
   for (const row of parsed.pm) {
     const slot = normalizeRoutineDraftStep(row?.step);
-    const product = String(row?.product || '').trim();
-    if (!slot || !product || slot === 'spf') continue;
+    const product = String(row?.product || "").trim();
+    if (!slot || !product || slot === "spf") continue;
     draft.pm[slot] = product;
   }
-  draft.notes = String(parsed.notes || '').trim();
+  draft.notes = String(parsed.notes || "").trim();
 
   return hasAnyRoutineDraftInput(draft) ? draft : null;
 };
 
 const hasAnyRoutineAmInput = (draft: RoutineDraft): boolean => {
-  const values = [draft.am.cleanser, draft.am.treatment, draft.am.moisturizer, draft.am.spf];
-  return values.some((v) => Boolean(String(v || '').trim()));
+  const values = [
+    draft.am.cleanser,
+    draft.am.treatment,
+    draft.am.moisturizer,
+    draft.am.spf,
+  ];
+  return values.some((v) => Boolean(String(v || "").trim()));
 };
 
 const copyRoutineAmToPm = (draft: RoutineDraft): RoutineDraft => ({
   ...draft,
   pm: {
     ...draft.pm,
-    cleanser: String(draft.am.cleanser || ''),
-    treatment: String(draft.am.treatment || ''),
-    moisturizer: String(draft.am.moisturizer || ''),
+    cleanser: String(draft.am.cleanser || ""),
+    treatment: String(draft.am.treatment || ""),
+    moisturizer: String(draft.am.moisturizer || ""),
   },
 });
 
@@ -248,59 +348,66 @@ const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
   const am: Array<{ step: string; product: string }> = [];
   const pm: Array<{ step: string; product: string }> = [];
 
-  const pushStep = (list: Array<{ step: string; product: string }>, step: string, value: string) => {
-    const v = String(value || '').trim();
+  const pushStep = (
+    list: Array<{ step: string; product: string }>,
+    step: string,
+    value: string,
+  ) => {
+    const v = String(value || "").trim();
     if (!v) return;
     list.push({ step, product: v.slice(0, 500) });
   };
 
-  pushStep(am, 'cleanser', draft.am.cleanser);
-  pushStep(am, 'treatment', draft.am.treatment);
-  pushStep(am, 'moisturizer', draft.am.moisturizer);
-  pushStep(am, 'spf', draft.am.spf);
+  pushStep(am, "cleanser", draft.am.cleanser);
+  pushStep(am, "treatment", draft.am.treatment);
+  pushStep(am, "moisturizer", draft.am.moisturizer);
+  pushStep(am, "spf", draft.am.spf);
 
-  pushStep(pm, 'cleanser', draft.pm.cleanser);
-  pushStep(pm, 'treatment', draft.pm.treatment);
-  pushStep(pm, 'moisturizer', draft.pm.moisturizer);
+  pushStep(pm, "cleanser", draft.pm.cleanser);
+  pushStep(pm, "treatment", draft.pm.treatment);
+  pushStep(pm, "moisturizer", draft.pm.moisturizer);
 
-  const notes = String(draft.notes || '').trim();
+  const notes = String(draft.notes || "").trim();
 
   return {
-    schema_version: 'aurora.routine_intake.v1',
+    schema_version: "aurora.routine_intake.v1",
     am,
     pm,
     ...(notes ? { notes: notes.slice(0, 1200) } : {}),
   } as const;
 };
 
-const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) => {
+const routineDraftToDisplayText = (
+  draft: RoutineDraft,
+  language: UiLanguage,
+) => {
   const lines: string[] = [];
 
   const add = (label: string, value: string) => {
-    const v = String(value || '').trim();
+    const v = String(value || "").trim();
     if (!v) return;
     lines.push(`${label}: ${v}`);
   };
 
-  lines.push('AM');
-  add('Cleanser', draft.am.cleanser);
-  add('Treatment', draft.am.treatment);
-  add('Moisturizer', draft.am.moisturizer);
-  add('SPF', draft.am.spf);
+  lines.push("AM");
+  add("Cleanser", draft.am.cleanser);
+  add("Treatment", draft.am.treatment);
+  add("Moisturizer", draft.am.moisturizer);
+  add("SPF", draft.am.spf);
 
-  lines.push('');
-  lines.push('PM');
-  add('Cleanser', draft.pm.cleanser);
-  add('Treatment', draft.pm.treatment);
-  add('Moisturizer', draft.pm.moisturizer);
+  lines.push("");
+  lines.push("PM");
+  add("Cleanser", draft.pm.cleanser);
+  add("Treatment", draft.pm.treatment);
+  add("Moisturizer", draft.pm.moisturizer);
 
-  const notes = String(draft.notes || '').trim();
+  const notes = String(draft.notes || "").trim();
   if (notes) {
-    lines.push('');
-    lines.push(language === 'CN' ? `备注: ${notes}` : `Notes: ${notes}`);
+    lines.push("");
+    lines.push(language === "CN" ? `备注: ${notes}` : `Notes: ${notes}`);
   }
 
-  return lines.join('\n').trim();
+  return lines.join("\n").trim();
 };
 
 const nextId = (() => {
@@ -320,60 +427,91 @@ const toBffErrorMessage = (err: unknown): string => {
   if (err instanceof PivotaAgentBffError) {
     const body = err.responseBody as any;
     const msg = body?.assistant_message?.content;
-    const msgV1 = typeof body?.assistant_text === 'string' ? body.assistant_text : '';
-    if (typeof msg === 'string' && msg.trim()) return msg.trim();
-    if (typeof msgV1 === 'string' && msgV1.trim()) return msgV1.trim();
+    const msgV1 =
+      typeof body?.assistant_text === "string" ? body.assistant_text : "";
+    if (typeof msg === "string" && msg.trim()) return msg.trim();
+    if (typeof msgV1 === "string" && msgV1.trim()) return msgV1.trim();
     return err.message;
   }
   return err instanceof Error ? err.message : String(err);
 };
 
-type QuickProfileStep = 'skin_feel' | 'goal_primary' | 'sensitivity_flag' | 'opt_in_more' | 'routine_complexity' | 'rx_flag';
-
-const FF_RETURN_WELCOME = (() => {
-  const raw = String(import.meta.env.VITE_FF_RETURN_WELCOME ?? 'true')
-    .trim()
-    .toLowerCase();
-  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
-})();
-
-const FF_PHOTO_MODULES_CARD = (() => {
-  const raw = String(import.meta.env.VITE_DIAG_PHOTO_MODULES_CARD ?? 'true')
-    .trim()
-    .toLowerCase();
-  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
-})();
-
-const FF_SHOW_PASSIVE_GATES = (() => {
-  const raw = String(import.meta.env.VITE_SHOW_PASSIVE_GATES ?? 'false')
-    .trim()
-    .toLowerCase();
-  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
-})();
-
-const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
-
-const getInitialLanguage = (): UiLanguage => (getLangPref() === 'cn' ? 'CN' : 'EN');
-const LANGUAGE_MISMATCH_HINT_SNOOZE_MS = 6 * 60 * 60 * 1000;
-
-const parseUiLanguageToken = (raw: unknown): UiLanguage | null => {
-  const token = String(raw || '').trim().toUpperCase();
-  if (token === 'CN' || token === 'EN') return token;
+const parseMaybeUrl = (text: string): string | null => {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  try {
+    const u = new URL(t);
+    if (u.protocol === "http:" || u.protocol === "https:") return u.toString();
+  } catch {
+    // ignore
+  }
   return null;
 };
 
-const resolveIntroHintForLanguage = (introHint: ChatResponseV1['intro_hint'], language: UiLanguage): string => {
-  if (typeof introHint === 'string') return introHint.trim();
-  if (!introHint || typeof introHint !== 'object') return '';
+type QuickProfileStep =
+  | "skin_feel"
+  | "goal_primary"
+  | "sensitivity_flag"
+  | "opt_in_more"
+  | "routine_complexity"
+  | "rx_flag";
 
-  const preferred = language === 'CN' ? asString(introHint.zh) : asString(introHint.en);
-  const fallback = language === 'CN' ? asString(introHint.en) : asString(introHint.zh);
+const FF_RETURN_WELCOME = (() => {
+  const raw = String(import.meta.env.VITE_FF_RETURN_WELCOME ?? "true")
+    .trim()
+    .toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+})();
+
+const FF_PHOTO_MODULES_CARD = (() => {
+  const raw = String(import.meta.env.VITE_DIAG_PHOTO_MODULES_CARD ?? "true")
+    .trim()
+    .toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+})();
+
+const FF_SHOW_PASSIVE_GATES = (() => {
+  const raw = String(import.meta.env.VITE_SHOW_PASSIVE_GATES ?? "false")
+    .trim()
+    .toLowerCase();
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
+})();
+
+const toLangPref = (language: UiLanguage): LangPref =>
+  language === "CN" ? "cn" : "en";
+
+const getInitialLanguage = (): UiLanguage =>
+  getLangPref() === "cn" ? "CN" : "EN";
+const LANGUAGE_MISMATCH_HINT_SNOOZE_MS = 6 * 60 * 60 * 1000;
+
+const parseUiLanguageToken = (raw: unknown): UiLanguage | null => {
+  const token = String(raw || "")
+    .trim()
+    .toUpperCase();
+  if (token === "CN" || token === "EN") return token;
+  return null;
+};
+
+const resolveIntroHintForLanguage = (
+  introHint: ChatResponseV1["intro_hint"],
+  language: UiLanguage,
+): string => {
+  if (typeof introHint === "string") return introHint.trim();
+  if (!introHint || typeof introHint !== "object") return "";
+
+  const preferred =
+    language === "CN" ? asString(introHint.zh) : asString(introHint.en);
+  const fallback =
+    language === "CN" ? asString(introHint.en) : asString(introHint.zh);
   return preferred || fallback;
 };
 
-const toUiLanguageName = (lang: UiLanguage, copyLanguage: UiLanguage): string => {
-  if (copyLanguage === 'CN') return lang === 'CN' ? '中文' : '英文';
-  return lang === 'CN' ? 'Chinese' : 'English';
+const toUiLanguageName = (
+  lang: UiLanguage,
+  copyLanguage: UiLanguage,
+): string => {
+  if (copyLanguage === "CN") return lang === "CN" ? "中文" : "英文";
+  return lang === "CN" ? "Chinese" : "English";
 };
 
 const buildLanguageMismatchStrategyChips = ({
@@ -390,205 +528,246 @@ const buildLanguageMismatchStrategyChips = ({
   telemetryMatchingLanguage: UiLanguage;
 }): SuggestedChip[] => {
   const keepLabel =
-    copyLanguage === 'CN'
-      ? `继续${toUiLanguageName(currentUiLanguage, 'CN')}回复`
-      : `Keep ${toUiLanguageName(currentUiLanguage, 'EN')} replies`;
+    copyLanguage === "CN"
+      ? `继续${toUiLanguageName(currentUiLanguage, "CN")}回复`
+      : `Keep ${toUiLanguageName(currentUiLanguage, "EN")} replies`;
   const switchLabel =
-    copyLanguage === 'CN'
-      ? `切换为${toUiLanguageName(targetUiLanguage, 'CN')}回复`
-      : `Switch to ${toUiLanguageName(targetUiLanguage, 'EN')} replies`;
-  const autoLabel = copyLanguage === 'CN' ? '自动跟随我的输入语言' : 'Auto-follow my input language';
+    copyLanguage === "CN"
+      ? `切换为${toUiLanguageName(targetUiLanguage, "CN")}回复`
+      : `Switch to ${toUiLanguageName(targetUiLanguage, "EN")} replies`;
+  const autoLabel =
+    copyLanguage === "CN"
+      ? "自动跟随我的输入语言"
+      : "Auto-follow my input language";
   const sharedData = {
-    trigger_source: 'language_mismatch',
+    trigger_source: "language_mismatch",
     target_ui_lang: targetUiLanguage,
     ui_language: telemetryUiLanguage,
     matching_language: telemetryMatchingLanguage,
   };
   return [
-    { chip_id: 'chip.lang.keep_ui', label: keepLabel, kind: 'quick_reply', data: sharedData },
-    { chip_id: 'chip.lang.switch_ui', label: switchLabel, kind: 'quick_reply', data: sharedData },
-    { chip_id: 'chip.lang.auto_follow', label: autoLabel, kind: 'quick_reply', data: sharedData },
+    {
+      chip_id: "chip.lang.keep_ui",
+      label: keepLabel,
+      kind: "quick_reply",
+      data: sharedData,
+    },
+    {
+      chip_id: "chip.lang.switch_ui",
+      label: switchLabel,
+      kind: "quick_reply",
+      data: sharedData,
+    },
+    {
+      chip_id: "chip.lang.auto_follow",
+      label: autoLabel,
+      kind: "quick_reply",
+      data: sharedData,
+    },
   ];
 };
 
 const buildReturnWelcomeChips = (language: UiLanguage): SuggestedChip[] => {
-  const isCN = language === 'CN';
+  const isCN = language === "CN";
   return [
     {
-      chip_id: 'chip_keep_chatting',
-      label: isCN ? '继续同一套' : 'Continue as-is',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_keep_chatting",
+      label: isCN ? "继续同一套" : "Continue as-is",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_update_products',
-      label: isCN ? '我换/加了产品' : 'I added/changed products',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_update_products",
+      label: isCN ? "我换/加了产品" : "I added/changed products",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_checkin_now',
-      label: isCN ? '两周复盘' : '2-week check-in',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_checkin_now",
+      label: isCN ? "两周复盘" : "2-week check-in",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_eval_single_product',
-      label: isCN ? '评估单品/链接' : 'Check a product/link',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_eval_single_product",
+      label: isCN ? "评估单品/链接" : "Check a product/link",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_get_recos',
-      label: isCN ? '获取产品推荐' : 'Get product recommendations',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_get_recos",
+      label: isCN ? "获取产品推荐" : "Get product recommendations",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_start_diagnosis',
-      label: isCN ? '开始皮肤诊断' : 'Start skin diagnosis',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_start_diagnosis",
+      label: isCN ? "开始皮肤诊断" : "Start skin diagnosis",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
   ];
 };
 
 const buildQuickProfileExitChips = (language: UiLanguage): SuggestedChip[] => {
-  const isCN = language === 'CN';
+  const isCN = language === "CN";
   return [
     {
-      chip_id: 'chip_eval_routine',
-      label: isCN ? '评估现有产品/流程' : 'Review my current routine',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_eval_routine",
+      label: isCN ? "评估现有产品/流程" : "Review my current routine",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_eval_single_product',
-      label: isCN ? '评估单品/链接' : 'Check a product/link',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_eval_single_product",
+      label: isCN ? "评估单品/链接" : "Check a product/link",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_start_diagnosis',
-      label: isCN ? '开始皮肤诊断' : 'Start skin diagnosis',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_start_diagnosis",
+      label: isCN ? "开始皮肤诊断" : "Start skin diagnosis",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
     {
-      chip_id: 'chip_keep_chatting',
-      label: isCN ? '继续聊天' : 'Keep chatting',
-      kind: 'quick_reply',
-      data: { trigger_source: 'chip' },
+      chip_id: "chip_keep_chatting",
+      label: isCN ? "继续聊天" : "Keep chatting",
+      kind: "quick_reply",
+      data: { trigger_source: "chip" },
     },
   ];
 };
 
 const buildQuickProfileBindChip = (language: UiLanguage): SuggestedChip => {
-  const isCN = language === 'CN';
+  const isCN = language === "CN";
   return {
-    chip_id: 'chip_login_sync_profile',
-    label: isCN ? '登录并绑定资料' : 'Sign in to sync profile',
-    kind: 'quick_reply',
-    data: { trigger_source: 'chip' },
+    chip_id: "chip_login_sync_profile",
+    label: isCN ? "登录并绑定资料" : "Sign in to sync profile",
+    kind: "quick_reply",
+    data: { trigger_source: "chip" },
   };
 };
 
-const buildQuickProfileAdvice = (language: UiLanguage, profile: QuickProfileProfilePatch): string => {
-  const isCN = language === 'CN';
+const buildQuickProfileAdvice = (
+  language: UiLanguage,
+  profile: QuickProfileProfilePatch,
+): string => {
+  const isCN = language === "CN";
   const goal = profile.goal_primary;
   const sens = profile.sensitivity_flag;
   const routine = profile.routine_complexity;
   const rx = profile.rx_flag;
 
   const lines: string[] = [];
-  lines.push(isCN ? '小建议（基于你刚刚的选择，可能不完整）：' : 'Quick tip (based on what you shared — may be incomplete):');
+  lines.push(
+    isCN
+      ? "小建议（基于你刚刚的选择，可能不完整）："
+      : "Quick tip (based on what you shared — may be incomplete):",
+  );
 
-  if (goal === 'breakouts') {
+  if (goal === "breakouts") {
     lines.push(
       isCN
-        ? '• 先做减法 7 天：温和洁面 + 保湿；早上坚持 SPF。'
-        : '• Simplify for 7 days: gentle cleanser + moisturizer; always SPF in the morning.',
+        ? "• 先做减法 7 天：温和洁面 + 保湿；早上坚持 SPF。"
+        : "• Simplify for 7 days: gentle cleanser + moisturizer; always SPF in the morning.",
     );
     lines.push(
       isCN
-        ? '• 想加一个控痘单品：从低频开始（每周 2–3 次），一次只加一个。'
-        : '• If adding an acne active, start low frequency (2–3x/week) and introduce one at a time.',
+        ? "• 想加一个控痘单品：从低频开始（每周 2–3 次），一次只加一个。"
+        : "• If adding an acne active, start low frequency (2–3x/week) and introduce one at a time.",
     );
-  } else if (goal === 'brightening') {
+  } else if (goal === "brightening") {
     lines.push(
       isCN
-        ? '• 提亮优先：早上维C/烟酰胺择一，晚上主打保湿修护；早上 SPF 是“提亮加速器”。'
-        : '• For brightening: pick one (vitamin C or niacinamide) in the AM, keep PM soothing; SPF is non-negotiable.',
+        ? "• 提亮优先：早上维C/烟酰胺择一，晚上主打保湿修护；早上 SPF 是“提亮加速器”。"
+        : "• For brightening: pick one (vitamin C or niacinamide) in the AM, keep PM soothing; SPF is non-negotiable.",
     );
-  } else if (goal === 'antiaging') {
+  } else if (goal === "antiaging") {
     lines.push(
       isCN
-        ? '• 抗老优先：先把“保湿 + SPF”打稳，再考虑晚间低频引入维A类。'
-        : '• For anti-aging: lock in moisturizer + SPF first, then consider a low-frequency retinoid at night.',
+        ? "• 抗老优先：先把“保湿 + SPF”打稳，再考虑晚间低频引入维A类。"
+        : "• For anti-aging: lock in moisturizer + SPF first, then consider a low-frequency retinoid at night.",
     );
-  } else if (goal === 'barrier') {
+  } else if (goal === "barrier") {
     lines.push(
       isCN
-        ? '• 修护屏障：先停/减刺激（酸、去角质、强清洁），用“温和洁面 + 神经酰胺/修护型保湿”。'
-        : '• For barrier repair: pause irritants (acids/exfoliation/harsh cleansing) and focus on a gentle cleanser + ceramide moisturizer.',
+        ? "• 修护屏障：先停/减刺激（酸、去角质、强清洁），用“温和洁面 + 神经酰胺/修护型保湿”。"
+        : "• For barrier repair: pause irritants (acids/exfoliation/harsh cleansing) and focus on a gentle cleanser + ceramide moisturizer.",
     );
-  } else if (goal === 'spf') {
+  } else if (goal === "spf") {
     lines.push(
-      isCN ? '• 防晒优先：每天足量、可复涂的广谱 SPF，比“多叠活性”更有效。' : '• SPF-first: daily broad-spectrum sunscreen beats stacking actives.',
+      isCN
+        ? "• 防晒优先：每天足量、可复涂的广谱 SPF，比“多叠活性”更有效。"
+        : "• SPF-first: daily broad-spectrum sunscreen beats stacking actives.",
     );
   } else {
     lines.push(
-      isCN ? '• 我们可以先从“温和洁面 + 保湿 + SPF”开始，再按你的目标加一件最关键的东西。' : '• We can start with cleanser + moisturizer + SPF, then add one key item based on your goal.',
+      isCN
+        ? "• 我们可以先从“温和洁面 + 保湿 + SPF”开始，再按你的目标加一件最关键的东西。"
+        : "• We can start with cleanser + moisturizer + SPF, then add one key item based on your goal.",
     );
   }
 
-  if (routine === '6+') {
-    lines.push(isCN ? '• 你步骤较多：建议先把步骤压到 3–5 步，更容易判断“到底哪一步有效/刺激”。' : '• If you use 6+ steps: consider trimming to 3–5 to see what actually helps (or irritates).');
+  if (routine === "6+") {
+    lines.push(
+      isCN
+        ? "• 你步骤较多：建议先把步骤压到 3–5 步，更容易判断“到底哪一步有效/刺激”。"
+        : "• If you use 6+ steps: consider trimming to 3–5 to see what actually helps (or irritates).",
+    );
   }
-  if (sens === 'yes' || sens === 'unsure') {
-    lines.push(isCN ? '• 偏敏感：一次只加一个新东西，先做局部测试（patch test）。' : '• If sensitive: add one new thing at a time and patch test first.');
+  if (sens === "yes" || sens === "unsure") {
+    lines.push(
+      isCN
+        ? "• 偏敏感：一次只加一个新东西，先做局部测试（patch test）。"
+        : "• If sensitive: add one new thing at a time and patch test first.",
+    );
   }
-  if (rx === 'yes') {
-    lines.push(isCN ? '• 在用处方/维A：避免叠加太多酸类/刺激成分；如有不适以医生建议为准。' : '• If on prescription/retinoids: avoid stacking multiple strong actives; follow your clinician if irritation happens.');
+  if (rx === "yes") {
+    lines.push(
+      isCN
+        ? "• 在用处方/维A：避免叠加太多酸类/刺激成分；如有不适以医生建议为准。"
+        : "• If on prescription/retinoids: avoid stacking multiple strong actives; follow your clinician if irritation happens.",
+    );
   }
 
-  lines.push(isCN ? '下一步你想先做什么？' : 'What would you like to do next?');
-  return lines.join('\n');
+  lines.push(isCN ? "下一步你想先做什么？" : "What would you like to do next?");
+  return lines.join("\n");
 };
 
 const nextAgentStateForChip = (chipId: string): AgentState | null => {
-  const id = String(chipId || '').trim();
+  const id = String(chipId || "").trim();
   if (!id) return null;
 
   switch (id) {
-    case 'chip_keep_chatting':
-      return 'IDLE_CHAT';
-    case 'chip_quick_profile':
-      return 'QUICK_PROFILE';
-    case 'chip_update_products':
-      return 'ROUTINE_INTAKE';
-    case 'chip_eval_routine':
-      return 'ROUTINE_INTAKE';
-    case 'chip_checkin_now':
-      return 'CHECKIN_FLOW';
-    case 'chip_eval_single_product':
-      return 'PRODUCT_LINK_EVAL';
-    case 'chip_get_recos':
-      return 'RECO_GATE';
-    case 'chip_start_diagnosis':
-      return 'DIAG_PROFILE';
+    case "chip_keep_chatting":
+      return "IDLE_CHAT";
+    case "chip_quick_profile":
+      return "QUICK_PROFILE";
+    case "chip_update_products":
+      return "ROUTINE_INTAKE";
+    case "chip_eval_routine":
+      return "ROUTINE_INTAKE";
+    case "chip_checkin_now":
+      return "CHECKIN_FLOW";
+    case "chip_eval_single_product":
+      return "PRODUCT_LINK_EVAL";
+    case "chip_get_recos":
+      return "RECO_GATE";
+    case "chip_start_diagnosis":
+      return "DIAG_PROFILE";
 
     // Back-compat chip ids used by the current bff flow
-    case 'chip.start.diagnosis':
-      return 'DIAG_PROFILE';
-    case 'chip.start.evaluate':
-      return 'PRODUCT_LINK_EVAL';
-    case 'chip.start.routine':
-      return 'RECO_GATE';
-    case 'chip.start.reco_products':
-      return 'RECO_GATE';
-    case 'chip.action.reco_routine':
-      return 'RECO_GATE';
+    case "chip.start.diagnosis":
+      return "DIAG_PROFILE";
+    case "chip.start.evaluate":
+      return "PRODUCT_LINK_EVAL";
+    case "chip.start.routine":
+      return "RECO_GATE";
+    case "chip.start.reco_products":
+      return "RECO_GATE";
+    case "chip.action.reco_routine":
+      return "RECO_GATE";
     default:
       return null;
   }
@@ -597,23 +776,26 @@ const nextAgentStateForChip = (chipId: string): AgentState | null => {
 type IconType = React.ComponentType<{ className?: string }>;
 
 const iconForChip = (chipId: string): IconType => {
-  const id = String(chipId || '').toLowerCase();
-  if (id.startsWith('profile.')) return User;
-  if (id.startsWith('chip.budget.')) return Wallet;
-  if (id.includes('diagnosis')) return Activity;
-  if (id.includes('reco_products')) return Sparkles;
-  if (id.includes('routine')) return Sparkles;
-  if (id.includes('evaluate') || id.includes('analyze')) return Search;
-  if (id.includes('dupe')) return Copy;
-  if (id.includes('ingredient')) return FlaskConical;
-  if (id.startsWith('chip.clarify.')) return HelpCircle;
-  if (id.startsWith('chip.aurora.next_action.')) return ArrowRight;
+  const id = String(chipId || "").toLowerCase();
+  if (id.startsWith("profile.")) return User;
+  if (id.startsWith("chip.budget.")) return Wallet;
+  if (id.includes("diagnosis")) return Activity;
+  if (id.includes("reco_products")) return Sparkles;
+  if (id.includes("routine")) return Sparkles;
+  if (id.includes("evaluate") || id.includes("analyze")) return Search;
+  if (id.includes("dupe")) return Copy;
+  if (id.includes("ingredient")) return FlaskConical;
+  if (id.startsWith("chip.clarify.")) return HelpCircle;
+  if (id.startsWith("chip.aurora.next_action.")) return ArrowRight;
   return ArrowRight;
 };
 
-type ChipVisualRole = 'primary' | 'skip' | 'default';
+type ChipVisualRole = "primary" | "skip" | "default";
 
-const normalizeChipToken = (input: unknown): string => String(input || '').trim().toLowerCase();
+const normalizeChipToken = (input: unknown): string =>
+  String(input || "")
+    .trim()
+    .toLowerCase();
 
 const includesAnyToken = (value: string, tokens: readonly string[]): boolean =>
   tokens.some((token) => value.includes(token));
@@ -623,29 +805,32 @@ const isSkipLikeChip = (chip: SuggestedChip): boolean => {
   const label = normalizeChipToken(chip.label);
 
   const idSkipTokens = [
-    'skip',
-    'not_now',
-    'not-now',
-    'later',
-    'without_photo',
-    'without_photos',
-    'continue_without',
-    'baseline_only',
+    "skip",
+    "not_now",
+    "not-now",
+    "later",
+    "without_photo",
+    "without_photos",
+    "continue_without",
+    "baseline_only",
   ] as const;
   const labelSkipTokens = [
-    'skip',
-    'not now',
-    'later',
-    'continue without',
-    'baseline only',
-    '跳过',
-    '稍后',
-    '先不了',
-    '不上传',
-    '仅基线',
+    "skip",
+    "not now",
+    "later",
+    "continue without",
+    "baseline only",
+    "跳过",
+    "稍后",
+    "先不了",
+    "不上传",
+    "仅基线",
   ] as const;
 
-  return includesAnyToken(id, idSkipTokens) || includesAnyToken(label, labelSkipTokens);
+  return (
+    includesAnyToken(id, idSkipTokens) ||
+    includesAnyToken(label, labelSkipTokens)
+  );
 };
 
 const primaryChipScore = (chip: SuggestedChip): number => {
@@ -656,19 +841,32 @@ const primaryChipScore = (chip: SuggestedChip): number => {
   let score = 0;
 
   const strongIdTokens = [
-    'reco',
-    'recommend',
-    'analysis_continue',
-    'start_diagnosis',
-    'start.diagnosis',
-    'upload_photos',
-    'complete_profile',
-    'login_sync_profile',
-    'quick_profile',
+    "reco",
+    "recommend",
+    "analysis_continue",
+    "start_diagnosis",
+    "start.diagnosis",
+    "upload_photos",
+    "complete_profile",
+    "login_sync_profile",
+    "quick_profile",
   ] as const;
-  const strongLabelTokens = ['continue', 'start', 'analyze', 'recommend', 'save', 'complete', '继续', '开始', '分析', '推荐', '保存', '完成'] as const;
+  const strongLabelTokens = [
+    "continue",
+    "start",
+    "analyze",
+    "recommend",
+    "save",
+    "complete",
+    "继续",
+    "开始",
+    "分析",
+    "推荐",
+    "保存",
+    "完成",
+  ] as const;
 
-  if (id.startsWith('chip.start.')) score += 1;
+  if (id.startsWith("chip.start.")) score += 1;
   if (includesAnyToken(id, strongIdTokens)) score += 3;
   if (includesAnyToken(label, strongLabelTokens)) score += 2;
 
@@ -688,95 +886,139 @@ const getChipVisualRoles = (chips: SuggestedChip[]): ChipVisualRole[] => {
   }
 
   return chips.map((chip, index) => {
-    if (isSkipLikeChip(chip)) return 'skip';
-    if (index === primaryIndex) return 'primary';
-    return 'default';
+    if (isSkipLikeChip(chip)) return "skip";
+    if (index === primaryIndex) return "primary";
+    return "default";
   });
 };
 
 const CHAT_CARDS_V1_TYPES = new Set([
-  'product_verdict',
-  'compatibility',
-  'routine',
-  'triage',
-  'skin_status',
-  'effect_review',
-  'travel',
-  'nudge',
+  "product_verdict",
+  "compatibility",
+  "routine",
+  "triage",
+  "skin_status",
+  "effect_review",
+  "travel",
+  "nudge",
 ]);
 
 const iconForCard = (type: string): IconType => {
-  const t = String(type || '').toLowerCase();
-  if (t === 'product_verdict') return Search;
-  if (t === 'compatibility') return ListChecks;
-  if (t === 'routine') return Sparkles;
-  if (t === 'triage') return AlertTriangle;
-  if (t === 'skin_status') return Activity;
-  if (t === 'effect_review') return RefreshCw;
-  if (t === 'travel') return Globe;
-  if (t === 'nudge') return Sparkles;
-  if (t === 'diagnosis_gate') return Activity;
-  if (t === 'budget_gate') return Wallet;
-  if (t === 'ingredient_hub') return FlaskConical;
-  if (t === 'ingredient_goal_match') return FlaskConical;
-  if (t === 'ingredient_plan') return FlaskConical;
-  if (t === 'ingredient_plan_v2') return FlaskConical;
-  if (t === 'analysis_story_v2') return ListChecks;
-  if (t === 'routine_prompt') return Sparkles;
-  if (t === 'confidence_notice') return AlertTriangle;
-  if (t === 'recommendations') return Sparkles;
-  if (t === 'profile') return User;
-  if (t.includes('photo')) return Camera;
-  if (t.includes('product')) return Search;
-  if (t.includes('dupe')) return Copy;
-  if (t.includes('routine')) return Sparkles;
-  if (t.includes('offer') || t.includes('checkout')) return Wallet;
-  if (t.includes('structured')) return Beaker;
+  const t = String(type || "").toLowerCase();
+  if (t === "product_verdict") return Search;
+  if (t === "compatibility") return ListChecks;
+  if (t === "routine") return Sparkles;
+  if (t === "triage") return AlertTriangle;
+  if (t === "skin_status") return Activity;
+  if (t === "effect_review") return RefreshCw;
+  if (t === "travel") return Globe;
+  if (t === "nudge") return Sparkles;
+  if (t === "diagnosis_gate") return Activity;
+  if (t === "budget_gate") return Wallet;
+  if (t === "ingredient_hub") return FlaskConical;
+  if (t === "ingredient_goal_match") return FlaskConical;
+  if (t === "ingredient_plan") return FlaskConical;
+  if (t === "ingredient_plan_v2") return FlaskConical;
+  if (t === "analysis_story_v2") return ListChecks;
+  if (t === "routine_prompt") return Sparkles;
+  if (t === "confidence_notice") return AlertTriangle;
+  if (t === "recommendations") return Sparkles;
+  if (t === "profile") return User;
+  if (t.includes("photo")) return Camera;
+  if (t.includes("product")) return Search;
+  if (t.includes("dupe")) return Copy;
+  if (t.includes("routine")) return Sparkles;
+  if (t.includes("offer") || t.includes("checkout")) return Wallet;
+  if (t.includes("structured")) return Beaker;
   return Beaker;
 };
 
-const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
-  const t = String(type || '');
+const titleForCard = (type: string, language: "EN" | "CN"): string => {
+  const t = String(type || "");
   const key = t.toLowerCase();
-  if (key === 'product_verdict') return language === 'CN' ? '产品决策结论' : 'Product verdict';
-  if (key === 'compatibility') return language === 'CN' ? '搭配与冲突建议' : 'Compatibility';
-  if (key === 'routine') return language === 'CN' ? 'AM/PM 护肤流程' : 'Routine';
-  if (key === 'triage') return language === 'CN' ? '应急分诊建议' : 'Triage';
-  if (key === 'skin_status') return language === 'CN' ? '当前肤况判断' : 'Skin status';
-  if (key === 'effect_review') return language === 'CN' ? '效果复盘' : 'Effect review';
-  if (key === 'travel') return language === 'CN' ? '旅行模式' : 'Travel mode';
-  if (key === 'nudge') return language === 'CN' ? '可选加分项' : 'Optional nudge';
-  if (key === 'diagnosis_gate') return language === 'CN' ? '先做一个极简肤况确认' : 'Quick skin profile first';
-  if (key === 'budget_gate') return language === 'CN' ? '预算确认' : 'Budget';
-  if (key === 'ingredient_hub') return language === 'CN' ? '成分查询入口' : 'Ingredient hub';
-  if (key === 'ingredient_goal_match') return language === 'CN' ? '按功效找成分' : 'Ingredient goal match';
-  if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
-  if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
-  if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（个性化）' : 'Ingredient plan (personalized)';
-  if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
-  if (key === 'routine_prompt') return language === 'CN' ? '补全 Routine' : 'Complete routine';
-  if (key === 'confidence_notice') return language === 'CN' ? '置信度提示' : 'Confidence notice';
-  if (key === 'recommendations') return language === 'CN' ? '护肤方案（AM/PM）' : 'Routine (AM/PM)';
-  if (key === 'product_parse') return language === 'CN' ? '产品解析' : 'Product parse';
-  if (key === 'product_analysis') return language === 'CN' ? '单品评估（Deep Scan）' : 'Product deep scan';
-  if (key === 'dupe_suggest') return language === 'CN' ? '平替与对标' : 'Dupes + comparables';
-  if (key === 'dupe_compare') return language === 'CN' ? '平替对比（Tradeoffs）' : 'Dupe compare (tradeoffs)';
-  if (key === 'routine_simulation') return language === 'CN' ? '兼容性测试' : 'Compatibility test';
-  if (key === 'offers_resolved') return language === 'CN' ? '购买渠道/Offer' : 'Offers';
-  if (key === 'profile') return language === 'CN' ? '肤况资料' : 'Profile';
-  if (key === 'photo_presign') return language === 'CN' ? '照片上传' : 'Photo upload';
-  if (key === 'photo_confirm') return language === 'CN' ? '照片质检' : 'Photo QC';
-  if (key === 'aurora_structured') return language === 'CN' ? '结构化结果' : 'Structured result';
-  if (key === 'gate_notice') return language === 'CN' ? '门控提示' : 'Gate notice';
-  if (key === 'error') return language === 'CN' ? '错误' : 'Error';
-  return t || (language === 'CN' ? '卡片' : 'Card');
+  if (key === "product_verdict")
+    return language === "CN" ? "产品决策结论" : "Product verdict";
+  if (key === "compatibility")
+    return language === "CN" ? "搭配与冲突建议" : "Compatibility";
+  if (key === "routine")
+    return language === "CN" ? "AM/PM 护肤流程" : "Routine";
+  if (key === "triage") return language === "CN" ? "应急分诊建议" : "Triage";
+  if (key === "skin_status")
+    return language === "CN" ? "当前肤况判断" : "Skin status";
+  if (key === "effect_review")
+    return language === "CN" ? "效果复盘" : "Effect review";
+  if (key === "travel") return language === "CN" ? "旅行模式" : "Travel mode";
+  if (key === "nudge")
+    return language === "CN" ? "可选加分项" : "Optional nudge";
+  if (key === "diagnosis_gate")
+    return language === "CN"
+      ? "先做一个极简肤况确认"
+      : "Quick skin profile first";
+  if (key === "budget_gate") return language === "CN" ? "预算确认" : "Budget";
+  if (key === "ingredient_hub")
+    return language === "CN" ? "成分查询入口" : "Ingredient hub";
+  if (key === "ingredient_goal_match")
+    return language === "CN" ? "按功效找成分" : "Ingredient goal match";
+  if (key === "analysis_summary")
+    return language === "CN"
+      ? "肤况分析（7 天策略）"
+      : "Skin assessment (7-day plan)";
+  if (key === "ingredient_plan")
+    return language === "CN" ? "成分策略" : "Ingredient plan";
+  if (key === "ingredient_plan_v2")
+    return language === "CN"
+      ? "成分策略（个性化）"
+      : "Ingredient plan (personalized)";
+  if (key === "analysis_story_v2")
+    return language === "CN" ? "分析解读" : "Analysis story";
+  if (key === "routine_prompt")
+    return language === "CN" ? "补全 Routine" : "Complete routine";
+  if (key === "confidence_notice")
+    return language === "CN" ? "置信度提示" : "Confidence notice";
+  if (key === "recommendations")
+    return language === "CN" ? "护肤方案（AM/PM）" : "Routine (AM/PM)";
+  if (key === "product_parse")
+    return language === "CN" ? "产品解析" : "Product parse";
+  if (key === "product_analysis")
+    return language === "CN" ? "单品评估（Deep Scan）" : "Product deep scan";
+  if (key === "dupe_suggest")
+    return language === "CN" ? "平替与对标" : "Dupes + comparables";
+  if (key === "dupe_compare")
+    return language === "CN"
+      ? "平替对比（Tradeoffs）"
+      : "Dupe compare (tradeoffs)";
+  if (key === "routine_simulation")
+    return language === "CN" ? "兼容性测试" : "Compatibility test";
+  if (key === "offers_resolved")
+    return language === "CN" ? "购买渠道/Offer" : "Offers";
+  if (key === "profile") return language === "CN" ? "肤况资料" : "Profile";
+  if (key === "photo_presign")
+    return language === "CN" ? "照片上传" : "Photo upload";
+  if (key === "photo_confirm")
+    return language === "CN" ? "照片质检" : "Photo QC";
+  if (key === "aurora_structured")
+    return language === "CN" ? "结构化结果" : "Structured result";
+  if (key === "gate_notice")
+    return language === "CN" ? "门控提示" : "Gate notice";
+  if (key === "error") return language === "CN" ? "错误" : "Error";
+  return t || (language === "CN" ? "卡片" : "Card");
 };
 
 const collapsePhotoConfirmWhenAnalysisPresent = (cards: Card[]): Card[] => {
   if (!Array.isArray(cards) || cards.length < 2) return cards;
-  const hasAnalysisSummary = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+  const hasAnalysisSummary = cards.some(
+    (card) =>
+      String(card?.type || "")
+        .trim()
+        .toLowerCase() === "analysis_summary",
+  );
   if (!hasAnalysisSummary) return cards;
-  return cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'photo_confirm');
+  return cards.filter(
+    (card) =>
+      String(card?.type || "")
+        .trim()
+        .toLowerCase() !== "photo_confirm",
+  );
 };
 
 const collapseAnalysisSummaryCards = (cards: Card[]): Card[] => {
@@ -785,8 +1027,10 @@ const collapseAnalysisSummaryCards = (cards: Card[]): Card[] => {
   const out: Card[] = [];
   for (let i = cards.length - 1; i >= 0; i -= 1) {
     const card = cards[i];
-    const type = String(card?.type || '').trim().toLowerCase();
-    if (type === 'analysis_summary') {
+    const type = String(card?.type || "")
+      .trim()
+      .toLowerCase();
+    if (type === "analysis_summary") {
       if (keptAnalysisSummary) continue;
       keptAnalysisSummary = true;
     }
@@ -800,11 +1044,16 @@ const removePhotoConfirmCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
   if (!Array.isArray(items) || items.length === 0) return items;
   const out: ChatItem[] = [];
   for (const item of items) {
-    if (item.kind !== 'cards') {
+    if (item.kind !== "cards") {
       out.push(item);
       continue;
     }
-    const filteredCards = item.cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'photo_confirm');
+    const filteredCards = item.cards.filter(
+      (card) =>
+        String(card?.type || "")
+          .trim()
+          .toLowerCase() !== "photo_confirm",
+    );
     if (!filteredCards.length) continue;
     if (filteredCards.length === item.cards.length) {
       out.push(item);
@@ -815,15 +1064,22 @@ const removePhotoConfirmCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
   return out;
 };
 
-const removeAnalysisSummaryCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
+const removeAnalysisSummaryCardsFromHistory = (
+  items: ChatItem[],
+): ChatItem[] => {
   if (!Array.isArray(items) || items.length === 0) return items;
   const out: ChatItem[] = [];
   for (const item of items) {
-    if (item.kind !== 'cards') {
+    if (item.kind !== "cards") {
       out.push(item);
       continue;
     }
-    const filteredCards = item.cards.filter((card) => String(card?.type || '').trim().toLowerCase() !== 'analysis_summary');
+    const filteredCards = item.cards.filter(
+      (card) =>
+        String(card?.type || "")
+          .trim()
+          .toLowerCase() !== "analysis_summary",
+    );
     if (!filteredCards.length) continue;
     if (filteredCards.length === item.cards.length) {
       out.push(item);
@@ -838,98 +1094,140 @@ type RecoItem = Record<string, unknown> & { slot?: string };
 
 const isEnvStressCard = (card: Card): boolean => {
   const norm = (input: string) =>
-    String(input || '')
+    String(input || "")
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
 
-  const type = norm(String(card?.type || ''));
+  const type = norm(String(card?.type || ""));
   if (!type) return false;
-  if (type === 'env_stress' || type === 'environment_stress') return true;
-  if (type.includes('env_stress') || type.includes('environment_stress')) return true;
+  if (type === "env_stress" || type === "environment_stress") return true;
+  if (type.includes("env_stress") || type.includes("environment_stress"))
+    return true;
 
   const payload = card?.payload;
   const schema =
-    payload && typeof payload === 'object' && !Array.isArray(payload) && typeof (payload as any).schema_version === 'string'
-      ? norm(String((payload as any).schema_version || ''))
-      : '';
-  return Boolean(schema && (schema.includes('env_stress') || schema.includes('environment_stress')));
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    typeof (payload as any).schema_version === "string"
+      ? norm(String((payload as any).schema_version || ""))
+      : "";
+  return Boolean(
+    schema &&
+    (schema.includes("env_stress") || schema.includes("environment_stress")),
+  );
 };
 
 const isConflictHeatmapCard = (card: Card): boolean => {
   const norm = (input: string) =>
-    String(input || '')
+    String(input || "")
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
 
-  const type = norm(String(card?.type || ''));
-  if (type === 'conflict_heatmap' || type === 'heatmap') return true;
-  if (type.includes('conflict_heatmap')) return true;
+  const type = norm(String(card?.type || ""));
+  if (type === "conflict_heatmap" || type === "heatmap") return true;
+  if (type.includes("conflict_heatmap")) return true;
 
   const payload = card?.payload;
   const schema =
-    payload && typeof payload === 'object' && !Array.isArray(payload) && typeof (payload as any).schema_version === 'string'
-      ? norm(String((payload as any).schema_version || ''))
-      : '';
-  return Boolean(schema && schema.includes('conflict_heatmap'));
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    typeof (payload as any).schema_version === "string"
+      ? norm(String((payload as any).schema_version || ""))
+      : "";
+  return Boolean(schema && schema.includes("conflict_heatmap"));
 };
 
 const isRoutineSimulationCard = (card: Card): boolean => {
   const norm = (input: string) =>
-    String(input || '')
+    String(input || "")
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-  return norm(String(card?.type || '')) === 'routine_simulation';
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  return norm(String(card?.type || "")) === "routine_simulation";
 };
 
 const asArray = (v: unknown) => (Array.isArray(v) ? v : []);
-const asObject = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
-const asString = (v: unknown) => (typeof v === 'string' ? v : v == null ? null : String(v));
+const asObject = (v: unknown) =>
+  v && typeof v === "object" && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : null;
+const asString = (v: unknown) =>
+  typeof v === "string" ? v : v == null ? null : String(v);
 const isTruthyFlag = (v: unknown): boolean => {
-  if (typeof v === 'boolean') return v;
-  const token = String(v ?? '')
+  if (typeof v === "boolean") return v;
+  const token = String(v ?? "")
     .trim()
     .toLowerCase();
-  return token === '1' || token === 'true' || token === 'yes' || token === 'on';
+  return token === "1" || token === "true" || token === "yes" || token === "on";
 };
-const PASSIVE_PROFILE_CHIP_PREFIXES = ['chip.profile.pregnancy.', 'chip.profile.age_band.', 'chip.profile.lactation.'];
+const PASSIVE_PROFILE_CHIP_PREFIXES = [
+  "chip.profile.pregnancy.",
+  "chip.profile.age_band.",
+  "chip.profile.lactation.",
+];
 const isPassiveProfileChipId = (chipId: string): boolean => {
-  const token = String(chipId || '').trim().toLowerCase();
+  const token = String(chipId || "")
+    .trim()
+    .toLowerCase();
   if (!token) return false;
-  return PASSIVE_PROFILE_CHIP_PREFIXES.some((prefix) => token.startsWith(prefix));
+  return PASSIVE_PROFILE_CHIP_PREFIXES.some((prefix) =>
+    token.startsWith(prefix),
+  );
 };
 const isPassiveAdvisoryNoticeCard = (card: Card): boolean => {
-  if (String(card?.type || '').trim().toLowerCase() !== 'confidence_notice') return false;
+  if (
+    String(card?.type || "")
+      .trim()
+      .toLowerCase() !== "confidence_notice"
+  )
+    return false;
   const payload = asObject(card?.payload) ?? {};
-  const reason = String((payload as any).reason || '').trim().toLowerCase();
+  const reason = String((payload as any).reason || "")
+    .trim()
+    .toLowerCase();
   if (!reason) return false;
-  if (reason === 'pregnancy_optional_profile') return true;
+  if (reason === "pregnancy_optional_profile") return true;
   const nonBlocking = isTruthyFlag((payload as any).non_blocking);
   if (!nonBlocking) return false;
-  return reason === 'safety_optional_profile_missing' || reason === 'gate_advisory';
+  return (
+    reason === "safety_optional_profile_missing" || reason === "gate_advisory"
+  );
 };
-const filterPassiveAdvisoryCards = (cards: Card[], showPassive: boolean): Card[] => {
+const filterPassiveAdvisoryCards = (
+  cards: Card[],
+  showPassive: boolean,
+): Card[] => {
   if (showPassive) return cards;
   return cards.filter((card) => !isPassiveAdvisoryNoticeCard(card));
 };
-const filterPassiveAdvisoryChips = (chips: SuggestedChip[], showPassive: boolean): SuggestedChip[] => {
+const filterPassiveAdvisoryChips = (
+  chips: SuggestedChip[],
+  showPassive: boolean,
+): SuggestedChip[] => {
   if (showPassive) return chips;
   return chips.filter((chip) => {
-    const chipId = String((chip && (chip as any).chip_id) || '').trim();
+    const chipId = String((chip && (chip as any).chip_id) || "").trim();
     return !isPassiveProfileChipId(chipId);
   });
 };
-const normalizeChipDedupToken = (value: unknown): string => String(value ?? '').trim().toLowerCase();
+const normalizeChipDedupToken = (value: unknown): string =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
 const buildChipDedupKey = (chip: SuggestedChip): string => {
   const data = asObject((chip as any)?.data) ?? {};
   const actionId = normalizeChipDedupToken((data as any).action_id);
   if (actionId) return `action:${actionId}`;
-  const followUpOptionId = normalizeChipDedupToken((data as any).follow_up_option_id);
+  const followUpOptionId = normalizeChipDedupToken(
+    (data as any).follow_up_option_id,
+  );
   if (followUpOptionId) return `followup_option:${followUpOptionId}`;
   const chipId = normalizeChipDedupToken((chip as any)?.chip_id);
   if (chipId) return `chip:${chipId}`;
@@ -937,12 +1235,15 @@ const buildChipDedupKey = (chip: SuggestedChip): string => {
   const replyText = normalizeChipDedupToken((data as any).reply_text);
   return `text:${label}::${replyText}`;
 };
-const dedupeSuggestedChips = (chips: SuggestedChip[], max = 12): SuggestedChip[] => {
+const dedupeSuggestedChips = (
+  chips: SuggestedChip[],
+  max = 12,
+): SuggestedChip[] => {
   const out: SuggestedChip[] = [];
   const seen = new Set<string>();
   const rows = Array.isArray(chips) ? chips : [];
   for (const chip of rows) {
-    if (!chip || typeof chip !== 'object') continue;
+    if (!chip || typeof chip !== "object") continue;
     const key = buildChipDedupKey(chip);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -952,98 +1253,116 @@ const dedupeSuggestedChips = (chips: SuggestedChip[], max = 12): SuggestedChip[]
   return out;
 };
 const asNumber = (v: unknown) => {
-  const n = typeof v === 'number' ? v : Number(v);
+  const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
 };
 
 const isRecoBlockType = (v: unknown): v is RecoBlockType =>
-  v === 'competitors' || v === 'dupes' || v === 'related_products';
+  v === "competitors" || v === "dupes" || v === "related_products";
 
 const normalizeRecoLabel = (v: unknown): RecoEmployeeFeedbackType | null => {
-  const token = String(v || '').trim().toLowerCase();
-  if (token === 'relevant' || token === 'not_relevant' || token === 'wrong_block') return token;
+  const token = String(v || "")
+    .trim()
+    .toLowerCase();
+  if (
+    token === "relevant" ||
+    token === "not_relevant" ||
+    token === "wrong_block"
+  )
+    return token;
   return null;
 };
 
-const formatRecoLabel = (label: RecoEmployeeFeedbackType, language: UiLanguage) => {
-  if (language === 'CN') {
-    if (label === 'relevant') return '相关';
-    if (label === 'not_relevant') return '不相关';
-    return '分块错了';
+const formatRecoLabel = (
+  label: RecoEmployeeFeedbackType,
+  language: UiLanguage,
+) => {
+  if (language === "CN") {
+    if (label === "relevant") return "相关";
+    if (label === "not_relevant") return "不相关";
+    return "分块错了";
   }
-  if (label === 'relevant') return 'Relevant';
-  if (label === 'not_relevant') return 'Not relevant';
-  return 'Wrong block';
+  if (label === "relevant") return "Relevant";
+  if (label === "not_relevant") return "Not relevant";
+  return "Wrong block";
 };
 
 const isInternalKbCitationId = (raw: string): boolean => {
-  const v = String(raw || '').trim();
+  const v = String(raw || "").trim();
   if (!v) return false;
   const lower = v.toLowerCase();
-  if (lower.startsWith('kb:')) return true;
+  if (lower.startsWith("kb:")) return true;
   if (/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v)) return true;
   return false;
 };
 
-const FRAGRANCE_FREE_RE = /\b(no fragrance|fragrance[\s-]*free|without fragrance|fragrance not listed|no parfum)\b/i;
+const FRAGRANCE_FREE_RE =
+  /\b(no fragrance|fragrance[\s-]*free|without fragrance|fragrance not listed|no parfum)\b/i;
 
 function filterContradictoryFragranceFlags(flags: string[]): string[] {
   const hasDescriptiveFragranceFree = flags.some(
     (f) => f.length > 12 && FRAGRANCE_FREE_RE.test(f),
   );
   if (!hasDescriptiveFragranceFree) return flags;
-  return flags.filter((f) => f.toLowerCase() !== 'fragrance');
+  return flags.filter((f) => f.toLowerCase() !== "fragrance");
 }
 
 const ACK_PREFIX_WITH_PUNCT_RE =
   /^(?:got it|okay|ok|sure|great|understood|received|收到|好的|明白了|已收到)\s*(?:✅|☑️|✔️)?\s*(?:[—–-]|[,，:：]|[.!?。！？])\s*/i;
-const ACK_PREFIX_WITH_ICON_RE = /^(?:got it|okay|ok|sure|great|understood|received|收到|好的|明白了|已收到)\s*(?:✅|☑️|✔️)\s*/i;
+const ACK_PREFIX_WITH_ICON_RE =
+  /^(?:got it|okay|ok|sure|great|understood|received|收到|好的|明白了|已收到)\s*(?:✅|☑️|✔️)\s*/i;
 const ACK_FILLER_ONLY_RE = /^i[’']ll keep (?:it|this) clear and practical\.?$/i;
 
 const stripAcknowledgementLead = (rawLine: string): string => {
-  const trimmed = rawLine.replace(/^[ \t]+|[ \t]+$/g, '');
-  if (!trimmed) return '';
+  const trimmed = rawLine.replace(/^[ \t]+|[ \t]+$/g, "");
+  if (!trimmed) return "";
 
-  let next = trimmed.replace(ACK_PREFIX_WITH_PUNCT_RE, '');
-  next = next.replace(ACK_PREFIX_WITH_ICON_RE, '');
-  next = next.replace(/^[ \t]+|[ \t]+$/g, '');
+  let next = trimmed.replace(ACK_PREFIX_WITH_PUNCT_RE, "");
+  next = next.replace(ACK_PREFIX_WITH_ICON_RE, "");
+  next = next.replace(/^[ \t]+|[ \t]+$/g, "");
 
-  if (ACK_FILLER_ONLY_RE.test(next)) return '';
+  if (ACK_FILLER_ONLY_RE.test(next)) return "";
   return next;
 };
 
 const stripInternalKbRefsFromText = (raw: string): string => {
-  const input = String(raw || '');
+  const input = String(raw || "");
   if (!input.trim()) return input;
 
-  const withoutKb = input.replace(/\bkb:[a-z0-9_-]+\b/gi, '');
+  const withoutKb = input.replace(/\bkb:[a-z0-9_-]+\b/gi, "");
   const cleaned = withoutKb
-    .replace(/\(\s*\)/g, '')
-    .replace(/[ \t]{2,}/g, ' ')
-    .split('\n')
+    .replace(/\(\s*\)/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .split("\n")
     .map((line) => stripAcknowledgementLead(line))
     .filter((line) => {
       const t = line.trim();
       if (!t) return true;
-      if (/^(evidence|citation|citations|source|sources)[:：]?\s*$/i.test(t)) return false;
+      if (/^(evidence|citation|citations|source|sources)[:：]?\s*$/i.test(t))
+        return false;
       if (/^(证据|引用|来源)[:：]?\s*$/.test(t)) return false;
       return true;
     })
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 
   return cleaned;
 };
 
-const isLikelyUrl = (raw: string): boolean => /^https?:\/\//i.test(String(raw || '').trim());
+const isLikelyUrl = (raw: string): boolean =>
+  /^https?:\/\//i.test(String(raw || "").trim());
 
 const looksLikeWeatherOrEnvironmentQuestion = (text: string): boolean => {
-  const t = String(text || '').trim();
+  const t = String(text || "").trim();
   if (!t) return false;
   const lower = t.toLowerCase();
 
-  if (/\b(snow|rain|weather|humidity|uv|climate|wind|dry air|cold|heat|sun exposure|travel|itinerary|destination|flight|ski)\b/i.test(lower))
+  if (
+    /\b(snow|rain|weather|humidity|uv|climate|wind|dry air|cold|heat|sun exposure|travel|itinerary|destination|flight|ski)\b/i.test(
+      lower,
+    )
+  )
     return true;
 
   if (
@@ -1068,7 +1387,10 @@ const startSimulatedThinking = (
     if (idx < steps.length) {
       setter((prev) => {
         const updated = prev.map((s) => ({ ...s, completed: true }));
-        return [...updated, { step: `sim_${idx}`, message: steps[idx], completed: false }];
+        return [
+          ...updated,
+          { step: `sim_${idx}`, message: steps[idx], completed: false },
+        ];
       });
     }
   }, intervalMs);
@@ -1076,27 +1398,50 @@ const startSimulatedThinking = (
 };
 
 const ANALYSIS_SIM_STEPS: Record<string, string[]> = {
-  EN: ['Scanning skin features...', 'Cross-referencing conditions...', 'Building skin blueprint...', 'Preparing results...'],
-  CN: ['正在扫描皮肤特征...', '交叉检查肤况...', '构建肤质蓝图...', '正在准备结果...'],
+  EN: [
+    "Scanning skin features...",
+    "Cross-referencing conditions...",
+    "Building skin blueprint...",
+    "Preparing results...",
+  ],
+  CN: [
+    "正在扫描皮肤特征...",
+    "交叉检查肤况...",
+    "构建肤质蓝图...",
+    "正在准备结果...",
+  ],
 };
 
-const inferAuroraLoadingIntent = (message?: string, action?: V1Action): AuroraLoadingIntent => {
-  const msg = String(message || '').trim();
-  if (looksLikeWeatherOrEnvironmentQuestion(msg)) return 'environment';
+const inferAuroraLoadingIntent = (
+  message?: string,
+  action?: V1Action,
+): AuroraLoadingIntent => {
+  const msg = String(message || "").trim();
+  if (looksLikeWeatherOrEnvironmentQuestion(msg)) return "environment";
 
   const replyText =
-    action && typeof action === 'object' && typeof (action as any).data === 'object' && (action as any).data
-      ? String((action as any).data.reply_text || (action as any).data.replyText || '').trim()
-      : '';
-  if (looksLikeWeatherOrEnvironmentQuestion(replyText)) return 'environment';
+    action &&
+    typeof action === "object" &&
+    typeof (action as any).data === "object" &&
+    (action as any).data
+      ? String(
+          (action as any).data.reply_text ||
+            (action as any).data.replyText ||
+            "",
+        ).trim()
+      : "";
+  if (looksLikeWeatherOrEnvironmentQuestion(replyText)) return "environment";
 
   const actionId =
-    action && typeof action === 'object' && typeof (action as any).action_id === 'string'
+    action &&
+    typeof action === "object" &&
+    typeof (action as any).action_id === "string"
       ? String((action as any).action_id).trim()
-      : '';
-  if (/env[_-]?stress|environment[_-]?stress|weather|itinerary/i.test(actionId)) return 'environment';
+      : "";
+  if (/env[_-]?stress|environment[_-]?stress|weather|itinerary/i.test(actionId))
+    return "environment";
 
-  return 'default';
+  return "default";
 };
 
 const asNumberRecord = (v: unknown): Record<string, number> | undefined => {
@@ -1104,7 +1449,7 @@ const asNumberRecord = (v: unknown): Record<string, number> | undefined => {
   if (!o) return undefined;
   const out: Record<string, number> = {};
   for (const [k, raw] of Object.entries(o)) {
-    const key = String(k || '').trim();
+    const key = String(k || "").trim();
     if (!key) continue;
     const n = asNumber(raw);
     if (n == null) continue;
@@ -1118,7 +1463,7 @@ const uniqueStrings = (items: unknown): string[] => {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of items) {
-    const v = String(raw ?? '').trim();
+    const v = String(raw ?? "").trim();
     if (!v) continue;
     const key = v.toLowerCase();
     if (seen.has(key)) continue;
@@ -1128,27 +1473,39 @@ const uniqueStrings = (items: unknown): string[] => {
   return out;
 };
 
-type IngredientRenderMode = 'show_products' | 'empty_match' | 'pending_match';
+type IngredientRenderMode = "show_products" | "empty_match" | "pending_match";
 
-const deriveIngredientRenderMode = (payload: Record<string, unknown> | null | undefined): IngredientRenderMode => {
-  if (!payload || typeof payload !== 'object') return 'show_products';
-  const emptyReason = String((payload as any)?.products_empty_reason ?? '').trim();
+const deriveIngredientRenderMode = (
+  payload: Record<string, unknown> | null | undefined,
+): IngredientRenderMode => {
+  if (!payload || typeof payload !== "object") return "show_products";
+  const emptyReason = String(
+    (payload as any)?.products_empty_reason ?? "",
+  ).trim();
   const matched = (payload as any)?.constraint_match_summary?.matched;
   const confidence = (payload as any)?.recommendation_confidence_score;
-  const taskMode = String((payload as any)?.recommendation_meta?.task_mode ?? (payload as any)?.task_mode ?? '').trim();
-  const matcherPending = (payload as any)?.metadata?.matcher_check_result?.pending;
+  const taskMode = String(
+    (payload as any)?.recommendation_meta?.task_mode ??
+      (payload as any)?.task_mode ??
+      "",
+  ).trim();
+  const matcherPending = (payload as any)?.metadata?.matcher_check_result
+    ?.pending;
 
   if (
-    emptyReason === 'ingredient_constraint_no_match' ||
-    emptyReason === 'ingredient_no_verified_candidates' ||
-    taskMode === 'ingredient_lookup_no_candidates' ||
-    (matched === 0 && typeof matched === 'number') ||
-    (confidence === 0 && typeof confidence === 'number' && taskMode.startsWith('ingredient_'))
+    emptyReason === "ingredient_constraint_no_match" ||
+    emptyReason === "ingredient_no_verified_candidates" ||
+    taskMode === "ingredient_lookup_no_candidates" ||
+    (matched === 0 && typeof matched === "number") ||
+    (confidence === 0 &&
+      typeof confidence === "number" &&
+      taskMode.startsWith("ingredient_"))
   ) {
-    return 'empty_match';
+    return "empty_match";
   }
-  if (matcherPending === true && taskMode.startsWith('ingredient_')) return 'pending_match';
-  return 'show_products';
+  if (matcherPending === true && taskMode.startsWith("ingredient_"))
+    return "pending_match";
+  return "show_products";
 };
 
 const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
@@ -1166,36 +1523,38 @@ const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
 ];
 
 const USER_VISIBLE_MISSING_INFO_CODES = new Set([
-  'url_fetch_forbidden_403',
-  'url_fetch_recovered_with_fallback',
-  'on_page_fetch_blocked',
-  'regulatory_source_used',
-  'incidecoder_source_used',
-  'incidecoder_no_match',
-  'incidecoder_fetch_failed',
-  'incidecoder_unverified_not_persisted',
-  'version_verification_needed',
-  'llm_verification_used',
-  'retail_source_no_match',
-  'retail_source_used',
-  'ingredient_concentration_unknown',
+  "url_fetch_forbidden_403",
+  "url_fetch_recovered_with_fallback",
+  "on_page_fetch_blocked",
+  "regulatory_source_used",
+  "incidecoder_source_used",
+  "incidecoder_no_match",
+  "incidecoder_fetch_failed",
+  "incidecoder_unverified_not_persisted",
+  "version_verification_needed",
+  "llm_verification_used",
+  "retail_source_no_match",
+  "retail_source_used",
+  "ingredient_concentration_unknown",
 ]);
 
 const isInternalMissingInfoCode = (code: string): boolean => {
-  const token = String(code || '').trim();
+  const token = String(code || "").trim();
   if (!token) return false;
   if (USER_VISIBLE_MISSING_INFO_CODES.has(token.toLowerCase())) return false;
   return INTERNAL_MISSING_INFO_PATTERNS.some((pattern) => pattern.test(token));
 };
 
 const normalizeSocialChannelName = (raw: unknown): string | null => {
-  const token = String(raw || '').trim().toLowerCase();
+  const token = String(raw || "")
+    .trim()
+    .toLowerCase();
   if (!token) return null;
-  if (token === 'reddit' || token === 'red') return 'Reddit';
-  if (token === 'xiaohongshu' || token === 'xhs') return 'Xiaohongshu';
-  if (token === 'tiktok') return 'TikTok';
-  if (token === 'youtube' || token === 'yt') return 'YouTube';
-  if (token === 'instagram' || token === 'ig') return 'Instagram';
+  if (token === "reddit" || token === "red") return "Reddit";
+  if (token === "xiaohongshu" || token === "xhs") return "Xiaohongshu";
+  if (token === "tiktok") return "TikTok";
+  if (token === "youtube" || token === "yt") return "YouTube";
+  if (token === "instagram" || token === "ig") return "Instagram";
   return null;
 };
 
@@ -1203,23 +1562,30 @@ const asSkinType = (v: unknown): SkinType | null => {
   const s = asString(v);
   if (!s) return null;
   const norm = s.trim().toLowerCase();
-  if (norm === 'oily' || norm === 'dry' || norm === 'combination' || norm === 'normal' || norm === 'sensitive') return norm as SkinType;
+  if (
+    norm === "oily" ||
+    norm === "dry" ||
+    norm === "combination" ||
+    norm === "normal" ||
+    norm === "sensitive"
+  )
+    return norm as SkinType;
   return null;
 };
 
 const GOAL_TO_CONCERN: Record<string, SkinConcern> = {
-  acne: 'acne',
-  'dark spots': 'dark_spots',
-  dark_spots: 'dark_spots',
-  hyperpigmentation: 'dark_spots',
-  dullness: 'dullness',
-  wrinkles: 'wrinkles',
-  aging: 'wrinkles',
-  redness: 'redness',
-  pores: 'pores',
-  dehydration: 'dehydration',
-  repair: 'dehydration',
-  barrier: 'dehydration',
+  acne: "acne",
+  "dark spots": "dark_spots",
+  dark_spots: "dark_spots",
+  hyperpigmentation: "dark_spots",
+  dullness: "dullness",
+  wrinkles: "wrinkles",
+  aging: "wrinkles",
+  redness: "redness",
+  pores: "pores",
+  dehydration: "dehydration",
+  repair: "dehydration",
+  barrier: "dehydration",
 };
 
 const asConcern = (v: unknown): SkinConcern | null => {
@@ -1234,27 +1600,33 @@ const pickPreferredId = (
   isOpaque: (value: unknown) => boolean,
 ): string | null => {
   const candidates = values
-    .map((value) => String(value || '').trim())
+    .map((value) => String(value || "").trim())
     .filter(Boolean);
   if (!candidates.length) return null;
   const nonOpaque = candidates.find((value) => !isOpaque(value));
   return nonOpaque || candidates[0] || null;
 };
 
-function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisResult {
+function toDiagnosisResult(
+  profile: Record<string, unknown> | null,
+): DiagnosisResult {
   const skinType = asSkinType(profile?.skinType);
   const goals = asArray(profile?.goals);
-  const concerns = goals.map((g) => asConcern(g)).filter(Boolean) as SkinConcern[];
+  const concerns = goals
+    .map((g) => asConcern(g))
+    .filter(Boolean) as SkinConcern[];
 
   const barrierRaw = asString(profile?.barrierStatus);
-  const barrier = barrierRaw ? barrierRaw.trim().toLowerCase() : '';
-  const barrierStatus: DiagnosisResult['barrierStatus'] =
-    barrier === 'healthy' || barrier === 'impaired' || barrier === 'unknown' ? (barrier as DiagnosisResult['barrierStatus']) : 'unknown';
+  const barrier = barrierRaw ? barrierRaw.trim().toLowerCase() : "";
+  const barrierStatus: DiagnosisResult["barrierStatus"] =
+    barrier === "healthy" || barrier === "impaired" || barrier === "unknown"
+      ? (barrier as DiagnosisResult["barrierStatus"])
+      : "unknown";
 
   return {
     ...(skinType ? { skinType } : {}),
     concerns,
-    currentRoutine: 'basic',
+    currentRoutine: "basic",
     ...(barrierStatus ? { barrierStatus } : {}),
   };
 }
@@ -1266,64 +1638,98 @@ const CHAT_TIMEOUT_MS = 15000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
 const RECO_ALTERNATIVES_LAZY_TIMEOUT_MS = 8000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
-const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
-const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
-const PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES = new Set(['DB_ERROR', 'UPSTREAM_TIMEOUT']);
+const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set([
+  "NO_CANDIDATES",
+  "DB_ERROR",
+  "UPSTREAM_TIMEOUT",
+]);
+const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(["NO_CANDIDATES"]);
+const PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES = new Set([
+  "DB_ERROR",
+  "UPSTREAM_TIMEOUT",
+]);
 const RECO_PDP_NO_CANDIDATES_RETRY_ENABLED = (() => {
-  const raw = String(import.meta.env.VITE_AURORA_RECO_PDP_NO_CANDIDATES_RETRY ?? 'true')
+  const raw = String(
+    import.meta.env.VITE_AURORA_RECO_PDP_NO_CANDIDATES_RETRY ?? "true",
+  )
     .trim()
     .toLowerCase();
-  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+  return !(raw === "0" || raw === "false" || raw === "off" || raw === "no");
 })();
 
 const isRoutineChatAction = (action?: V1Action): boolean => {
-  if (!action || typeof action !== 'object') return false;
-  const actionId = String((action as any).action_id || '').trim().toLowerCase();
+  if (!action || typeof action !== "object") return false;
+  const actionId = String((action as any).action_id || "")
+    .trim()
+    .toLowerCase();
   if (!actionId) return false;
-  return actionId.includes('routine');
+  return actionId.includes("routine");
 };
 
-function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
-  const isUnknownToken = (value: unknown) => /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(String(value ?? '').trim());
+function toUiProduct(
+  raw: Record<string, unknown>,
+  language: UiLanguage,
+): Product {
+  const isUnknownToken = (value: unknown) =>
+    /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(String(value ?? "").trim());
   const inferCategoryFromName = (nameText: string) => {
     const n = nameText.toLowerCase();
-    if (/\bserum|ampoule\b/.test(n)) return language === 'CN' ? '精华' : 'Serum';
-    if (/\bcleanser|wash|foam\b/.test(n)) return language === 'CN' ? '洁面' : 'Cleanser';
-    if (/\bmoisturi[sz]er|cream|lotion|gel\b/.test(n)) return language === 'CN' ? '面霜' : 'Moisturizer';
-    if (/\btoner|essence\b/.test(n)) return language === 'CN' ? '化妆水' : 'Toner';
-    if (/\bspf|sunscreen|sun screen\b/.test(n)) return language === 'CN' ? '防晒' : 'Sunscreen';
-    if (/\bmask\b/.test(n)) return language === 'CN' ? '面膜' : 'Mask';
-    return language === 'CN' ? '护肤' : 'Skincare';
+    if (/\bserum|ampoule\b/.test(n))
+      return language === "CN" ? "精华" : "Serum";
+    if (/\bcleanser|wash|foam\b/.test(n))
+      return language === "CN" ? "洁面" : "Cleanser";
+    if (/\bmoisturi[sz]er|cream|lotion|gel\b/.test(n))
+      return language === "CN" ? "面霜" : "Moisturizer";
+    if (/\btoner|essence\b/.test(n))
+      return language === "CN" ? "化妆水" : "Toner";
+    if (/\bspf|sunscreen|sun screen\b/.test(n))
+      return language === "CN" ? "防晒" : "Sunscreen";
+    if (/\bmask\b/.test(n)) return language === "CN" ? "面膜" : "Mask";
+    return language === "CN" ? "护肤" : "Skincare";
   };
 
   const skuId =
     asString(raw.sku_id ?? raw.skuId ?? raw.product_id ?? raw.productId) ||
     `unknown_${Math.random().toString(16).slice(2)}`.slice(0, 24);
-  const brand = asString(raw.brand) || '';
-  const name = asString(raw.name) || asString(raw.title) || asString(raw.display_name ?? raw.displayName) || '';
-  const categoryRaw = asString(raw.category) || asString((raw as any).category_name ?? (raw as any).categoryName) || '';
-  const category = (!categoryRaw || isUnknownToken(categoryRaw)) ? inferCategoryFromName(name) : categoryRaw;
-  const description = asString(raw.description) || '';
+  const brand = asString(raw.brand) || "";
+  const name =
+    asString(raw.name) ||
+    asString(raw.title) ||
+    asString(raw.display_name ?? raw.displayName) ||
+    "";
+  const categoryRaw =
+    asString(raw.category) ||
+    asString((raw as any).category_name ?? (raw as any).categoryName) ||
+    "";
+  const category =
+    !categoryRaw || isUnknownToken(categoryRaw)
+      ? inferCategoryFromName(name)
+      : categoryRaw;
+  const description = asString(raw.description) || "";
   const image_url = pickProductImageUrl(raw);
-  const size = asString(raw.size) || '';
+  const size = asString(raw.size) || "";
 
   const product: Product = {
     sku_id: skuId,
-    brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown brand'),
-    name: name || (language === 'CN' ? '未知产品' : 'Unknown product'),
-    category: category || (language === 'CN' ? '未知品类' : 'Unknown'),
+    brand: brand || (language === "CN" ? "未知品牌" : "Unknown brand"),
+    name: name || (language === "CN" ? "未知产品" : "Unknown product"),
+    category: category || (language === "CN" ? "未知品类" : "Unknown"),
     description,
     image_url,
     size,
   };
 
-  const mechanism = asNumberRecord(raw.mechanism) || asNumberRecord((raw as any).mechanism_vector);
+  const mechanism =
+    asNumberRecord(raw.mechanism) ||
+    asNumberRecord((raw as any).mechanism_vector);
   if (mechanism) product.mechanism = mechanism;
 
-  const socialStats = asObject((raw as any).social_stats) || asObject((raw as any).socialStats);
+  const socialStats =
+    asObject((raw as any).social_stats) || asObject((raw as any).socialStats);
   if (socialStats) product.social_stats = socialStats as any;
 
-  const evidencePack = asObject((raw as any).evidence_pack) || asObject((raw as any).evidencePack);
+  const evidencePack =
+    asObject((raw as any).evidence_pack) || asObject((raw as any).evidencePack);
   if (evidencePack) product.evidence_pack = evidencePack as any;
 
   const ingredients = asObject((raw as any).ingredients);
@@ -1335,26 +1741,31 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
   return product;
 }
 
-function extractProductsFromSearchResponse(input: unknown): Array<Record<string, unknown>> {
+function extractProductsFromSearchResponse(
+  input: unknown,
+): Array<Record<string, unknown>> {
   const root = asObject(input) || {};
-  const rows = (
-    [
-      (root as any).products,
-      (root as any).items,
-      (root as any).results,
-      (root as any).data?.products,
-      (root as any).data?.items,
-      (root as any).data?.results,
-      (root as any).result?.products,
-      (root as any).result?.items,
-      (root as any).result?.results,
-    ].find((value) => Array.isArray(value)) || []
-  ) as unknown[];
+  const rows = ([
+    (root as any).products,
+    (root as any).items,
+    (root as any).results,
+    (root as any).data?.products,
+    (root as any).data?.items,
+    (root as any).data?.results,
+    (root as any).result?.products,
+    (root as any).result?.items,
+    (root as any).result?.results,
+  ].find((value) => Array.isArray(value)) || []) as unknown[];
 
-  return rows.map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+  return rows.map((row) => asObject(row)).filter(Boolean) as Array<
+    Record<string, unknown>
+  >;
 }
 
-function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Offer[] {
+function toAnchorOffers(
+  raw: Record<string, unknown>,
+  language: UiLanguage,
+): Offer[] {
   const explicitOffers = asArray((raw as any).offers)
     .map((v) => asObject(v))
     .filter(Boolean)
@@ -1366,64 +1777,99 @@ function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Off
   if (priceObj && (priceObj as any).unknown === true) return [];
 
   let price: number | null = null;
-  let currency = asString((raw as any).currency) || 'USD';
+  let currency = asString((raw as any).currency) || "USD";
   if (priceObj) {
     const usd = asNumber((priceObj as any).usd ?? (priceObj as any).USD);
     const cny = asNumber((priceObj as any).cny ?? (priceObj as any).CNY);
     if (usd != null) {
       price = usd;
-      currency = 'USD';
+      currency = "USD";
     } else if (cny != null) {
       price = cny;
-      currency = 'CNY';
+      currency = "CNY";
     } else {
-      price = asNumber((priceObj as any).amount ?? (priceObj as any).value ?? (priceObj as any).price) ?? null;
+      price =
+        asNumber(
+          (priceObj as any).amount ??
+            (priceObj as any).value ??
+            (priceObj as any).price,
+        ) ?? null;
       currency = asString((priceObj as any).currency) || currency;
     }
   }
   if (price == null) price = asNumber((raw as any).price) ?? null;
   if (price == null || !Number.isFinite(price)) return [];
 
-  const originalPrice = asNumber((raw as any).original_price ?? (raw as any).originalPrice);
-  const seller = asString((raw as any).seller) || asString((raw as any).brand) || (language === 'CN' ? '官方渠道' : 'Official');
+  const originalPrice = asNumber(
+    (raw as any).original_price ?? (raw as any).originalPrice,
+  );
+  const seller =
+    asString((raw as any).seller) ||
+    asString((raw as any).brand) ||
+    (language === "CN" ? "官方渠道" : "Official");
   return [
     {
-      offer_id: `offer_anchor_${asString((raw as any).sku_id ?? (raw as any).product_id ?? (raw as any).name) || Math.random().toString(16).slice(2)}`.slice(0, 40),
+      offer_id:
+        `offer_anchor_${asString((raw as any).sku_id ?? (raw as any).product_id ?? (raw as any).name) || Math.random().toString(16).slice(2)}`.slice(
+          0,
+          40,
+        ),
       seller,
       price,
-      currency: currency || 'USD',
-      ...(originalPrice != null && originalPrice > price ? { original_price: originalPrice } : {}),
+      currency: currency || "USD",
+      ...(originalPrice != null && originalPrice > price
+        ? { original_price: originalPrice }
+        : {}),
       shipping_days: 0,
-      returns_policy: '',
+      returns_policy: "",
       reliability_score: 0,
       badges: [],
       in_stock: true,
-      purchase_route: 'internal_checkout',
+      purchase_route: "internal_checkout",
     },
   ];
 }
 
 function toUiOffer(raw: Record<string, unknown>): Offer {
-  const offer_id = asString(raw.offer_id ?? (raw as any).offerId) || `offer_${Math.random().toString(16).slice(2)}`.slice(0, 24);
-  const seller = asString(raw.seller) || '';
-  const currency = asString(raw.currency) || 'USD';
+  const offer_id =
+    asString(raw.offer_id ?? (raw as any).offerId) ||
+    `offer_${Math.random().toString(16).slice(2)}`.slice(0, 24);
+  const seller = asString(raw.seller) || "";
+  const currency = asString(raw.currency) || "USD";
 
   const price = asNumber(raw.price);
-  const originalPrice = asNumber(raw.original_price ?? (raw as any).originalPrice);
+  const originalPrice = asNumber(
+    raw.original_price ?? (raw as any).originalPrice,
+  );
   const shippingDays = asNumber(raw.shipping_days ?? (raw as any).shippingDays);
-  const reliability = asNumber(raw.reliability_score ?? (raw as any).reliabilityScore);
+  const reliability = asNumber(
+    raw.reliability_score ?? (raw as any).reliabilityScore,
+  );
 
   const badges = uniqueStrings(raw.badges)
-    .filter((b) => ['best_price', 'best_returns', 'fastest_shipping', 'high_reliability'].includes(b))
+    .filter((b) =>
+      [
+        "best_price",
+        "best_returns",
+        "fastest_shipping",
+        "high_reliability",
+      ].includes(b),
+    )
     .slice(0, 6) as any;
 
-  const purchaseRouteRaw = asString(raw.purchase_route ?? (raw as any).purchaseRoute);
-  const affiliate_url = asString(raw.affiliate_url ?? (raw as any).affiliateUrl) || undefined;
-  const purchase_route = (purchaseRouteRaw === 'internal_checkout' || purchaseRouteRaw === 'affiliate_outbound'
-    ? purchaseRouteRaw
-    : affiliate_url
-      ? 'affiliate_outbound'
-      : 'internal_checkout') as Offer['purchase_route'];
+  const purchaseRouteRaw = asString(
+    raw.purchase_route ?? (raw as any).purchaseRoute,
+  );
+  const affiliate_url =
+    asString(raw.affiliate_url ?? (raw as any).affiliateUrl) || undefined;
+  const purchase_route = (
+    purchaseRouteRaw === "internal_checkout" ||
+    purchaseRouteRaw === "affiliate_outbound"
+      ? purchaseRouteRaw
+      : affiliate_url
+        ? "affiliate_outbound"
+        : "internal_checkout"
+  ) as Offer["purchase_route"];
 
   return {
     offer_id,
@@ -1432,7 +1878,8 @@ function toUiOffer(raw: Record<string, unknown>): Offer {
     currency,
     ...(originalPrice != null ? { original_price: originalPrice } : {}),
     shipping_days: shippingDays == null ? 0 : shippingDays,
-    returns_policy: asString(raw.returns_policy ?? (raw as any).returnsPolicy) || '',
+    returns_policy:
+      asString(raw.returns_policy ?? (raw as any).returnsPolicy) || "",
     reliability_score: reliability == null ? 0 : reliability,
     badges,
     in_stock: raw.in_stock === false ? false : true,
@@ -1441,15 +1888,24 @@ function toUiOffer(raw: Record<string, unknown>): Offer {
   };
 }
 
-function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage) {
+function toDupeProduct(
+  raw: Record<string, unknown> | null,
+  language: UiLanguage,
+) {
   const r = raw ?? {};
-  const brand = asString(r.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
-  const name = asString(r.name) || asString(r.display_name ?? r.displayName) || (language === 'CN' ? '未知产品' : 'Unknown product');
+  const brand =
+    asString(r.brand) || (language === "CN" ? "未知品牌" : "Unknown brand");
+  const name =
+    asString(r.name) ||
+    asString(r.display_name ?? r.displayName) ||
+    (language === "CN" ? "未知产品" : "Unknown product");
   const imageUrl = pickProductImageUrl(r) || undefined;
 
   let price: number | undefined;
   let currency: string | undefined;
-  const offers = asArray((r as any).offers).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+  const offers = asArray((r as any).offers)
+    .map((v) => asObject(v))
+    .filter(Boolean) as Array<Record<string, unknown>>;
   if (offers.length) {
     price = asNumber(offers[0].price) ?? undefined;
     currency = asString(offers[0].currency) ?? undefined;
@@ -1457,7 +1913,11 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
 
   const priceObj = asObject((r as any).price);
   if (price == null && priceObj) {
-    const amount = asNumber((priceObj as any).amount ?? (priceObj as any).value ?? (priceObj as any).price);
+    const amount = asNumber(
+      (priceObj as any).amount ??
+        (priceObj as any).value ??
+        (priceObj as any).price,
+    );
     const usd = asNumber(priceObj.usd ?? priceObj.USD);
     const cny = asNumber(priceObj.cny ?? priceObj.CNY);
     if (amount != null) {
@@ -1465,10 +1925,10 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
       currency = asString((priceObj as any).currency) || currency;
     } else if (usd != null) {
       price = usd;
-      currency = 'USD';
+      currency = "USD";
     } else if (cny != null) {
       price = cny;
-      currency = 'CNY';
+      currency = "CNY";
     }
   }
 
@@ -1479,15 +1939,29 @@ function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage
     imageUrl,
     brand,
     name,
-    ...(typeof price === 'number' && Number.isFinite(price) ? { price } : {}),
+    ...(typeof price === "number" && Number.isFinite(price) ? { price } : {}),
     ...(currency ? { currency } : {}),
-    ...(asNumberRecord((r as any).mechanism) ? { mechanism: asNumberRecord((r as any).mechanism) } : {}),
-    ...((asObject((r as any).experience) ? { experience: (r as any).experience } : {}) as any),
-    ...(uniqueStrings((r as any).risk_flags).length ? { risk_flags: uniqueStrings((r as any).risk_flags) } : {}),
-    ...((asObject((r as any).social_stats) ? { social_stats: (r as any).social_stats } : {}) as any),
-    ...(uniqueStrings((r as any).key_actives).length ? { key_actives: uniqueStrings((r as any).key_actives) } : {}),
-    ...((asObject((r as any).evidence_pack) ? { evidence_pack: (r as any).evidence_pack } : {}) as any),
-    ...((asObject((r as any).ingredients) ? { ingredients: (r as any).ingredients } : {}) as any),
+    ...(asNumberRecord((r as any).mechanism)
+      ? { mechanism: asNumberRecord((r as any).mechanism) }
+      : {}),
+    ...((asObject((r as any).experience)
+      ? { experience: (r as any).experience }
+      : {}) as any),
+    ...(uniqueStrings((r as any).risk_flags).length
+      ? { risk_flags: uniqueStrings((r as any).risk_flags) }
+      : {}),
+    ...((asObject((r as any).social_stats)
+      ? { social_stats: (r as any).social_stats }
+      : {}) as any),
+    ...(uniqueStrings((r as any).key_actives).length
+      ? { key_actives: uniqueStrings((r as any).key_actives) }
+      : {}),
+    ...((asObject((r as any).evidence_pack)
+      ? { evidence_pack: (r as any).evidence_pack }
+      : {}) as any),
+    ...((asObject((r as any).ingredients)
+      ? { ingredients: (r as any).ingredients }
+      : {}) as any),
   };
 }
 
@@ -1499,7 +1973,11 @@ type BootstrapInfo = {
   db_ready: boolean | null;
 };
 
-type AnalysisPhotoRef = { slot_id: string; photo_id: string; qc_status: string };
+type AnalysisPhotoRef = {
+  slot_id: string;
+  photo_id: string;
+  qc_status: string;
+};
 
 type BootstrapInfoPatch = {
   profile?: Record<string, unknown> | null;
@@ -1509,36 +1987,40 @@ type BootstrapInfoPatch = {
   db_ready?: boolean | null;
 };
 
-const mapQuickProfileToAuroraProfilePatch = (patch: QuickProfileProfilePatch): Record<string, unknown> | null => {
+const mapQuickProfileToAuroraProfilePatch = (
+  patch: QuickProfileProfilePatch,
+): Record<string, unknown> | null => {
   if (!patch) return null;
   const out: Record<string, unknown> = {};
 
   const skinFeel = patch.skin_feel;
   if (skinFeel) {
-    out.skinType = skinFeel === 'unsure' ? 'unknown' : skinFeel;
+    out.skinType = skinFeel === "unsure" ? "unknown" : skinFeel;
   }
 
   const goalPrimary = patch.goal_primary;
   if (goalPrimary) {
-    if (goalPrimary === 'breakouts') out.goals = ['acne'];
-    else if (goalPrimary === 'brightening') out.goals = ['brightening'];
-    else if (goalPrimary === 'antiaging') out.goals = ['wrinkles'];
-    else if (goalPrimary === 'barrier') out.goals = ['barrier'];
-    else if (goalPrimary === 'spf') out.goals = ['uv_protection'];
-    else out.goals = ['other'];
+    if (goalPrimary === "breakouts") out.goals = ["acne"];
+    else if (goalPrimary === "brightening") out.goals = ["brightening"];
+    else if (goalPrimary === "antiaging") out.goals = ["wrinkles"];
+    else if (goalPrimary === "barrier") out.goals = ["barrier"];
+    else if (goalPrimary === "spf") out.goals = ["uv_protection"];
+    else out.goals = ["other"];
   }
 
   const sensitivityFlag = patch.sensitivity_flag;
   if (sensitivityFlag) {
-    if (sensitivityFlag === 'yes') out.sensitivity = 'high';
-    else if (sensitivityFlag === 'no') out.sensitivity = 'low';
-    else out.sensitivity = 'unknown';
+    if (sensitivityFlag === "yes") out.sensitivity = "high";
+    else if (sensitivityFlag === "no") out.sensitivity = "low";
+    else out.sensitivity = "unknown";
   }
 
   return Object.keys(out).length ? out : null;
 };
 
-const profileRecoCompleteness = (profile: Record<string, unknown> | null | undefined) => {
+const profileRecoCompleteness = (
+  profile: Record<string, unknown> | null | undefined,
+) => {
   const p = profile ?? {};
   const goals = (p as any).goals;
   const dims = {
@@ -1554,10 +2036,14 @@ const profileRecoCompleteness = (profile: Record<string, unknown> | null | undef
   return { score, missing };
 };
 
-const getIngredientFitProfileStatus = (profile: Record<string, unknown> | null | undefined) => {
+const getIngredientFitProfileStatus = (
+  profile: Record<string, unknown> | null | undefined,
+) => {
   const p = profile ?? {};
   const goals = (p as any).goals;
-  const hasGoals = Array.isArray(goals) ? goals.length > 0 : Boolean(asString(goals));
+  const hasGoals = Array.isArray(goals)
+    ? goals.length > 0
+    : Boolean(asString(goals));
   const hasSensitivity = Boolean(asString((p as any).sensitivity));
   return {
     hasGoals,
@@ -1567,30 +2053,44 @@ const getIngredientFitProfileStatus = (profile: Record<string, unknown> | null |
 };
 
 function normalizeSelectionKey(value: string): string {
-  return String(value || '')
+  return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, " ")
     .replace(/[’‘`´]/g, "'")
-    .replace(/[_-]/g, ' ');
+    .replace(/[_-]/g, " ");
 }
 
 function mapIngredientGoalChipToProfileGoal(chip: string): string | null {
   const key = normalizeSelectionKey(chip);
   if (!key) return null;
-  if (key.includes('fine line') || key.includes('firmness') || key.includes('细纹') || key.includes('紧致')) return 'wrinkles';
-  if (key.includes('sensitive') || key.includes('repair') || key.includes('敏感') || key.includes('修护')) return 'barrier';
-  if (key.includes('acne') || key.includes('痘')) return 'acne';
-  if (key.includes('bright') || key.includes('提亮')) return 'brightening';
+  if (
+    key.includes("fine line") ||
+    key.includes("firmness") ||
+    key.includes("细纹") ||
+    key.includes("紧致")
+  )
+    return "wrinkles";
+  if (
+    key.includes("sensitive") ||
+    key.includes("repair") ||
+    key.includes("敏感") ||
+    key.includes("修护")
+  )
+    return "barrier";
+  if (key.includes("acne") || key.includes("痘")) return "acne";
+  if (key.includes("bright") || key.includes("提亮")) return "brightening";
   return null;
 }
 
-function mapIngredientSensitivityChipToProfileSensitivity(chip: string): string | null {
+function mapIngredientSensitivityChipToProfileSensitivity(
+  chip: string,
+): string | null {
   const key = normalizeSelectionKey(chip);
   if (!key) return null;
-  if (key.includes('sensitive') || key.includes('敏感')) return 'high';
-  if (key.includes('normal') || key.includes('一般')) return 'medium';
-  if (key.includes('resilient') || key.includes('耐受')) return 'low';
+  if (key.includes("sensitive") || key.includes("敏感")) return "high";
+  if (key.includes("normal") || key.includes("一般")) return "medium";
+  if (key.includes("resilient") || key.includes("耐受")) return "low";
   return null;
 }
 
@@ -1609,51 +2109,88 @@ function normalizeProfileGoals(value: unknown): string[] {
   return out;
 }
 
-const readBootstrapInfoFromSessionBootstrapCard = (env: V1Envelope): BootstrapInfoPatch | null => {
+const readBootstrapInfoFromSessionBootstrapCard = (
+  env: V1Envelope,
+): BootstrapInfoPatch | null => {
   const cards = Array.isArray(env.cards) ? env.cards : [];
-  const bootstrapCard = cards.find((c) => String((c as any)?.type || '').trim() === 'session_bootstrap');
+  const bootstrapCard = cards.find(
+    (c) => String((c as any)?.type || "").trim() === "session_bootstrap",
+  );
   const payload = bootstrapCard?.payload;
   const p = asObject(payload);
   if (!p) return null;
 
   const patch: BootstrapInfoPatch = {};
-  if (Object.prototype.hasOwnProperty.call(p, 'profile')) {
+  if (Object.prototype.hasOwnProperty.call(p, "profile")) {
     const rawProfile = (p as any).profile;
     const profileObj = asObject(rawProfile);
     const normalized = normalizeProfileFromBootstrap(profileObj);
-    patch.profile = profileObj ? { ...profileObj, ...(normalized || {}), ...(normalized?.region ? { region: normalized.region } : {}) } : null;
+    patch.profile = profileObj
+      ? {
+          ...profileObj,
+          ...(normalized || {}),
+          ...(normalized?.region ? { region: normalized.region } : {}),
+        }
+      : null;
   }
-  if (Object.prototype.hasOwnProperty.call(p, 'recent_logs')) {
-    patch.recent_logs = asArray((p as any).recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+  if (Object.prototype.hasOwnProperty.call(p, "recent_logs")) {
+    patch.recent_logs = asArray((p as any).recent_logs)
+      .map((v) => asObject(v))
+      .filter(Boolean) as Array<Record<string, unknown>>;
   }
-  if (Object.prototype.hasOwnProperty.call(p, 'checkin_due')) {
-    patch.checkin_due = typeof (p as any).checkin_due === 'boolean' ? (p as any).checkin_due : null;
+  if (Object.prototype.hasOwnProperty.call(p, "checkin_due")) {
+    patch.checkin_due =
+      typeof (p as any).checkin_due === "boolean"
+        ? (p as any).checkin_due
+        : null;
   }
-  if (Object.prototype.hasOwnProperty.call(p, 'is_returning')) {
-    patch.is_returning = typeof (p as any).is_returning === 'boolean' ? (p as any).is_returning : null;
+  if (Object.prototype.hasOwnProperty.call(p, "is_returning")) {
+    patch.is_returning =
+      typeof (p as any).is_returning === "boolean"
+        ? (p as any).is_returning
+        : null;
   }
-  if (Object.prototype.hasOwnProperty.call(p, 'db_ready')) {
-    patch.db_ready = typeof (p as any).db_ready === 'boolean' ? (p as any).db_ready : null;
+  if (Object.prototype.hasOwnProperty.call(p, "db_ready")) {
+    patch.db_ready =
+      typeof (p as any).db_ready === "boolean" ? (p as any).db_ready : null;
   }
 
   return patch;
 };
 
-const readBootstrapInfoFromSessionPatch = (env: V1Envelope): BootstrapInfoPatch | null => {
-  const patch = env.session_patch && typeof env.session_patch === 'object' ? (env.session_patch as Record<string, unknown>) : null;
+const readBootstrapInfoFromSessionPatch = (
+  env: V1Envelope,
+): BootstrapInfoPatch | null => {
+  const patch =
+    env.session_patch && typeof env.session_patch === "object"
+      ? (env.session_patch as Record<string, unknown>)
+      : null;
   if (!patch) return null;
 
   const out: BootstrapInfoPatch = {};
-  if (Object.prototype.hasOwnProperty.call(patch, 'profile')) {
+  if (Object.prototype.hasOwnProperty.call(patch, "profile")) {
     const profileObj = asObject(patch.profile);
     const normalized = normalizeProfileFromBootstrap(profileObj);
-    out.profile = profileObj ? { ...profileObj, ...(normalized || {}), ...(normalized?.region ? { region: normalized.region } : {}) } : null;
+    out.profile = profileObj
+      ? {
+          ...profileObj,
+          ...(normalized || {}),
+          ...(normalized?.region ? { region: normalized.region } : {}),
+        }
+      : null;
   }
-  if (Object.prototype.hasOwnProperty.call(patch, 'recent_logs'))
-    out.recent_logs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-  if (Object.prototype.hasOwnProperty.call(patch, 'checkin_due')) out.checkin_due = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
-  if (Object.prototype.hasOwnProperty.call(patch, 'is_returning')) out.is_returning = typeof patch.is_returning === 'boolean' ? patch.is_returning : null;
-  if (Object.prototype.hasOwnProperty.call(patch, 'db_ready')) out.db_ready = typeof patch.db_ready === 'boolean' ? patch.db_ready : null;
+  if (Object.prototype.hasOwnProperty.call(patch, "recent_logs"))
+    out.recent_logs = asArray(patch.recent_logs)
+      .map((v) => asObject(v))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+  if (Object.prototype.hasOwnProperty.call(patch, "checkin_due"))
+    out.checkin_due =
+      typeof patch.checkin_due === "boolean" ? patch.checkin_due : null;
+  if (Object.prototype.hasOwnProperty.call(patch, "is_returning"))
+    out.is_returning =
+      typeof patch.is_returning === "boolean" ? patch.is_returning : null;
+  if (Object.prototype.hasOwnProperty.call(patch, "db_ready"))
+    out.db_ready = typeof patch.db_ready === "boolean" ? patch.db_ready : null;
 
   return out;
 };
@@ -1664,20 +2201,37 @@ const readBootstrapInfo = (env: V1Envelope): BootstrapInfo | null => {
 
   if (!cardPatch && !sessionPatch) return null;
 
-  const merged: BootstrapInfo = { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
-  const patches = [cardPatch, sessionPatch].filter(Boolean) as BootstrapInfoPatch[];
+  const merged: BootstrapInfo = {
+    profile: null,
+    recent_logs: [],
+    checkin_due: null,
+    is_returning: null,
+    db_ready: null,
+  };
+  const patches = [cardPatch, sessionPatch].filter(
+    Boolean,
+  ) as BootstrapInfoPatch[];
   for (const patch of patches) {
-    if ('profile' in patch) merged.profile = patch.profile ?? null;
-    if ('recent_logs' in patch) merged.recent_logs = patch.recent_logs ?? [];
-    if ('checkin_due' in patch) merged.checkin_due = typeof patch.checkin_due === 'boolean' ? patch.checkin_due : null;
-    if ('is_returning' in patch) merged.is_returning = typeof patch.is_returning === 'boolean' ? patch.is_returning : null;
-    if ('db_ready' in patch) merged.db_ready = typeof patch.db_ready === 'boolean' ? patch.db_ready : null;
+    if ("profile" in patch) merged.profile = patch.profile ?? null;
+    if ("recent_logs" in patch) merged.recent_logs = patch.recent_logs ?? [];
+    if ("checkin_due" in patch)
+      merged.checkin_due =
+        typeof patch.checkin_due === "boolean" ? patch.checkin_due : null;
+    if ("is_returning" in patch)
+      merged.is_returning =
+        typeof patch.is_returning === "boolean" ? patch.is_returning : null;
+    if ("db_ready" in patch)
+      merged.db_ready =
+        typeof patch.db_ready === "boolean" ? patch.db_ready : null;
   }
 
   return merged;
 };
 
-const mergeAnalysisPhotoRefs = (left: AnalysisPhotoRef[], right: AnalysisPhotoRef[]): AnalysisPhotoRef[] => {
+const mergeAnalysisPhotoRefs = (
+  left: AnalysisPhotoRef[],
+  right: AnalysisPhotoRef[],
+): AnalysisPhotoRef[] => {
   const merged = [...left, ...right].filter((p) => p.slot_id && p.photo_id);
   const dedup = new Map<string, AnalysisPhotoRef>();
   for (const entry of merged) dedup.set(entry.slot_id, entry);
@@ -1721,7 +2275,9 @@ function Sheet({
                   <Menu className="h-4 w-4" />
                 </button>
               ) : null}
-              <div className="text-sm font-semibold text-foreground">{title}</div>
+              <div className="text-sm font-semibold text-foreground">
+                {title}
+              </div>
             </div>
             <button
               className="aurora-home-role-icon inline-flex h-9 w-9 items-center justify-center rounded-full border"
@@ -1731,100 +2287,246 @@ function Sheet({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+16px)]">{children}</div>
+          <div className="flex-1 overflow-y-auto px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+16px)]">
+            {children}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function formatProfileLine(profile: Record<string, unknown> | null, language: 'EN' | 'CN') {
-  if (!profile) return language === 'CN' ? '未填写肤况资料' : 'No profile yet';
-  const skinType = asString(profile.skinType) || '—';
-  const sensitivity = asString(profile.sensitivity) || '—';
-  const barrier = asString(profile.barrierStatus) || '—';
-  const goals = asArray(profile.goals).map((g) => asString(g)).filter(Boolean) as string[];
-  const goalsText = goals.length ? goals.slice(0, 3).join(', ') : '—';
-  return language === 'CN'
+function formatProfileLine(
+  profile: Record<string, unknown> | null,
+  language: "EN" | "CN",
+) {
+  if (!profile) return language === "CN" ? "未填写肤况资料" : "No profile yet";
+  const skinType = asString(profile.skinType) || "—";
+  const sensitivity = asString(profile.sensitivity) || "—";
+  const barrier = asString(profile.barrierStatus) || "—";
+  const goals = asArray(profile.goals)
+    .map((g) => asString(g))
+    .filter(Boolean) as string[];
+  const goalsText = goals.length ? goals.slice(0, 3).join(", ") : "—";
+  return language === "CN"
     ? `肤质：${skinType} · 敏感：${sensitivity} · 屏障：${barrier} · 目标：${goalsText}`
     : `Skin: ${skinType} · Sensitivity: ${sensitivity} · Barrier: ${barrier} · Goals: ${goalsText}`;
 }
 
-function labelMissing(code: string, language: 'EN' | 'CN') {
-  const c = String(code || '').trim();
-  if (!c) return '';
+function labelMissing(code: string, language: "EN" | "CN") {
+  const c = String(code || "").trim();
+  if (!c) return "";
   const map: Record<string, { CN: string; EN: string }> = {
-    budget_unknown: { CN: '预算信息缺失', EN: 'Budget missing' },
-    routine_missing: { CN: '方案缺失', EN: 'Routine missing' },
-    over_budget: { CN: '可能超出预算', EN: 'May be over budget' },
-    price_unknown: { CN: '价格暂不可得', EN: 'Price unavailable' },
-    price_temporarily_unavailable: { CN: '价格暂不可得', EN: 'Price unavailable' },
-    availability_unknown: { CN: '可购买渠道/地区未知', EN: 'Availability unknown' },
-    recent_logs_missing: { CN: '缺少最近 7 天肤况记录', EN: 'No recent 7-day skin logs' },
-    itinerary_unknown: { CN: '缺少行程/环境信息', EN: 'No itinerary / upcoming plan context' },
-    evidence_missing: { CN: '证据不足', EN: 'Evidence missing' },
-    upstream_missing_or_unstructured: { CN: '上游返回缺失/不规范', EN: 'Upstream missing/unstructured' },
-    upstream_missing_or_empty: { CN: '上游返回为空', EN: 'Upstream empty' },
-    catalog_fallback_disabled: { CN: 'catalog 回退未启用', EN: 'Catalog fallback is disabled' },
-    catalog_no_match: { CN: 'catalog 未匹配到该产品', EN: 'No catalog match found' },
-    catalog_backend_not_configured: { CN: 'catalog 后端未配置', EN: 'Catalog backend is not configured' },
-    pivota_backend_not_configured: { CN: 'catalog 后端未配置', EN: 'Catalog backend is not configured' },
+    budget_unknown: { CN: "预算信息缺失", EN: "Budget missing" },
+    routine_missing: { CN: "方案缺失", EN: "Routine missing" },
+    over_budget: { CN: "可能超出预算", EN: "May be over budget" },
+    price_unknown: { CN: "价格暂不可得", EN: "Price unavailable" },
+    price_temporarily_unavailable: {
+      CN: "价格暂不可得",
+      EN: "Price unavailable",
+    },
+    availability_unknown: {
+      CN: "可购买渠道/地区未知",
+      EN: "Availability unknown",
+    },
+    recent_logs_missing: {
+      CN: "缺少最近 7 天肤况记录",
+      EN: "No recent 7-day skin logs",
+    },
+    itinerary_unknown: {
+      CN: "缺少行程/环境信息",
+      EN: "No itinerary / upcoming plan context",
+    },
+    evidence_missing: { CN: "证据不足", EN: "Evidence missing" },
+    upstream_missing_or_unstructured: {
+      CN: "上游返回缺失/不规范",
+      EN: "Upstream missing/unstructured",
+    },
+    upstream_missing_or_empty: { CN: "上游返回为空", EN: "Upstream empty" },
+    catalog_fallback_disabled: {
+      CN: "catalog 回退未启用",
+      EN: "Catalog fallback is disabled",
+    },
+    catalog_no_match: {
+      CN: "catalog 未匹配到该产品",
+      EN: "No catalog match found",
+    },
+    catalog_backend_not_configured: {
+      CN: "catalog 后端未配置",
+      EN: "Catalog backend is not configured",
+    },
+    pivota_backend_not_configured: {
+      CN: "catalog 后端未配置",
+      EN: "Catalog backend is not configured",
+    },
     anchor_missing_deepscan_degraded: {
-      CN: '无锚点降级分析后仍证据不足',
-      EN: 'No-anchor degraded deep-scan still lacked evidence',
+      CN: "无锚点降级分析后仍证据不足",
+      EN: "No-anchor degraded deep-scan still lacked evidence",
     },
-    heuristic_url_parse: { CN: '已通过 URL 启发式补全产品信息', EN: 'Product info was recovered from URL heuristics' },
-    alternatives_partial: { CN: '部分步骤缺少平替/相似选项', EN: 'Alternatives missing for some steps' },
-    social_data_limited: { CN: '跨平台讨论较少', EN: 'Cross-platform discussion is limited' },
-    competitors_low_coverage: { CN: '同类对比样本较少', EN: 'Limited comparable products' },
-    concentration_unknown: { CN: '成分浓度未披露', EN: 'Concentration is not disclosed' },
-    analysis_in_progress: { CN: '分析进行中，结果会继续补全', EN: 'Analysis is in progress and will continue to improve' },
-    upstream_analysis_missing: { CN: '分析进行中，结果会继续补全', EN: 'Analysis is in progress and will continue to improve' },
-    url_ingredient_analysis_used: { CN: '已从商品页补抓成分信息', EN: 'Ingredient details were retrieved from the product page' },
-    url_realtime_product_intel_used: { CN: '已启用实时分析补全结果', EN: 'Real-time analysis was used to fill missing data' },
-    url_fetch_forbidden_403: { CN: '官网页面被站点策略拦截（403）', EN: 'Official page fetch was blocked by site policy (403)' },
-    url_fetch_recovered_with_fallback: { CN: '页面抓取已通过回退策略恢复', EN: 'Page fetch recovered with fallback strategy' },
-    on_page_fetch_blocked: { CN: '页面抓取受限，已走无页面降级链路', EN: 'On-page fetch was blocked; degraded no-page path was used' },
-    anchor_soft_blocked_ambiguous: { CN: '锚点候选信息不足，已软拦截', EN: 'Anchor candidate was ambiguous and soft-blocked' },
-    anchor_soft_blocked_url_mismatch: { CN: '锚点与输入 URL 不一致，已软拦截', EN: 'Anchor mismatched the input URL and was soft-blocked' },
-    anchor_soft_blocked_non_skincare: { CN: '疑似非护肤品类，已软拦截', EN: 'Likely non-skincare category and soft-blocked' },
-    anchor_id_not_used_due_to_low_trust: { CN: '锚点可信度不足，未使用 anchor id', EN: 'Anchor id was not used due to low trust' },
-    competitors_non_skincare_filtered: { CN: '已过滤非护肤竞品候选', EN: 'Non-skincare competitor candidates were filtered out' },
-    related_products_non_skincare_filtered: { CN: '已过滤非护肤 related 候选', EN: 'Non-skincare related-product candidates were filtered out' },
-    dupes_non_skincare_filtered: { CN: '已过滤非护肤平替候选', EN: 'Non-skincare dupe candidates were filtered out' },
-    followup_anchor_missing: { CN: 'follow-up 缺少锚点，需补充 URL/产品名/产品图', EN: 'Follow-up is missing an anchor; add URL/name/product photo' },
-    followup_goal_not_resolved: { CN: 'follow-up 目标未明确，已按通用替代路径处理', EN: 'Follow-up goal was unclear; handled with default alternatives path' },
-    related_semantics_reclassified: { CN: '部分 related 候选已重分类为搭配建议', EN: 'Some related candidates were reclassified as pairing ideas' },
-    competitor_category_unknown_blocked: { CN: '类目信号不足的候选已拦截', EN: 'Category-unknown alternatives were blocked' },
-    kb_entry_quarantined: { CN: '命中历史缓存异常，已隔离并实时重算', EN: 'A stale KB hit was quarantined and recalculated in real time' },
-    regulatory_source_used: { CN: '已启用监管源补充证据', EN: 'Regulatory source was used as evidence backup' },
-    ingredient_source_conflict: { CN: '不同来源成分存在冲突，已降低置信度', EN: 'Ingredient sources conflict; confidence was lowered' },
-    incidecoder_source_used: { CN: '已启用 INCIDecoder 补充证据', EN: 'INCIDecoder was used as a supplemental source' },
-    incidecoder_no_match: { CN: 'INCIDecoder 未匹配到对应产品', EN: 'INCIDecoder did not find a matching product' },
-    incidecoder_fetch_failed: { CN: 'INCIDecoder 抓取失败', EN: 'INCIDecoder fetch failed' },
+    heuristic_url_parse: {
+      CN: "已通过 URL 启发式补全产品信息",
+      EN: "Product info was recovered from URL heuristics",
+    },
+    alternatives_partial: {
+      CN: "部分步骤缺少平替/相似选项",
+      EN: "Alternatives missing for some steps",
+    },
+    social_data_limited: {
+      CN: "跨平台讨论较少",
+      EN: "Cross-platform discussion is limited",
+    },
+    competitors_low_coverage: {
+      CN: "同类对比样本较少",
+      EN: "Limited comparable products",
+    },
+    concentration_unknown: {
+      CN: "成分浓度未披露",
+      EN: "Concentration is not disclosed",
+    },
+    analysis_in_progress: {
+      CN: "分析进行中，结果会继续补全",
+      EN: "Analysis is in progress and will continue to improve",
+    },
+    upstream_analysis_missing: {
+      CN: "分析进行中，结果会继续补全",
+      EN: "Analysis is in progress and will continue to improve",
+    },
+    url_ingredient_analysis_used: {
+      CN: "已从商品页补抓成分信息",
+      EN: "Ingredient details were retrieved from the product page",
+    },
+    url_realtime_product_intel_used: {
+      CN: "已启用实时分析补全结果",
+      EN: "Real-time analysis was used to fill missing data",
+    },
+    url_fetch_forbidden_403: {
+      CN: "官网页面被站点策略拦截（403）",
+      EN: "Official page fetch was blocked by site policy (403)",
+    },
+    url_fetch_recovered_with_fallback: {
+      CN: "页面抓取已通过回退策略恢复",
+      EN: "Page fetch recovered with fallback strategy",
+    },
+    on_page_fetch_blocked: {
+      CN: "页面抓取受限，已走无页面降级链路",
+      EN: "On-page fetch was blocked; degraded no-page path was used",
+    },
+    anchor_soft_blocked_ambiguous: {
+      CN: "锚点候选信息不足，已软拦截",
+      EN: "Anchor candidate was ambiguous and soft-blocked",
+    },
+    anchor_soft_blocked_url_mismatch: {
+      CN: "锚点与输入 URL 不一致，已软拦截",
+      EN: "Anchor mismatched the input URL and was soft-blocked",
+    },
+    anchor_soft_blocked_non_skincare: {
+      CN: "疑似非护肤品类，已软拦截",
+      EN: "Likely non-skincare category and soft-blocked",
+    },
+    anchor_id_not_used_due_to_low_trust: {
+      CN: "锚点可信度不足，未使用 anchor id",
+      EN: "Anchor id was not used due to low trust",
+    },
+    competitors_non_skincare_filtered: {
+      CN: "已过滤非护肤竞品候选",
+      EN: "Non-skincare competitor candidates were filtered out",
+    },
+    related_products_non_skincare_filtered: {
+      CN: "已过滤非护肤 related 候选",
+      EN: "Non-skincare related-product candidates were filtered out",
+    },
+    dupes_non_skincare_filtered: {
+      CN: "已过滤非护肤平替候选",
+      EN: "Non-skincare dupe candidates were filtered out",
+    },
+    followup_anchor_missing: {
+      CN: "follow-up 缺少锚点，需补充 URL/产品名/产品图",
+      EN: "Follow-up is missing an anchor; add URL/name/product photo",
+    },
+    followup_goal_not_resolved: {
+      CN: "follow-up 目标未明确，已按通用替代路径处理",
+      EN: "Follow-up goal was unclear; handled with default alternatives path",
+    },
+    related_semantics_reclassified: {
+      CN: "部分 related 候选已重分类为搭配建议",
+      EN: "Some related candidates were reclassified as pairing ideas",
+    },
+    competitor_category_unknown_blocked: {
+      CN: "类目信号不足的候选已拦截",
+      EN: "Category-unknown alternatives were blocked",
+    },
+    kb_entry_quarantined: {
+      CN: "命中历史缓存异常，已隔离并实时重算",
+      EN: "A stale KB hit was quarantined and recalculated in real time",
+    },
+    regulatory_source_used: {
+      CN: "已启用监管源补充证据",
+      EN: "Regulatory source was used as evidence backup",
+    },
+    ingredient_source_conflict: {
+      CN: "不同来源成分存在冲突，已降低置信度",
+      EN: "Ingredient sources conflict; confidence was lowered",
+    },
+    incidecoder_source_used: {
+      CN: "已启用 INCIDecoder 补充证据",
+      EN: "INCIDecoder was used as a supplemental source",
+    },
+    incidecoder_no_match: {
+      CN: "INCIDecoder 未匹配到对应产品",
+      EN: "INCIDecoder did not find a matching product",
+    },
+    incidecoder_fetch_failed: {
+      CN: "INCIDecoder 抓取失败",
+      EN: "INCIDecoder fetch failed",
+    },
     incidecoder_unverified_not_persisted: {
-      CN: 'INCIDecoder 结果未通过交叉验证，已阻断 KB 回写',
-      EN: 'INCIDecoder result was not cross-validated and was blocked from KB persistence',
+      CN: "INCIDecoder 结果未通过交叉验证，已阻断 KB 回写",
+      EN: "INCIDecoder result was not cross-validated and was blocked from KB persistence",
     },
-    version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
-    retail_source_no_match: { CN: '零售平台未匹配到对应产品', EN: 'Retail cross-check did not find a matching product' },
-    retail_source_used: { CN: '已使用零售平台补充成分证据', EN: 'Retail source was used for ingredient evidence' },
-    ingredient_concentration_unknown: { CN: '成分浓度未披露', EN: 'Ingredient concentrations are not disclosed' },
-    llm_verification_used: { CN: '已使用 AI 知识库交叉验证成分', EN: 'AI knowledge was used to cross-verify ingredients' },
-    'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
-    'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
-    'skin_fit.profile.barrierStatus': { CN: '未提供屏障状态', EN: 'Barrier status was not provided' },
+    version_verification_needed: {
+      CN: "需核对地区/批次版本差异",
+      EN: "Version/region verification is still needed",
+    },
+    retail_source_no_match: {
+      CN: "零售平台未匹配到对应产品",
+      EN: "Retail cross-check did not find a matching product",
+    },
+    retail_source_used: {
+      CN: "已使用零售平台补充成分证据",
+      EN: "Retail source was used for ingredient evidence",
+    },
+    ingredient_concentration_unknown: {
+      CN: "成分浓度未披露",
+      EN: "Ingredient concentrations are not disclosed",
+    },
+    llm_verification_used: {
+      CN: "已使用 AI 知识库交叉验证成分",
+      EN: "AI knowledge was used to cross-verify ingredients",
+    },
+    "skin_fit.profile.skinType": {
+      CN: "未提供肤质信息",
+      EN: "Skin type was not provided",
+    },
+    "skin_fit.profile.sensitivity": {
+      CN: "未提供敏感度信息",
+      EN: "Sensitivity was not provided",
+    },
+    "skin_fit.profile.barrierStatus": {
+      CN: "未提供屏障状态",
+      EN: "Barrier status was not provided",
+    },
   };
   if (map[c]?.[language]) return map[c][language];
-  if (isInternalMissingInfoCode(c)) return '';
-  return c
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  if (isInternalMissingInfoCode(c)) return "";
+  return c.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-const NON_SKINCARE_ALTERNATIVE_RE = /\b(brush|applicator|blender|tool|comb|razor|shaver|makeup\s*brush)\b/i;
+const NON_SKINCARE_ALTERNATIVE_RE =
+  /\b(brush|applicator|blender|tool|comb|razor|shaver|makeup\s*brush)\b/i;
 
-function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unknown> | null) {
+function isLikelyNonSkincareAlternativeCandidate(
+  candidate: Record<string, unknown> | null,
+) {
   const row = candidate || {};
   const signal = [
     asString((row as any).name),
@@ -1836,7 +2538,9 @@ function isLikelyNonSkincareAlternativeCandidate(candidate: Record<string, unkno
     asString((row as any).product_type),
     asString((row as any).productType),
     asString((row as any).type),
-  ].join(' ').toLowerCase();
+  ]
+    .join(" ")
+    .toLowerCase();
   if (!signal) return false;
   return NON_SKINCARE_ALTERNATIVE_RE.test(signal);
 }
@@ -1855,14 +2559,21 @@ export function RecommendationsCard({
   loadAlternativesForItem,
 }: {
   card: Card;
-  language: 'EN' | 'CN';
+  language: "EN" | "CN";
   debug: boolean;
-  resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
+  resolveOffers?: (args: {
+    sku_id?: string | null;
+    product_id?: string | null;
+    merchant_id?: string | null;
+  }) => Promise<any>;
   resolveProductRef?: (args: {
     query: string;
-    lang: 'en' | 'cn';
+    lang: "en" | "cn";
     hints?: {
-      product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+      product_ref?: {
+        product_id?: string | null;
+        merchant_id?: string | null;
+      } | null;
       product_id?: string | null;
       sku_id?: string | null;
       aliases?: Array<string | null | undefined>;
@@ -1871,7 +2582,11 @@ export function RecommendationsCard({
     };
     signal?: AbortSignal;
   }) => Promise<any>;
-  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
+  resolveProductsSearch?: (args: {
+    query: string;
+    limit?: number;
+    preferBrand?: string | null;
+  }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
@@ -1880,12 +2595,24 @@ export function RecommendationsCard({
     anchorProductId?: string | null;
     productInput?: string | null;
     product?: Record<string, unknown> | null;
-  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
+  }) => Promise<{
+    alternatives: Array<Record<string, unknown>>;
+    llmTrace?: Record<string, unknown> | null;
+  } | null>;
 }) {
-  type PdpOpenState = 'idle' | 'resolving' | 'opening_internal' | 'opening_external' | 'done' | 'error';
-  type PdpOpenPath = 'group' | 'ref' | 'resolve' | 'external';
+  type PdpOpenState =
+    | "idle"
+    | "resolving"
+    | "opening_internal"
+    | "opening_external"
+    | "done"
+    | "error";
+  type PdpOpenPath = "group" | "ref" | "resolve" | "external";
   type ProductResolverHints = {
-    product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+    product_ref?: {
+      product_id?: string | null;
+      merchant_id?: string | null;
+    } | null;
     product_id?: string | null;
     sku_id?: string | null;
     aliases?: Array<string | null | undefined>;
@@ -1898,7 +2625,10 @@ export function RecommendationsCard({
     brand: string | null;
     name: string | null;
     subject_product_group_id?: string | null;
-    canonical_product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+    canonical_product_ref?: {
+      product_id?: string | null;
+      merchant_id?: string | null;
+    } | null;
     resolve_query?: string | null;
     hints?: ProductResolverHints;
     pdp_open?: {
@@ -1907,25 +2637,35 @@ export function RecommendationsCard({
       external?: { query?: string | null; url?: string | null } | null;
     } | null;
   };
-  const [detailsFlow, setDetailsFlow] = useState<{ key: string | null; state: PdpOpenState }>({ key: null, state: 'idle' });
-  const [lazyAlternativesBusyKey, setLazyAlternativesBusyKey] = useState<string | null>(null);
-  const inflightByKeyRef = useRef<Map<string, { controller: AbortController; promise: Promise<void> }>>(new Map());
+  const [detailsFlow, setDetailsFlow] = useState<{
+    key: string | null;
+    state: PdpOpenState;
+  }>({ key: null, state: "idle" });
+  const [lazyAlternativesBusyKey, setLazyAlternativesBusyKey] = useState<
+    string | null
+  >(null);
+  const inflightByKeyRef = useRef<
+    Map<string, { controller: AbortController; promise: Promise<void> }>
+  >(new Map());
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
   const payload = asObject(card.payload) || {};
   const items = asArray(payload.recommendations) as RecoItem[];
-  const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
+  const hasAnyAlternatives = items.some(
+    (it) => asArray((it as any).alternatives).length > 0,
+  );
   const hasMissingAlternatives =
-    hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
+    hasAnyAlternatives &&
+    items.some((it) => asArray((it as any).alternatives).length === 0);
   const [detailsOpen, setDetailsOpen] = useState(() => hasAnyAlternatives);
 
   const looksLikeOpaqueId = useCallback((value: unknown): boolean => {
-    if (typeof value !== 'string') return false;
+    if (typeof value !== "string") return false;
     const s = value.trim();
     if (!s) return false;
     if (/^kb:/i.test(s)) return true;
     if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(s)) return true;
-    const compactUuid = s.replace(/[\s_-]/g, '').replace(/-/g, '');
+    const compactUuid = s.replace(/[\s_-]/g, "").replace(/-/g, "");
     if (/^[0-9a-f]{32}$/i.test(compactUuid)) return true;
     if (/^[0-9a-f]{24,}$/i.test(s) && /[a-f]/i.test(s)) return true;
     return false;
@@ -1934,7 +2674,7 @@ export function RecommendationsCard({
   useEffect(
     () => () => {
       for (const entry of inflightByKeyRef.current.values()) {
-        entry.controller.abort('component_unmount');
+        entry.controller.abort("component_unmount");
       }
       inflightByKeyRef.current.clear();
       clickLockByKeyRef.current.clear();
@@ -1942,33 +2682,50 @@ export function RecommendationsCard({
     [],
   );
 
-  const classifyResolveFailure = useCallback((resp: unknown): { reason: string; allowExternalFallback: boolean } => {
-    const root = asObject(resp);
-    if (!root) return { reason: 'resolve_invalid_schema', allowExternalFallback: false };
-    if (typeof (root as any).resolved !== 'boolean') {
-      return { reason: 'resolve_invalid_schema', allowExternalFallback: false };
-    }
-    if ((root as any).resolved === true) {
-      return { reason: 'resolve_missing_stable_key', allowExternalFallback: false };
-    }
+  const classifyResolveFailure = useCallback(
+    (resp: unknown): { reason: string; allowExternalFallback: boolean } => {
+      const root = asObject(resp);
+      if (!root)
+        return {
+          reason: "resolve_invalid_schema",
+          allowExternalFallback: false,
+        };
+      if (typeof (root as any).resolved !== "boolean") {
+        return {
+          reason: "resolve_invalid_schema",
+          allowExternalFallback: false,
+        };
+      }
+      if ((root as any).resolved === true) {
+        return {
+          reason: "resolve_missing_stable_key",
+          allowExternalFallback: false,
+        };
+      }
 
-    const reasonCodeRaw =
-      asString((root as any).reason_code) ||
-      asString((root as any).reasonCode) ||
-      asString((root as any).data?.reason_code) ||
-      asString((root as any).data?.reasonCode) ||
-      asString((root as any).error?.reason_code) ||
-      asString((root as any).error?.reasonCode) ||
-      null;
-    const reasonCode = reasonCodeRaw ? reasonCodeRaw.toUpperCase() : null;
-    if (!reasonCode) {
-      return { reason: 'resolve_missing_reason_code', allowExternalFallback: false };
-    }
-    return {
-      reason: `resolve_${reasonCode.toLowerCase()}`,
-      allowExternalFallback: PDP_EXTERNAL_FALLBACK_REASON_CODES.has(reasonCode),
-    };
-  }, []);
+      const reasonCodeRaw =
+        asString((root as any).reason_code) ||
+        asString((root as any).reasonCode) ||
+        asString((root as any).data?.reason_code) ||
+        asString((root as any).data?.reasonCode) ||
+        asString((root as any).error?.reason_code) ||
+        asString((root as any).error?.reasonCode) ||
+        null;
+      const reasonCode = reasonCodeRaw ? reasonCodeRaw.toUpperCase() : null;
+      if (!reasonCode) {
+        return {
+          reason: "resolve_missing_reason_code",
+          allowExternalFallback: false,
+        };
+      }
+      return {
+        reason: `resolve_${reasonCode.toLowerCase()}`,
+        allowExternalFallback:
+          PDP_EXTERNAL_FALLBACK_REASON_CODES.has(reasonCode),
+      };
+    },
+    [],
+  );
 
   const openExternalGoogle = useCallback(
     (query: string): { opened: boolean; url: string | null } => {
@@ -1976,7 +2733,9 @@ export function RecommendationsCard({
       if (!googleUrl) return { opened: false, url: null };
       try {
         return {
-          opened: Boolean(window.open(googleUrl, '_blank', 'noopener,noreferrer')),
+          opened: Boolean(
+            window.open(googleUrl, "_blank", "noopener,noreferrer"),
+          ),
           url: googleUrl,
         };
       } catch {
@@ -1988,12 +2747,13 @@ export function RecommendationsCard({
 
   const openPdpFromCard = useCallback(
     async (card: ProductPdpCardInput) => {
-      const anchorKey = String(card.anchor_key || '').trim();
+      const anchorKey = String(card.anchor_key || "").trim();
       if (!anchorKey) return;
 
       const existing = inflightByKeyRef.current.get(anchorKey);
       if (existing) {
-        const allowReplayAfterSettle = detailsFlow.key === anchorKey && detailsFlow.state === 'done';
+        const allowReplayAfterSettle =
+          detailsFlow.key === anchorKey && detailsFlow.state === "done";
         await existing.promise;
         if (!allowReplayAfterSettle) return;
       }
@@ -2002,7 +2762,7 @@ export function RecommendationsCard({
 
       for (const [key, entry] of inflightByKeyRef.current.entries()) {
         if (key !== anchorKey) {
-          entry.controller.abort('superseded');
+          entry.controller.abort("superseded");
         }
       }
 
@@ -2012,18 +2772,21 @@ export function RecommendationsCard({
       let failReason: string | null = null;
 
       const position = Math.max(0, Number(card.position) || 0);
-      const safeBrand = String(card.brand || '').trim();
-      const safeName = String(card.name || '').trim();
-      const title = [safeBrand, safeName].filter(Boolean).join(' ').trim();
+      const safeBrand = String(card.brand || "").trim();
+      const safeName = String(card.name || "").trim();
+      const title = [safeBrand, safeName].filter(Boolean).join(" ").trim();
       const skuType = card.hints?.sku_id
-        ? 'sku_id'
+        ? "sku_id"
         : card.hints?.product_id
-          ? 'product_id'
-          : 'name_query';
+          ? "product_id"
+          : "name_query";
 
-      const openInternalPdp = (target: { product_id: string; merchant_id?: string | null }, path: Exclude<PdpOpenPath, 'external'>) => {
+      const openInternalPdp = (
+        target: { product_id: string; merchant_id?: string | null },
+        path: Exclude<PdpOpenPath, "external">,
+      ) => {
         openPath = path;
-        setDetailsFlow({ key: anchorKey, state: 'opening_internal' });
+        setDetailsFlow({ key: anchorKey, state: "opening_internal" });
 
         const pdpUrl = buildPdpUrl({
           product_id: target.product_id,
@@ -2059,51 +2822,77 @@ export function RecommendationsCard({
               anchor_key: anchorKey,
             });
           }
-          setDetailsFlow({ key: anchorKey, state: 'resolving' });
+          setDetailsFlow({ key: anchorKey, state: "resolving" });
 
-          const preferredPdpPath = String(card.pdp_open?.path || '').trim().toLowerCase();
-          const hintedReasonCode = String(card.pdp_open?.resolve_reason_code || '').trim().toUpperCase();
+          const preferredPdpPath = String(card.pdp_open?.path || "")
+            .trim()
+            .toLowerCase();
+          const hintedReasonCode = String(
+            card.pdp_open?.resolve_reason_code || "",
+          )
+            .trim()
+            .toUpperCase();
           const hintedExternalQuery =
-            String(card.pdp_open?.external?.query || '').trim() ||
-            String(card.resolve_query || '').trim() ||
+            String(card.pdp_open?.external?.query || "").trim() ||
+            String(card.resolve_query || "").trim() ||
             [safeBrand, safeName]
-              .map((v) => String(v || '').trim())
+              .map((v) => String(v || "").trim())
               .filter(Boolean)
-              .join(' ')
+              .join(" ")
               .trim();
-          const resolveQuery = String(card.resolve_query || '').trim();
-          const hintedExternalUrl = normalizeOutboundFallbackUrl(String(card.pdp_open?.external?.url || '').trim());
+          const resolveQuery = String(card.resolve_query || "").trim();
+          const hintedExternalUrl = normalizeOutboundFallbackUrl(
+            String(card.pdp_open?.external?.url || "").trim(),
+          );
           const hasStrongNoCandidatesHint = (() => {
             const normalizeHintToken = (value: unknown) =>
-              String(value || '')
+              String(value || "")
                 .trim()
-                .replace(/\s+/g, ' ')
+                .replace(/\s+/g, " ")
                 .toLowerCase();
             const isMeaningfulHintToken = (value: unknown) => {
               const token = normalizeHintToken(value);
               if (!token) return false;
-              if (token === 'unknown' || token === 'n/a' || token === 'na' || token === 'null' || token === 'undefined') return false;
-              const compact = token.replace(/[^a-z0-9\u4e00-\u9fff]/gi, '');
+              if (
+                token === "unknown" ||
+                token === "n/a" ||
+                token === "na" ||
+                token === "null" ||
+                token === "undefined"
+              )
+                return false;
+              const compact = token.replace(/[^a-z0-9\u4e00-\u9fff]/gi, "");
               return compact.length >= 3;
             };
             const isStrongHumanQuery = (value: unknown) => {
-              const query = String(value || '')
+              const query = String(value || "")
                 .trim()
-                .replace(/\s+/g, ' ');
+                .replace(/\s+/g, " ");
               if (!query) return false;
               if (looksLikeOpaqueId(query)) return false;
               const words = query.split(/\s+/).filter(Boolean);
-              if (words.filter((w) => isMeaningfulHintToken(w)).length >= 2 && query.length >= 8) return true;
-              if (/[\u4e00-\u9fff]/.test(query) && query.length >= 4) return true;
+              if (
+                words.filter((w) => isMeaningfulHintToken(w)).length >= 2 &&
+                query.length >= 8
+              )
+                return true;
+              if (/[\u4e00-\u9fff]/.test(query) && query.length >= 4)
+                return true;
               return false;
             };
             const hintedProductId =
-              String(card.hints?.product_ref?.product_id || '').trim() ||
-              String(card.hints?.product_id || '').trim() ||
-              '';
-            const hasResolvableProductIdHint = Boolean(hintedProductId && !looksLikeOpaqueId(hintedProductId));
-            const hasBrandTitleHint = isMeaningfulHintToken(card.hints?.brand) && isMeaningfulHintToken(card.hints?.title);
-            const hasAliasHint = (card.hints?.aliases || []).some((alias) => isStrongHumanQuery(alias));
+              String(card.hints?.product_ref?.product_id || "").trim() ||
+              String(card.hints?.product_id || "").trim() ||
+              "";
+            const hasResolvableProductIdHint = Boolean(
+              hintedProductId && !looksLikeOpaqueId(hintedProductId),
+            );
+            const hasBrandTitleHint =
+              isMeaningfulHintToken(card.hints?.brand) &&
+              isMeaningfulHintToken(card.hints?.title);
+            const hasAliasHint = (card.hints?.aliases || []).some((alias) =>
+              isStrongHumanQuery(alias),
+            );
             return (
               hasResolvableProductIdHint ||
               hasBrandTitleHint ||
@@ -2114,98 +2903,124 @@ export function RecommendationsCard({
           })();
           const shouldRetryNoCandidatesBeforeExternal =
             RECO_PDP_NO_CANDIDATES_RETRY_ENABLED &&
-            preferredPdpPath === 'external' &&
-            hintedReasonCode === 'NO_CANDIDATES' &&
+            preferredPdpPath === "external" &&
+            hintedReasonCode === "NO_CANDIDATES" &&
             hasStrongNoCandidatesHint;
           const shouldDirectExternalFromHint =
-            preferredPdpPath === 'external' &&
+            preferredPdpPath === "external" &&
             PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
             !shouldRetryNoCandidatesBeforeExternal;
 
-          const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
+          const groupTarget = extractPdpTargetFromProductGroupId(
+            card.subject_product_group_id || null,
+          );
           if (card.subject_product_group_id && !groupTarget) {
-            failReason = failReason || 'invalid_product_group_id';
+            failReason = failReason || "invalid_product_group_id";
           }
           if (groupTarget?.product_id) {
-            openInternalPdp(groupTarget, 'group');
-            setDetailsFlow({ key: anchorKey, state: 'done' });
+            openInternalPdp(groupTarget, "group");
+            setDetailsFlow({ key: anchorKey, state: "done" });
             return;
           }
 
           const canonicalRef = card.canonical_product_ref;
-          const canonicalProductId = String(canonicalRef?.product_id || '').trim();
-          const canonicalMerchantId = String(canonicalRef?.merchant_id || '').trim() || null;
-          if (canonicalRef && (!canonicalProductId || looksLikeOpaqueId(canonicalProductId))) {
-            failReason = failReason || 'invalid_canonical_ref';
+          const canonicalProductId = String(
+            canonicalRef?.product_id || "",
+          ).trim();
+          const canonicalMerchantId =
+            String(canonicalRef?.merchant_id || "").trim() || null;
+          if (
+            canonicalRef &&
+            (!canonicalProductId || looksLikeOpaqueId(canonicalProductId))
+          ) {
+            failReason = failReason || "invalid_canonical_ref";
           }
           if (canonicalProductId && !looksLikeOpaqueId(canonicalProductId)) {
             openInternalPdp(
               {
                 product_id: canonicalProductId,
-                ...(canonicalMerchantId ? { merchant_id: canonicalMerchantId } : {}),
+                ...(canonicalMerchantId
+                  ? { merchant_id: canonicalMerchantId }
+                  : {}),
               },
-              'ref',
+              "ref",
             );
-            setDetailsFlow({ key: anchorKey, state: 'done' });
+            setDetailsFlow({ key: anchorKey, state: "done" });
             return;
           }
 
           if (shouldDirectExternalFromHint) {
-            openPath = 'external';
-            setDetailsFlow({ key: anchorKey, state: 'opening_external' });
-            const external =
-              hintedExternalUrl
-                ? {
-                    opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
-                    url: hintedExternalUrl,
-                  }
-                : openExternalGoogle(hintedExternalQuery);
+            openPath = "external";
+            setDetailsFlow({ key: anchorKey, state: "opening_external" });
+            const external = hintedExternalUrl
+              ? {
+                  opened: Boolean(
+                    window.open(
+                      hintedExternalUrl,
+                      "_blank",
+                      "noopener,noreferrer",
+                    ),
+                  ),
+                  url: hintedExternalUrl,
+                }
+              : openExternalGoogle(hintedExternalQuery);
             if (analyticsCtx) {
               emitPdpOpenPath(analyticsCtx, {
                 card_position: position,
-                path: 'external',
+                path: "external",
                 anchor_key: anchorKey,
                 url: external.url,
               });
             }
             if (external.opened) {
-              setDetailsFlow({ key: anchorKey, state: 'done' });
+              setDetailsFlow({ key: anchorKey, state: "done" });
               return;
             }
-            failReason = failReason || (!external.url ? 'google_query_empty' : 'popup_blocked');
-            setDetailsFlow({ key: anchorKey, state: 'error' });
+            failReason =
+              failReason ||
+              (!external.url ? "google_query_empty" : "popup_blocked");
+            setDetailsFlow({ key: anchorKey, state: "error" });
             toast({
-              title: language === 'CN' ? '无法打开外部页面' : 'Unable to open external page',
+              title:
+                language === "CN"
+                  ? "无法打开外部页面"
+                  : "Unable to open external page",
               description:
-                language === 'CN'
-                  ? '浏览器可能拦截了新标签页弹窗，请允许后重试。'
-                  : 'Your browser may have blocked the popup. Please allow popups and retry.',
+                language === "CN"
+                  ? "浏览器可能拦截了新标签页弹窗，请允许后重试。"
+                  : "Your browser may have blocked the popup. Please allow popups and retry.",
             });
             return;
           }
 
-          let resolvedTarget: { product_id: string; merchant_id?: string | null } | null = null;
+          let resolvedTarget: {
+            product_id: string;
+            merchant_id?: string | null;
+          } | null = null;
           let allowExternalFallback =
-            preferredPdpPath === 'external' && !PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES.has(hintedReasonCode);
+            preferredPdpPath === "external" &&
+            !PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES.has(hintedReasonCode);
 
           if (!resolveProductRef) {
-            failReason = failReason || 'resolve_unavailable';
+            failReason = failReason || "resolve_unavailable";
           } else if (!resolveQuery) {
-            failReason = failReason || 'missing_resolve_query';
+            failReason = failReason || "missing_resolve_query";
           } else {
-            openPath = 'resolve';
+            openPath = "resolve";
             const timeoutId = window.setTimeout(() => {
-              if (!controller.signal.aborted) controller.abort('resolve_timeout');
+              if (!controller.signal.aborted)
+                controller.abort("resolve_timeout");
             }, VIEW_DETAILS_RESOLVE_TIMEOUT_MS);
 
             try {
               const resp = await resolveProductRef({
                 query: resolveQuery,
-                lang: language === 'CN' ? 'cn' : 'en',
+                lang: language === "CN" ? "cn" : "en",
                 ...(card.hints ? { hints: card.hints } : {}),
                 signal: controller.signal,
               });
-              const strictTarget = extractStablePdpTargetFromProductsResolveResponse(resp);
+              const strictTarget =
+                extractStablePdpTargetFromProductsResolveResponse(resp);
               if (strictTarget?.product_id) {
                 resolvedTarget = strictTarget;
               } else {
@@ -2214,19 +3029,23 @@ export function RecommendationsCard({
                 if (failure.allowExternalFallback) allowExternalFallback = true;
               }
               if (debug) {
-                console.info('[RecoViewDetails] strict resolve result', {
+                console.info("[RecoViewDetails] strict resolve result", {
                   query: resolveQuery,
                   resolved: Boolean(strictTarget?.product_id),
                 });
               }
             } catch {
-              if (controller.signal.aborted && controller.signal.reason === 'superseded') {
+              if (
+                controller.signal.aborted &&
+                controller.signal.reason === "superseded"
+              ) {
                 return;
               }
               failReason =
-                controller.signal.aborted && controller.signal.reason === 'resolve_timeout'
-                  ? 'resolve_timeout'
-                  : 'resolve_request_error';
+                controller.signal.aborted &&
+                controller.signal.reason === "resolve_timeout"
+                  ? "resolve_timeout"
+                  : "resolve_request_error";
               allowExternalFallback = true;
             } finally {
               window.clearTimeout(timeoutId);
@@ -2239,73 +3058,86 @@ export function RecommendationsCard({
                 product_id: resolvedTarget.product_id,
                 merchant_id: resolvedTarget.merchant_id ?? null,
               },
-              'resolve',
+              "resolve",
             );
-            setDetailsFlow({ key: anchorKey, state: 'done' });
+            setDetailsFlow({ key: anchorKey, state: "done" });
             return;
           }
 
           if (!allowExternalFallback) {
-            setDetailsFlow({ key: anchorKey, state: 'error' });
+            setDetailsFlow({ key: anchorKey, state: "error" });
             toast({
-              title: language === 'CN' ? '无法打开商品详情' : 'Unable to open product details',
+              title:
+                language === "CN"
+                  ? "无法打开商品详情"
+                  : "Unable to open product details",
               description:
-                language === 'CN'
-                  ? '未找到稳定商品标识，请稍后重试。'
-                  : 'A stable product key was not available. Please retry shortly.',
+                language === "CN"
+                  ? "未找到稳定商品标识，请稍后重试。"
+                  : "A stable product key was not available. Please retry shortly.",
             });
             return;
           }
 
-          openPath = 'external';
-          setDetailsFlow({ key: anchorKey, state: 'opening_external' });
+          openPath = "external";
+          setDetailsFlow({ key: anchorKey, state: "opening_external" });
           const externalQuery =
             hintedExternalQuery ||
             resolveQuery ||
             [safeBrand, safeName]
-              .map((v) => String(v || '').trim())
+              .map((v) => String(v || "").trim())
               .filter(Boolean)
-              .join(' ')
+              .join(" ")
               .trim();
-          const external =
-            hintedExternalUrl
-              ? {
-                  opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
-                  url: hintedExternalUrl,
-                }
-              : openExternalGoogle(externalQuery);
+          const external = hintedExternalUrl
+            ? {
+                opened: Boolean(
+                  window.open(
+                    hintedExternalUrl,
+                    "_blank",
+                    "noopener,noreferrer",
+                  ),
+                ),
+                url: hintedExternalUrl,
+              }
+            : openExternalGoogle(externalQuery);
           if (analyticsCtx) {
             emitPdpOpenPath(analyticsCtx, {
               card_position: position,
-              path: 'external',
+              path: "external",
               anchor_key: anchorKey,
               url: external.url,
             });
           }
 
           if (!external.url) {
-            failReason = failReason || 'google_query_empty';
+            failReason = failReason || "google_query_empty";
           } else if (!external.opened) {
-            failReason = failReason || 'popup_blocked';
+            failReason = failReason || "popup_blocked";
           }
 
           if (external.opened) {
-            setDetailsFlow({ key: anchorKey, state: 'done' });
+            setDetailsFlow({ key: anchorKey, state: "done" });
             return;
           }
 
-          setDetailsFlow({ key: anchorKey, state: 'error' });
+          setDetailsFlow({ key: anchorKey, state: "error" });
           toast({
-            title: language === 'CN' ? '无法打开外部页面' : 'Unable to open external page',
+            title:
+              language === "CN"
+                ? "无法打开外部页面"
+                : "Unable to open external page",
             description:
-              language === 'CN'
-                ? '浏览器可能拦截了新标签页弹窗，请允许后重试。'
-                : 'Your browser may have blocked the popup. Please allow popups and retry.',
+              language === "CN"
+                ? "浏览器可能拦截了新标签页弹窗，请允许后重试。"
+                : "Your browser may have blocked the popup. Please allow popups and retry.",
           });
         } finally {
           inflightByKeyRef.current.delete(anchorKey);
           clickLockByKeyRef.current.delete(anchorKey);
-          const superseded = controller.signal.aborted && controller.signal.reason === 'superseded';
+          const superseded =
+            controller.signal.aborted &&
+            controller.signal.reason === "superseded";
           if (!superseded && analyticsCtx) {
             if (failReason) {
               emitPdpFailReason(analyticsCtx, {
@@ -2317,7 +3149,7 @@ export function RecommendationsCard({
             emitPdpLatencyMs(analyticsCtx, {
               card_position: position,
               anchor_key: anchorKey,
-              path: openPath || 'resolve',
+              path: openPath || "resolve",
               pdp_latency_ms: Math.max(0, Date.now() - startedAt),
             });
           }
@@ -2342,79 +3174,92 @@ export function RecommendationsCard({
 
   const groups = items.reduce(
     (acc, item) => {
-      const slot = String(item.slot || '').toLowerCase();
-      if (slot === 'am') acc.am.push(item);
-      else if (slot === 'pm') acc.pm.push(item);
+      const slot = String(item.slot || "").toLowerCase();
+      if (slot === "am") acc.am.push(item);
+      else if (slot === "pm") acc.pm.push(item);
       else acc.other.push(item);
       return acc;
     },
     { am: [] as RecoItem[], pm: [] as RecoItem[], other: [] as RecoItem[] },
   );
 
-  const sectionTitle = (slot: 'am' | 'pm' | 'other') => {
-    if (slot === 'am') return language === 'CN' ? '早上 AM' : 'AM';
-    if (slot === 'pm') return language === 'CN' ? '晚上 PM' : 'PM';
-    return language === 'CN' ? '其他' : 'Other';
+  const sectionTitle = (slot: "am" | "pm" | "other") => {
+    if (slot === "am") return language === "CN" ? "早上 AM" : "AM";
+    if (slot === "pm") return language === "CN" ? "晚上 PM" : "PM";
+    return language === "CN" ? "其他" : "Other";
   };
 
-  const extractRecoDisplayData = useCallback(
-    (item: RecoItem) => {
-      const sku = asObject(item.sku) || asObject(item.product) || null;
-      const modules = asArray((item as any).modules).map((entry) => asObject(entry)).filter(Boolean) as Array<Record<string, unknown>>;
-      const moduleData = modules.map((entry) => asObject((entry as any).data)).find(Boolean) || null;
-      const pdpPayload = asObject((moduleData as any)?.pdp_payload) || asObject((moduleData as any)?.pdpPayload) || null;
-      const pdpProduct = asObject((pdpPayload as any)?.product) || asObject((moduleData as any)?.product) || null;
-      return {
-        sku,
-        brand:
-          asString(sku?.brand) ||
-          asString((sku as any)?.Brand) ||
-          asString((item as any).brand) ||
-          asString((pdpProduct as any)?.brand?.name) ||
-          asString((pdpProduct as any)?.brand) ||
-          null,
-        name:
-          asString(sku?.name) ||
-          asString(sku?.display_name) ||
-          asString((sku as any)?.displayName) ||
-          asString((item as any).name) ||
-          asString((item as any).display_name) ||
-          asString((item as any).displayName) ||
-          asString((item as any).title) ||
-          asString((pdpProduct as any)?.title) ||
-          asString((pdpProduct as any)?.name) ||
-          null,
-        category:
-          asString(item.category) ||
-          asString((item as any).step) ||
-          asString((pdpProduct as any)?.category) ||
-          asString(asArray((pdpProduct as any)?.category_path).slice(-1)[0]) ||
-          null,
-        canonicalProductRef:
-          asObject((item as any).canonical_product_ref) ||
-          asObject((item as any).canonicalProductRef) ||
-          asObject((item as any)?.subject?.canonical_product_ref) ||
-          asObject((item as any)?.subject?.canonicalProductRef) ||
-          asObject((moduleData as any)?.canonical_product_ref) ||
-          asObject((moduleData as any)?.canonicalProductRef) ||
-          null,
-        rawProductId:
-          asString((item as any)?.product_id) ||
-          asString((item as any)?.productId) ||
-          asString((pdpProduct as any)?.product_id) ||
-          asString((pdpProduct as any)?.productId) ||
-          asString((item as any)?.subject?.id) ||
-          null,
-      };
-    },
-    [],
-  );
+  const extractRecoDisplayData = useCallback((item: RecoItem) => {
+    const sku = asObject(item.sku) || asObject(item.product) || null;
+    const modules = asArray((item as any).modules)
+      .map((entry) => asObject(entry))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const moduleData =
+      modules.map((entry) => asObject((entry as any).data)).find(Boolean) ||
+      null;
+    const pdpPayload =
+      asObject((moduleData as any)?.pdp_payload) ||
+      asObject((moduleData as any)?.pdpPayload) ||
+      null;
+    const pdpProduct =
+      asObject((pdpPayload as any)?.product) ||
+      asObject((moduleData as any)?.product) ||
+      null;
+    return {
+      sku,
+      brand:
+        asString(sku?.brand) ||
+        asString((sku as any)?.Brand) ||
+        asString((item as any).brand) ||
+        asString((pdpProduct as any)?.brand?.name) ||
+        asString((pdpProduct as any)?.brand) ||
+        null,
+      name:
+        asString(sku?.name) ||
+        asString(sku?.display_name) ||
+        asString((sku as any)?.displayName) ||
+        asString((item as any).name) ||
+        asString((item as any).display_name) ||
+        asString((item as any).displayName) ||
+        asString((item as any).title) ||
+        asString((pdpProduct as any)?.title) ||
+        asString((pdpProduct as any)?.name) ||
+        null,
+      category:
+        asString(item.category) ||
+        asString((item as any).step) ||
+        asString((pdpProduct as any)?.category) ||
+        asString(asArray((pdpProduct as any)?.category_path).slice(-1)[0]) ||
+        null,
+      canonicalProductRef:
+        asObject((item as any).canonical_product_ref) ||
+        asObject((item as any).canonicalProductRef) ||
+        asObject((item as any)?.subject?.canonical_product_ref) ||
+        asObject((item as any)?.subject?.canonicalProductRef) ||
+        asObject((moduleData as any)?.canonical_product_ref) ||
+        asObject((moduleData as any)?.canonicalProductRef) ||
+        null,
+      rawProductId:
+        asString((item as any)?.product_id) ||
+        asString((item as any)?.productId) ||
+        asString((pdpProduct as any)?.product_id) ||
+        asString((pdpProduct as any)?.productId) ||
+        asString((item as any)?.subject?.id) ||
+        null,
+    };
+  }, []);
 
   const renderStep = (item: RecoItem, idx: number) => {
     const display = extractRecoDisplayData(item);
     const sku = display.sku;
-    const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
-    const skuRef = asObject((sku as any)?.product_ref) || asObject((sku as any)?.productRef) || null;
+    const itemRef =
+      asObject((item as any).product_ref) ||
+      asObject((item as any).productRef) ||
+      null;
+    const skuRef =
+      asObject((sku as any)?.product_ref) ||
+      asObject((sku as any)?.productRef) ||
+      null;
     const itemCanonicalTop = display.canonicalProductRef;
     const skuCanonicalTop =
       asObject((sku as any)?.canonical_product_ref) ||
@@ -2440,13 +3285,20 @@ export function RecommendationsCard({
       null;
     const brand = display.brand;
     const nameFromName = display.name || asString((sku as any)?.Name) || null;
-    const nameFromDisplay = asString(sku?.display_name) || asString((sku as any)?.displayName) || display.name || null;
+    const nameFromDisplay =
+      asString(sku?.display_name) ||
+      asString((sku as any)?.displayName) ||
+      display.name ||
+      null;
     const name =
-      (nameFromName && !looksLikeOpaqueId(nameFromName) ? nameFromName : null) ||
+      (nameFromName && !looksLikeOpaqueId(nameFromName)
+        ? nameFromName
+        : null) ||
       nameFromDisplay ||
       nameFromName ||
       null;
-    const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
+    const skuId =
+      asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
     const canonicalProductId =
       asString((itemCanonicalRef as any)?.product_id) ||
       asString((itemCanonicalRef as any)?.productId) ||
@@ -2457,8 +3309,15 @@ export function RecommendationsCard({
       asString((skuRef as any)?.product_id) ||
       asString((skuRef as any)?.productId) ||
       null;
-    const rawProductId = display.rawProductId || asString((sku as any)?.product_id) || asString((sku as any)?.productId) || null;
-    const productId = pickPreferredId([canonicalProductId, refProductId, rawProductId], looksLikeOpaqueId);
+    const rawProductId =
+      display.rawProductId ||
+      asString((sku as any)?.product_id) ||
+      asString((sku as any)?.productId) ||
+      null;
+    const productId = pickPreferredId(
+      [canonicalProductId, refProductId, rawProductId],
+      looksLikeOpaqueId,
+    );
     const canonicalMerchantId =
       asString((itemCanonicalRef as any)?.merchant_id) ||
       asString((itemCanonicalRef as any)?.merchantId) ||
@@ -2478,16 +3337,28 @@ export function RecommendationsCard({
       asString((sku as any)?.merchant?.merchant_id) ||
       asString((sku as any)?.merchant?.merchantId) ||
       null;
-    const merchantId = pickPreferredId([canonicalMerchantId, refMerchantId, rawMerchantId], looksLikeOpaqueId);
-    const q = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
-    const canonicalRefTarget = canonicalProductId
-      && !looksLikeOpaqueId(canonicalProductId)
-      ? {
-          product_id: canonicalProductId,
-          ...(canonicalMerchantId ? { merchant_id: canonicalMerchantId } : {}),
-        }
-      : null;
-    const pdpOpen = asObject((item as any).pdp_open) || asObject((item as any).pdpOpen) || null;
+    const merchantId = pickPreferredId(
+      [canonicalMerchantId, refMerchantId, rawMerchantId],
+      looksLikeOpaqueId,
+    );
+    const q = [brand, name]
+      .map((v) => String(v || "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const canonicalRefTarget =
+      canonicalProductId && !looksLikeOpaqueId(canonicalProductId)
+        ? {
+            product_id: canonicalProductId,
+            ...(canonicalMerchantId
+              ? { merchant_id: canonicalMerchantId }
+              : {}),
+          }
+        : null;
+    const pdpOpen =
+      asObject((item as any).pdp_open) ||
+      asObject((item as any).pdpOpen) ||
+      null;
     const pdpOpenExternal = asObject((pdpOpen as any)?.external) || null;
     const itemResolveReasonCode =
       asString((item as any)?.metadata?.resolve_reason_code) ||
@@ -2498,7 +3369,10 @@ export function RecommendationsCard({
     const pdpOpenHint = pdpOpen
       ? {
           path: asString((pdpOpen as any)?.path) || null,
-          resolve_reason_code: asString((pdpOpen as any)?.resolve_reason_code) || itemResolveReasonCode || null,
+          resolve_reason_code:
+            asString((pdpOpen as any)?.resolve_reason_code) ||
+            itemResolveReasonCode ||
+            null,
           external: pdpOpenExternal
             ? {
                 query: asString((pdpOpenExternal as any)?.query) || null,
@@ -2508,17 +3382,21 @@ export function RecommendationsCard({
         }
       : null;
     const isExternalItem =
-      String((pdpOpenHint as any)?.path || '').trim().toLowerCase() === 'external' ||
-      String((item as any)?.metadata?.pdp_open_path || '').trim().toLowerCase() === 'external';
+      String((pdpOpenHint as any)?.path || "")
+        .trim()
+        .toLowerCase() === "external" ||
+      String((item as any)?.metadata?.pdp_open_path || "")
+        .trim()
+        .toLowerCase() === "external";
     const resolveQuery =
       [brand, name]
-        .map((v) => String(v || '').trim())
+        .map((v) => String(v || "").trim())
         .filter(Boolean)
         .filter((v) => !looksLikeOpaqueId(v))
-        .join(' ')
+        .join(" ")
         .trim() ||
-      (!looksLikeOpaqueId(productId) ? String(productId || '').trim() : '') ||
-      '';
+      (!looksLikeOpaqueId(productId) ? String(productId || "").trim() : "") ||
+      "";
     const resolverHints: ProductResolverHints = {
       ...(productId ? { product_id: productId } : {}),
       ...(skuId ? { sku_id: skuId } : {}),
@@ -2545,34 +3423,62 @@ export function RecommendationsCard({
       skuId ||
       (q ? `q:${q}` : null) ||
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
-    const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
-    const step = asString(item.step) || display.category || (language === 'CN' ? '步骤' : 'Step');
-    const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
-    const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-    const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
-    const keyActives = asArray(evidencePack?.keyActives ?? evidencePack?.key_actives)
+    const isResolving =
+      detailsFlow.state === "resolving" && detailsFlow.key === anchorId;
+    const step =
+      asString(item.step) ||
+      display.category ||
+      (language === "CN" ? "步骤" : "Step");
+    const notes = asArray(item.notes)
+      .map((n) => asString(n))
+      .filter(Boolean) as string[];
+    const alternativesRaw = asArray((item as any).alternatives)
+      .map((v) => asObject(v))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const evidencePack =
+      asObject((item as any).evidence_pack) ||
+      asObject((item as any).evidencePack) ||
+      null;
+    const keyActives = asArray(
+      evidencePack?.keyActives ?? evidencePack?.key_actives,
+    )
       .map((v) => asString(v))
       .filter(Boolean) as string[];
-    const comparisonNotes = asArray(evidencePack?.comparisonNotes ?? evidencePack?.comparison_notes)
+    const comparisonNotes = asArray(
+      evidencePack?.comparisonNotes ?? evidencePack?.comparison_notes,
+    )
       .map((v) => asString(v))
       .filter(Boolean) as string[];
-    const sensitivityFlagsRaw = asArray(evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags)
+    const sensitivityFlagsRaw = asArray(
+      evidencePack?.sensitivityFlags ?? evidencePack?.sensitivity_flags,
+    )
       .map((v) => asString(v))
       .filter(Boolean)
       .filter((v) => !isInternalKbCitationId(v)) as string[];
-    const sensitivityFlags = filterContradictoryFragranceFlags(sensitivityFlagsRaw);
-    const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
+    const sensitivityFlags =
+      filterContradictoryFragranceFlags(sensitivityFlagsRaw);
+    const pairingRules = asArray(
+      evidencePack?.pairingRules ?? evidencePack?.pairing_rules,
+    )
       .map((v) => asString(v))
       .filter(Boolean) as string[];
-    const citations = asArray(evidencePack?.citations).map((v) => asString(v)).filter(Boolean) as string[];
-    const internalCitations = citations.filter((c) => isInternalKbCitationId(c));
-    const externalCitations = citations.filter((c) => !isInternalKbCitationId(c));
+    const citations = asArray(evidencePack?.citations)
+      .map((v) => asString(v))
+      .filter(Boolean) as string[];
+    const internalCitations = citations.filter((c) =>
+      isInternalKbCitationId(c),
+    );
+    const externalCitations = citations.filter(
+      (c) => !isInternalKbCitationId(c),
+    );
 
     const labelKind = (kindRaw: string | null) => {
-      const k = String(kindRaw || '').trim().toLowerCase();
-      if (k === 'dupe') return language === 'CN' ? '平替' : 'Dupe';
-      if (k === 'premium') return language === 'CN' ? '升级款' : 'Premium';
-      return language === 'CN' ? '相似' : 'Similar';
+      const k = String(kindRaw || "")
+        .trim()
+        .toLowerCase();
+      if (k === "dupe") return language === "CN" ? "平替" : "Dupe";
+      if (k === "premium") return language === "CN" ? "升级款" : "Premium";
+      return language === "CN" ? "相似" : "Similar";
     };
 
     const buildStepAlternativesSheetTracks = (
@@ -2584,44 +3490,60 @@ export function RecommendationsCard({
         .map((alt, rank) => {
           const kind = asString((alt as any).kind).toLowerCase();
           const block: RecoBlockType =
-            kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
+            kind === "dupe"
+              ? "dupes"
+              : kind === "premium"
+                ? "related_products"
+                : "competitors";
           return {
             candidate: alt,
             block,
             rank: rank + 1,
-            intent: 'replace',
+            intent: "replace",
           };
         })
         .slice(0, 8);
 
-      const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
-      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
-        candidate: {
-          name: text,
-          display_name: text,
-          why_candidate: { summary: text },
-          tradeoff_notes: [text],
-        },
-        block: 'related_products',
-        rank: rank + 1,
-        intent: 'pair',
-      }));
+      const pairNotes = uniqueStrings([
+        ...pairingSource,
+        ...comparisonSource,
+      ]).slice(0, 8);
+      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map(
+        (text, rank) => ({
+          candidate: {
+            name: text,
+            display_name: text,
+            why_candidate: { summary: text },
+            tradeoff_notes: [text],
+          },
+          block: "related_products",
+          rank: rank + 1,
+          intent: "pair",
+        }),
+      );
 
       const tracks: ProductAlternativeTrack[] = [];
       if (replaceItems.length) {
         tracks.push({
-          key: 'replace',
-          title: language === 'CN' ? '更多对比候选' : 'More comparison candidates',
-          subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
+          key: "replace",
+          title:
+            language === "CN" ? "更多对比候选" : "More comparison candidates",
+          subtitle:
+            language === "CN"
+              ? "用于替换当前产品"
+              : "Direct alternatives to replace current product",
           items: replaceItems,
           filteredCount: 0,
         });
       }
       if (pairItems.length) {
         tracks.push({
-          key: 'pair',
-          title: language === 'CN' ? '搭配与组合建议' : 'Pairing suggestions',
-          subtitle: language === 'CN' ? '可叠加或互补使用的建议' : 'Items/steps that pair or complement this choice',
+          key: "pair",
+          title: language === "CN" ? "搭配与组合建议" : "Pairing suggestions",
+          subtitle:
+            language === "CN"
+              ? "可叠加或互补使用的建议"
+              : "Items/steps that pair or complement this choice",
           items: pairItems,
           filteredCount: 0,
         });
@@ -2629,23 +3551,39 @@ export function RecommendationsCard({
       return tracks;
     };
 
-    const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
-    const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
-    const alternativesBusyKey = anchorId || `q:${(resolveQuery || q || '').slice(0, 180)}`;
-    const isLazyAlternativesBusy = lazyAlternativesBusyKey === alternativesBusyKey;
-    const canLoadAlternatives = Boolean(loadAlternativesForItem) && Boolean(anchorId || resolveQuery || q);
-    const canOpenSheet = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
+    const detailsTracks = buildStepAlternativesSheetTracks(
+      alternativesRaw,
+      pairingRules,
+      comparisonNotes,
+    );
+    const anchorProductIdForAlternatives =
+      subjectProductGroupId || canonicalProductId || productId || skuId || null;
+    const alternativesBusyKey =
+      anchorId || `q:${(resolveQuery || q || "").slice(0, 180)}`;
+    const isLazyAlternativesBusy =
+      lazyAlternativesBusyKey === alternativesBusyKey;
+    const canLoadAlternatives =
+      Boolean(loadAlternativesForItem) &&
+      Boolean(anchorId || resolveQuery || q);
+    const canOpenSheet =
+      Boolean(onOpenAlternativesSheet) &&
+      (detailsTracks.length > 0 || canLoadAlternatives);
     const canOpenPdp = Boolean(anchorId);
     const canOpenDetails = canOpenPdp || canOpenSheet;
 
     return (
-      <div key={`${step}_${idx}`} className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm">
+      <div
+        key={`${step}_${idx}`}
+        className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm"
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5">
-            <div className="text-xs font-medium text-muted-foreground">{step}</div>
+            <div className="text-xs font-medium text-muted-foreground">
+              {step}
+            </div>
             <div className="text-sm font-semibold text-foreground">
-              {brand ? `${brand} ` : ''}
-              {name || (language === 'CN' ? '未知产品' : 'Unknown product')}
+              {brand ? `${brand} ` : ""}
+              {name || (language === "CN" ? "未知产品" : "Unknown product")}
             </div>
             {isExternalItem ? (
               <div className="inline-flex items-center rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -2658,7 +3596,9 @@ export function RecommendationsCard({
             <button
               type="button"
               className="chip-button text-[11px]"
-              disabled={isResolving || isLazyAlternativesBusy || !canOpenDetails}
+              disabled={
+                isResolving || isLazyAlternativesBusy || !canOpenDetails
+              }
               onClick={() => {
                 if (canOpenSheet && onOpenAlternativesSheet) {
                   if (detailsTracks.length > 0) {
@@ -2671,33 +3611,47 @@ export function RecommendationsCard({
                       product: asObject(item),
                     })
                       .then((resp) => {
-                        const remoteAlternatives = asArray(resp && resp.alternatives)
+                        const remoteAlternatives = asArray(
+                          resp && resp.alternatives,
+                        )
                           .map((row) => asObject(row))
                           .filter(Boolean) as Array<Record<string, unknown>>;
-                        const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
+                        const tracks = buildStepAlternativesSheetTracks(
+                          remoteAlternatives,
+                          pairingRules,
+                          comparisonNotes,
+                        );
                         if (tracks.length) {
                           onOpenAlternativesSheet(tracks);
                         } else {
                           toast({
-                            title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
+                            title:
+                              language === "CN"
+                                ? "暂无更多对比候选"
+                                : "No extra comparison candidates yet",
                             description:
-                              language === 'CN'
-                                ? '已保留当前推荐结果，稍后可重试查看更多对比和搭配建议。'
-                                : 'Current recommendations are kept. Retry later for more alternatives and pairing ideas.',
+                              language === "CN"
+                                ? "已保留当前推荐结果，稍后可重试查看更多对比和搭配建议。"
+                                : "Current recommendations are kept. Retry later for more alternatives and pairing ideas.",
                           });
                         }
                       })
                       .catch(() => {
                         toast({
-                          title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
+                          title:
+                            language === "CN"
+                              ? "加载更多对比失败"
+                              : "Failed to load more alternatives",
                           description:
-                            language === 'CN'
-                              ? '请稍后重试，当前推荐卡已可继续使用。'
-                              : 'Please retry shortly. Current recommendation cards are still usable.',
+                            language === "CN"
+                              ? "请稍后重试，当前推荐卡已可继续使用。"
+                              : "Please retry shortly. Current recommendation cards are still usable.",
                         });
                       })
                       .finally(() => {
-                        setLazyAlternativesBusyKey((prev) => (prev === alternativesBusyKey ? null : prev));
+                        setLazyAlternativesBusyKey((prev) =>
+                          prev === alternativesBusyKey ? null : prev,
+                        );
                       });
                   }
                 }
@@ -2710,15 +3664,19 @@ export function RecommendationsCard({
                     subject_product_group_id: subjectProductGroupId,
                     canonical_product_ref: canonicalRefTarget,
                     resolve_query: resolveQuery || null,
-                    hints: Object.keys(resolverHints).length ? resolverHints : undefined,
+                    hints: Object.keys(resolverHints).length
+                      ? resolverHints
+                      : undefined,
                     pdp_open: pdpOpenHint,
                   });
                 }
               }}
             >
-              {language === 'CN' ? '查看详情' : 'View details'}
+              {language === "CN" ? "查看详情" : "View details"}
               {isResolving || isLazyAlternativesBusy ? (
-                <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span>
+                <span className="ml-2 text-[10px] text-muted-foreground">
+                  {language === "CN" ? "加载中…" : "Loading…"}
+                </span>
               ) : null}
             </button>
           </div>
@@ -2748,7 +3706,11 @@ export function RecommendationsCard({
         {alternativesRaw.length ? (
           <details className="mt-2 rounded-xl border border-border/50 bg-muted/30 p-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-primary/90">
-              <span>{language === 'CN' ? '相似/平替/升级选择（点击查看差异）' : 'Alternatives (dupe / similar / premium) — see tradeoffs'}</span>
+              <span>
+                {language === "CN"
+                  ? "相似/平替/升级选择（点击查看差异）"
+                  : "Alternatives (dupe / similar / premium) — see tradeoffs"}
+              </span>
               <ChevronDown className="h-4 w-4" />
             </summary>
             <div className="mt-3 space-y-2">
@@ -2757,8 +3719,14 @@ export function RecommendationsCard({
                 const kindLabel = labelKind(kind);
                 const similarity = asNumber((alt as any).similarity);
                 const altProduct = asObject((alt as any).product) || null;
-                const altRef = asObject((alt as any).product_ref) || asObject((alt as any).productRef) || null;
-                const altProductRef = asObject((altProduct as any)?.product_ref) || asObject((altProduct as any)?.productRef) || null;
+                const altRef =
+                  asObject((alt as any).product_ref) ||
+                  asObject((alt as any).productRef) ||
+                  null;
+                const altProductRef =
+                  asObject((altProduct as any)?.product_ref) ||
+                  asObject((altProduct as any)?.productRef) ||
+                  null;
                 const altCanonicalTop =
                   asObject((alt as any).canonical_product_ref) ||
                   asObject((alt as any).canonicalProductRef) ||
@@ -2784,7 +3752,10 @@ export function RecommendationsCard({
                   null;
                 const altBrand = asString(altProduct?.brand) || null;
                 const altName =
-                  asString(altProduct?.name) || asString((altProduct as any)?.display_name) || asString((altProduct as any)?.displayName) || null;
+                  asString(altProduct?.name) ||
+                  asString((altProduct as any)?.display_name) ||
+                  asString((altProduct as any)?.displayName) ||
+                  null;
                 const altSkuId =
                   asString((altProduct as any)?.sku_id) ||
                   asString((altProduct as any)?.skuId) ||
@@ -2834,38 +3805,55 @@ export function RecommendationsCard({
                 );
                 const altResolveQuery =
                   [altBrand, altName]
-                    .map((v) => String(v || '').trim())
+                    .map((v) => String(v || "").trim())
                     .filter(Boolean)
                     .filter((v) => !looksLikeOpaqueId(v))
-                    .join(' ')
+                    .join(" ")
                     .trim() ||
-                  (!looksLikeOpaqueId(altProductId) ? String(altProductId || '').trim() : '') ||
-                  '';
-                const altQ = [altBrand, altName].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
+                  (!looksLikeOpaqueId(altProductId)
+                    ? String(altProductId || "").trim()
+                    : "") ||
+                  "";
+                const altQ = [altBrand, altName]
+                  .map((v) => String(v || "").trim())
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim();
                 const altResolverHints: ProductResolverHints = {
                   ...(altProductId ? { product_id: altProductId } : {}),
                   ...(altSkuId ? { sku_id: altSkuId } : {}),
                   ...(altBrand ? { brand: altBrand } : {}),
                   ...(altName ? { title: altName } : {}),
-                  ...(altQ ? { aliases: [altQ, altName, altBrand].filter(Boolean) } : {}),
+                  ...(altQ
+                    ? { aliases: [altQ, altName, altBrand].filter(Boolean) }
+                    : {}),
                   ...(altProductId || altMerchantId
                     ? {
                         product_ref: {
                           ...(altProductId ? { product_id: altProductId } : {}),
-                          ...(altMerchantId ? { merchant_id: altMerchantId } : {}),
+                          ...(altMerchantId
+                            ? { merchant_id: altMerchantId }
+                            : {}),
                         },
                       }
                     : {}),
                 };
-                const altCanonicalRefTarget = altCanonicalProductId
-                  && !looksLikeOpaqueId(altCanonicalProductId)
-                  ? {
-                      product_id: altCanonicalProductId,
-                      ...(altCanonicalMerchantId ? { merchant_id: altCanonicalMerchantId } : {}),
-                    }
-                  : null;
-                const altPdpOpen = asObject((alt as any)?.pdp_open) || asObject((alt as any)?.pdpOpen) || null;
-                const altPdpOpenExternal = asObject((altPdpOpen as any)?.external) || null;
+                const altCanonicalRefTarget =
+                  altCanonicalProductId &&
+                  !looksLikeOpaqueId(altCanonicalProductId)
+                    ? {
+                        product_id: altCanonicalProductId,
+                        ...(altCanonicalMerchantId
+                          ? { merchant_id: altCanonicalMerchantId }
+                          : {}),
+                      }
+                    : null;
+                const altPdpOpen =
+                  asObject((alt as any)?.pdp_open) ||
+                  asObject((alt as any)?.pdpOpen) ||
+                  null;
+                const altPdpOpenExternal =
+                  asObject((altPdpOpen as any)?.external) || null;
                 const altResolveReasonCode =
                   asString((alt as any)?.metadata?.resolve_reason_code) ||
                   asString((alt as any)?.metadata?.resolveReasonCode) ||
@@ -2875,60 +3863,107 @@ export function RecommendationsCard({
                 const altPdpOpenHint = altPdpOpen
                   ? {
                       path: asString((altPdpOpen as any)?.path) || null,
-                      resolve_reason_code: asString((altPdpOpen as any)?.resolve_reason_code) || altResolveReasonCode || null,
+                      resolve_reason_code:
+                        asString((altPdpOpen as any)?.resolve_reason_code) ||
+                        altResolveReasonCode ||
+                        null,
                       external: altPdpOpenExternal
                         ? {
-                            query: asString((altPdpOpenExternal as any)?.query) || null,
-                            url: asString((altPdpOpenExternal as any)?.url) || null,
+                            query:
+                              asString((altPdpOpenExternal as any)?.query) ||
+                              null,
+                            url:
+                              asString((altPdpOpenExternal as any)?.url) ||
+                              null,
                           }
                         : null,
                     }
                   : null;
-                const altAnchorId = altSubjectProductGroupId || altCanonicalProductId || altProductId || altSkuId || (altQ ? `q:${altQ}` : '');
-                const isAltResolving = Boolean(altAnchorId) && detailsFlow.state === 'resolving' && detailsFlow.key === altAnchorId;
-                const tradeoffs = uniqueStrings((alt as any).tradeoffs).slice(0, 4);
+                const altAnchorId =
+                  altSubjectProductGroupId ||
+                  altCanonicalProductId ||
+                  altProductId ||
+                  altSkuId ||
+                  (altQ ? `q:${altQ}` : "");
+                const isAltResolving =
+                  Boolean(altAnchorId) &&
+                  detailsFlow.state === "resolving" &&
+                  detailsFlow.key === altAnchorId;
+                const tradeoffs = uniqueStrings((alt as any).tradeoffs).slice(
+                  0,
+                  4,
+                );
                 const reasons = uniqueStrings((alt as any).reasons).slice(0, 2);
                 const reason = reasons.length
                   ? reasons[0]
-                    .replace(/^pros:\s*/i, '')
-                    .replace(/^优势：\s*/i, '')
-                    .trim()
+                      .replace(/^pros:\s*/i, "")
+                      .replace(/^优势：\s*/i, "")
+                      .trim()
                   : null;
 
-                const availability = uniqueStrings(asArray((altProduct as any)?.availability)).find(Boolean) || null;
+                const availability =
+                  uniqueStrings(
+                    asArray((altProduct as any)?.availability),
+                  ).find(Boolean) || null;
                 const priceObj = asObject((altProduct as any)?.price);
-                const priceUnknown = Boolean(priceObj && (priceObj as any).unknown === true);
-                const priceUsd = priceObj ? asNumber((priceObj as any).usd) : null;
-                const priceCny = priceObj ? asNumber((priceObj as any).cny) : null;
-                const priceNumber = !priceObj ? asNumber((altProduct as any)?.price) : null;
-                const currencyRaw = asString((altProduct as any)?.currency) || null;
+                const priceUnknown = Boolean(
+                  priceObj && (priceObj as any).unknown === true,
+                );
+                const priceUsd = priceObj
+                  ? asNumber((priceObj as any).usd)
+                  : null;
+                const priceCny = priceObj
+                  ? asNumber((priceObj as any).cny)
+                  : null;
+                const priceNumber = !priceObj
+                  ? asNumber((altProduct as any)?.price)
+                  : null;
+                const currencyRaw =
+                  asString((altProduct as any)?.currency) || null;
                 const currency = currencyRaw ? currencyRaw.toUpperCase() : null;
-                const currencySymbol = currency === 'CNY' || currency === 'RMB' ? '¥' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$';
+                const currencySymbol =
+                  currency === "CNY" || currency === "RMB"
+                    ? "¥"
+                    : currency === "EUR"
+                      ? "€"
+                      : currency === "GBP"
+                        ? "£"
+                        : "$";
                 const priceText = priceUnknown
-                  ? '—'
+                  ? "—"
                   : priceUsd != null
                     ? `$${Math.round(priceUsd * 100) / 100}`
                     : priceCny != null
                       ? `¥${Math.round(priceCny)}`
                       : priceNumber != null
                         ? `${currencySymbol}${Math.round(priceNumber * 100) / 100}`
-                        : '—';
+                        : "—";
 
                 return (
-                  <div key={`${kindLabel}_${j}_${altSkuId || altName || 'alt'}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <div
+                    key={`${kindLabel}_${j}_${altSkuId || altName || "alt"}`}
+                    className="rounded-xl border border-border/60 bg-background/60 p-3"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-0.5">
                         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-muted-foreground">
-                          <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5">{kindLabel}</span>
-                          {typeof similarity === 'number' ? (
+                          <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5">
+                            {kindLabel}
+                          </span>
+                          {typeof similarity === "number" ? (
                             <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5">
-                              {language === 'CN' ? `相似度 ${Math.round(similarity)}%` : `${Math.round(similarity)}% similar`}
+                              {language === "CN"
+                                ? `相似度 ${Math.round(similarity)}%`
+                                : `${Math.round(similarity)}% similar`}
                             </span>
                           ) : null}
                         </div>
                         <div className="text-sm font-semibold text-foreground">
-                          {altBrand ? `${altBrand} ` : ''}
-                          {altName || (language === 'CN' ? '未知产品' : 'Unknown product')}
+                          {altBrand ? `${altBrand} ` : ""}
+                          {altName ||
+                            (language === "CN"
+                              ? "未知产品"
+                              : "Unknown product")}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span className="whitespace-nowrap">{priceText}</span>
@@ -2941,29 +3976,33 @@ export function RecommendationsCard({
                       </div>
                       <button
                         type="button"
-                      className="chip-button"
-                      disabled={isAltResolving}
-                      onClick={() =>
-                        void openPdpFromCard({
-                          anchor_key: altAnchorId,
-                          position: idx + 1,
-                          brand: altBrand,
-                          name: altName,
-                          subject_product_group_id: altSubjectProductGroupId,
-                          canonical_product_ref: altCanonicalRefTarget,
-                          resolve_query: altResolveQuery || null,
-                          hints: Object.keys(altResolverHints).length ? altResolverHints : undefined,
-                          pdp_open: altPdpOpenHint,
-                        })
-                      }
-                    >
-                        {language === 'CN' ? '查看详情' : 'View details'}
+                        className="chip-button"
+                        disabled={isAltResolving}
+                        onClick={() =>
+                          void openPdpFromCard({
+                            anchor_key: altAnchorId,
+                            position: idx + 1,
+                            brand: altBrand,
+                            name: altName,
+                            subject_product_group_id: altSubjectProductGroupId,
+                            canonical_product_ref: altCanonicalRefTarget,
+                            resolve_query: altResolveQuery || null,
+                            hints: Object.keys(altResolverHints).length
+                              ? altResolverHints
+                              : undefined,
+                            pdp_open: altPdpOpenHint,
+                          })
+                        }
+                      >
+                        {language === "CN" ? "查看详情" : "View details"}
                       </button>
                     </div>
 
                     {reason ? (
                       <div className="mt-2 text-xs text-foreground/90">
-                        <span className="font-semibold text-muted-foreground">{language === 'CN' ? '推荐理由：' : 'Why: '}</span>
+                        <span className="font-semibold text-muted-foreground">
+                          {language === "CN" ? "推荐理由：" : "Why: "}
+                        </span>
                         {reason}
                       </div>
                     ) : null}
@@ -2976,7 +4015,9 @@ export function RecommendationsCard({
                       </ul>
                     ) : (
                       <div className="mt-2 text-xs text-muted-foreground">
-                        {language === 'CN' ? '差异信息缺失（上游未返回 tradeoffs）。' : 'Tradeoffs missing (upstream did not return details).'}
+                        {language === "CN"
+                          ? "差异信息缺失（上游未返回 tradeoffs）。"
+                          : "Tradeoffs missing (upstream did not return details)."}
                       </div>
                     )}
                   </div>
@@ -2990,14 +4031,14 @@ export function RecommendationsCard({
           <details className="mt-2">
             <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-primary/90">
               <ChevronDown className="h-4 w-4" />
-              {language === 'CN' ? '证据与注意事项' : 'Evidence & cautions'}
+              {language === "CN" ? "证据与注意事项" : "Evidence & cautions"}
             </summary>
 
             <div className="mt-2 space-y-2 text-xs text-muted-foreground">
               {comparisonNotes.length ? (
                 <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
                   <div className="text-[11px] font-semibold text-foreground">
-                    {language === 'CN' ? '对比/取舍' : 'Tradeoffs'}
+                    {language === "CN" ? "对比/取舍" : "Tradeoffs"}
                   </div>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {comparisonNotes.slice(0, 4).map((n) => (
@@ -3010,7 +4051,7 @@ export function RecommendationsCard({
               {sensitivityFlags.length ? (
                 <div className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-warning">
                   <div className="text-[11px] font-semibold text-warning">
-                    {language === 'CN' ? '敏感风险' : 'Sensitivity risks'}
+                    {language === "CN" ? "敏感风险" : "Sensitivity risks"}
                   </div>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {sensitivityFlags.slice(0, 4).map((n, idx) => {
@@ -3025,7 +4066,7 @@ export function RecommendationsCard({
               {pairingRules.length ? (
                 <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
                   <div className="text-[11px] font-semibold text-foreground">
-                    {language === 'CN' ? '搭配建议' : 'Pairing notes'}
+                    {language === "CN" ? "搭配建议" : "Pairing notes"}
                   </div>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
                     {pairingRules.slice(0, 4).map((n) => (
@@ -3037,7 +4078,9 @@ export function RecommendationsCard({
 
               {citations.length ? (
                 <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
-                  <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '引用' : 'Citations'}</div>
+                  <div className="text-[11px] font-semibold text-foreground">
+                    {language === "CN" ? "引用" : "Citations"}
+                  </div>
                   {!debug ? (
                     <div className="mt-2 space-y-2">
                       {externalCitations.length ? (
@@ -3065,9 +4108,9 @@ export function RecommendationsCard({
 
                       {internalCitations.length ? (
                         <div className="text-xs text-muted-foreground">
-                          {language === 'CN'
-                            ? '证据来源：Aurora 知识库（内部维护的成分/配方信息）。'
-                            : 'Evidence source: Aurora knowledge base (internal ingredient/formula info).'}
+                          {language === "CN"
+                            ? "证据来源：Aurora 知识库（内部维护的成分/配方信息）。"
+                            : "Evidence source: Aurora knowledge base (internal ingredient/formula info)."}
                         </div>
                       ) : null}
                     </div>
@@ -3096,43 +4139,66 @@ export function RecommendationsCard({
   };
 
   const warningLike = new Set([
-    'over_budget',
-    'price_unknown',
-    'availability_unknown',
-    'recent_logs_missing',
-    'itinerary_unknown',
-    'analysis_missing',
-    'evidence_missing',
-    'upstream_missing_or_unstructured',
-    'upstream_missing_or_empty',
-    'alternatives_partial',
+    "over_budget",
+    "price_unknown",
+    "availability_unknown",
+    "recent_logs_missing",
+    "itinerary_unknown",
+    "analysis_missing",
+    "evidence_missing",
+    "upstream_missing_or_unstructured",
+    "upstream_missing_or_empty",
+    "alternatives_partial",
   ]);
 
   const rawMissing = uniqueStrings(
-    Array.isArray(payload.missing_info) && payload.missing_info.length ? (payload.missing_info as unknown[]) : [],
+    Array.isArray(payload.missing_info) && payload.missing_info.length
+      ? (payload.missing_info as unknown[])
+      : [],
   );
-  const rawWarnings = uniqueStrings((payload as any)?.warnings ?? (payload as any)?.warning ?? (payload as any)?.context_gaps ?? (payload as any)?.contextGaps);
+  const rawWarnings = uniqueStrings(
+    (payload as any)?.warnings ??
+      (payload as any)?.warning ??
+      (payload as any)?.context_gaps ??
+      (payload as any)?.contextGaps,
+  );
   const internalWarnings = uniqueStrings(
-    (payload as any)?.warning_codes_internal ?? (payload as any)?.warningCodesInternal ?? [],
+    (payload as any)?.warning_codes_internal ??
+      (payload as any)?.warningCodesInternal ??
+      [],
   );
   const userVisibleWarnings = uniqueStrings(
-    (payload as any)?.warning_codes_user_visible ?? (payload as any)?.warningCodesUserVisible ?? [],
+    (payload as any)?.warning_codes_user_visible ??
+      (payload as any)?.warningCodesUserVisible ??
+      [],
   );
 
   const warningCandidates = debug
-    ? uniqueStrings([...userVisibleWarnings, ...rawWarnings, ...internalWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))])
-    : uniqueStrings(userVisibleWarnings.length ? userVisibleWarnings : rawWarnings);
+    ? uniqueStrings([
+        ...userVisibleWarnings,
+        ...rawWarnings,
+        ...internalWarnings,
+        ...rawMissing.filter((c) => warningLike.has(String(c))),
+      ])
+    : uniqueStrings(
+        userVisibleWarnings.length ? userVisibleWarnings : rawWarnings,
+      );
   const showWarnings = warningCandidates.slice(0, 6);
   const suppressWhenRecoPresent = new Set([
-    'analysis_missing',
-    'evidence_missing',
-    'upstream_missing_or_unstructured',
-    'upstream_missing_or_empty',
+    "analysis_missing",
+    "evidence_missing",
+    "upstream_missing_or_unstructured",
+    "upstream_missing_or_empty",
   ]);
   const displayWarnings = showWarnings.filter(
-    (c) => !(items.length > 0 && suppressWhenRecoPresent.has(String(c || '').trim())),
+    (c) =>
+      !(
+        items.length > 0 && suppressWhenRecoPresent.has(String(c || "").trim())
+      ),
   );
-  const showMissing = debug ? rawMissing.filter((c) => !warningLike.has(String(c))).slice(0, 6) : [];
+  const showMissing = debug
+    ? rawMissing.filter((c) => !warningLike.has(String(c))).slice(0, 6)
+    : [];
   const warningLabels = displayWarnings
     .map((code) => {
       const label = labelMissing(code, language);
@@ -3141,56 +4207,64 @@ export function RecommendationsCard({
       return label;
     })
     .filter(Boolean)
-    .join(' · ');
+    .join(" · ");
   const recommendationMeta = asObject((payload as any).recommendation_meta);
   const recommendationBasis = (() => {
     if (!recommendationMeta) return null;
-    const source = String(asString((recommendationMeta as any).source_mode) || '').trim().toLowerCase();
+    const source = String(
+      asString((recommendationMeta as any).source_mode) || "",
+    )
+      .trim()
+      .toLowerCase();
     const sourceLabel =
-      source === 'llm_primary'
-        ? language === 'CN'
-          ? 'LLM 主推荐'
-          : 'LLM primary'
-        : source === 'artifact_matcher'
-        ? language === 'CN'
-          ? '结构化诊断匹配'
-          : 'artifact matcher'
-        : source === 'upstream_fallback'
-          ? language === 'CN'
-            ? '上游补全回退'
-            : 'upstream fallback'
-          : source === 'travel_handoff'
-            ? language === 'CN'
-              ? '旅行场景接续'
-              : 'travel handoff'
-          : language === 'CN'
-            ? '规则保守路径'
-            : 'rules-only';
+      source === "llm_primary"
+        ? language === "CN"
+          ? "LLM 主推荐"
+          : "LLM primary"
+        : source === "artifact_matcher"
+          ? language === "CN"
+            ? "结构化诊断匹配"
+            : "artifact matcher"
+          : source === "upstream_fallback"
+            ? language === "CN"
+              ? "上游补全回退"
+              : "upstream fallback"
+            : source === "travel_handoff"
+              ? language === "CN"
+                ? "旅行场景接续"
+                : "travel handoff"
+              : language === "CN"
+                ? "规则保守路径"
+                : "rules-only";
     const flags: string[] = [];
     if ((recommendationMeta as any).used_recent_logs === true) {
-      flags.push(language === 'CN' ? '近期打卡' : 'recent check-ins');
+      flags.push(language === "CN" ? "近期打卡" : "recent check-ins");
     }
     if ((recommendationMeta as any).used_itinerary === true) {
-      flags.push(language === 'CN' ? '行程/环境' : 'itinerary/environment');
+      flags.push(language === "CN" ? "行程/环境" : "itinerary/environment");
     }
     if ((recommendationMeta as any).used_safety_flags === true) {
-      flags.push(language === 'CN' ? '安全约束' : 'safety constraints');
+      flags.push(language === "CN" ? "安全约束" : "safety constraints");
     }
-    const envSource = String(asString((recommendationMeta as any).env_source) || '').trim().toLowerCase();
+    const envSource = String(
+      asString((recommendationMeta as any).env_source) || "",
+    )
+      .trim()
+      .toLowerCase();
     const envLabel =
-      envSource === 'weather_api'
-        ? language === 'CN'
-          ? '实时天气'
-          : 'weather API'
-        : envSource === 'climate_fallback'
-          ? language === 'CN'
-            ? '气候常模回退'
-            : 'climate fallback'
+      envSource === "weather_api"
+        ? language === "CN"
+          ? "实时天气"
+          : "weather API"
+        : envSource === "climate_fallback"
+          ? language === "CN"
+            ? "气候常模回退"
+            : "climate fallback"
           : envSource
-            ? language === 'CN'
+            ? language === "CN"
               ? `环境输入(${envSource})`
               : `environment (${envSource})`
-            : '';
+            : "";
     const epiRaw = Number((recommendationMeta as any).epi);
     const epi = Number.isFinite(epiRaw) ? Math.round(epiRaw) : null;
     const activeTripId = asString((recommendationMeta as any).active_trip_id);
@@ -3201,39 +4275,70 @@ export function RecommendationsCard({
       asString((recommendationMeta as any).destination_place?.canonical_name) ||
       null;
     const contextText = flags.length
-      ? flags.join(language === 'CN' ? '、' : ', ')
-      : language === 'CN'
-        ? '基础画像'
-        : 'base profile';
+      ? flags.join(language === "CN" ? "、" : ", ")
+      : language === "CN"
+        ? "基础画像"
+        : "base profile";
     const extras: string[] = [];
-    if (envLabel) extras.push(language === 'CN' ? `环境来源：${envLabel}` : `Env: ${envLabel}`);
+    if (envLabel)
+      extras.push(
+        language === "CN" ? `环境来源：${envLabel}` : `Env: ${envLabel}`,
+      );
     if (epi != null) extras.push(`EPI: ${epi}`);
-    if (activeTripId) extras.push(language === 'CN' ? `行程ID：${activeTripId}` : `Trip: ${activeTripId}`);
-    if (destination) extras.push(language === 'CN' ? `目的地：${destination}` : `Destination: ${destination}`);
-    const extrasText = extras.length ? ` · ${extras.join(language === 'CN' ? '；' : ', ')}` : '';
-    return language === 'CN'
+    if (activeTripId)
+      extras.push(
+        language === "CN" ? `行程ID：${activeTripId}` : `Trip: ${activeTripId}`,
+      );
+    if (destination)
+      extras.push(
+        language === "CN"
+          ? `目的地：${destination}`
+          : `Destination: ${destination}`,
+      );
+    const extrasText = extras.length
+      ? ` · ${extras.join(language === "CN" ? "；" : ", ")}`
+      : "";
+    return language === "CN"
       ? `推荐依据：${contextText} · 路径：${sourceLabel}${extrasText}`
       : `Why this fits: ${contextText} · Path: ${sourceLabel}${extrasText}`;
   })();
 
-  const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
+  const renderSection = (slot: "am" | "pm" | "other", list: RecoItem[]) => {
     if (!list.length) return null;
     return (
       <section className="space-y-2">
-        <div className="text-xs font-semibold text-muted-foreground">{sectionTitle(slot)}</div>
+        <div className="text-xs font-semibold text-muted-foreground">
+          {sectionTitle(slot)}
+        </div>
         <div className="space-y-2">{list.map(renderStep)}</div>
       </section>
     );
   };
 
   const normalizeCategory = (raw: string) => {
-    const s = String(raw || '').trim().toLowerCase();
-    if (!s) return 'treatment';
-    if (s.includes('cleanser') || s.includes('洁面')) return 'cleanser';
-    if (s.includes('spf') || s.includes('sunscreen') || s.includes('防晒')) return 'sunscreen';
-    if (s.includes('moistur') || s.includes('cream') || s.includes('lotion') || s.includes('保湿') || s.includes('面霜') || s.includes('乳液'))
-      return 'moisturizer';
-    if (s.includes('treatment') || s.includes('serum') || s.includes('精华') || s.includes('功效')) return 'treatment';
+    const s = String(raw || "")
+      .trim()
+      .toLowerCase();
+    if (!s) return "treatment";
+    if (s.includes("cleanser") || s.includes("洁面")) return "cleanser";
+    if (s.includes("spf") || s.includes("sunscreen") || s.includes("防晒"))
+      return "sunscreen";
+    if (
+      s.includes("moistur") ||
+      s.includes("cream") ||
+      s.includes("lotion") ||
+      s.includes("保湿") ||
+      s.includes("面霜") ||
+      s.includes("乳液")
+    )
+      return "moisturizer";
+    if (
+      s.includes("treatment") ||
+      s.includes("serum") ||
+      s.includes("精华") ||
+      s.includes("功效")
+    )
+      return "treatment";
     return raw;
   };
 
@@ -3241,41 +4346,60 @@ export function RecommendationsCard({
     list
       .map((item, idx) => {
         const display = extractRecoDisplayData(item);
-        const brand = display.brand || '';
-        const name = display.name || '';
-        const step = asString(item.step) || display.category || '';
-        const typeRaw =
-          String(asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
-        const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
+        const brand = display.brand || "";
+        const name = display.name || "";
+        const step = asString(item.step) || display.category || "";
+        const typeRaw = String(
+          asString((item as any).type) ||
+            asString((item as any).tier) ||
+            asString((item as any).kind) ||
+            "",
+        ).toLowerCase();
+        const type = typeRaw.includes("dupe") ? "dupe" : "premium";
 
         if (!brand && !name) return null;
         return {
-          category: normalizeCategory(step || ''),
-          product: { brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown'), name: name || (language === 'CN' ? '未知产品' : 'Unknown') },
+          category: normalizeCategory(step || ""),
+          product: {
+            brand: brand || (language === "CN" ? "未知品牌" : "Unknown"),
+            name: name || (language === "CN" ? "未知产品" : "Unknown"),
+          },
           type,
           _idx: idx,
         };
       })
       .filter(Boolean)
-      .slice(0, 12) as Array<{ category: string; product: { brand: string; name: string }; type: 'premium' | 'dupe'; _idx: number }>;
+      .slice(0, 12) as Array<{
+      category: string;
+      product: { brand: string; name: string };
+      type: "premium" | "dupe";
+      _idx: number;
+    }>;
 
   const amSteps = toRoutineSteps(groups.am);
   const pmSteps = toRoutineSteps(groups.pm);
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
-  const unexpectedEmptyRecommendations = items.length === 0 && ingredientRenderMode === 'show_products';
+  const unexpectedEmptyRecommendations =
+    items.length === 0 && ingredientRenderMode === "show_products";
   const emptyRecommendationsViolationRef = useRef(false);
 
   useEffect(() => {
-    if (!unexpectedEmptyRecommendations || !analyticsCtx || emptyRecommendationsViolationRef.current) return;
+    if (
+      !unexpectedEmptyRecommendations ||
+      !analyticsCtx ||
+      emptyRecommendationsViolationRef.current
+    )
+      return;
     emptyRecommendationsViolationRef.current = true;
     emitAuroraEmptyRecommendationsContractViolation(analyticsCtx, {
       card_id: asString(card.card_id) || null,
-      source_card_type: 'recommendations',
+      source_card_type: "recommendations",
       task_mode:
         asString((payload as any)?.recommendation_meta?.task_mode) ||
         asString((payload as any)?.task_mode) ||
         null,
-      products_empty_reason: asString((payload as any)?.products_empty_reason) || null,
+      products_empty_reason:
+        asString((payload as any)?.products_empty_reason) || null,
     });
   }, [analyticsCtx, card.card_id, payload, unexpectedEmptyRecommendations]);
 
@@ -3284,36 +4408,37 @@ export function RecommendationsCard({
     emptyRecommendationsViolationRef.current = false;
   }, [unexpectedEmptyRecommendations]);
 
-  if (ingredientRenderMode === 'empty_match') {
+  if (ingredientRenderMode === "empty_match") {
     const emptyActions = asArray((payload as any).empty_match_actions);
-    const ingredientQuery = asString(
-      (payload as any)?.ingredient_evidence?.query ??
-      (payload as any)?.ingredient_context?.query ??
-      (payload as any)?.recommendation_meta?.ingredient_query,
-    ) || '';
+    const ingredientQuery =
+      asString(
+        (payload as any)?.ingredient_evidence?.query ??
+          (payload as any)?.ingredient_context?.query ??
+          (payload as any)?.recommendation_meta?.ingredient_query,
+      ) || "";
     return (
       <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/30 p-4">
         <div className="text-sm font-medium text-foreground">
           {ingredientQuery
-            ? (language === 'CN'
+            ? language === "CN"
               ? `暂未找到确认含有 ${ingredientQuery} 的产品。`
-              : `No confirmed products containing ${ingredientQuery} found yet.`)
-            : (language === 'CN'
-              ? '暂未找到成分匹配的产品。'
-              : 'No confirmed ingredient-matched products found yet.')}
+              : `No confirmed products containing ${ingredientQuery} found yet.`
+            : language === "CN"
+              ? "暂未找到成分匹配的产品。"
+              : "No confirmed ingredient-matched products found yet."}
         </div>
         <div className="text-xs text-muted-foreground">
-          {language === 'CN'
-            ? '仅在成分信息可验证时展示产品推荐。'
-            : 'Products are only shown when ingredient presence can be verified.'}
+          {language === "CN"
+            ? "仅在成分信息可验证时展示产品推荐。"
+            : "Products are only shown when ingredient presence can be verified."}
         </div>
         {emptyActions.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">
             {emptyActions.map((action: unknown) => {
               const a = asObject(action);
               if (!a) return null;
-              const actionId = asString((a as any).action_id) || '';
-              const actionLabel = asString((a as any).label) || actionId || '';
+              const actionId = asString((a as any).action_id) || "";
+              const actionLabel = asString((a as any).label) || actionId || "";
               return (
                 <button
                   key={actionId}
@@ -3324,9 +4449,11 @@ export function RecommendationsCard({
                     onAction(actionId, {
                       action_id: actionId,
                       action_label: actionLabel,
-                      trigger_source: 'ingredient_empty_match',
-                      source_card_type: 'recommendations',
-                      ...(ingredientQuery ? { ingredient_query: ingredientQuery } : {}),
+                      trigger_source: "ingredient_empty_match",
+                      source_card_type: "recommendations",
+                      ...(ingredientQuery
+                        ? { ingredient_query: ingredientQuery }
+                        : {}),
                     });
                   }}
                 >
@@ -3344,14 +4471,14 @@ export function RecommendationsCard({
     return (
       <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
         <div className="text-sm font-medium text-foreground">
-          {language === 'CN'
-            ? '这轮推荐还没有形成可展示的产品清单。'
-            : 'This recommendation round did not produce a displayable product shortlist yet.'}
+          {language === "CN"
+            ? "这轮推荐还没有形成可展示的产品清单。"
+            : "This recommendation round did not produce a displayable product shortlist yet."}
         </div>
         <div className="text-xs text-muted-foreground">
-          {language === 'CN'
-            ? '请稍后重试，或先补充当前 routine / 肤况信息后再继续。'
-            : 'Retry shortly, or add your current routine / skin context before trying again.'}
+          {language === "CN"
+            ? "请稍后重试，或先补充当前 routine / 肤况信息后再继续。"
+            : "Retry shortly, or add your current routine / skin context before trying again."}
         </div>
       </div>
     );
@@ -3359,10 +4486,12 @@ export function RecommendationsCard({
 
   return (
     <div className="space-y-3">
-      {ingredientRenderMode === 'pending_match' ? (
+      {ingredientRenderMode === "pending_match" ? (
         <div className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-          {language === 'CN' ? '成分匹配验证中…' : 'Verifying ingredient match…'}
+          {language === "CN"
+            ? "成分匹配验证中…"
+            : "Verifying ingredient match…"}
         </div>
       ) : null}
       {recommendationBasis ? (
@@ -3371,7 +4500,7 @@ export function RecommendationsCard({
         </div>
       ) : null}
 
-      {(amSteps.length || pmSteps.length) ? (
+      {amSteps.length || pmSteps.length ? (
         <AuroraRoutineCard
           amSteps={amSteps}
           pmSteps={pmSteps}
@@ -3380,55 +4509,57 @@ export function RecommendationsCard({
         />
       ) : null}
 
-      {(groups.am.length || groups.pm.length || groups.other.length) ? (
+      {groups.am.length || groups.pm.length || groups.other.length ? (
         <details
           className="rounded-2xl border border-border/60 bg-background/60 p-3"
           open={detailsOpen}
-          onToggle={(e) => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)}
+          onToggle={(e) =>
+            setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)
+          }
         >
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
             <span>
               {hasAnyAlternatives
-                ? language === 'CN'
-                  ? '查看详细步骤（含相似/平替/升级选择）'
-                  : 'View detailed steps (incl. alternatives)'
-                : language === 'CN'
-                  ? '查看详细步骤与证据'
-                  : 'View detailed steps & evidence'}
+                ? language === "CN"
+                  ? "查看详细步骤（含相似/平替/升级选择）"
+                  : "View detailed steps (incl. alternatives)"
+                : language === "CN"
+                  ? "查看详细步骤与证据"
+                  : "View detailed steps & evidence"}
             </span>
             <ChevronDown className="h-4 w-4" />
           </summary>
           <div className="mt-3 space-y-3">
-            {renderSection('am', groups.am)}
-            {renderSection('pm', groups.pm)}
-            {renderSection('other', groups.other)}
+            {renderSection("am", groups.am)}
+            {renderSection("pm", groups.pm)}
+            {renderSection("other", groups.other)}
           </div>
         </details>
       ) : null}
 
       {hasMissingAlternatives ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
-          {language === 'CN'
-            ? '提示：部分步骤暂时没有找到“相似/平替/升级选择”（上游未返回）。'
-            : 'Note: alternatives are not available for some steps yet (upstream did not return).'}
+          {language === "CN"
+            ? "提示：部分步骤暂时没有找到“相似/平替/升级选择”（上游未返回）。"
+            : "Note: alternatives are not available for some steps yet (upstream did not return)."}
         </div>
       ) : null}
 
       {showMissing.length ? (
         <div className="rounded-2xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
-          {language === 'CN' ? '信息缺失：' : 'Missing info: '}
+          {language === "CN" ? "信息缺失：" : "Missing info: "}
           {showMissing
             .slice(0, 6)
             .map((v) => labelMissing(String(v), language))
             .filter(Boolean)
-            .join('、')}
+            .join("、")}
         </div>
       ) : null}
 
       {displayWarnings.length && (debug || warningLabels) ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
-          {language === 'CN' ? '提示：' : 'Note: '}
-          {warningLabels || displayWarnings.join(' · ')}
+          {language === "CN" ? "提示：" : "Note: "}
+          {warningLabels || displayWarnings.join(" · ")}
         </div>
       ) : null}
     </div>
@@ -3463,16 +4594,23 @@ function BffCardView({
   card: Card;
   language: UiLanguage;
   debug: boolean;
-  meta?: Pick<V1Envelope, 'request_id' | 'trace_id' | 'events'>;
+  meta?: Pick<V1Envelope, "request_id" | "trace_id" | "events">;
   requestHeaders: BffHeaders;
   session: Session;
   onAction: (actionId: string, data?: Record<string, any>) => void;
-  resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
+  resolveOffers?: (args: {
+    sku_id?: string | null;
+    product_id?: string | null;
+    merchant_id?: string | null;
+  }) => Promise<any>;
   resolveProductRef?: (args: {
     query: string;
-    lang: 'en' | 'cn';
+    lang: "en" | "cn";
     hints?: {
-      product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+      product_ref?: {
+        product_id?: string | null;
+        merchant_id?: string | null;
+      } | null;
       product_id?: string | null;
       sku_id?: string | null;
       aliases?: Array<string | null | undefined>;
@@ -3481,32 +4619,49 @@ function BffCardView({
     };
     signal?: AbortSignal;
   }) => Promise<any>;
-  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
+  resolveProductsSearch?: (args: {
+    query: string;
+    limit?: number;
+    preferBrand?: string | null;
+  }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   bootstrapInfo?: BootstrapInfo | null;
   profileSnapshot?: Record<string, unknown> | null;
   onOpenCheckin?: () => void;
   onOpenProfile?: () => void;
-  onIngredientQuestionSelect?: (selection: IngredientReportQuestionSelection) => void;
+  onIngredientQuestionSelect?: (
+    selection: IngredientReportQuestionSelection,
+  ) => void;
   ingredientQuestionBusy?: boolean;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
-  onOpenRecommendationAlternatives?: (tracks: ProductAlternativeTrack[]) => void;
+  onOpenRecommendationAlternatives?: (
+    tracks: ProductAlternativeTrack[],
+  ) => void;
   loadRecommendationAlternatives?: (args: {
     anchorProductId?: string | null;
     productInput?: string | null;
     product?: Record<string, unknown> | null;
-  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
+  }) => Promise<{
+    alternatives: Array<Record<string, unknown>>;
+    llmTrace?: Record<string, unknown> | null;
+  } | null>;
   analyticsCtx?: AnalyticsContext;
   analysisPhotoRefs?: AnalysisPhotoRef[];
-  sessionPhotos?: Session['photos'];
+  sessionPhotos?: Session["photos"];
 }) {
-  const cardType = String(card.type || '').toLowerCase();
+  const cardType = String(card.type || "").toLowerCase();
 
   const payloadObj = asObject(card.payload);
   const payload = payloadObj ?? (card.payload as any);
-  const [feedbackBusyByKey, setFeedbackBusyByKey] = useState<Record<string, boolean>>({});
-  const [feedbackSavedByKey, setFeedbackSavedByKey] = useState<Record<string, RecoEmployeeFeedbackType>>({});
-  const [feedbackErrorByKey, setFeedbackErrorByKey] = useState<Record<string, string>>({});
+  const [feedbackBusyByKey, setFeedbackBusyByKey] = useState<
+    Record<string, boolean>
+  >({});
+  const [feedbackSavedByKey, setFeedbackSavedByKey] = useState<
+    Record<string, RecoEmployeeFeedbackType>
+  >({});
+  const [feedbackErrorByKey, setFeedbackErrorByKey] = useState<
+    Record<string, string>
+  >({});
   const alternativesFilterEventKeysRef = useRef<Set<string>>(new Set());
   const howToLayerEventKeysRef = useRef<Set<string>>(new Set());
   const travelLookupRequestRef = useRef(0);
@@ -3539,18 +4694,29 @@ function BffCardView({
       pipelineVersion?: string;
       models?: string | Record<string, unknown>;
     }) => {
-      const anchorId = String(anchorProductId || '').trim();
+      const anchorId = String(anchorProductId || "").trim();
       if (!anchorId) return;
-      const candidateId = String((candidate as any)?.product_id || (candidate as any)?.sku_id || '').trim();
-      const candidateName = String((candidate as any)?.name || (candidate as any)?.display_name || (candidate as any)?.displayName || '').trim();
+      const candidateId = String(
+        (candidate as any)?.product_id || (candidate as any)?.sku_id || "",
+      ).trim();
+      const candidateName = String(
+        (candidate as any)?.name ||
+          (candidate as any)?.display_name ||
+          (candidate as any)?.displayName ||
+          "",
+      ).trim();
       if (!candidateId && !candidateName) return;
       const key = `${block}::${candidateId || candidateName}`.toLowerCase();
       setFeedbackBusyByKey((prev) => ({ ...prev, [key]: true }));
-      setFeedbackErrorByKey((prev) => ({ ...prev, [key]: '' }));
+      setFeedbackErrorByKey((prev) => ({ ...prev, [key]: "" }));
 
-      const llmSuggestion = asObject((candidate as any)?.llm_suggestion || (candidate as any)?.llmSuggestion) || null;
+      const llmSuggestion =
+        asObject(
+          (candidate as any)?.llm_suggestion ||
+            (candidate as any)?.llmSuggestion,
+        ) || null;
       const suggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
-      const suggestionId = asString(llmSuggestion?.id) || '';
+      const suggestionId = asString(llmSuggestion?.id) || "";
       const suggestionConfidence = asNumber(llmSuggestion?.confidence);
 
       try {
@@ -3560,22 +4726,26 @@ function BffCardView({
           ...(candidateId ? { candidate_product_id: candidateId } : {}),
           ...(candidateName ? { candidate_name: candidateName } : {}),
           feedback_type: feedbackType,
-          ...(feedbackType === 'wrong_block' && wrongBlockTarget ? { wrong_block_target: wrongBlockTarget } : {}),
+          ...(feedbackType === "wrong_block" && wrongBlockTarget
+            ? { wrong_block_target: wrongBlockTarget }
+            : {}),
           rank_position: Math.max(1, rankPosition),
           ...(pipelineVersion ? { pipeline_version: pipelineVersion } : {}),
           ...(models ? { models } : {}),
           ...(suggestionId ? { suggestion_id: suggestionId } : {}),
           ...(suggestedLabel ? { llm_suggested_label: suggestedLabel } : {}),
-          ...(typeof suggestionConfidence === 'number' ? { llm_confidence: suggestionConfidence } : {}),
+          ...(typeof suggestionConfidence === "number"
+            ? { llm_confidence: suggestionConfidence }
+            : {}),
           request_id: requestHeaders.trace_id,
           session_id: requestHeaders.aurora_uid || requestHeaders.brief_id,
           timestamp: Date.now(),
         });
         setFeedbackSavedByKey((prev) => ({ ...prev, [key]: feedbackType }));
         toast({
-          title: language === 'CN' ? '反馈已记录' : 'Feedback saved',
+          title: language === "CN" ? "反馈已记录" : "Feedback saved",
           description:
-            language === 'CN'
+            language === "CN"
               ? `已标记为：${formatRecoLabel(feedbackType, language)}`
               : `Marked as ${formatRecoLabel(feedbackType, language)}`,
         });
@@ -3589,17 +4759,22 @@ function BffCardView({
     [language, requestHeaders],
   );
 
-  const structuredCitations = cardType === 'aurora_structured' ? extractExternalVerificationCitations(payload) : [];
+  const structuredCitations =
+    cardType === "aurora_structured"
+      ? extractExternalVerificationCitations(payload)
+      : [];
 
   const handleTravelProductLookup = useCallback(
     async (lookup: TravelProductLookupQuery) => {
       if (!resolveProductsSearch) return;
-      const query = String(lookup.searchQuery || '').trim();
+      const query = String(lookup.searchQuery || "").trim();
       if (!query) return;
       const requestId = travelLookupRequestRef.current + 1;
       travelLookupRequestRef.current = requestId;
       setTravelLookupState({
-        categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+        categoryTitle:
+          String(lookup.categoryTitle || "").trim() ||
+          (language === "CN" ? "旅行清单" : "Travel kit"),
         query,
         ingredientHints: asString(lookup.ingredientHints) || null,
         loading: true,
@@ -3615,10 +4790,14 @@ function BffCardView({
         });
         if (travelLookupRequestRef.current !== requestId) return;
         const results = extractProductsFromSearchResponse(resp)
-          .map((row) => toUiProduct(asObject((row as any).product) || row, language))
+          .map((row) =>
+            toUiProduct(asObject((row as any).product) || row, language),
+          )
           .slice(0, 8);
         setTravelLookupState({
-          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          categoryTitle:
+            String(lookup.categoryTitle || "").trim() ||
+            (language === "CN" ? "旅行清单" : "Travel kit"),
           query,
           ingredientHints: asString(lookup.ingredientHints) || null,
           loading: false,
@@ -3628,7 +4807,9 @@ function BffCardView({
       } catch (err) {
         if (travelLookupRequestRef.current !== requestId) return;
         setTravelLookupState({
-          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          categoryTitle:
+            String(lookup.categoryTitle || "").trim() ||
+            (language === "CN" ? "旅行清单" : "Travel kit"),
           query,
           ingredientHints: asString(lookup.ingredientHints) || null,
           loading: false,
@@ -3643,51 +4824,67 @@ function BffCardView({
   const travelLookupPanel = travelLookupState ? (
     <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
       <div className="text-xs font-semibold text-foreground">
-        {language === 'CN' ? '旅行产品查找' : 'Travel product lookup'}
+        {language === "CN" ? "旅行产品查找" : "Travel product lookup"}
       </div>
       <div className="mt-1 text-xs text-muted-foreground">
         {travelLookupState.categoryTitle}
-        {travelLookupState.query ? ` · ${travelLookupState.query}` : ''}
+        {travelLookupState.query ? ` · ${travelLookupState.query}` : ""}
       </div>
       {travelLookupState.ingredientHints ? (
-        <div className="mt-1 text-[11px] text-muted-foreground">{travelLookupState.ingredientHints}</div>
+        <div className="mt-1 text-[11px] text-muted-foreground">
+          {travelLookupState.ingredientHints}
+        </div>
       ) : null}
       {travelLookupState.loading ? (
-        <div className="mt-3 text-sm text-muted-foreground">{language === 'CN' ? '正在查找…' : 'Searching…'}</div>
+        <div className="mt-3 text-sm text-muted-foreground">
+          {language === "CN" ? "正在查找…" : "Searching…"}
+        </div>
       ) : travelLookupState.error ? (
         <div className="mt-3 text-sm text-destructive">
-          {language === 'CN' ? '查找失败，请稍后重试。' : 'Lookup failed. Please retry shortly.'}
+          {language === "CN"
+            ? "查找失败，请稍后重试。"
+            : "Lookup failed. Please retry shortly."}
         </div>
       ) : travelLookupState.results.length ? (
         <div className="mt-3 space-y-2">
           {travelLookupState.results.map((product, idx) => (
-            <div key={`${product.sku_id}_${idx}`} className="rounded-xl border border-border/50 bg-muted/30 p-2.5">
-              <div className="text-sm font-semibold text-foreground">{product.name}</div>
+            <div
+              key={`${product.sku_id}_${idx}`}
+              className="rounded-xl border border-border/50 bg-muted/30 p-2.5"
+            >
+              <div className="text-sm font-semibold text-foreground">
+                {product.name}
+              </div>
               <div className="mt-0.5 text-xs text-muted-foreground">
                 {product.brand}
-                {product.category ? ` · ${product.category}` : ''}
+                {product.category ? ` · ${product.category}` : ""}
               </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="mt-3 text-sm text-muted-foreground">
-          {language === 'CN' ? '暂无匹配产品。' : 'No matching products found.'}
+          {language === "CN" ? "暂无匹配产品。" : "No matching products found."}
         </div>
       )}
     </div>
   ) : null;
 
-  if (!debug && cardType === 'session_bootstrap') return null;
+  if (!debug && cardType === "session_bootstrap") return null;
 
-  if (!debug && cardType === 'aurora_structured' && structuredCitations.length === 0) return null;
+  if (
+    !debug &&
+    cardType === "aurora_structured" &&
+    structuredCitations.length === 0
+  )
+    return null;
 
-  if (cardType === 'aurora_ingredient_report') {
+  if (cardType === "aurora_ingredient_report") {
     const profileForFit = profileSnapshot ?? bootstrapInfo?.profile ?? null;
     const fitStatus = getIngredientFitProfileStatus(profileForFit);
     const hiddenQuestionIds = [
-      ...(fitStatus.hasGoals ? ['goal'] : []),
-      ...(fitStatus.hasSensitivity ? ['sensitivity'] : []),
+      ...(fitStatus.hasGoals ? ["goal"] : []),
+      ...(fitStatus.hasSensitivity ? ["sensitivity"] : []),
     ];
     return (
       <IngredientReportCard
@@ -3699,32 +4896,37 @@ function BffCardView({
         onSelectNextQuestion={onIngredientQuestionSelect}
         onOpenProfile={onOpenProfile}
         onPollResearch={(query) =>
-          onAction('ingredient.research.poll', {
-            action_id: 'ingredient.research.poll',
+          onAction("ingredient.research.poll", {
+            action_id: "ingredient.research.poll",
             ingredient_query: query,
             normalized_query: query,
-            entry_source: 'ingredient_report_card',
+            entry_source: "ingredient_report_card",
           })
         }
         onRetryResearch={(query) =>
-          onAction('ingredient.lookup', {
-            action_id: 'ingredient.lookup',
+          onAction("ingredient.lookup", {
+            action_id: "ingredient.lookup",
             ingredient_query: query,
-            entry_source: 'ingredient_report_card_retry',
+            entry_source: "ingredient_report_card_retry",
           })
         }
       />
     );
   }
 
-  if (cardType === 'aurora_structured') {
+  if (cardType === "aurora_structured") {
     return (
       <div className="space-y-3">
-        <AuroraReferencesCard citations={structuredCitations} language={language} />
+        <AuroraReferencesCard
+          citations={structuredCitations}
+          language={language}
+        />
         {debug ? (
           <details className="rounded-2xl border border-border/50 bg-background/50 p-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-              <span>{language === 'CN' ? '结构化详情' : 'Structured details'}</span>
+              <span>
+                {language === "CN" ? "结构化详情" : "Structured details"}
+              </span>
               <ChevronDown className="h-4 w-4" />
             </summary>
             <pre className="mt-2 max-h-[420px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
@@ -3742,7 +4944,7 @@ function BffCardView({
       payload: asObject(payload) || {},
       language,
     });
-    if (adapterHit?.kind === 'compatibility') {
+    if (adapterHit?.kind === "compatibility") {
       return (
         <CompatibilityInsightsCard
           routineSimulationPayload={adapterHit.data.routineSimulationPayload}
@@ -3755,7 +4957,7 @@ function BffCardView({
       );
     }
 
-    if (adapterHit?.kind === 'routine') {
+    if (adapterHit?.kind === "routine") {
       return (
         <AuroraRoutineCard
           amSteps={adapterHit.data.amSteps}
@@ -3767,7 +4969,7 @@ function BffCardView({
       );
     }
 
-    if (adapterHit?.kind === 'travel') {
+    if (adapterHit?.kind === "travel") {
       return (
         <div className="space-y-3">
           <EnvStressCard
@@ -3775,22 +4977,22 @@ function BffCardView({
             language={language}
             onOpenCheckin={onOpenCheckin}
             onOpenRecommendations={() =>
-              onAction('chip.start.reco_products', {
+              onAction("chip.start.reco_products", {
                 reply_text:
-                  language === 'CN'
-                    ? '请给我完整护肤产品推荐。'
-                    : 'Show full skincare product recommendations.',
-                force_route: 'reco_products',
-                trigger_source: 'travel_handoff',
-                source_card_type: 'travel',
+                  language === "CN"
+                    ? "请给我完整护肤产品推荐。"
+                    : "Show full skincare product recommendations.",
+                force_route: "reco_products",
+                trigger_source: "travel_handoff",
+                source_card_type: "travel",
               })
             }
             onRefineRoutine={() =>
-              onAction('chip.start.routine', {
+              onAction("chip.start.routine", {
                 reply_text:
-                  language === 'CN'
-                    ? '用我的 AM/PM routine 进一步细化建议'
-                    : 'Refine recommendations with my AM/PM routine',
+                  language === "CN"
+                    ? "用我的 AM/PM routine 进一步细化建议"
+                    : "Refine recommendations with my AM/PM routine",
               })
             }
             onProductLookup={handleTravelProductLookup}
@@ -3800,7 +5002,7 @@ function BffCardView({
       );
     }
 
-    if (adapterHit?.kind === 'product_verdict') {
+    if (adapterHit?.kind === "product_verdict") {
       return (
         <ProductAnalysisCard
           result={adapterHit.data.result}
@@ -3811,7 +5013,7 @@ function BffCardView({
       );
     }
 
-    if (adapterHit?.kind === 'skin_status') {
+    if (adapterHit?.kind === "skin_status") {
       return (
         <SkinIdentityCard
           payload={adapterHit.data.payload}
@@ -3821,7 +5023,7 @@ function BffCardView({
       );
     }
 
-    if (adapterHit?.kind === 'effect_review') {
+    if (adapterHit?.kind === "effect_review") {
       return (
         <AnalysisStoryCard
           payload={adapterHit.data.payload}
@@ -3831,32 +5033,35 @@ function BffCardView({
       );
     }
 
-    if (adapterHit?.kind === 'triage') {
+    if (adapterHit?.kind === "triage") {
       const data = adapterHit.data;
       const riskToneClass =
-        data.riskLevel === 'high'
-          ? 'border-rose-300 bg-rose-50 text-rose-900'
-          : data.riskLevel === 'medium'
-            ? 'border-amber-300 bg-amber-50 text-amber-900'
-            : 'border-border/60 bg-background/70 text-foreground';
+        data.riskLevel === "high"
+          ? "border-rose-300 bg-rose-50 text-rose-900"
+          : data.riskLevel === "medium"
+            ? "border-amber-300 bg-amber-50 text-amber-900"
+            : "border-border/60 bg-background/70 text-foreground";
       return (
-        <div data-testid="chatcards-triage-adapter" className={`space-y-3 rounded-2xl border p-3 ${riskToneClass}`}>
+        <div
+          data-testid="chatcards-triage-adapter"
+          className={`space-y-3 rounded-2xl border p-3 ${riskToneClass}`}
+        >
           <div className="text-sm font-semibold">
-            {language === 'CN' ? '应急分诊建议' : 'Triage plan'}
-            {data.recoveryWindowHours
-              ? (
-                <span className="ml-2 text-xs font-medium opacity-80">
-                  {language === 'CN'
-                    ? `${data.recoveryWindowHours}小时观察窗`
-                    : `${data.recoveryWindowHours}h observation window`}
-                </span>
-              )
-              : null}
+            {language === "CN" ? "应急分诊建议" : "Triage plan"}
+            {data.recoveryWindowHours ? (
+              <span className="ml-2 text-xs font-medium opacity-80">
+                {language === "CN"
+                  ? `${data.recoveryWindowHours}小时观察窗`
+                  : `${data.recoveryWindowHours}h observation window`}
+              </span>
+            ) : null}
           </div>
           <div className="text-sm">{data.summary}</div>
           {data.actionPoints.length ? (
             <div>
-              <div className="text-xs font-semibold opacity-80">{language === 'CN' ? '执行要点' : 'Action points'}</div>
+              <div className="text-xs font-semibold opacity-80">
+                {language === "CN" ? "执行要点" : "Action points"}
+              </div>
               <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
                 {data.actionPoints.slice(0, 6).map((line, idx) => (
                   <li key={`triage_action_${idx}`}>{line}</li>
@@ -3866,7 +5071,9 @@ function BffCardView({
           ) : null}
           {data.redFlags.length ? (
             <div>
-              <div className="text-xs font-semibold opacity-80">{language === 'CN' ? '红旗信号' : 'Red flags'}</div>
+              <div className="text-xs font-semibold opacity-80">
+                {language === "CN" ? "红旗信号" : "Red flags"}
+              </div>
               <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
                 {data.redFlags.slice(0, 4).map((line, idx) => (
                   <li key={`triage_redflag_${idx}`}>{line}</li>
@@ -3879,8 +5086,10 @@ function BffCardView({
               type="button"
               className="chip-button chip-button-primary"
               onClick={() => {
-                const actionType = data.primaryAction?.type || 'log_symptom';
-                const actionLabel = data.primaryAction?.label || (language === 'CN' ? '记录症状' : 'Log symptom');
+                const actionType = data.primaryAction?.type || "log_symptom";
+                const actionLabel =
+                  data.primaryAction?.label ||
+                  (language === "CN" ? "记录症状" : "Log symptom");
                 const actionPayload = data.primaryAction?.payload || {};
                 if (analyticsCtx) {
                   emitCardActionClick(analyticsCtx, {
@@ -3895,21 +5104,28 @@ function BffCardView({
                     action_label: actionLabel,
                     risk_level: data.riskLevel,
                     recovery_window_hours:
-                      typeof data.recoveryWindowHours === 'number' ? data.recoveryWindowHours : null,
+                      typeof data.recoveryWindowHours === "number"
+                        ? data.recoveryWindowHours
+                        : null,
                   });
                 }
                 onAction(actionType, actionPayload);
               }}
             >
-              {data.primaryAction?.label || (language === 'CN' ? '记录症状' : 'Log symptom')}
+              {data.primaryAction?.label ||
+                (language === "CN" ? "记录症状" : "Log symptom")}
             </button>
             <button
               type="button"
               className="chip-button chip-button-outline"
               onClick={() => {
-                const actionType = data.secondaryAction?.type || 'add_to_experiment';
+                const actionType =
+                  data.secondaryAction?.type || "add_to_experiment";
                 const actionLabel =
-                  data.secondaryAction?.label || (language === 'CN' ? '创建恢复实验' : 'Create recovery experiment');
+                  data.secondaryAction?.label ||
+                  (language === "CN"
+                    ? "创建恢复实验"
+                    : "Create recovery experiment");
                 const actionPayload = data.secondaryAction?.payload || {};
                 if (analyticsCtx) {
                   emitCardActionClick(analyticsCtx, {
@@ -3924,28 +5140,40 @@ function BffCardView({
                     action_label: actionLabel,
                     risk_level: data.riskLevel,
                     recovery_window_hours:
-                      typeof data.recoveryWindowHours === 'number' ? data.recoveryWindowHours : null,
+                      typeof data.recoveryWindowHours === "number"
+                        ? data.recoveryWindowHours
+                        : null,
                   });
                 }
                 onAction(actionType, actionPayload);
               }}
             >
-              {data.secondaryAction?.label || (language === 'CN' ? '创建恢复实验' : 'Create recovery experiment')}
+              {data.secondaryAction?.label ||
+                (language === "CN"
+                  ? "创建恢复实验"
+                  : "Create recovery experiment")}
             </button>
           </div>
         </div>
       );
     }
 
-    if (adapterHit?.kind === 'nudge') {
+    if (adapterHit?.kind === "nudge") {
       const data = adapterHit.data;
       return (
-        <div data-testid="chatcards-nudge-adapter" className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
-          <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '可选加分项' : 'Optional nudge'}</div>
+        <div
+          data-testid="chatcards-nudge-adapter"
+          className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3"
+        >
+          <div className="text-sm font-semibold text-foreground">
+            {language === "CN" ? "可选加分项" : "Optional nudge"}
+          </div>
           <div className="text-sm text-foreground">{data.message}</div>
           {data.hints.length ? (
             <div>
-              <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '为什么有帮助' : 'Why this helps'}</div>
+              <div className="text-xs font-semibold text-muted-foreground">
+                {language === "CN" ? "为什么有帮助" : "Why this helps"}
+              </div>
               <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
                 {data.hints.slice(0, 4).map((line, idx) => (
                   <li key={`nudge_hint_${idx}`}>{line}</li>
@@ -3953,9 +5181,9 @@ function BffCardView({
               </ul>
             </div>
           ) : null}
-          {typeof data.cadenceDays === 'number' && data.cadenceDays > 0 ? (
+          {typeof data.cadenceDays === "number" && data.cadenceDays > 0 ? (
             <div className="text-xs text-muted-foreground">
-              {language === 'CN'
+              {language === "CN"
                 ? `建议 ${data.cadenceDays} 天后复查一次。`
                 : `Suggested check-in cadence: every ${data.cadenceDays} days.`}
             </div>
@@ -3965,8 +5193,10 @@ function BffCardView({
               type="button"
               className="chip-button chip-button-primary"
               onClick={() => {
-                const actionType = data.primaryAction?.type || 'dismiss';
-                const actionLabel = data.primaryAction?.label || (language === 'CN' ? '暂时不需要' : 'Dismiss');
+                const actionType = data.primaryAction?.type || "dismiss";
+                const actionLabel =
+                  data.primaryAction?.label ||
+                  (language === "CN" ? "暂时不需要" : "Dismiss");
                 const actionPayload = data.primaryAction?.payload || {};
                 if (analyticsCtx) {
                   emitCardActionClick(analyticsCtx, {
@@ -3979,21 +5209,27 @@ function BffCardView({
                     card_id: card.card_id || null,
                     action_type: actionType,
                     action_label: actionLabel,
-                    cadence_days: typeof data.cadenceDays === 'number' ? data.cadenceDays : null,
+                    cadence_days:
+                      typeof data.cadenceDays === "number"
+                        ? data.cadenceDays
+                        : null,
                     hint_count: data.hints.length,
                   });
                 }
                 onAction(actionType, actionPayload);
               }}
             >
-              {data.primaryAction?.label || (language === 'CN' ? '暂时不需要' : 'Dismiss')}
+              {data.primaryAction?.label ||
+                (language === "CN" ? "暂时不需要" : "Dismiss")}
             </button>
             <button
               type="button"
               className="chip-button chip-button-outline"
               onClick={() => {
-                const actionType = data.secondaryAction?.type || 'save_tip';
-                const actionLabel = data.secondaryAction?.label || (language === 'CN' ? '加入提醒' : 'Save tip');
+                const actionType = data.secondaryAction?.type || "save_tip";
+                const actionLabel =
+                  data.secondaryAction?.label ||
+                  (language === "CN" ? "加入提醒" : "Save tip");
                 const actionPayload = data.secondaryAction?.payload || {};
                 if (analyticsCtx) {
                   emitCardActionClick(analyticsCtx, {
@@ -4006,25 +5242,38 @@ function BffCardView({
                     card_id: card.card_id || null,
                     action_type: actionType,
                     action_label: actionLabel,
-                    cadence_days: typeof data.cadenceDays === 'number' ? data.cadenceDays : null,
+                    cadence_days:
+                      typeof data.cadenceDays === "number"
+                        ? data.cadenceDays
+                        : null,
                     hint_count: data.hints.length,
                   });
                 }
                 onAction(actionType, actionPayload);
               }}
             >
-              {data.secondaryAction?.label || (language === 'CN' ? '加入提醒' : 'Save tip')}
+              {data.secondaryAction?.label ||
+                (language === "CN" ? "加入提醒" : "Save tip")}
             </button>
           </div>
         </div>
       );
     }
 
-    const cardTitle = asString(card.title) || asString((payload as any)?.title) || titleForCard(cardType, language);
+    const cardTitle =
+      asString(card.title) ||
+      asString((payload as any)?.title) ||
+      titleForCard(cardType, language);
     const subtitle = asString((payload as any)?.subtitle) || undefined;
-    const tags = asArray((payload as any)?.tags).map((item) => asString(item)).filter(Boolean) as string[];
-    const sections = asArray((payload as any)?.sections).map((item) => asObject(item)).filter(Boolean) as Array<Record<string, unknown>>;
-    const actions = asArray((payload as any)?.actions).map((item) => asObject(item)).filter(Boolean) as Array<Record<string, unknown>>;
+    const tags = asArray((payload as any)?.tags)
+      .map((item) => asString(item))
+      .filter(Boolean) as string[];
+    const sections = asArray((payload as any)?.sections)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const actions = asArray((payload as any)?.actions)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
 
     return (
       <ChatCardsV1Card
@@ -4042,7 +5291,10 @@ function BffCardView({
               card_type: cardType,
               card_id: card.card_id || null,
               action_type: actionId,
-              action_label: typeof data?.action_label === 'string' ? data.action_label : null,
+              action_label:
+                typeof data?.action_label === "string"
+                  ? data.action_label
+                  : null,
             });
           }
           onAction(actionId, data);
@@ -4059,22 +5311,22 @@ function BffCardView({
           language={language}
           onOpenCheckin={onOpenCheckin}
           onOpenRecommendations={() =>
-            onAction('chip.start.reco_products', {
+            onAction("chip.start.reco_products", {
               reply_text:
-                language === 'CN'
-                  ? '请给我完整护肤产品推荐。'
-                  : 'Show full skincare product recommendations.',
-              force_route: 'reco_products',
-              trigger_source: 'travel_handoff',
-              source_card_type: 'travel',
+                language === "CN"
+                  ? "请给我完整护肤产品推荐。"
+                  : "Show full skincare product recommendations.",
+              force_route: "reco_products",
+              trigger_source: "travel_handoff",
+              source_card_type: "travel",
             })
           }
           onRefineRoutine={() =>
-            onAction('chip.start.routine', {
+            onAction("chip.start.routine", {
               reply_text:
-                language === 'CN'
-                  ? '用我的 AM/PM routine 进一步细化建议'
-                  : 'Refine recommendations with my AM/PM routine',
+                language === "CN"
+                  ? "用我的 AM/PM routine 进一步细化建议"
+                  : "Refine recommendations with my AM/PM routine",
             })
           }
           onProductLookup={handleTravelProductLookup}
@@ -4085,21 +5337,33 @@ function BffCardView({
   }
 
   if (isConflictHeatmapCard(card)) {
-    return <ConflictHeatmapCard payload={payload} language={language} debug={debug} />;
+    return (
+      <ConflictHeatmapCard
+        payload={payload}
+        language={language}
+        debug={debug}
+      />
+    );
   }
 
-  if (cardType === 'photo_modules_v1') {
+  if (cardType === "photo_modules_v1") {
     if (!FF_PHOTO_MODULES_CARD) return null;
 
-    const safeAnalysisPhotoRefs = Array.isArray(analysisPhotoRefs) ? analysisPhotoRefs : [];
-    const safeSessionPhotos = sessionPhotos && typeof sessionPhotos === 'object' ? sessionPhotos : {};
-    const payloadWithSessionPhotoFallback = enrichPhotoModulesPayloadWithSessionPreview(
-      payload,
-      safeAnalysisPhotoRefs,
-      safeSessionPhotos,
-    );
+    const safeAnalysisPhotoRefs = Array.isArray(analysisPhotoRefs)
+      ? analysisPhotoRefs
+      : [];
+    const safeSessionPhotos =
+      sessionPhotos && typeof sessionPhotos === "object" ? sessionPhotos : {};
+    const payloadWithSessionPhotoFallback =
+      enrichPhotoModulesPayloadWithSessionPreview(
+        payload,
+        safeAnalysisPhotoRefs,
+        safeSessionPhotos,
+      );
 
-    const { model, errors, sanitizer_drops } = normalizePhotoModulesUiModelV1(payloadWithSessionPhotoFallback);
+    const { model, errors, sanitizer_drops } = normalizePhotoModulesUiModelV1(
+      payloadWithSessionPhotoFallback,
+    );
     if (!model) {
       if (analyticsCtx) {
         emitAuroraPhotoModulesSchemaFail(analyticsCtx, {
@@ -4112,19 +5376,19 @@ function BffCardView({
       if (!debug) return null;
       return (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-muted-foreground">
-          {language === 'CN'
-            ? '照片模块卡片暂不可用（数据格式异常），已自动降级。'
-            : 'Photo modules card is temporarily unavailable (invalid payload), downgraded safely.'}
+          {language === "CN"
+            ? "照片模块卡片暂不可用（数据格式异常），已自动降级。"
+            : "Photo modules card is temporarily unavailable (invalid payload), downgraded safely."}
         </div>
       );
     }
 
-    if (!model.used_photos || model.quality_grade === 'fail') {
+    if (!model.used_photos || model.quality_grade === "fail") {
       return (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-muted-foreground">
-          {language === 'CN'
-            ? '当前照片条件不足，暂不展示模块叠加卡片。'
-            : 'Photo conditions are insufficient for module overlay rendering right now.'}
+          {language === "CN"
+            ? "当前照片条件不足，暂不展示模块叠加卡片。"
+            : "Photo conditions are insufficient for module overlay rendering right now."}
         </div>
       );
     }
@@ -4142,37 +5406,64 @@ function BffCardView({
     );
   }
 
-  if (cardType === 'ingredient_hub') {
-    return <IngredientHubCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  if (cardType === "ingredient_hub") {
+    return (
+      <IngredientHubCard
+        payload={payload as Record<string, unknown>}
+        language={language}
+        onAction={(id, data) => onAction(id, data)}
+      />
+    );
   }
 
-  if (cardType === 'ingredient_goal_match') {
-    return <IngredientGoalMatchCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  if (cardType === "ingredient_goal_match") {
+    return (
+      <IngredientGoalMatchCard
+        payload={payload as Record<string, unknown>}
+        language={language}
+        onAction={(id, data) => onAction(id, data)}
+      />
+    );
   }
 
-  if (cardType === 'diagnosis_gate') {
-    return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
+  if (cardType === "diagnosis_gate") {
+    return (
+      <DiagnosisCard
+        onAction={(id, data) => onAction(id, data)}
+        language={language}
+      />
+    );
   }
 
-  if (cardType === 'analysis_summary') {
+  if (cardType === "analysis_summary") {
     const analysisObj = asObject((payload as any).analysis) || {};
-    const featuresRaw = asArray((analysisObj as any).features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+    const featuresRaw = asArray((analysisObj as any).features)
+      .map((v) => asObject(v))
+      .filter(Boolean) as Array<Record<string, unknown>>;
     const features = featuresRaw
       .map((f) => ({
-        observation: asString(f.observation) || '',
-        confidence: (asString(f.confidence) || 'somewhat_sure') as 'pretty_sure' | 'somewhat_sure' | 'not_sure',
+        observation: asString(f.observation) || "",
+        confidence: (asString(f.confidence) || "somewhat_sure") as
+          | "pretty_sure"
+          | "somewhat_sure"
+          | "not_sure",
       }))
       .filter((f) => Boolean(f.observation))
       .slice(0, 8);
     const analysis = {
       features,
-      strategy: asString((analysisObj as any).strategy) || '',
+      strategy: asString((analysisObj as any).strategy) || "",
       needs_risk_check: (analysisObj as any).needs_risk_check === true,
     };
 
-    const analysisSource = asString((payload as any).analysis_source) || '';
-    const photoQc = asArray((payload as any).photo_qc).map((v) => asString(v)).filter(Boolean) as string[];
-    const lowConfidence = resolveAnalysisSummaryLowConfidence(payload as Record<string, unknown>, Array.isArray(card.field_missing) ? card.field_missing : []);
+    const analysisSource = asString((payload as any).analysis_source) || "";
+    const photoQc = asArray((payload as any).photo_qc)
+      .map((v) => asString(v))
+      .filter(Boolean) as string[];
+    const lowConfidence = resolveAnalysisSummaryLowConfidence(
+      payload as Record<string, unknown>,
+      Array.isArray(card.field_missing) ? card.field_missing : [],
+    );
     const photosProvided = (payload as any).photos_provided === true;
 
     return (
@@ -4191,35 +5482,56 @@ function BffCardView({
     );
   }
 
-  if (cardType === 'analysis_story_v2') {
-    return <AnalysisStoryCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  if (cardType === "analysis_story_v2") {
+    return (
+      <AnalysisStoryCard
+        payload={payload as Record<string, unknown>}
+        language={language}
+        onAction={(id, data) => onAction(id, data)}
+      />
+    );
   }
 
-  if (cardType === 'routine_fit_summary') {
-    return <RoutineFitSummaryCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  if (cardType === "routine_fit_summary") {
+    return (
+      <RoutineFitSummaryCard
+        payload={payload as Record<string, unknown>}
+        language={language}
+        onAction={(id, data) => onAction(id, data)}
+      />
+    );
   }
 
-  if (cardType === 'routine_prompt') {
-    const missingFields = asArray((payload as any).missing_fields).map((item) => asString(item)).filter(Boolean) as string[];
+  if (cardType === "routine_prompt") {
+    const missingFields = asArray((payload as any).missing_fields)
+      .map((item) => asString(item))
+      .filter(Boolean) as string[];
     const whyNow =
       asString((payload as any).why_now) ||
-      (language === 'CN'
-        ? '补全 AM/PM routine 后，系统会基于你当前产品做冲突规避与个性化排序。'
-        : 'Complete AM/PM routine to unlock conflict-aware personalized ranking.');
-    const ctaLabel = asString((payload as any).cta_label) || (language === 'CN' ? '补全 AM/PM Routine' : 'Add AM/PM routine');
+      (language === "CN"
+        ? "补全 AM/PM routine 后，系统会基于你当前产品做冲突规避与个性化排序。"
+        : "Complete AM/PM routine to unlock conflict-aware personalized ranking.");
+    const ctaLabel =
+      asString((payload as any).cta_label) ||
+      (language === "CN" ? "补全 AM/PM Routine" : "Add AM/PM routine");
 
     return (
       <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
         <div className="text-sm text-foreground">{whyNow}</div>
-        {missingFields.length ? <div className="mt-2 text-xs text-muted-foreground">{missingFields.join(' · ')}</div> : null}
+        {missingFields.length ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {missingFields.join(" · ")}
+          </div>
+        ) : null}
         <button
           type="button"
           className="chip-button chip-button-primary mt-3"
           onClick={() =>
-            onAction('chip.start.routine', {
-              trigger_source: 'routine_prompt',
-              source_card_type: 'routine_prompt',
-              cta_action: asString((payload as any).cta_action) || 'open_routine_intake',
+            onAction("chip.start.routine", {
+              trigger_source: "routine_prompt",
+              source_card_type: "routine_prompt",
+              cta_action:
+                asString((payload as any).cta_action) || "open_routine_intake",
             })
           }
         >
@@ -4229,32 +5541,45 @@ function BffCardView({
     );
   }
 
-  if (cardType === 'ingredient_plan') {
+  if (cardType === "ingredient_plan") {
     const planObj = asObject((payload as any).plan) ?? asObject(payload) ?? {};
-    const intensity = asString((planObj as any).intensity) || asString((payload as any).intensity) || 'balanced';
-    const targets = asArray((planObj as any).targets ?? (payload as any).targets)
+    const intensity =
+      asString((planObj as any).intensity) ||
+      asString((payload as any).intensity) ||
+      "balanced";
+    const targets = asArray(
+      (planObj as any).targets ?? (payload as any).targets,
+    )
       .map((item) => asObject(item))
       .filter(Boolean) as Array<Record<string, unknown>>;
     const avoid = asArray((planObj as any).avoid ?? (payload as any).avoid)
       .map((item) => asObject(item))
       .filter(Boolean) as Array<Record<string, unknown>>;
-    const conflicts = asArray((planObj as any).conflicts ?? (payload as any).conflicts)
+    const conflicts = asArray(
+      (planObj as any).conflicts ?? (payload as any).conflicts,
+    )
       .map((item) => asObject(item))
       .filter(Boolean) as Array<Record<string, unknown>>;
 
     return (
       <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
         <div className="text-xs font-semibold text-foreground">
-          {language === 'CN' ? `强度：${intensity}` : `Intensity: ${intensity}`}
+          {language === "CN" ? `强度：${intensity}` : `Intensity: ${intensity}`}
         </div>
         {targets.length ? (
           <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '推荐成分' : 'Target ingredients'}</div>
+            <div className="text-xs font-medium text-muted-foreground">
+              {language === "CN" ? "推荐成分" : "Target ingredients"}
+            </div>
             <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
               {targets.slice(0, 6).map((item, idx) => (
                 <li key={`target_${idx}`}>
-                  {asString((item as any).ingredient_id) || asString((item as any).ingredientId) || 'ingredient'}
-                  {Number.isFinite(Number((item as any).priority)) ? ` · P${Math.round(Number((item as any).priority))}` : ''}
+                  {asString((item as any).ingredient_id) ||
+                    asString((item as any).ingredientId) ||
+                    "ingredient"}
+                  {Number.isFinite(Number((item as any).priority))
+                    ? ` · P${Math.round(Number((item as any).priority))}`
+                    : ""}
                 </li>
               ))}
             </ul>
@@ -4262,12 +5587,16 @@ function BffCardView({
         ) : null}
         {avoid.length ? (
           <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '需规避/谨慎' : 'Avoid / caution'}</div>
+            <div className="text-xs font-medium text-muted-foreground">
+              {language === "CN" ? "需规避/谨慎" : "Avoid / caution"}
+            </div>
             <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
               {avoid.slice(0, 6).map((item, idx) => (
                 <li key={`avoid_${idx}`}>
-                  {asString((item as any).ingredient_id) || 'ingredient'}
-                  {asString((item as any).severity) ? ` · ${asString((item as any).severity)}` : ''}
+                  {asString((item as any).ingredient_id) || "ingredient"}
+                  {asString((item as any).severity)
+                    ? ` · ${asString((item as any).severity)}`
+                    : ""}
                 </li>
               ))}
             </ul>
@@ -4275,11 +5604,15 @@ function BffCardView({
         ) : null}
         {conflicts.length ? (
           <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '冲突说明' : 'Conflicts'}</div>
+            <div className="text-xs font-medium text-muted-foreground">
+              {language === "CN" ? "冲突说明" : "Conflicts"}
+            </div>
             <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
               {conflicts.slice(0, 4).map((item, idx) => (
                 <li key={`conflict_${idx}`}>
-                  {asString((item as any).description) || asString((item as any).message) || ''}
+                  {asString((item as any).description) ||
+                    asString((item as any).message) ||
+                    ""}
                 </li>
               ))}
             </ul>
@@ -4289,7 +5622,7 @@ function BffCardView({
     );
   }
 
-  if (cardType === 'ingredient_plan_v2') {
+  if (cardType === "ingredient_plan_v2") {
     return (
       <IngredientPlanCard
         payload={payload as Record<string, unknown>}
@@ -4300,25 +5633,25 @@ function BffCardView({
     );
   }
 
-  if (cardType === 'gate_notice' || cardType === 'budget_gate') {
+  if (cardType === "gate_notice" || cardType === "budget_gate") {
     const gatePayload = asObject(payload) ?? {};
     const reason = asString((gatePayload as any).reason);
     const summary =
-      cardType === 'budget_gate'
-        ? language === 'CN'
-          ? '预算补充（可选）'
-          : 'Budget details (optional)'
-        : language === 'CN'
-          ? '分析限制与补充信息'
-          : 'Analysis limits and optional details';
+      cardType === "budget_gate"
+        ? language === "CN"
+          ? "预算补充（可选）"
+          : "Budget details (optional)"
+        : language === "CN"
+          ? "分析限制与补充信息"
+          : "Analysis limits and optional details";
     const hint =
-      cardType === 'budget_gate'
-        ? language === 'CN'
-          ? '主结果已给出，补充预算可用于细化推荐。'
-          : 'Main answer is already provided. Budget can refine recommendations.'
-        : language === 'CN'
-          ? '主结果已返回；以下信息仅用于提高精度。'
-          : 'Main answer already returned. Details below only improve precision.';
+      cardType === "budget_gate"
+        ? language === "CN"
+          ? "主结果已给出，补充预算可用于细化推荐。"
+          : "Main answer is already provided. Budget can refine recommendations."
+        : language === "CN"
+          ? "主结果已返回；以下信息仅用于提高精度。"
+          : "Main answer already returned. Details below only improve precision.";
     return (
       <details className="rounded-2xl border border-border/60 bg-background/50 p-3">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-foreground">
@@ -4329,7 +5662,7 @@ function BffCardView({
           <div>{hint}</div>
           {reason ? (
             <div className="rounded-xl border border-border/50 bg-muted/40 px-2 py-1">
-              {language === 'CN' ? `原因：${reason}` : `Reason: ${reason}`}
+              {language === "CN" ? `原因：${reason}` : `Reason: ${reason}`}
             </div>
           ) : null}
         </div>
@@ -4337,17 +5670,26 @@ function BffCardView({
     );
   }
 
-  if (cardType === 'confidence_notice') {
-    if (!FF_SHOW_PASSIVE_GATES && isPassiveAdvisoryNoticeCard(card)) return null;
+  if (cardType === "confidence_notice") {
+    if (!FF_SHOW_PASSIVE_GATES && isPassiveAdvisoryNoticeCard(card))
+      return null;
     const notice = asObject(payload) ?? {};
-    const messageText = asString((notice as any).message) || (language === 'CN' ? '当前建议以保守策略输出。' : 'Current guidance is conservative.');
-    const details = asArray((notice as any).details).map((item) => asString(item)).filter(Boolean) as string[];
-    const actions = asArray((notice as any).actions).map((item) => asString(item)).filter(Boolean) as string[];
-    const severity = asString((notice as any).severity) || 'warn';
+    const messageText =
+      asString((notice as any).message) ||
+      (language === "CN"
+        ? "当前建议以保守策略输出。"
+        : "Current guidance is conservative.");
+    const details = asArray((notice as any).details)
+      .map((item) => asString(item))
+      .filter(Boolean) as string[];
+    const actions = asArray((notice as any).actions)
+      .map((item) => asString(item))
+      .filter(Boolean) as string[];
+    const severity = asString((notice as any).severity) || "warn";
     const toneClass =
-      severity === 'block'
-        ? 'border-rose-300 bg-rose-50 text-rose-800'
-        : 'border-amber-300 bg-amber-50 text-amber-800';
+      severity === "block"
+        ? "border-rose-300 bg-rose-50 text-rose-800"
+        : "border-amber-300 bg-amber-50 text-amber-800";
     return (
       <div className={`rounded-2xl border p-3 text-sm ${toneClass}`}>
         <div className="font-medium">{messageText}</div>
@@ -4360,15 +5702,17 @@ function BffCardView({
         ) : null}
         {actions.length ? (
           <div className="mt-2 text-[11px] opacity-80">
-            {(language === 'CN' ? '建议动作：' : 'Suggested actions: ') + actions.slice(0, 4).join(' · ')}
+            {(language === "CN" ? "建议动作：" : "Suggested actions: ") +
+              actions.slice(0, 4).join(" · ")}
           </div>
         ) : null}
       </div>
     );
   }
 
-  if (cardType === 'profile') {
-    const profilePayload = asObject((payload as any)?.profile) ?? asObject(payload) ?? null;
+  if (cardType === "profile") {
+    const profilePayload =
+      asObject((payload as any)?.profile) ?? asObject(payload) ?? null;
     const diagnosis = toDiagnosisResult(profilePayload);
     return (
       <div className="space-y-3">
@@ -4385,32 +5729,53 @@ function BffCardView({
   const title = titleForCard(card.type, language);
   const fieldMissingCount = 0;
 
-  const qcStatus = normalizePhotoQcStatus(asString((payload as any)?.qc_status));
+  const qcStatus = normalizePhotoQcStatus(
+    asString((payload as any)?.qc_status),
+  );
   const qcObj = asObject((payload as any)?.qc);
   const qcAdvice = asObject(qcObj?.advice);
   const qcSummary = asString(qcAdvice?.summary) || null;
-  const qcSuggestions = asArray(qcAdvice?.suggestions).map((s) => asString(s)).filter(Boolean) as string[];
+  const qcSuggestions = asArray(qcAdvice?.suggestions)
+    .map((s) => asString(s))
+    .filter(Boolean) as string[];
 
   const evidence = asObject((payload as any)?.evidence) || null;
   const science = asObject(evidence?.science) || null;
-  const socialEvidence = asObject(evidence?.social_signals || (evidence as any)?.socialSignals) || null;
-  const socialBlock = asObject((payload as any)?.social_signals || (payload as any)?.socialSignals) || null;
-  const socialSummary = asObject(socialBlock?.overall_summary || (socialBlock as any)?.overallSummary) || null;
+  const socialEvidence =
+    asObject(evidence?.social_signals || (evidence as any)?.socialSignals) ||
+    null;
+  const socialBlock =
+    asObject(
+      (payload as any)?.social_signals || (payload as any)?.socialSignals,
+    ) || null;
+  const socialSummary =
+    asObject(
+      socialBlock?.overall_summary || (socialBlock as any)?.overallSummary,
+    ) || null;
   const provenanceTop = asObject((payload as any)?.provenance) || null;
   const socialChannelsUsed = uniqueStrings([
     ...asArray((provenanceTop as any)?.social_channels_used),
-    ...asArray((socialBlock as any)?.channels_used || (socialBlock as any)?.channelsUsed),
-    ...asArray((socialSummary as any)?.channels_used || (socialSummary as any)?.channelsUsed),
+    ...asArray(
+      (socialBlock as any)?.channels_used || (socialBlock as any)?.channelsUsed,
+    ),
+    ...asArray(
+      (socialSummary as any)?.channels_used ||
+        (socialSummary as any)?.channelsUsed,
+    ),
   ])
     .map((channel) => normalizeSocialChannelName(channel))
     .filter(Boolean) as string[];
-  const expertNotes = uniqueStrings(evidence?.expert_notes || (evidence as any)?.expertNotes);
+  const expertNotes = uniqueStrings(
+    evidence?.expert_notes || (evidence as any)?.expertNotes,
+  );
   const sourcePriority = (type: string): number => {
-    const token = String(type || '').trim().toLowerCase();
-    if (token === 'official_page') return 0;
-    if (token === 'regulatory') return 1;
-    if (token === 'retail_page') return 2;
-    if (token === 'inci_decoder') return 3;
+    const token = String(type || "")
+      .trim()
+      .toLowerCase();
+    if (token === "official_page") return 0;
+    if (token === "regulatory") return 1;
+    if (token === "retail_page") return 2;
+    if (token === "inci_decoder") return 3;
     return 9;
   };
   const evidenceSources = asArray((evidence as any)?.sources)
@@ -4422,26 +5787,50 @@ function BffCardView({
       label: asString((source as any)?.label),
     }))
     .filter((source) => /^https?:\/\//i.test(source.url))
-    .filter((source, idx, arr) => arr.findIndex((x) => x.url === source.url) === idx)
+    .filter(
+      (source, idx, arr) => arr.findIndex((x) => x.url === source.url) === idx,
+    )
     .sort((a, b) => sourcePriority(a.type) - sourcePriority(b.type))
     .slice(0, 3);
 
-  const evidenceKeyIngredients = uniqueStrings(science?.key_ingredients || (science as any)?.keyIngredients).slice(0, 10);
+  const evidenceKeyIngredients = uniqueStrings(
+    science?.key_ingredients || (science as any)?.keyIngredients,
+  ).slice(0, 10);
   const evidenceMechanisms = uniqueStrings(science?.mechanisms).slice(0, 8);
-  const evidenceFitNotes = uniqueStrings(science?.fit_notes || (science as any)?.fitNotes).slice(0, 6);
-  const evidenceRiskNotes = uniqueStrings(science?.risk_notes || (science as any)?.riskNotes).slice(0, 6);
+  const evidenceFitNotes = uniqueStrings(
+    science?.fit_notes || (science as any)?.fitNotes,
+  ).slice(0, 6);
+  const evidenceRiskNotes = uniqueStrings(
+    science?.risk_notes || (science as any)?.riskNotes,
+  ).slice(0, 6);
 
-  const platformScores = asObject(socialEvidence?.platform_scores || (socialEvidence as any)?.platformScores) || null;
+  const platformScores =
+    asObject(
+      socialEvidence?.platform_scores ||
+        (socialEvidence as any)?.platformScores,
+    ) || null;
   const socialPositive = uniqueStrings([
-    ...uniqueStrings(socialEvidence?.typical_positive || (socialEvidence as any)?.typicalPositive),
-    ...uniqueStrings(socialSummary?.top_pos_themes || (socialSummary as any)?.topPosThemes),
+    ...uniqueStrings(
+      socialEvidence?.typical_positive ||
+        (socialEvidence as any)?.typicalPositive,
+    ),
+    ...uniqueStrings(
+      socialSummary?.top_pos_themes || (socialSummary as any)?.topPosThemes,
+    ),
   ]).slice(0, 6);
   const socialNegative = uniqueStrings([
-    ...uniqueStrings(socialEvidence?.typical_negative || (socialEvidence as any)?.typicalNegative),
-    ...uniqueStrings(socialSummary?.top_neg_themes || (socialSummary as any)?.topNegThemes),
+    ...uniqueStrings(
+      socialEvidence?.typical_negative ||
+        (socialEvidence as any)?.typicalNegative,
+    ),
+    ...uniqueStrings(
+      socialSummary?.top_neg_themes || (socialSummary as any)?.topNegThemes,
+    ),
   ]).slice(0, 6);
   const socialRisks = uniqueStrings([
-    ...uniqueStrings(socialEvidence?.risk_for_groups || (socialEvidence as any)?.riskForGroups),
+    ...uniqueStrings(
+      socialEvidence?.risk_for_groups || (socialEvidence as any)?.riskForGroups,
+    ),
     ...uniqueStrings(socialSummary?.watchouts),
   ]).slice(0, 6);
 
@@ -4450,61 +5839,66 @@ function BffCardView({
     const neg = socialNegative.length;
     const risk = socialRisks.length;
     if (!pos && !neg && !risk) {
-      if (!socialChannelsUsed.length && !socialBlock && !socialEvidence) return null;
+      if (!socialChannelsUsed.length && !socialBlock && !socialEvidence)
+        return null;
       return {
         headline:
-          language === 'CN'
-            ? '跨平台讨论较少，当前以有限信号为参考。'
-            : 'Cross-platform discussion is limited right now.',
+          language === "CN"
+            ? "跨平台讨论较少，当前以有限信号为参考。"
+            : "Cross-platform discussion is limited right now.",
         details:
           socialChannelsUsed.length > 0
-            ? language === 'CN'
-              ? `已覆盖渠道：${socialChannelsUsed.join('、')}`
-              : `Channels covered: ${socialChannelsUsed.join(', ')}`
-            : language === 'CN'
-              ? '暂未拿到足够的跨平台主题信号。'
-              : 'Not enough cross-platform topic signals yet.',
+            ? language === "CN"
+              ? `已覆盖渠道：${socialChannelsUsed.join("、")}`
+              : `Channels covered: ${socialChannelsUsed.join(", ")}`
+            : language === "CN"
+              ? "暂未拿到足够的跨平台主题信号。"
+              : "Not enough cross-platform topic signals yet.",
         channels: socialChannelsUsed,
       };
     }
 
-    const tone: 'positive' | 'mixed' | 'caution' =
-      pos >= neg + 2 ? 'positive' : neg >= pos + 2 || (neg > 0 && risk >= 2) ? 'caution' : 'mixed';
+    const tone: "positive" | "mixed" | "caution" =
+      pos >= neg + 2
+        ? "positive"
+        : neg >= pos + 2 || (neg > 0 && risk >= 2)
+          ? "caution"
+          : "mixed";
 
     const headline =
-      language === 'CN'
-        ? tone === 'positive'
-          ? '整体口碑偏正向（多为保湿、肤感轻薄）'
-          : tone === 'caution'
-            ? '整体口碑偏谨慎（负向/风险反馈相对更多）'
-            : '整体口碑中性偏混合（正负反馈并存）'
-        : tone === 'positive'
-          ? 'Overall feedback is mostly positive.'
-          : tone === 'caution'
-            ? 'Overall feedback suggests caution.'
-            : 'Overall feedback is mixed.';
+      language === "CN"
+        ? tone === "positive"
+          ? "整体口碑偏正向（多为保湿、肤感轻薄）"
+          : tone === "caution"
+            ? "整体口碑偏谨慎（负向/风险反馈相对更多）"
+            : "整体口碑中性偏混合（正负反馈并存）"
+        : tone === "positive"
+          ? "Overall feedback is mostly positive."
+          : tone === "caution"
+            ? "Overall feedback suggests caution."
+            : "Overall feedback is mixed.";
 
     const detailParts = [
       socialPositive.length
-        ? language === 'CN'
-          ? `常见好评：${socialPositive.slice(0, 3).join('、')}`
-          : `Common positives: ${socialPositive.slice(0, 3).join(', ')}`
-        : '',
+        ? language === "CN"
+          ? `常见好评：${socialPositive.slice(0, 3).join("、")}`
+          : `Common positives: ${socialPositive.slice(0, 3).join(", ")}`
+        : "",
       socialNegative.length
-        ? language === 'CN'
-          ? `常见担忧：${socialNegative.slice(0, 3).join('、')}`
-          : `Common concerns: ${socialNegative.slice(0, 3).join(', ')}`
-        : '',
+        ? language === "CN"
+          ? `常见担忧：${socialNegative.slice(0, 3).join("、")}`
+          : `Common concerns: ${socialNegative.slice(0, 3).join(", ")}`
+        : "",
       socialRisks.length
-        ? language === 'CN'
-          ? `人群注意：${socialRisks.slice(0, 2).join('；')}`
-          : `Watchouts: ${socialRisks.slice(0, 2).join('; ')}`
-        : '',
+        ? language === "CN"
+          ? `人群注意：${socialRisks.slice(0, 2).join("；")}`
+          : `Watchouts: ${socialRisks.slice(0, 2).join("; ")}`
+        : "",
     ].filter(Boolean);
 
     return {
       headline,
-      details: detailParts.join(language === 'CN' ? '。' : '. '),
+      details: detailParts.join(language === "CN" ? "。" : ". "),
       channels: socialChannelsUsed,
     };
   })();
@@ -4518,18 +5912,22 @@ function BffCardView({
           </div>
           <div className="space-y-0.5">
             <div className="text-sm font-semibold text-foreground">{title}</div>
-            {card.title ? <div className="text-xs text-muted-foreground">{card.title}</div> : null}
+            {card.title ? (
+              <div className="text-xs text-muted-foreground">{card.title}</div>
+            ) : null}
           </div>
         </div>
 
         {fieldMissingCount ? (
           <div className="rounded-full border border-border/60 bg-muted/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-            {language === 'CN' ? `缺字段 ${fieldMissingCount}` : `${fieldMissingCount} missing`}
+            {language === "CN"
+              ? `缺字段 ${fieldMissingCount}`
+              : `${fieldMissingCount} missing`}
           </div>
         ) : null}
       </div>
 
-      {cardType === 'recommendations' ? (
+      {cardType === "recommendations" ? (
         <RecommendationsCard
           card={card}
           language={language}
@@ -4545,1870 +5943,2740 @@ function BffCardView({
         />
       ) : null}
 
-      {cardType === 'routine_simulation' ? (() => {
-        const safe = (payload as any)?.safe === true;
-        const summary = asString((payload as any)?.summary) || '';
-        const conflicts = asArray((payload as any)?.conflicts).map((c) => asObject(c)).filter(Boolean) as Array<Record<string, unknown>>;
-        const Icon = safe ? CheckCircle2 : AlertTriangle;
-        const tone = safe ? 'text-emerald-700 bg-emerald-500/10 border-emerald-500/20' : 'text-amber-700 bg-amber-500/10 border-amber-500/20';
-        return (
-          <div className="space-y-3">
-            <div className={`flex items-start gap-3 rounded-2xl border p-3 ${tone}`}>
-              <Icon className="h-5 w-5" />
-              <div className="space-y-1">
-                <div className="text-sm font-semibold">
-                  {safe
-                    ? language === 'CN'
-                      ? '看起来兼容 ✅'
-                      : 'Looks compatible ✅'
-                    : language === 'CN'
-                      ? '存在刺激/冲突风险'
-                      : 'Irritation/conflict risks detected'}
+      {cardType === "routine_simulation"
+        ? (() => {
+            const safe = (payload as any)?.safe === true;
+            const summary = asString((payload as any)?.summary) || "";
+            const conflicts = asArray((payload as any)?.conflicts)
+              .map((c) => asObject(c))
+              .filter(Boolean) as Array<Record<string, unknown>>;
+            const Icon = safe ? CheckCircle2 : AlertTriangle;
+            const tone = safe
+              ? "text-emerald-700 bg-emerald-500/10 border-emerald-500/20"
+              : "text-amber-700 bg-amber-500/10 border-amber-500/20";
+            return (
+              <div className="space-y-3">
+                <div
+                  className={`flex items-start gap-3 rounded-2xl border p-3 ${tone}`}
+                >
+                  <Icon className="h-5 w-5" />
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold">
+                      {safe
+                        ? language === "CN"
+                          ? "看起来兼容 ✅"
+                          : "Looks compatible ✅"
+                        : language === "CN"
+                          ? "存在刺激/冲突风险"
+                          : "Irritation/conflict risks detected"}
+                    </div>
+                    {summary ? (
+                      <div className="text-xs text-muted-foreground">
+                        {summary}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-                {summary ? <div className="text-xs text-muted-foreground">{summary}</div> : null}
+
+                {conflicts.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "冲突点" : "Conflicts"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {conflicts.slice(0, 6).map((c, idx) => {
+                        const rule =
+                          asString(c.rule_id) ||
+                          asString((c as any).ruleId) ||
+                          "";
+                        const msg = asString(c.message) || "";
+                        const sev = asString(c.severity) || "";
+                        return (
+                          <li key={`${rule || "c"}_${idx}`}>
+                            {msg}
+                            {debug && (rule || sev) ? (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {rule
+                                  ? `(${rule}${sev ? ` · ${sev}` : ""})`
+                                  : sev
+                                    ? `(${sev})`
+                                    : ""}
+                              </span>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
-            </div>
+            );
+          })()
+        : null}
 
-            {conflicts.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '冲突点' : 'Conflicts'}</div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {conflicts.slice(0, 6).map((c, idx) => {
-                    const rule = asString(c.rule_id) || asString((c as any).ruleId) || '';
-                    const msg = asString(c.message) || '';
-                    const sev = asString(c.severity) || '';
-                    return (
-                      <li key={`${rule || 'c'}_${idx}`}>
-                        {msg}
-                        {debug && (rule || sev) ? (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {rule ? `(${rule}${sev ? ` · ${sev}` : ''})` : sev ? `(${sev})` : ''}
-                          </span>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
+      {cardType === "offers_resolved"
+        ? (() => {
+            const items = asArray((payload as any)?.items)
+              .map((v) => asObject(v))
+              .filter(Boolean) as Array<Record<string, unknown>>;
+            if (!items.length) return null;
+
+            return (
+              <div className="space-y-3">
+                {items.slice(0, 8).map((item, idx) => {
+                  const productRaw = asObject(item.product);
+                  const offerRaw = asObject(item.offer);
+                  if (!productRaw) return null;
+                  const product = toUiProduct(productRaw, language);
+                  const offer = offerRaw ? toUiOffer(offerRaw) : null;
+                  const outboundUrl =
+                    offer?.purchase_route === "affiliate_outbound"
+                      ? offer.affiliate_url
+                      : undefined;
+
+                  return (
+                    <div key={`${product.sku_id}_${idx}`} className="space-y-2">
+                      <AuroraAnchorCard
+                        product={product}
+                        offers={offer ? [offer] : []}
+                        language={language}
+                      />
+
+                      {outboundUrl ? (
+                        <button
+                          type="button"
+                          className="chip-button chip-button-primary w-full"
+                          onClick={() =>
+                            onAction("affiliate_open", {
+                              url: outboundUrl,
+                              offer_id: offer?.offer_id,
+                            })
+                          }
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          {language === "CN"
+                            ? "打开购买链接"
+                            : "Open purchase link"}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
-            ) : null}
-          </div>
-        );
-      })() : null}
+            );
+          })()
+        : null}
 
-      {cardType === 'offers_resolved' ? (() => {
-        const items = asArray((payload as any)?.items).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-        if (!items.length) return null;
+      {cardType === "error"
+        ? (() => {
+            const code = asString((payload as any)?.error) || "UNKNOWN_ERROR";
+            const status = asNumber((payload as any)?.status);
+            const details = (payload as any)?.details ?? null;
+            return (
+              <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                <div className="font-semibold">
+                  {code}
+                  {typeof status === "number" ? ` (HTTP ${status})` : ""}
+                </div>
+                {details ? (
+                  <pre className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
+                    {renderJson(details)}
+                  </pre>
+                ) : null}
+              </div>
+            );
+          })()
+        : null}
 
-        return (
-          <div className="space-y-3">
-            {items.slice(0, 8).map((item, idx) => {
-              const productRaw = asObject(item.product);
-              const offerRaw = asObject(item.offer);
-              if (!productRaw) return null;
-              const product = toUiProduct(productRaw, language);
-              const offer = offerRaw ? toUiOffer(offerRaw) : null;
-              const outboundUrl = offer?.purchase_route === 'affiliate_outbound' ? offer.affiliate_url : undefined;
-
+      {cardType === "product_parse"
+        ? (() => {
+            const productRaw = asObject((payload as any).product);
+            const product = productRaw
+              ? toUiProduct(productRaw, language)
+              : null;
+            const productOffers = productRaw
+              ? toAnchorOffers(productRaw, language)
+              : [];
+            const confidence = asNumber((payload as any).confidence);
+            const parseSource = (
+              asString(
+                (payload as any).parse_source || (payload as any).parseSource,
+              ) || ""
+            ).toLowerCase();
+            const parseSourceLabel = (() => {
+              if (!parseSource || parseSource === "none") return "";
+              const labels: Record<string, { CN: string; EN: string }> = {
+                upstream_structured: {
+                  CN: "上游结构化",
+                  EN: "Upstream structured",
+                },
+                answer_json: { CN: "回答 JSON", EN: "Answer JSON" },
+                heuristic_url: { CN: "URL 启发式", EN: "URL heuristic" },
+                catalog_resolve: {
+                  CN: "Catalog resolve",
+                  EN: "Catalog resolve",
+                },
+                catalog_search: { CN: "Catalog search", EN: "Catalog search" },
+              };
+              return labels[parseSource]?.[language] || parseSource;
+            })();
+            const missingCodes = uniqueStrings([
+              ...(Array.isArray((payload as any).missing_info)
+                ? (payload as any).missing_info
+                : []),
+              ...asArray(card.field_missing)
+                .map((item) => asObject(item))
+                .filter(Boolean)
+                .map((item) => asString((item as any).reason))
+                .filter(Boolean),
+            ]);
+            const reasonLabels = missingCodes
+              .slice(0, 3)
+              .map((code) => labelMissing(String(code), language))
+              .filter(Boolean)
+              .join(language === "CN" ? "、" : " · ");
+            const anchorSoftBlocked = missingCodes.some((code) => {
+              const token = String(code || "")
+                .trim()
+                .toLowerCase();
               return (
-                <div key={`${product.sku_id}_${idx}`} className="space-y-2">
-                  <AuroraAnchorCard product={product} offers={offer ? [offer] : []} language={language} />
+                token.startsWith("anchor_soft_blocked_") ||
+                token === "anchor_id_not_used_due_to_low_trust"
+              );
+            });
 
-                  {outboundUrl ? (
-                    <button
-                      type="button"
-                      className="chip-button chip-button-primary w-full"
-                      onClick={() => onAction('affiliate_open', { url: outboundUrl, offer_id: offer?.offer_id })}
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      {language === 'CN' ? '打开购买链接' : 'Open purchase link'}
-                    </button>
+            return (
+              <div className="space-y-3">
+                {product ? (
+                  <div className="space-y-2">
+                    <AuroraAnchorCard
+                      product={product}
+                      offers={productOffers}
+                      language={language}
+                      hidePriceWhenUnknown
+                    />
+                    {anchorSoftBlocked ? (
+                      <div className="px-1 text-[11px] text-muted-foreground">
+                        {language === "CN"
+                          ? "提示：已阻止不可靠锚点绑定 ID，分析仍会继续（URL realtime）。"
+                          : "Note: an unreliable anchor was blocked from ID binding; URL realtime analysis continues."}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
+                    <div>
+                      {anchorSoftBlocked
+                        ? language === "CN"
+                          ? "已阻止不可靠锚点，分析已自动切到 URL 实时链路继续。"
+                          : "An unreliable anchor was blocked; analysis automatically continues on the URL realtime path."
+                        : language === "CN"
+                          ? "本次未拿到稳定产品锚点，已自动尝试降级恢复并继续后续分析。"
+                          : "No stable product anchor was parsed; fallback recovery was attempted so analysis can continue."}
+                    </div>
+                    {reasonLabels ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {language === "CN"
+                          ? `原因：${reasonLabels}`
+                          : `Reason: ${reasonLabels}`}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  {typeof confidence === "number" &&
+                  Number.isFinite(confidence) ? (
+                    <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                      {language === "CN"
+                        ? `置信度 ${(confidence * 100).toFixed(0)}%`
+                        : `Confidence ${(confidence * 100).toFixed(0)}%`}
+                    </span>
+                  ) : null}
+                  {parseSourceLabel ? (
+                    <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                      {language === "CN"
+                        ? `来源 ${parseSourceLabel}`
+                        : `Source ${parseSourceLabel}`}
+                    </span>
                   ) : null}
                 </div>
-              );
-            })}
-          </div>
-        );
-      })() : null}
-
-      {cardType === 'error' ? (() => {
-        const code = asString((payload as any)?.error) || 'UNKNOWN_ERROR';
-        const status = asNumber((payload as any)?.status);
-        const details = (payload as any)?.details ?? null;
-        return (
-          <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            <div className="font-semibold">
-              {code}
-              {typeof status === 'number' ? ` (HTTP ${status})` : ''}
-            </div>
-            {details ? (
-              <pre className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
-                {renderJson(details)}
-              </pre>
-            ) : null}
-          </div>
-        );
-      })() : null}
-
-      {cardType === 'product_parse' ? (() => {
-        const productRaw = asObject((payload as any).product);
-        const product = productRaw ? toUiProduct(productRaw, language) : null;
-        const productOffers = productRaw ? toAnchorOffers(productRaw, language) : [];
-        const confidence = asNumber((payload as any).confidence);
-        const parseSource = (asString((payload as any).parse_source || (payload as any).parseSource) || '').toLowerCase();
-        const parseSourceLabel = (() => {
-          if (!parseSource || parseSource === 'none') return '';
-          const labels: Record<string, { CN: string; EN: string }> = {
-            upstream_structured: { CN: '上游结构化', EN: 'Upstream structured' },
-            answer_json: { CN: '回答 JSON', EN: 'Answer JSON' },
-            heuristic_url: { CN: 'URL 启发式', EN: 'URL heuristic' },
-            catalog_resolve: { CN: 'Catalog resolve', EN: 'Catalog resolve' },
-            catalog_search: { CN: 'Catalog search', EN: 'Catalog search' },
-          };
-          return labels[parseSource]?.[language] || parseSource;
-        })();
-        const missingCodes = uniqueStrings([
-          ...(Array.isArray((payload as any).missing_info) ? (payload as any).missing_info : []),
-          ...asArray(card.field_missing)
-            .map((item) => asObject(item))
-            .filter(Boolean)
-            .map((item) => asString((item as any).reason))
-            .filter(Boolean),
-        ]);
-        const reasonLabels = missingCodes
-          .slice(0, 3)
-          .map((code) => labelMissing(String(code), language))
-          .filter(Boolean)
-          .join(language === 'CN' ? '、' : ' · ');
-        const anchorSoftBlocked = missingCodes.some((code) => {
-          const token = String(code || '').trim().toLowerCase();
-          return token.startsWith('anchor_soft_blocked_') || token === 'anchor_id_not_used_due_to_low_trust';
-        });
-
-        return (
-          <div className="space-y-3">
-            {product ? (
-              <div className="space-y-2">
-                <AuroraAnchorCard product={product} offers={productOffers} language={language} hidePriceWhenUnknown />
-                {anchorSoftBlocked ? (
-                  <div className="px-1 text-[11px] text-muted-foreground">
-                    {language === 'CN'
-                      ? '提示：已阻止不可靠锚点绑定 ID，分析仍会继续（URL realtime）。'
-                      : 'Note: an unreliable anchor was blocked from ID binding; URL realtime analysis continues.'}
-                  </div>
-                ) : null}
               </div>
-            ) : (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
-                <div>
-                  {anchorSoftBlocked
-                    ? (
-                      language === 'CN'
-                        ? '已阻止不可靠锚点，分析已自动切到 URL 实时链路继续。'
-                        : 'An unreliable anchor was blocked; analysis automatically continues on the URL realtime path.'
-                    )
-                    : (
-                      language === 'CN'
-                        ? '本次未拿到稳定产品锚点，已自动尝试降级恢复并继续后续分析。'
-                        : 'No stable product anchor was parsed; fallback recovery was attempted so analysis can continue.'
-                    )}
-                </div>
-                {reasonLabels ? (
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {language === 'CN' ? `原因：${reasonLabels}` : `Reason: ${reasonLabels}`}
-                  </div>
-                ) : null}
-              </div>
-            )}
+            );
+          })()
+        : null}
 
-            <div className="flex flex-wrap gap-2">
-              {typeof confidence === 'number' && Number.isFinite(confidence) ? (
-                <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                  {language === 'CN' ? `置信度 ${(confidence * 100).toFixed(0)}%` : `Confidence ${(confidence * 100).toFixed(0)}%`}
-                </span>
-              ) : null}
-              {parseSourceLabel ? (
-                <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                  {language === 'CN' ? `来源 ${parseSourceLabel}` : `Source ${parseSourceLabel}`}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        );
-      })() : null}
+      {cardType === "product_analysis"
+        ? (() => {
+            const assessment = asObject((payload as any).assessment);
+            const verdictRaw = asString(assessment?.verdict);
+            const verdict = verdictRaw ? verdictRaw.trim() : null;
+            const rawMissingAll = uniqueStrings(
+              asArray((payload as any).missing_info)
+                .map((item) => asString(item))
+                .filter(Boolean),
+            );
+            const rawReasons = uniqueStrings(assessment?.reasons).slice(0, 10);
+            const heroRaw =
+              asObject(
+                (assessment as any)?.hero_ingredient ||
+                  (assessment as any)?.heroIngredient,
+              ) || null;
+            const heroName = asString(heroRaw?.name);
+            const heroRole = asString(heroRaw?.role);
+            const heroWhy = asString(heroRaw?.why);
+            const anchorRaw = asObject(
+              (assessment as any)?.anchor_product ||
+                (assessment as any)?.anchorProduct,
+            );
+            const product = anchorRaw ? toUiProduct(anchorRaw, language) : null;
+            const anchorOffers = anchorRaw
+              ? toAnchorOffers(anchorRaw, language)
+              : [];
+            const hasAnchorProduct = Boolean(
+              anchorRaw &&
+              (asString((anchorRaw as any).product_id) ||
+                asString((anchorRaw as any).sku_id) ||
+                asString((anchorRaw as any).display_name) ||
+                asString((anchorRaw as any).name) ||
+                asString((anchorRaw as any).url)),
+            );
+            const rawMissing = uniqueStrings(
+              rawMissingAll.filter(
+                (code) =>
+                  !(
+                    hasAnchorProduct &&
+                    String(code || "")
+                      .trim()
+                      .toLowerCase() === "anchor_product_missing"
+                  ),
+              ),
+            );
+            const visibleMissingLabels = rawMissing
+              .map((code) => labelMissing(String(code), language))
+              .filter(Boolean)
+              .slice(0, 5);
+            const howToUse =
+              (assessment as any)?.how_to_use ??
+              (assessment as any)?.howToUse ??
+              null;
 
-      {cardType === 'product_analysis' ? (() => {
-        const assessment = asObject((payload as any).assessment);
-        const verdictRaw = asString(assessment?.verdict);
-        const verdict = verdictRaw ? verdictRaw.trim() : null;
-        const rawMissingAll = uniqueStrings(asArray((payload as any).missing_info).map((item) => asString(item)).filter(Boolean));
-        const rawReasons = uniqueStrings(assessment?.reasons).slice(0, 10);
-        const heroRaw = asObject((assessment as any)?.hero_ingredient || (assessment as any)?.heroIngredient) || null;
-        const heroName = asString(heroRaw?.name);
-        const heroRole = asString(heroRaw?.role);
-        const heroWhy = asString(heroRaw?.why);
-        const anchorRaw = asObject((assessment as any)?.anchor_product || (assessment as any)?.anchorProduct);
-        const product = anchorRaw ? toUiProduct(anchorRaw, language) : null;
-        const anchorOffers = anchorRaw ? toAnchorOffers(anchorRaw, language) : [];
-        const hasAnchorProduct = Boolean(
-          anchorRaw && (
-            asString((anchorRaw as any).product_id) ||
-            asString((anchorRaw as any).sku_id) ||
-            asString((anchorRaw as any).display_name) ||
-            asString((anchorRaw as any).name) ||
-            asString((anchorRaw as any).url)
-          ),
-        );
-        const rawMissing = uniqueStrings(
-          rawMissingAll.filter((code) => !(hasAnchorProduct && String(code || '').trim().toLowerCase() === 'anchor_product_missing')),
-        );
-        const visibleMissingLabels = rawMissing
-          .map((code) => labelMissing(String(code), language))
-          .filter(Boolean)
-          .slice(0, 5);
-        const howToUse = (assessment as any)?.how_to_use ?? (assessment as any)?.howToUse ?? null;
-
-        // ─── V4 payload fields ────────────────────────────────────────────────
-        // Detect V4 by presence of verdict_level field
-        const verdictLevel = asString((assessment as any)?.verdict_level) || null;
-        const isV4Payload = Boolean(verdictLevel);
-        const dataQualityBanner = asString((assessment as any)?.data_quality_banner) || null;
-        const v4TopTakeaways = isV4Payload ? uniqueStrings(asArray((assessment as any)?.top_takeaways)).slice(0, 5) : [];
-        const v4BestFor = isV4Payload ? uniqueStrings(asArray((assessment as any)?.best_for)).slice(0, 5) : [];
-        const v4WatchoutsRaw = isV4Payload ? asArray((assessment as any)?.watchouts) : [];
-        const v4Watchouts = v4WatchoutsRaw
-          .map((item: unknown) => {
-            const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
-            if (!o) return null;
-            const issue = asString(o.issue);
-            const status = asString(o.status);
-            const whatToDo = asString(o.what_to_do);
-            if (!issue) return null;
-            return {
-              issue,
-              status: ['confirmed', 'possible'].includes(status) ? status : 'possible',
-              what_to_do: whatToDo,
-            };
-          })
-          .filter(Boolean) as Array<{ issue: string; status: string; what_to_do: string }>;
-        const v4HowToUse = isV4Payload
-          ? (() => {
-              const htu = typeof howToUse === 'object' && howToUse !== null ? (howToUse as Record<string, unknown>) : null;
-              if (!htu) return null;
-              return {
-                when: asString(htu.when) || null,
-                frequency: asString(htu.frequency) || null,
-                order_in_routine: asString(htu.order_in_routine) || null,
-                pairing_rules: uniqueStrings(asArray(htu.pairing_rules)).slice(0, 4),
-                stop_signs: uniqueStrings(asArray(htu.stop_signs)).slice(0, 4),
-              };
-            })()
-          : null;
-        const evidence = typeof (payload as any).evidence === 'object' && (payload as any).evidence !== null
-          ? ((payload as any).evidence as Record<string, unknown>)
-          : null;
-        const v4KeyIngredientsByFunction = isV4Payload
-          ? asArray(evidence?.key_ingredients_by_function)
+            // ─── V4 payload fields ────────────────────────────────────────────────
+            // Detect V4 by presence of verdict_level field
+            const verdictLevel =
+              asString((assessment as any)?.verdict_level) || null;
+            const isV4Payload = Boolean(verdictLevel);
+            const dataQualityBanner =
+              asString((assessment as any)?.data_quality_banner) || null;
+            const v4TopTakeaways = isV4Payload
+              ? uniqueStrings(
+                  asArray((assessment as any)?.top_takeaways),
+                ).slice(0, 5)
+              : [];
+            const v4BestFor = isV4Payload
+              ? uniqueStrings(asArray((assessment as any)?.best_for)).slice(
+                  0,
+                  5,
+                )
+              : [];
+            const v4WatchoutsRaw = isV4Payload
+              ? asArray((assessment as any)?.watchouts)
+              : [];
+            const v4Watchouts = v4WatchoutsRaw
               .map((item: unknown) => {
-                const o = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : null;
+                const o =
+                  typeof item === "object" && item !== null
+                    ? (item as Record<string, unknown>)
+                    : null;
                 if (!o) return null;
-                const fn = asString(o.function);
-                const ingredients = uniqueStrings(asArray(o.ingredients)).filter(Boolean).slice(0, 8);
-                const confidence = asString(o.confidence);
-                if (!fn || !ingredients.length) return null;
-                return { function: fn, ingredients, confidence };
+                const issue = asString(o.issue);
+                const status = asString(o.status);
+                const whatToDo = asString(o.what_to_do);
+                if (!issue) return null;
+                return {
+                  issue,
+                  status: ["confirmed", "possible"].includes(status)
+                    ? status
+                    : "possible",
+                  what_to_do: whatToDo,
+                };
               })
-              .filter(Boolean) as Array<{ function: string; ingredients: string[]; confidence: string }>
-          : [];
-        const v4ProductTypeReasoning = isV4Payload ? asString(evidence?.product_type_reasoning) || null : null;
-        const inciStatus = (payload as any).inci_status && typeof (payload as any).inci_status === 'object'
-          ? ((payload as any).inci_status as Record<string, unknown>)
-          : null;
-        const inciConsensusTier = asString(inciStatus?.consensus_tier) || null;
+              .filter(Boolean) as Array<{
+              issue: string;
+              status: string;
+              what_to_do: string;
+            }>;
+            const v4HowToUse = isV4Payload
+              ? (() => {
+                  const htu =
+                    typeof howToUse === "object" && howToUse !== null
+                      ? (howToUse as Record<string, unknown>)
+                      : null;
+                  if (!htu) return null;
+                  return {
+                    when: asString(htu.when) || null,
+                    frequency: asString(htu.frequency) || null,
+                    order_in_routine: asString(htu.order_in_routine) || null,
+                    pairing_rules: uniqueStrings(
+                      asArray(htu.pairing_rules),
+                    ).slice(0, 4),
+                    stop_signs: uniqueStrings(asArray(htu.stop_signs)).slice(
+                      0,
+                      4,
+                    ),
+                  };
+                })()
+              : null;
+            const evidence =
+              typeof (payload as any).evidence === "object" &&
+              (payload as any).evidence !== null
+                ? ((payload as any).evidence as Record<string, unknown>)
+                : null;
+            const v4KeyIngredientsByFunction = isV4Payload
+              ? (asArray(evidence?.key_ingredients_by_function)
+                  .map((item: unknown) => {
+                    const o =
+                      typeof item === "object" && item !== null
+                        ? (item as Record<string, unknown>)
+                        : null;
+                    if (!o) return null;
+                    const fn = asString(o.function);
+                    const ingredients = uniqueStrings(asArray(o.ingredients))
+                      .filter(Boolean)
+                      .slice(0, 8);
+                    const confidence = asString(o.confidence);
+                    if (!fn || !ingredients.length) return null;
+                    return { function: fn, ingredients, confidence };
+                  })
+                  .filter(Boolean) as Array<{
+                  function: string;
+                  ingredients: string[];
+                  confidence: string;
+                }>)
+              : [];
+            const v4ProductTypeReasoning = isV4Payload
+              ? asString(evidence?.product_type_reasoning) || null
+              : null;
+            const inciStatus =
+              (payload as any).inci_status &&
+              typeof (payload as any).inci_status === "object"
+                ? ((payload as any).inci_status as Record<string, unknown>)
+                : null;
+            const inciConsensusTier =
+              asString(inciStatus?.consensus_tier) || null;
 
-        // Verdict-level color coding (V4)
-        const verdictLevelStyle = (() => {
-          if (!verdictLevel) return null;
-          const vl = verdictLevel.toLowerCase();
-          if (vl === 'recommended') return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
-          if (vl === 'cautiously_ok') return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
-          if (vl === 'needs_verification') return 'bg-orange-500/10 text-orange-700 border-orange-500/20';
-          if (vl === 'not_recommended') return 'bg-rose-500/10 text-rose-600 border-rose-500/20';
-          return null;
-        })();
-        const verdictLevelLabel = (() => {
-          if (!verdictLevel) return null;
-          const vl = verdictLevel.toLowerCase();
-          if (language === 'CN') {
-            if (vl === 'recommended') return '推荐';
-            if (vl === 'cautiously_ok') return '谨慎适合';
-            if (vl === 'needs_verification') return '待验证';
-            if (vl === 'not_recommended') return '不推荐';
-          } else {
-            if (vl === 'recommended') return 'Recommended';
-            if (vl === 'cautiously_ok') return 'Cautiously OK';
-            if (vl === 'needs_verification') return 'Needs Verification';
-            if (vl === 'not_recommended') return 'Not Recommended';
-          }
-          return null;
-        })();
-        const watchoutStatusIcon = (status: string) => {
-          if (status === 'confirmed') return '⚠️';
-          if (status === 'possible') return '❓';
-          return '○';
-        };
-        // ─────────────────────────────────────────────────────────────────────
-        const profilePromptRaw = asObject((payload as any).profile_prompt || (payload as any).profilePrompt) || null;
-        const competitorsObj = asObject((payload as any).competitors) || null;
-        const relatedProductsObj = asObject((payload as any).related_products || (payload as any).relatedProducts) || null;
-        const dupesObj = asObject((payload as any).dupes) || null;
-        const rawCompetitorCandidates = asArray((competitorsObj as any)?.candidates)
-          .map((v) => asObject(v))
-          .filter(Boolean) as Array<Record<string, unknown>>;
-        const rawRelatedCandidates = asArray((relatedProductsObj as any)?.candidates)
-          .map((v) => asObject(v))
-          .filter(Boolean) as Array<Record<string, unknown>>;
-        const rawDupeCandidates = asArray((dupesObj as any)?.candidates)
-          .map((v) => asObject(v))
-          .filter(Boolean) as Array<Record<string, unknown>>;
-        const competitorCandidates = rawCompetitorCandidates
-          .filter((candidate) => !isLikelyNonSkincareAlternativeCandidate(candidate));
-        const relatedCandidates = rawRelatedCandidates
-          .filter((candidate) => !isLikelyNonSkincareAlternativeCandidate(candidate));
-        const dupeCandidates = rawDupeCandidates
-          .filter((candidate) => !isLikelyNonSkincareAlternativeCandidate(candidate));
-        const alternativeFilteredStats = {
-          competitors: Math.max(0, rawCompetitorCandidates.length - competitorCandidates.length),
-          related_products: Math.max(0, rawRelatedCandidates.length - relatedCandidates.length),
-          dupes: Math.max(0, rawDupeCandidates.length - dupeCandidates.length),
-        };
-        const originalForCompare = anchorRaw || asObject((payload as any).product) || null;
-        const provenance = asObject((payload as any).provenance) || null;
-        const dogfoodFeatures = asObject((provenance as any)?.dogfood_features_effective || (provenance as any)?.dogfoodFeaturesEffective) || null;
-        const showEmployeeFeedbackControls = dogfoodFeatures?.show_employee_feedback_controls === true;
-        const canShowEmployeeFeedbackControls = Boolean(showEmployeeFeedbackControls && debug);
-        const pipelineVersion = asString((provenance as any)?.pipeline) || 'reco_blocks_dag.v1';
-        const feedbackModels = asString((provenance as any)?.source) || 'aurora_bff';
-        const anchorProductIdForFeedback = (() => {
-          const pid = asString((anchorRaw as any)?.product_id) || asString((anchorRaw as any)?.productId);
-          if (pid && pid.trim()) return pid.trim();
-          const sku = asString((anchorRaw as any)?.sku_id) || asString((anchorRaw as any)?.skuId);
-          if (sku && sku.trim()) return sku.trim();
-          const name = asString((anchorRaw as any)?.name);
-          if (name && name.trim()) return name.trim();
-          return '';
-        })();
-
-        const assessmentSummary = (asString((assessment as any)?.summary || (assessment as any)?.quick_summary || (assessment as any)?.quickSummary) || '').trim();
-        const assessmentFormulaIntent = uniqueStrings([
-          ...uniqueStrings((assessment as any)?.formula_intent),
-          ...uniqueStrings((assessment as any)?.formulaIntent),
-        ]).slice(0, 6);
-        const assessmentBestFor = uniqueStrings([
-          ...uniqueStrings((assessment as any)?.best_for),
-          ...uniqueStrings((assessment as any)?.bestFor),
-        ]).slice(0, 6);
-        const assessmentNotFor = uniqueStrings([
-          ...uniqueStrings((assessment as any)?.not_for),
-          ...uniqueStrings((assessment as any)?.notFor),
-        ]).slice(0, 6);
-        const assessmentIfNotIdeal = uniqueStrings([
-          ...uniqueStrings((assessment as any)?.if_not_ideal),
-          ...uniqueStrings((assessment as any)?.ifNotIdeal),
-        ]).slice(0, 6);
-        const assessmentBetterPairing = uniqueStrings([
-          ...uniqueStrings((assessment as any)?.better_pairing),
-          ...uniqueStrings((assessment as any)?.betterPairing),
-        ]).slice(0, 6);
-        const assessmentFollowUpQuestion = (asString((assessment as any)?.follow_up_question || (assessment as any)?.followUpQuestion) || '').trim();
-
-        const formulaIntentFromReasons: string[] = [];
-        const bestForFromReasons: string[] = [];
-        const usageHintsFromReasons: string[] = [];
-        const cautionFromReasons: string[] = [];
-        const dataNotesFromReasons: string[] = [];
-        const detectedIngredientsFromReasons: string[] = [];
-        const normalizeIngredientName = (token: string) => String(token || '').replace(/[.;:，。；：]+$/g, '').replace(/\s+/g, ' ').trim();
-        const isDataQualityLine = (line: string) =>
-          /\b(official[-\s]?page|incidecoder|inci extraction|extraction was blocked|ingredient-source consistency|cross-check with package inci|supplement used|source used|version verification)\b/i
-            .test(String(line || '').trim());
-
-        rawReasons.forEach((entry) => {
-          const line = String(entry || '').trim();
-          if (!line) return;
-          const lower = line.toLowerCase();
-
-          if (/^i extracted the inci list/i.test(line)) {
-            dataNotesFromReasons.push(
-              line
-                .replace(/^i extracted/i, 'INCI list extracted')
-                .replace(/\s+for this assessment\.?$/i, '.')
-                .trim(),
+            // Verdict-level color coding (V4)
+            const verdictLevelStyle = (() => {
+              if (!verdictLevel) return null;
+              const vl = verdictLevel.toLowerCase();
+              if (vl === "recommended")
+                return "bg-emerald-500/10 text-emerald-700 border-emerald-500/20";
+              if (vl === "cautiously_ok")
+                return "bg-amber-500/10 text-amber-700 border-amber-500/20";
+              if (vl === "needs_verification")
+                return "bg-orange-500/10 text-orange-700 border-orange-500/20";
+              if (vl === "not_recommended")
+                return "bg-rose-500/10 text-rose-600 border-rose-500/20";
+              return null;
+            })();
+            const verdictLevelLabel = (() => {
+              if (!verdictLevel) return null;
+              const vl = verdictLevel.toLowerCase();
+              if (language === "CN") {
+                if (vl === "recommended") return "推荐";
+                if (vl === "cautiously_ok") return "谨慎适合";
+                if (vl === "needs_verification") return "待验证";
+                if (vl === "not_recommended") return "不推荐";
+              } else {
+                if (vl === "recommended") return "Recommended";
+                if (vl === "cautiously_ok") return "Cautiously OK";
+                if (vl === "needs_verification") return "Needs Verification";
+                if (vl === "not_recommended") return "Not Recommended";
+              }
+              return null;
+            })();
+            const watchoutStatusIcon = (status: string) => {
+              if (status === "confirmed") return "⚠️";
+              if (status === "possible") return "❓";
+              return "○";
+            };
+            // ─────────────────────────────────────────────────────────────────────
+            const profilePromptRaw =
+              asObject(
+                (payload as any).profile_prompt ||
+                  (payload as any).profilePrompt,
+              ) || null;
+            const competitorsObj =
+              asObject((payload as any).competitors) || null;
+            const relatedProductsObj =
+              asObject(
+                (payload as any).related_products ||
+                  (payload as any).relatedProducts,
+              ) || null;
+            const dupesObj = asObject((payload as any).dupes) || null;
+            const rawCompetitorCandidates = asArray(
+              (competitorsObj as any)?.candidates,
+            )
+              .map((v) => asObject(v))
+              .filter(Boolean) as Array<Record<string, unknown>>;
+            const rawRelatedCandidates = asArray(
+              (relatedProductsObj as any)?.candidates,
+            )
+              .map((v) => asObject(v))
+              .filter(Boolean) as Array<Record<string, unknown>>;
+            const rawDupeCandidates = asArray((dupesObj as any)?.candidates)
+              .map((v) => asObject(v))
+              .filter(Boolean) as Array<Record<string, unknown>>;
+            const competitorCandidates = rawCompetitorCandidates.filter(
+              (candidate) =>
+                !isLikelyNonSkincareAlternativeCandidate(candidate),
             );
-            return;
-          }
-
-          if (/^detected key ingredients:/i.test(line)) {
-            const parsed = line
-              .replace(/^detected key ingredients:\s*/i, '')
-              .split(',')
-              .map((token) => normalizeIngredientName(token))
-              .filter(Boolean);
-            detectedIngredientsFromReasons.push(...parsed);
-            return;
-          }
-
-          if (/^how to use:/i.test(line)) {
-            usageHintsFromReasons.push(line.replace(/^how to use:\s*/i, '').trim());
-            return;
-          }
-
-          if (/contains exfoliating acids/i.test(lower)) {
-            cautionFromReasons.push(
-              language === 'CN'
-                ? '可能含去角质酸，频率和叠加活性时建议更保守。'
-                : 'Possible exfoliation signal: keep frequency and active layering conservative.',
+            const relatedCandidates = rawRelatedCandidates.filter(
+              (candidate) =>
+                !isLikelyNonSkincareAlternativeCandidate(candidate),
             );
-            return;
-          }
-
-          if (/^profile priorities:/i.test(lower)) {
-            // Ignore profile recap lines in fit section; use dedicated assessment/evidence fields instead.
-            return;
-          }
-
-          if (/^your profile:/i.test(lower) || /^你的情况[:：]/i.test(line)) {
-            return;
-          }
-
-          if (/^fit:/i.test(lower) || /^匹配点[:：]/i.test(line)) {
-            bestForFromReasons.push(line.replace(/^fit:\s*/i, '').replace(/^匹配点[:：]\s*/i, '').trim());
-            return;
-          }
-
-          if (/risk|watchout|caution|irrit|敏感|刺激|刺痛|泛红/i.test(lower)) {
-            cautionFromReasons.push(line);
-            return;
-          }
-
-          formulaIntentFromReasons.push(line);
-        });
-
-        const verdictStyle = (() => {
-          const v = String(verdict || '').toLowerCase();
-          if (v.includes('mismatch') || v.includes('not') || v.includes('avoid') || v.includes('veto')) return 'bg-rose-500/10 text-rose-600 border-rose-500/20';
-          if (v.includes('risky') || v.includes('caution') || v.includes('warn')) return 'bg-amber-500/10 text-amber-700 border-amber-500/20';
-          if (v.includes('suitable') || v.includes('good') || v.includes('yes')) return 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20';
-          return 'bg-muted/60 text-muted-foreground border-border/60';
-        })();
-        const isLikelyInvalidIngredientToken = (raw: string) => {
-          const token = String(raw || '').trim();
-          if (!token) return true;
-          if (token.length < 2 || token.length > 90) return true;
-          if (/^(key ingredients?|ingredients?|active ingredients?)$/i.test(token)) return true;
-          if (/as we wrote in our lengthy retinol description/i.test(token)) return true;
-          if (/read more|learn more|discover|shop now|add to cart|selected because|strong category\/use-case/i.test(token)) return true;
-          if (/\b(how to use|faq|privacy policy|terms of use|copyright)\b/i.test(token)) return true;
-          if (/[?!]/.test(token)) return true;
-          return false;
-        };
-        const allDetectedIngredients = uniqueStrings([
-          ...detectedIngredientsFromReasons,
-          ...evidenceKeyIngredients,
-          ...(heroName ? [heroName] : []),
-        ]
-          .map((name) => normalizeIngredientName(name))
-          .filter((name) => !isLikelyInvalidIngredientToken(name))).slice(0, 12);
-        const ingredientGroupDefs: Array<{
-          key: string;
-          title: string;
-          colorClass: string;
-          patterns: RegExp[];
-        }> = [
-          {
-            key: 'barrier',
-            title: language === 'CN' ? 'Barrier support' : 'Barrier support',
-            colorClass: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-            patterns: [/\b(ceramide|cholesterol|fatty acid|panthenol|beta[-\s]?glucan|allantoin|squalane|glycerin|hyaluron)\b/i],
-          },
-          {
-            key: 'acne',
-            title: language === 'CN' ? 'Acne control' : 'Acne control',
-            colorClass: 'border-sky-200 bg-sky-50 text-sky-800',
-            patterns: [/\b(salicylic|bha|benzoyl|niacinamide|azelaic|adapalene|tretinoin|retinol|retinal|zinc)\b/i],
-          },
-          {
-            key: 'brightening',
-            title: language === 'CN' ? 'Brightening' : 'Brightening',
-            colorClass: 'border-violet-200 bg-violet-50 text-violet-800',
-            patterns: [/\b(ascorb|vitamin c|tranexamic|arbutin|kojic|licorice|niacinamide)\b/i],
-          },
-          {
-            key: 'soothing',
-            title: language === 'CN' ? 'Soothing' : 'Soothing',
-            colorClass: 'border-teal-200 bg-teal-50 text-teal-800',
-            patterns: [/\b(cica|centella|madecassoside|bisabolol|oat|aloe|allantoin|panthenol)\b/i],
-          },
-          {
-            key: 'irritant',
-            title: language === 'CN' ? 'Potential irritants' : 'Potential irritants',
-            colorClass: 'border-rose-200 bg-rose-50 text-rose-800',
-            patterns: [/\b(fragrance|parfum|linalool|limonene|citral|retino|aha|bha|glycolic|lactic|mandelic|oxybenzone|octocrylene)\b/i],
-          },
-        ];
-        const ingredientGroups = (() => {
-          const buckets = ingredientGroupDefs.map((group) => ({ ...group, items: [] as string[] }));
-          const seen = new Set<string>();
-          allDetectedIngredients.forEach((ingredient) => {
-            const token = String(ingredient || '').trim();
-            if (!token) return;
-            const key = token.toLowerCase();
-            if (seen.has(key)) return;
-            seen.add(key);
-            const matched = buckets.filter((group) => group.patterns.some((re) => re.test(token)));
-            if (matched.length) {
-              matched.forEach((group) => {
-                if (!group.items.includes(token)) group.items.push(token);
-              });
-              return;
-            }
-            buckets[0]?.items.push(token);
-          });
-          return buckets.filter((group) => group.items.length > 0).map((group) => ({
-            key: group.key,
-            title: group.title,
-            colorClass: group.colorClass,
-            items: group.items.slice(0, 8),
-          }));
-        })();
-
-        const normalizeLineToken = (line: string) =>
-          String(line || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ').replace(/\s+/g, ' ').trim();
-        const lineSimilarity = (left: string, right: string) => {
-          const l = normalizeLineToken(left);
-          const r = normalizeLineToken(right);
-          if (!l || !r) return 0;
-          if (l === r) return 1;
-          if (l.includes(r) || r.includes(l)) return 0.85;
-          const leftTokens = new Set(l.split(' ').filter(Boolean));
-          const rightTokens = new Set(r.split(' ').filter(Boolean));
-          if (!leftTokens.size || !rightTokens.size) return 0;
-          let overlap = 0;
-          leftTokens.forEach((token) => {
-            if (rightTokens.has(token)) overlap += 1;
-          });
-          const denom = Math.max(leftTokens.size, rightTokens.size);
-          return denom > 0 ? overlap / denom : 0;
-        };
-        const filterNearDuplicateLines = (rows: string[], refs: string[], threshold = 0.7) =>
-          rows.filter((line) => !refs.some((ref) => lineSimilarity(line, ref) >= threshold));
-        const isProfileEchoLine = (line: string) =>
-          /^(your profile|profile priorities|你的情况|你的画像|匹配点|fit signal)[:：]/i.test(String(line || '').trim());
-        const isProfileTupleLine = (line: string) => {
-          const text = String(line || '').trim();
-          if (!text) return false;
-          const lower = text.toLowerCase();
-          const profileTokenCount = [
-            /\b(oily|dry|combo|combination|normal)\b/.test(lower),
-            /\b(sensitivity|sensitive|low|medium|high)\b/.test(lower),
-            /\b(barrier|healthy|impaired)\b/.test(lower),
-            /肤质|敏感|屏障|油皮|干皮|混合皮|低敏|中敏|高敏/.test(text),
-            /skintype=|sensitivity=|barrier=/.test(lower),
-          ].filter(Boolean).length;
-          const productSignal = /\b(ingredient|formula|efficacy|mechanis|retino|acid|niacinamide|ceramide|peptide|spf|sunscreen|cleanser|moisturizer|serum|防晒|保湿|修护|控痘|去角质)\b/i
-            .test(text);
-          return !productSignal && profileTokenCount >= 2 && text.length <= 120;
-        };
-        const shouldDropProfileLine = (line: string) => isProfileEchoLine(line) || isProfileTupleLine(line);
-
-        const formulaIntentCandidates = uniqueStrings([
-          ...assessmentFormulaIntent,
-          ...formulaIntentFromReasons,
-          ...evidenceMechanisms,
-        ])
-          .filter((line) => !shouldDropProfileLine(line) && !isDataQualityLine(line))
-          .slice(0, 6);
-        const bestForSignalsRaw = uniqueStrings([
-          ...assessmentBestFor,
-          ...bestForFromReasons,
-          ...evidenceFitNotes,
-          ...socialPositive,
-        ])
-          .filter((line) => !shouldDropProfileLine(line))
-          .slice(0, 6);
-        const cautionSignalsRaw = uniqueStrings([
-          ...assessmentNotFor,
-          ...cautionFromReasons,
-          ...evidenceRiskNotes,
-          ...socialNegative,
-          ...socialRisks,
-        ]).slice(0, 6);
-
-        const formulaIntent = filterNearDuplicateLines(formulaIntentCandidates, bestForSignalsRaw, 0.72).slice(0, 3);
-        const bestForSignals = filterNearDuplicateLines(bestForSignalsRaw, formulaIntent, 0.72).slice(0, 3);
-        const cautionSignals = uniqueStrings(cautionSignalsRaw).slice(0, 4);
-        const ifNotIdealSignals = uniqueStrings([
-          ...assessmentIfNotIdeal,
-          ...(cautionSignals.length
-            ? [language === 'CN'
-              ? '如果出现持续刺痛/泛红，请暂停该产品并回到温和修护基线。'
-              : 'If persistent stinging/redness occurs, pause this product and return to a gentle repair baseline.']
-            : []),
-        ]).slice(0, 3);
-        const betterPairingSignals = uniqueStrings([
-          ...assessmentBetterPairing,
-          ...(cautionSignals.some((line) => /\b(dry|drying|tight|dehydrat|干燥|紧绷)\b/i.test(String(line || '')))
-            ? [language === 'CN'
-              ? '建议叠加屏障保湿层（如神经酰胺/泛醇）来降低拔干概率。'
-              : 'Pair with a barrier-hydration layer (for example ceramide/panthenol) to reduce dryness risk.']
-            : []),
-          ...(bestForSignals.some((line) => /\b(acne|pores?|痘|毛孔)\b/i.test(String(line || '')))
-            ? [language === 'CN'
-              ? '如果重点是控痘，优先低刺激控油路线，避免同晚叠加强活性。'
-              : 'If acne control is the priority, prefer low-irritation oil-control pairing and avoid same-night strong active stacking.']
-            : []),
-        ]).slice(0, 3);
-        const profilePromptNeeded = profilePromptRaw?.needed === true || rawMissing.includes('profile_not_provided');
-        const followUpQuestion = assessmentFollowUpQuestion || (
-          profilePromptNeeded
-            ? (language === 'CN'
-              ? '你当前更在意控痘、提亮还是屏障修护？我可以据此把下一步方案收敛到 2-3 个选项。'
-              : 'Which matters most right now: acne control, brightening, or barrier repair? I can narrow next steps to 2-3 options.')
-            : (language === 'CN'
-              ? '你更倾向更温和还是更快见效？我可以按这个偏好细化后续方案。'
-              : 'Do you prefer gentler progression or faster visible results? I can tailor the next-step plan accordingly.')
-        );
-
-        const keyTakeawayLines = uniqueStrings([
-          assessmentSummary,
-          verdict ? (language === 'CN' ? `结论：${verdict}` : `Verdict: ${verdict}`) : '',
-          bestForSignals[0] || '',
-          cautionSignals[0] ? (language === 'CN' ? `主要注意：${cautionSignals[0]}` : `Main watchout: ${cautionSignals[0]}`) : '',
-        ]).slice(0, 3);
-        const followupAnchorPayload = {
-          ...(asString((anchorRaw as any)?.product_id) ? { product_id: asString((anchorRaw as any)?.product_id) } : {}),
-          ...(asString((anchorRaw as any)?.sku_id) ? { sku_id: asString((anchorRaw as any)?.sku_id) } : {}),
-          ...(asString((anchorRaw as any)?.brand) ? { brand: asString((anchorRaw as any)?.brand) } : {}),
-          ...(asString((anchorRaw as any)?.name) ? { name: asString((anchorRaw as any)?.name) } : {}),
-          ...(asString((anchorRaw as any)?.display_name) ? { display_name: asString((anchorRaw as any)?.display_name) } : {}),
-          ...(asString((anchorRaw as any)?.url) ? { url: asString((anchorRaw as any)?.url) } : {}),
-        };
-        const profilePromptFields = uniqueStrings(
-          (profilePromptRaw as any)?.missing_fields || (profilePromptRaw as any)?.missingFields || [],
-        );
-        const profileFieldLabel = (field: string) => {
-          const token = String(field || '').trim();
-          if (token === 'skinType') return language === 'CN' ? '肤质' : 'Skin type';
-          if (token === 'sensitivity') return language === 'CN' ? '敏感度' : 'Sensitivity';
-          if (token === 'barrierStatus') return language === 'CN' ? '屏障状态' : 'Barrier status';
-          if (token === 'goals') return language === 'CN' ? '目标' : 'Goals';
-          return '';
-        };
-        const profilePromptFieldText = uniqueStrings(profilePromptFields.map((field) => profileFieldLabel(field))).slice(0, 4);
-
-        const howToUseBullets = (() => {
-          const out: string[] = [];
-          if (typeof howToUse === 'string') {
-            const text = howToUse.trim();
-            if (text) out.push(text);
-          } else {
-            const o = asObject(howToUse);
-            if (o) {
-              const timing = asString((o as any).timing) || asString((o as any).time) || null;
-              const frequency = asString((o as any).frequency) || null;
-              const steps = uniqueStrings((o as any).steps).slice(0, 4);
-              const notes = uniqueStrings((o as any).notes).slice(0, 4);
-              if (timing) out.push(language === 'CN' ? `建议时段：${timing}` : `Timing: ${timing}`);
-              if (frequency) out.push(language === 'CN' ? `建议频率：${frequency}` : `Suggested frequency: ${frequency}`);
-              out.push(...steps);
-              out.push(...notes);
-            }
-          }
-          out.push(...usageHintsFromReasons);
-
-          const hasExfoliationSignal = uniqueStrings([
-            ...allDetectedIngredients,
-            ...cautionSignals,
-            ...out,
-          ]).some((line) => /\b(acid|aha|bha|pha|exfoliat|去角质|酸类)\b/i.test(String(line || '')));
-
-          if (hasExfoliationSignal) {
-            out.push(
-              language === 'CN'
-                ? '叠加提醒：若与其他强活性同用，建议降低频率并观察耐受。'
-                : 'Layering caution: if paired with other strong actives, reduce frequency and monitor tolerance.',
+            const dupeCandidates = rawDupeCandidates.filter(
+              (candidate) =>
+                !isLikelyNonSkincareAlternativeCandidate(candidate),
             );
-          }
+            const alternativeFilteredStats = {
+              competitors: Math.max(
+                0,
+                rawCompetitorCandidates.length - competitorCandidates.length,
+              ),
+              related_products: Math.max(
+                0,
+                rawRelatedCandidates.length - relatedCandidates.length,
+              ),
+              dupes: Math.max(
+                0,
+                rawDupeCandidates.length - dupeCandidates.length,
+              ),
+            };
+            const originalForCompare =
+              anchorRaw || asObject((payload as any).product) || null;
+            const provenance = asObject((payload as any).provenance) || null;
+            const dogfoodFeatures =
+              asObject(
+                (provenance as any)?.dogfood_features_effective ||
+                  (provenance as any)?.dogfoodFeaturesEffective,
+              ) || null;
+            const showEmployeeFeedbackControls =
+              dogfoodFeatures?.show_employee_feedback_controls === true;
+            const canShowEmployeeFeedbackControls = Boolean(
+              showEmployeeFeedbackControls && debug,
+            );
+            const pipelineVersion =
+              asString((provenance as any)?.pipeline) || "reco_blocks_dag.v1";
+            const feedbackModels =
+              asString((provenance as any)?.source) || "aurora_bff";
+            const anchorProductIdForFeedback = (() => {
+              const pid =
+                asString((anchorRaw as any)?.product_id) ||
+                asString((anchorRaw as any)?.productId);
+              if (pid && pid.trim()) return pid.trim();
+              const sku =
+                asString((anchorRaw as any)?.sku_id) ||
+                asString((anchorRaw as any)?.skuId);
+              if (sku && sku.trim()) return sku.trim();
+              const name = asString((anchorRaw as any)?.name);
+              if (name && name.trim()) return name.trim();
+              return "";
+            })();
 
-          const hasDryingSignal = uniqueStrings([...cautionSignals, ...rawReasons, ...out]).some((line) =>
-            /\b(drying|dryness|tight|peel|flake|dehydrat|干燥|起皮|紧绷)\b/i.test(String(line || '')),
-          );
-          out.push(
-            hasDryingSignal
-              ? (language === 'CN'
-                ? '观察周期：先连续观察 10–14 天，若持续干燥/刺痛，降低频率或更换更温和替代。'
-                : 'Observation window: monitor for 10-14 days; reduce frequency or switch if dryness/stinging persists.')
-              : (language === 'CN'
-                ? '观察周期：先连续观察 7–10 天，再决定是否提高频率。'
-                : 'Observation window: monitor for 7-10 days before increasing frequency.'),
-          );
+            const assessmentSummary = (
+              asString(
+                (assessment as any)?.summary ||
+                  (assessment as any)?.quick_summary ||
+                  (assessment as any)?.quickSummary,
+              ) || ""
+            ).trim();
+            const assessmentFormulaIntent = uniqueStrings([
+              ...uniqueStrings((assessment as any)?.formula_intent),
+              ...uniqueStrings((assessment as any)?.formulaIntent),
+            ]).slice(0, 6);
+            const assessmentBestFor = uniqueStrings([
+              ...uniqueStrings((assessment as any)?.best_for),
+              ...uniqueStrings((assessment as any)?.bestFor),
+            ]).slice(0, 6);
+            const assessmentNotFor = uniqueStrings([
+              ...uniqueStrings((assessment as any)?.not_for),
+              ...uniqueStrings((assessment as any)?.notFor),
+            ]).slice(0, 6);
+            const assessmentIfNotIdeal = uniqueStrings([
+              ...uniqueStrings((assessment as any)?.if_not_ideal),
+              ...uniqueStrings((assessment as any)?.ifNotIdeal),
+            ]).slice(0, 6);
+            const assessmentBetterPairing = uniqueStrings([
+              ...uniqueStrings((assessment as any)?.better_pairing),
+              ...uniqueStrings((assessment as any)?.betterPairing),
+            ]).slice(0, 6);
+            const assessmentFollowUpQuestion = (
+              asString(
+                (assessment as any)?.follow_up_question ||
+                  (assessment as any)?.followUpQuestion,
+              ) || ""
+            ).trim();
 
-          return uniqueStrings(out).slice(0, 5);
-        })();
+            const formulaIntentFromReasons: string[] = [];
+            const bestForFromReasons: string[] = [];
+            const usageHintsFromReasons: string[] = [];
+            const cautionFromReasons: string[] = [];
+            const dataNotesFromReasons: string[] = [];
+            const detectedIngredientsFromReasons: string[] = [];
+            const normalizeIngredientName = (token: string) =>
+              String(token || "")
+                .replace(/[.;:，。；：]+$/g, "")
+                .replace(/\s+/g, " ")
+                .trim();
+            const isDataQualityLine = (line: string) =>
+              /\b(official[-\s]?page|incidecoder|inci extraction|extraction was blocked|ingredient-source consistency|cross-check with package inci|supplement used|source used|version verification)\b/i.test(
+                String(line || "").trim(),
+              );
 
-        const dataNotes = uniqueStrings([
-          ...dataNotesFromReasons,
-          ...expertNotes.filter((note) => /(evidence source|ingredient list|inci|entries|product page|parsed)/i.test(String(note || ''))),
-        ]).slice(0, 3);
+            rawReasons.forEach((entry) => {
+              const line = String(entry || "").trim();
+              if (!line) return;
+              const lower = line.toLowerCase();
 
-        const routineCompatibilityProducts = extractRoutineProductsFromProfileCurrentRoutine((bootstrapInfo?.profile as any)?.currentRoutine);
-        const compatibilityBaseProduct: CompatibilityProductInput = {
-          id:
-            asString((anchorRaw as any)?.product_id) ||
-            asString((anchorRaw as any)?.sku_id) ||
-            asString((anchorRaw as any)?.name) ||
-            asString((assessment as any)?.product_id) ||
-            'product_analysis_base',
-          name:
-            asString((anchorRaw as any)?.name) ||
-            asString((assessment as any)?.product_name) ||
-            asString((assessment as any)?.productName) ||
-            (language === 'CN' ? '当前产品' : 'Current product'),
-          brand: asString((anchorRaw as any)?.brand) || undefined,
-          ingredientTokens: uniqueStrings([
-            ...allDetectedIngredients,
-            ...evidenceKeyIngredients,
-            ...(heroName ? [heroName] : []),
-            ...cautionSignals.filter((line) => /\b(acid|aha|bha|pha|retino|benzoyl|ascorb|peptide|fragrance|parfum|去角质|维a|维A|香精)\b/i.test(String(line || ''))),
-            ...howToUseBullets.filter((line) => /\b(acid|aha|bha|pha|retino|benzoyl|ascorb|peptide|fragrance|parfum|去角质|维a|维A|香精)\b/i.test(String(line || ''))),
-          ]).slice(0, 24),
-          irritationSignal: uniqueStrings([...cautionSignals, ...rawReasons, ...howToUseBullets]).some((line) =>
-            /\b(sting|stinging|redness|irritat|burn|drying|sensitive|刺痛|泛红|刺激|干燥|敏感)\b/i.test(String(line || '')),
-          ),
-          source: 'base',
-        };
-        const normalizeRecommendationIntent = (candidate: Record<string, unknown>, block: RecoBlockType): 'replace' | 'pair' => {
-          const raw = (asString((candidate as any).recommendation_intent || (candidate as any).recommendationIntent) || '').toLowerCase();
-          if (raw === 'replace' || raw === 'pair') return raw;
-          return block === 'related_products' ? 'pair' : 'replace';
-        };
-        const flattenAlternatives = (
-          candidates: Array<Record<string, unknown>>,
-          block: RecoBlockType,
-        ) => candidates.map((candidate, idx) => ({
-          candidate,
-          block,
-          rank: idx + 1,
-          intent: normalizeRecommendationIntent(candidate, block),
-        }));
-        const flattenedAlternatives = [
-          ...flattenAlternatives(competitorCandidates, 'competitors'),
-          ...flattenAlternatives(dupeCandidates, 'dupes'),
-          ...flattenAlternatives(relatedCandidates, 'related_products'),
-        ];
-        const replaceAlternatives = flattenedAlternatives.filter((row) => row.intent === 'replace');
-        const pairingAlternatives = flattenedAlternatives.filter((row) => row.intent === 'pair');
-        const alternativeTracks: ProductAlternativeTrack[] = [
-          {
-            key: 'replace',
-            title: language === 'CN' ? 'Replace options' : 'Replace options',
-            subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
-            items: replaceAlternatives,
-            filteredCount: alternativeFilteredStats.competitors + alternativeFilteredStats.dupes,
-          },
-          {
-            key: 'pair',
-            title: language === 'CN' ? 'Pairing ideas' : 'Pairing ideas',
-            subtitle: language === 'CN' ? '用于搭配补位，不是直接替代' : 'Companion products to pair with your current pick',
-            items: pairingAlternatives,
-            filteredCount: alternativeFilteredStats.related_products,
-          },
-        ];
-        const hasAlternatives = alternativeTracks.some((section) => section.items.length > 0);
-        const totalFilteredAlternatives = alternativeTracks.reduce((acc, section) => acc + Number(section.filteredCount || 0), 0);
-        if (analyticsCtx && totalFilteredAlternatives > 0) {
-          const eventKey = `${card.card_id || 'product_analysis'}::${totalFilteredAlternatives}`;
-          if (!alternativesFilterEventKeysRef.current.has(eventKey)) {
-            alternativesFilterEventKeysRef.current.add(eventKey);
-            emitAuroraProductAlternativesFiltered(analyticsCtx, {
-              request_id: asString((payload as any)?.request_id) || null,
-              bff_trace_id: requestHeaders.trace_id || null,
-              competitors_filtered: alternativeFilteredStats.competitors,
-              related_filtered: alternativeFilteredStats.related_products,
-              dupes_filtered: alternativeFilteredStats.dupes,
+              if (/^i extracted the inci list/i.test(line)) {
+                dataNotesFromReasons.push(
+                  line
+                    .replace(/^i extracted/i, "INCI list extracted")
+                    .replace(/\s+for this assessment\.?$/i, ".")
+                    .trim(),
+                );
+                return;
+              }
+
+              if (/^detected key ingredients:/i.test(line)) {
+                const parsed = line
+                  .replace(/^detected key ingredients:\s*/i, "")
+                  .split(",")
+                  .map((token) => normalizeIngredientName(token))
+                  .filter(Boolean);
+                detectedIngredientsFromReasons.push(...parsed);
+                return;
+              }
+
+              if (/^how to use:/i.test(line)) {
+                usageHintsFromReasons.push(
+                  line.replace(/^how to use:\s*/i, "").trim(),
+                );
+                return;
+              }
+
+              if (/contains exfoliating acids/i.test(lower)) {
+                cautionFromReasons.push(
+                  language === "CN"
+                    ? "可能含去角质酸，频率和叠加活性时建议更保守。"
+                    : "Possible exfoliation signal: keep frequency and active layering conservative.",
+                );
+                return;
+              }
+
+              if (/^profile priorities:/i.test(lower)) {
+                // Ignore profile recap lines in fit section; use dedicated assessment/evidence fields instead.
+                return;
+              }
+
+              if (
+                /^your profile:/i.test(lower) ||
+                /^你的情况[:：]/i.test(line)
+              ) {
+                return;
+              }
+
+              if (/^fit:/i.test(lower) || /^匹配点[:：]/i.test(line)) {
+                bestForFromReasons.push(
+                  line
+                    .replace(/^fit:\s*/i, "")
+                    .replace(/^匹配点[:：]\s*/i, "")
+                    .trim(),
+                );
+                return;
+              }
+
+              if (
+                /risk|watchout|caution|irrit|敏感|刺激|刺痛|泛红/i.test(lower)
+              ) {
+                cautionFromReasons.push(line);
+                return;
+              }
+
+              formulaIntentFromReasons.push(line);
             });
-          }
-        }
 
-        return (
-          <div className="space-y-3">
-            {product ? <AuroraAnchorCard product={product} offers={anchorOffers} language={language} hidePriceWhenUnknown /> : null}
+            const verdictStyle = (() => {
+              const v = String(verdict || "").toLowerCase();
+              if (
+                v.includes("mismatch") ||
+                v.includes("not") ||
+                v.includes("avoid") ||
+                v.includes("veto")
+              )
+                return "bg-rose-500/10 text-rose-600 border-rose-500/20";
+              if (
+                v.includes("risky") ||
+                v.includes("caution") ||
+                v.includes("warn")
+              )
+                return "bg-amber-500/10 text-amber-700 border-amber-500/20";
+              if (
+                v.includes("suitable") ||
+                v.includes("good") ||
+                v.includes("yes")
+              )
+                return "bg-emerald-500/10 text-emerald-700 border-emerald-500/20";
+              return "bg-muted/60 text-muted-foreground border-border/60";
+            })();
+            const isLikelyInvalidIngredientToken = (raw: string) => {
+              const token = String(raw || "").trim();
+              if (!token) return true;
+              if (token.length < 2 || token.length > 90) return true;
+              if (
+                /^(key ingredients?|ingredients?|active ingredients?)$/i.test(
+                  token,
+                )
+              )
+                return true;
+              if (/as we wrote in our lengthy retinol description/i.test(token))
+                return true;
+              if (
+                /read more|learn more|discover|shop now|add to cart|selected because|strong category\/use-case/i.test(
+                  token,
+                )
+              )
+                return true;
+              if (
+                /\b(how to use|faq|privacy policy|terms of use|copyright)\b/i.test(
+                  token,
+                )
+              )
+                return true;
+              if (/[?!]/.test(token)) return true;
+              return false;
+            };
+            const allDetectedIngredients = uniqueStrings(
+              [
+                ...detectedIngredientsFromReasons,
+                ...evidenceKeyIngredients,
+                ...(heroName ? [heroName] : []),
+              ]
+                .map((name) => normalizeIngredientName(name))
+                .filter((name) => !isLikelyInvalidIngredientToken(name)),
+            ).slice(0, 12);
+            const ingredientGroupDefs: Array<{
+              key: string;
+              title: string;
+              colorClass: string;
+              patterns: RegExp[];
+            }> = [
+              {
+                key: "barrier",
+                title:
+                  language === "CN" ? "Barrier support" : "Barrier support",
+                colorClass: "border-emerald-200 bg-emerald-50 text-emerald-800",
+                patterns: [
+                  /\b(ceramide|cholesterol|fatty acid|panthenol|beta[-\s]?glucan|allantoin|squalane|glycerin|hyaluron)\b/i,
+                ],
+              },
+              {
+                key: "acne",
+                title: language === "CN" ? "Acne control" : "Acne control",
+                colorClass: "border-sky-200 bg-sky-50 text-sky-800",
+                patterns: [
+                  /\b(salicylic|bha|benzoyl|niacinamide|azelaic|adapalene|tretinoin|retinol|retinal|zinc)\b/i,
+                ],
+              },
+              {
+                key: "brightening",
+                title: language === "CN" ? "Brightening" : "Brightening",
+                colorClass: "border-violet-200 bg-violet-50 text-violet-800",
+                patterns: [
+                  /\b(ascorb|vitamin c|tranexamic|arbutin|kojic|licorice|niacinamide)\b/i,
+                ],
+              },
+              {
+                key: "soothing",
+                title: language === "CN" ? "Soothing" : "Soothing",
+                colorClass: "border-teal-200 bg-teal-50 text-teal-800",
+                patterns: [
+                  /\b(cica|centella|madecassoside|bisabolol|oat|aloe|allantoin|panthenol)\b/i,
+                ],
+              },
+              {
+                key: "irritant",
+                title:
+                  language === "CN"
+                    ? "Potential irritants"
+                    : "Potential irritants",
+                colorClass: "border-rose-200 bg-rose-50 text-rose-800",
+                patterns: [
+                  /\b(fragrance|parfum|linalool|limonene|citral|retino|aha|bha|glycolic|lactic|mandelic|oxybenzone|octocrylene)\b/i,
+                ],
+              },
+            ];
+            const ingredientGroups = (() => {
+              const buckets = ingredientGroupDefs.map((group) => ({
+                ...group,
+                items: [] as string[],
+              }));
+              const seen = new Set<string>();
+              allDetectedIngredients.forEach((ingredient) => {
+                const token = String(ingredient || "").trim();
+                if (!token) return;
+                const key = token.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                const matched = buckets.filter((group) =>
+                  group.patterns.some((re) => re.test(token)),
+                );
+                if (matched.length) {
+                  matched.forEach((group) => {
+                    if (!group.items.includes(token)) group.items.push(token);
+                  });
+                  return;
+                }
+                buckets[0]?.items.push(token);
+              });
+              return buckets
+                .filter((group) => group.items.length > 0)
+                .map((group) => ({
+                  key: group.key,
+                  title: group.title,
+                  colorClass: group.colorClass,
+                  items: group.items.slice(0, 8),
+                }));
+            })();
 
-            {/* V4: Data quality banner — shown at the top when non-null */}
-            {dataQualityBanner ? (
-              <div className="rounded-2xl border border-orange-500/30 bg-orange-50/60 px-3 py-2 text-xs text-orange-800">
-                <span className="mr-1 font-semibold">{language === 'CN' ? '数据质量提示：' : 'Data quality note:'}</span>
-                {dataQualityBanner}
-              </div>
-            ) : null}
+            const normalizeLineToken = (line: string) =>
+              String(line || "")
+                .toLowerCase()
+                .replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+            const lineSimilarity = (left: string, right: string) => {
+              const l = normalizeLineToken(left);
+              const r = normalizeLineToken(right);
+              if (!l || !r) return 0;
+              if (l === r) return 1;
+              if (l.includes(r) || r.includes(l)) return 0.85;
+              const leftTokens = new Set(l.split(" ").filter(Boolean));
+              const rightTokens = new Set(r.split(" ").filter(Boolean));
+              if (!leftTokens.size || !rightTokens.size) return 0;
+              let overlap = 0;
+              leftTokens.forEach((token) => {
+                if (rightTokens.has(token)) overlap += 1;
+              });
+              const denom = Math.max(leftTokens.size, rightTokens.size);
+              return denom > 0 ? overlap / denom : 0;
+            };
+            const filterNearDuplicateLines = (
+              rows: string[],
+              refs: string[],
+              threshold = 0.7,
+            ) =>
+              rows.filter(
+                (line) =>
+                  !refs.some((ref) => lineSimilarity(line, ref) >= threshold),
+              );
+            const isProfileEchoLine = (line: string) =>
+              /^(your profile|profile priorities|你的情况|你的画像|匹配点|fit signal)[:：]/i.test(
+                String(line || "").trim(),
+              );
+            const isProfileTupleLine = (line: string) => {
+              const text = String(line || "").trim();
+              if (!text) return false;
+              const lower = text.toLowerCase();
+              const profileTokenCount = [
+                /\b(oily|dry|combo|combination|normal)\b/.test(lower),
+                /\b(sensitivity|sensitive|low|medium|high)\b/.test(lower),
+                /\b(barrier|healthy|impaired)\b/.test(lower),
+                /肤质|敏感|屏障|油皮|干皮|混合皮|低敏|中敏|高敏/.test(text),
+                /skintype=|sensitivity=|barrier=/.test(lower),
+              ].filter(Boolean).length;
+              const productSignal =
+                /\b(ingredient|formula|efficacy|mechanis|retino|acid|niacinamide|ceramide|peptide|spf|sunscreen|cleanser|moisturizer|serum|防晒|保湿|修护|控痘|去角质)\b/i.test(
+                  text,
+                );
+              return (
+                !productSignal && profileTokenCount >= 2 && text.length <= 120
+              );
+            };
+            const shouldDropProfileLine = (line: string) =>
+              isProfileEchoLine(line) || isProfileTupleLine(line);
 
-            {/* V4: verdict_level badge (replaces legacy verdict badge when V4 payload detected) */}
-            {isV4Payload && verdictLevelLabel ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictLevelStyle || verdictStyle}`}>
-                  {language === 'CN' ? '评估：' : 'Assessment: '} {verdictLevelLabel}
-                </div>
-                {inciConsensusTier ? (
-                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                    inciConsensusTier === 'high' ? 'border-emerald-300 bg-emerald-50 text-emerald-700' :
-                    inciConsensusTier === 'medium' ? 'border-amber-300 bg-amber-50 text-amber-700' :
-                    'border-slate-300 bg-slate-50 text-slate-600'
-                  }`}>
-                    {language === 'CN'
-                      ? `成分可信度：${inciConsensusTier === 'high' ? '高' : inciConsensusTier === 'medium' ? '中' : '低'}`
-                      : `INCI confidence: ${inciConsensusTier}`}
-                  </span>
+            const formulaIntentCandidates = uniqueStrings([
+              ...assessmentFormulaIntent,
+              ...formulaIntentFromReasons,
+              ...evidenceMechanisms,
+            ])
+              .filter(
+                (line) =>
+                  !shouldDropProfileLine(line) && !isDataQualityLine(line),
+              )
+              .slice(0, 6);
+            const bestForSignalsRaw = uniqueStrings([
+              ...assessmentBestFor,
+              ...bestForFromReasons,
+              ...evidenceFitNotes,
+              ...socialPositive,
+            ])
+              .filter((line) => !shouldDropProfileLine(line))
+              .slice(0, 6);
+            const cautionSignalsRaw = uniqueStrings([
+              ...assessmentNotFor,
+              ...cautionFromReasons,
+              ...evidenceRiskNotes,
+              ...socialNegative,
+              ...socialRisks,
+            ]).slice(0, 6);
+
+            const formulaIntent = filterNearDuplicateLines(
+              formulaIntentCandidates,
+              bestForSignalsRaw,
+              0.72,
+            ).slice(0, 3);
+            const bestForSignals = filterNearDuplicateLines(
+              bestForSignalsRaw,
+              formulaIntent,
+              0.72,
+            ).slice(0, 3);
+            const cautionSignals = uniqueStrings(cautionSignalsRaw).slice(0, 4);
+            const ifNotIdealSignals = uniqueStrings([
+              ...assessmentIfNotIdeal,
+              ...(cautionSignals.length
+                ? [
+                    language === "CN"
+                      ? "如果出现持续刺痛/泛红，请暂停该产品并回到温和修护基线。"
+                      : "If persistent stinging/redness occurs, pause this product and return to a gentle repair baseline.",
+                  ]
+                : []),
+            ]).slice(0, 3);
+            const betterPairingSignals = uniqueStrings([
+              ...assessmentBetterPairing,
+              ...(cautionSignals.some((line) =>
+                /\b(dry|drying|tight|dehydrat|干燥|紧绷)\b/i.test(
+                  String(line || ""),
+                ),
+              )
+                ? [
+                    language === "CN"
+                      ? "建议叠加屏障保湿层（如神经酰胺/泛醇）来降低拔干概率。"
+                      : "Pair with a barrier-hydration layer (for example ceramide/panthenol) to reduce dryness risk.",
+                  ]
+                : []),
+              ...(bestForSignals.some((line) =>
+                /\b(acne|pores?|痘|毛孔)\b/i.test(String(line || "")),
+              )
+                ? [
+                    language === "CN"
+                      ? "如果重点是控痘，优先低刺激控油路线，避免同晚叠加强活性。"
+                      : "If acne control is the priority, prefer low-irritation oil-control pairing and avoid same-night strong active stacking.",
+                  ]
+                : []),
+            ]).slice(0, 3);
+            const profilePromptNeeded =
+              profilePromptRaw?.needed === true ||
+              rawMissing.includes("profile_not_provided");
+            const followUpQuestion =
+              assessmentFollowUpQuestion ||
+              (profilePromptNeeded
+                ? language === "CN"
+                  ? "你当前更在意控痘、提亮还是屏障修护？我可以据此把下一步方案收敛到 2-3 个选项。"
+                  : "Which matters most right now: acne control, brightening, or barrier repair? I can narrow next steps to 2-3 options."
+                : language === "CN"
+                  ? "你更倾向更温和还是更快见效？我可以按这个偏好细化后续方案。"
+                  : "Do you prefer gentler progression or faster visible results? I can tailor the next-step plan accordingly.");
+
+            const keyTakeawayLines = uniqueStrings([
+              assessmentSummary,
+              verdict
+                ? language === "CN"
+                  ? `结论：${verdict}`
+                  : `Verdict: ${verdict}`
+                : "",
+              bestForSignals[0] || "",
+              cautionSignals[0]
+                ? language === "CN"
+                  ? `主要注意：${cautionSignals[0]}`
+                  : `Main watchout: ${cautionSignals[0]}`
+                : "",
+            ]).slice(0, 3);
+            const followupAnchorPayload = {
+              ...(asString((anchorRaw as any)?.product_id)
+                ? { product_id: asString((anchorRaw as any)?.product_id) }
+                : {}),
+              ...(asString((anchorRaw as any)?.sku_id)
+                ? { sku_id: asString((anchorRaw as any)?.sku_id) }
+                : {}),
+              ...(asString((anchorRaw as any)?.brand)
+                ? { brand: asString((anchorRaw as any)?.brand) }
+                : {}),
+              ...(asString((anchorRaw as any)?.name)
+                ? { name: asString((anchorRaw as any)?.name) }
+                : {}),
+              ...(asString((anchorRaw as any)?.display_name)
+                ? { display_name: asString((anchorRaw as any)?.display_name) }
+                : {}),
+              ...(asString((anchorRaw as any)?.url)
+                ? { url: asString((anchorRaw as any)?.url) }
+                : {}),
+            };
+            const profilePromptFields = uniqueStrings(
+              (profilePromptRaw as any)?.missing_fields ||
+                (profilePromptRaw as any)?.missingFields ||
+                [],
+            );
+            const profileFieldLabel = (field: string) => {
+              const token = String(field || "").trim();
+              if (token === "skinType")
+                return language === "CN" ? "肤质" : "Skin type";
+              if (token === "sensitivity")
+                return language === "CN" ? "敏感度" : "Sensitivity";
+              if (token === "barrierStatus")
+                return language === "CN" ? "屏障状态" : "Barrier status";
+              if (token === "goals")
+                return language === "CN" ? "目标" : "Goals";
+              return "";
+            };
+            const profilePromptFieldText = uniqueStrings(
+              profilePromptFields.map((field) => profileFieldLabel(field)),
+            ).slice(0, 4);
+
+            const howToUseBullets = (() => {
+              const out: string[] = [];
+              if (typeof howToUse === "string") {
+                const text = howToUse.trim();
+                if (text) out.push(text);
+              } else {
+                const o = asObject(howToUse);
+                if (o) {
+                  const timing =
+                    asString((o as any).timing) ||
+                    asString((o as any).time) ||
+                    null;
+                  const frequency = asString((o as any).frequency) || null;
+                  const steps = uniqueStrings((o as any).steps).slice(0, 4);
+                  const notes = uniqueStrings((o as any).notes).slice(0, 4);
+                  if (timing)
+                    out.push(
+                      language === "CN"
+                        ? `建议时段：${timing}`
+                        : `Timing: ${timing}`,
+                    );
+                  if (frequency)
+                    out.push(
+                      language === "CN"
+                        ? `建议频率：${frequency}`
+                        : `Suggested frequency: ${frequency}`,
+                    );
+                  out.push(...steps);
+                  out.push(...notes);
+                }
+              }
+              out.push(...usageHintsFromReasons);
+
+              const hasExfoliationSignal = uniqueStrings([
+                ...allDetectedIngredients,
+                ...cautionSignals,
+                ...out,
+              ]).some((line) =>
+                /\b(acid|aha|bha|pha|exfoliat|去角质|酸类)\b/i.test(
+                  String(line || ""),
+                ),
+              );
+
+              if (hasExfoliationSignal) {
+                out.push(
+                  language === "CN"
+                    ? "叠加提醒：若与其他强活性同用，建议降低频率并观察耐受。"
+                    : "Layering caution: if paired with other strong actives, reduce frequency and monitor tolerance.",
+                );
+              }
+
+              const hasDryingSignal = uniqueStrings([
+                ...cautionSignals,
+                ...rawReasons,
+                ...out,
+              ]).some((line) =>
+                /\b(drying|dryness|tight|peel|flake|dehydrat|干燥|起皮|紧绷)\b/i.test(
+                  String(line || ""),
+                ),
+              );
+              out.push(
+                hasDryingSignal
+                  ? language === "CN"
+                    ? "观察周期：先连续观察 10–14 天，若持续干燥/刺痛，降低频率或更换更温和替代。"
+                    : "Observation window: monitor for 10-14 days; reduce frequency or switch if dryness/stinging persists."
+                  : language === "CN"
+                    ? "观察周期：先连续观察 7–10 天，再决定是否提高频率。"
+                    : "Observation window: monitor for 7-10 days before increasing frequency.",
+              );
+
+              return uniqueStrings(out).slice(0, 5);
+            })();
+
+            const dataNotes = uniqueStrings([
+              ...dataNotesFromReasons,
+              ...expertNotes.filter((note) =>
+                /(evidence source|ingredient list|inci|entries|product page|parsed)/i.test(
+                  String(note || ""),
+                ),
+              ),
+            ]).slice(0, 3);
+
+            const routineCompatibilityProducts =
+              extractRoutineProductsFromProfileCurrentRoutine(
+                (bootstrapInfo?.profile as any)?.currentRoutine,
+              );
+            const compatibilityBaseProduct: CompatibilityProductInput = {
+              id:
+                asString((anchorRaw as any)?.product_id) ||
+                asString((anchorRaw as any)?.sku_id) ||
+                asString((anchorRaw as any)?.name) ||
+                asString((assessment as any)?.product_id) ||
+                "product_analysis_base",
+              name:
+                asString((anchorRaw as any)?.name) ||
+                asString((assessment as any)?.product_name) ||
+                asString((assessment as any)?.productName) ||
+                (language === "CN" ? "当前产品" : "Current product"),
+              brand: asString((anchorRaw as any)?.brand) || undefined,
+              ingredientTokens: uniqueStrings([
+                ...allDetectedIngredients,
+                ...evidenceKeyIngredients,
+                ...(heroName ? [heroName] : []),
+                ...cautionSignals.filter((line) =>
+                  /\b(acid|aha|bha|pha|retino|benzoyl|ascorb|peptide|fragrance|parfum|去角质|维a|维A|香精)\b/i.test(
+                    String(line || ""),
+                  ),
+                ),
+                ...howToUseBullets.filter((line) =>
+                  /\b(acid|aha|bha|pha|retino|benzoyl|ascorb|peptide|fragrance|parfum|去角质|维a|维A|香精)\b/i.test(
+                    String(line || ""),
+                  ),
+                ),
+              ]).slice(0, 24),
+              irritationSignal: uniqueStrings([
+                ...cautionSignals,
+                ...rawReasons,
+                ...howToUseBullets,
+              ]).some((line) =>
+                /\b(sting|stinging|redness|irritat|burn|drying|sensitive|刺痛|泛红|刺激|干燥|敏感)\b/i.test(
+                  String(line || ""),
+                ),
+              ),
+              source: "base",
+            };
+            const normalizeRecommendationIntent = (
+              candidate: Record<string, unknown>,
+              block: RecoBlockType,
+            ): "replace" | "pair" => {
+              const raw = (
+                asString(
+                  (candidate as any).recommendation_intent ||
+                    (candidate as any).recommendationIntent,
+                ) || ""
+              ).toLowerCase();
+              if (raw === "replace" || raw === "pair") return raw;
+              return block === "related_products" ? "pair" : "replace";
+            };
+            const flattenAlternatives = (
+              candidates: Array<Record<string, unknown>>,
+              block: RecoBlockType,
+            ) =>
+              candidates.map((candidate, idx) => ({
+                candidate,
+                block,
+                rank: idx + 1,
+                intent: normalizeRecommendationIntent(candidate, block),
+              }));
+            const flattenedAlternatives = [
+              ...flattenAlternatives(competitorCandidates, "competitors"),
+              ...flattenAlternatives(dupeCandidates, "dupes"),
+              ...flattenAlternatives(relatedCandidates, "related_products"),
+            ];
+            const replaceAlternatives = flattenedAlternatives.filter(
+              (row) => row.intent === "replace",
+            );
+            const pairingAlternatives = flattenedAlternatives.filter(
+              (row) => row.intent === "pair",
+            );
+            const alternativeTracks: ProductAlternativeTrack[] = [
+              {
+                key: "replace",
+                title:
+                  language === "CN" ? "Replace options" : "Replace options",
+                subtitle:
+                  language === "CN"
+                    ? "用于替换当前产品"
+                    : "Direct alternatives to replace current product",
+                items: replaceAlternatives,
+                filteredCount:
+                  alternativeFilteredStats.competitors +
+                  alternativeFilteredStats.dupes,
+              },
+              {
+                key: "pair",
+                title: language === "CN" ? "Pairing ideas" : "Pairing ideas",
+                subtitle:
+                  language === "CN"
+                    ? "用于搭配补位，不是直接替代"
+                    : "Companion products to pair with your current pick",
+                items: pairingAlternatives,
+                filteredCount: alternativeFilteredStats.related_products,
+              },
+            ];
+            const hasAlternatives = alternativeTracks.some(
+              (section) => section.items.length > 0,
+            );
+            const totalFilteredAlternatives = alternativeTracks.reduce(
+              (acc, section) => acc + Number(section.filteredCount || 0),
+              0,
+            );
+            if (analyticsCtx && totalFilteredAlternatives > 0) {
+              const eventKey = `${card.card_id || "product_analysis"}::${totalFilteredAlternatives}`;
+              if (!alternativesFilterEventKeysRef.current.has(eventKey)) {
+                alternativesFilterEventKeysRef.current.add(eventKey);
+                emitAuroraProductAlternativesFiltered(analyticsCtx, {
+                  request_id: asString((payload as any)?.request_id) || null,
+                  bff_trace_id: requestHeaders.trace_id || null,
+                  competitors_filtered: alternativeFilteredStats.competitors,
+                  related_filtered: alternativeFilteredStats.related_products,
+                  dupes_filtered: alternativeFilteredStats.dupes,
+                });
+              }
+            }
+
+            return (
+              <div className="space-y-3">
+                {product ? (
+                  <AuroraAnchorCard
+                    product={product}
+                    offers={anchorOffers}
+                    language={language}
+                    hidePriceWhenUnknown
+                  />
                 ) : null}
-              </div>
-            ) : verdict ? (
-              <div className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}>
-                {language === 'CN' ? '结论：' : 'Verdict: '} {verdict}
-              </div>
-            ) : null}
 
-            {/* V4: compact top takeaways (replaces keyTakeawayLines when V4) */}
-            {isV4Payload && v4TopTakeaways.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '核心结论' : 'Key takeaways'}</div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {v4TopTakeaways.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : !isV4Payload && keyTakeawayLines.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '重点结论' : 'Key takeaway'}</div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {keyTakeawayLines.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {visibleMissingLabels.length ? (
-              <details className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-amber-700">
-                  <span>
-                    {language === 'CN'
-                      ? `分析限制（${visibleMissingLabels.length}）：${visibleMissingLabels[0]}${visibleMissingLabels.length > 1 ? '…' : ''}`
-                      : `Analysis limits (${visibleMissingLabels.length}): ${visibleMissingLabels[0]}${visibleMissingLabels.length > 1 ? '…' : ''}`}
-                  </span>
-                  <ChevronDown className="h-4 w-4" />
-                </summary>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {visibleMissingLabels.map((label) => (
-                    <span
-                      key={label}
-                      className="rounded-full border border-amber-500/40 bg-background/70 px-2 py-1 text-[11px] text-amber-700"
-                    >
-                      {label}
+                {/* V4: Data quality banner — shown at the top when non-null */}
+                {dataQualityBanner ? (
+                  <div className="rounded-2xl border border-orange-500/30 bg-orange-50/60 px-3 py-2 text-xs text-orange-800">
+                    <span className="mr-1 font-semibold">
+                      {language === "CN"
+                        ? "数据质量提示："
+                        : "Data quality note:"}
                     </span>
-                  ))}
-                </div>
-              </details>
-            ) : null}
+                    {dataQualityBanner}
+                  </div>
+                ) : null}
 
-            {profilePromptNeeded ? (
-              <div className="rounded-2xl border border-sky-500/30 bg-sky-500/10 p-3">
-                <div className="text-xs font-semibold text-sky-700">
-                  {language === 'CN' ? '补充肤况可提升个性化准确度' : 'Add profile details for more personalized guidance'}
-                </div>
-                <div className="mt-1 text-xs text-sky-700/90">
-                  {profilePromptFieldText.length
-                    ? language === 'CN'
-                      ? `建议补充：${profilePromptFieldText.join('、')}`
-                      : `Recommended fields: ${profilePromptFieldText.join(', ')}`
-                    : language === 'CN'
-                      ? '可一键补充肤质、敏感度和屏障状态。'
-                      : 'You can complete skin type, sensitivity, and barrier status in one tap.'}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
+                {/* V4: verdict_level badge (replaces legacy verdict badge when V4 payload detected) */}
+                {isV4Payload && verdictLevelLabel ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictLevelStyle || verdictStyle}`}
+                    >
+                      {language === "CN" ? "评估：" : "Assessment: "}{" "}
+                      {verdictLevelLabel}
+                    </div>
+                    {inciConsensusTier ? (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                          inciConsensusTier === "high"
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                            : inciConsensusTier === "medium"
+                              ? "border-amber-300 bg-amber-50 text-amber-700"
+                              : "border-slate-300 bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        {language === "CN"
+                          ? `成分可信度：${inciConsensusTier === "high" ? "高" : inciConsensusTier === "medium" ? "中" : "低"}`
+                          : `INCI confidence: ${inciConsensusTier}`}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : verdict ? (
+                  <div
+                    className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${verdictStyle}`}
+                  >
+                    {language === "CN" ? "结论：" : "Verdict: "} {verdict}
+                  </div>
+                ) : null}
+
+                {/* V4: compact top takeaways (replaces keyTakeawayLines when V4) */}
+                {isV4Payload && v4TopTakeaways.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "核心结论" : "Key takeaways"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {v4TopTakeaways.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : !isV4Payload && keyTakeawayLines.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "重点结论" : "Key takeaway"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {keyTakeawayLines.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {visibleMissingLabels.length ? (
+                  <details className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-amber-700">
+                      <span>
+                        {language === "CN"
+                          ? `分析限制（${visibleMissingLabels.length}）：${visibleMissingLabels[0]}${visibleMissingLabels.length > 1 ? "…" : ""}`
+                          : `Analysis limits (${visibleMissingLabels.length}): ${visibleMissingLabels[0]}${visibleMissingLabels.length > 1 ? "…" : ""}`}
+                      </span>
+                      <ChevronDown className="h-4 w-4" />
+                    </summary>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {visibleMissingLabels.map((label) => (
+                        <span
+                          key={label}
+                          className="rounded-full border border-amber-500/40 bg-background/70 px-2 py-1 text-[11px] text-amber-700"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+
+                {profilePromptNeeded ? (
+                  <div className="rounded-2xl border border-sky-500/30 bg-sky-500/10 p-3">
+                    <div className="text-xs font-semibold text-sky-700">
+                      {language === "CN"
+                        ? "补充肤况可提升个性化准确度"
+                        : "Add profile details for more personalized guidance"}
+                    </div>
+                    <div className="mt-1 text-xs text-sky-700/90">
+                      {profilePromptFieldText.length
+                        ? language === "CN"
+                          ? `建议补充：${profilePromptFieldText.join("、")}`
+                          : `Recommended fields: ${profilePromptFieldText.join(", ")}`
+                        : language === "CN"
+                          ? "可一键补充肤质、敏感度和屏障状态。"
+                          : "You can complete skin type, sensitivity, and barrier status in one tap."}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="chip-button"
+                        onClick={() => {
+                          if (onOpenProfile) {
+                            onOpenProfile();
+                            return;
+                          }
+                          onAction("chip_quick_profile");
+                        }}
+                      >
+                        {language === "CN"
+                          ? "一键补充画像"
+                          : "Complete profile"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {heroName || heroWhy ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "核心成分" : "Hero ingredient(s)"}
+                    </div>
+                    {heroName ? (
+                      <div className="mt-1 text-sm font-semibold text-foreground">
+                        {heroName}
+                      </div>
+                    ) : null}
+                    {heroRole ? (
+                      <div className="mt-1 text-[11px] font-medium text-muted-foreground">
+                        {language === "CN"
+                          ? `角色：${heroRole}`
+                          : `Role: ${heroRole}`}
+                      </div>
+                    ) : null}
+                    {heroWhy ? (
+                      <div className="mt-2 text-sm text-foreground">
+                        {heroWhy}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {formulaIntent.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN"
+                        ? "这个配方主要在做什么"
+                        : "What the formula is trying to do"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {formulaIntent.slice(0, 3).map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {ingredientGroups.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN"
+                        ? "关键活性与支持成分"
+                        : "Notable actives & support ingredients"}
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {ingredientGroups.map((group) => (
+                        <div key={group.key}>
+                          <div className="mb-1 text-[11px] font-semibold text-muted-foreground">
+                            {group.title}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {group.items.map((ingredient) => (
+                              <button
+                                key={`${group.key}_${ingredient}`}
+                                type="button"
+                                className={`rounded-full border px-2 py-1 text-[11px] transition hover:opacity-90 ${group.colorClass}`}
+                                title={
+                                  language === "CN"
+                                    ? "点击查看成分分析"
+                                    : "Click to view ingredient analysis"
+                                }
+                                onClick={() =>
+                                  onAction("ingredient_drilldown", {
+                                    ingredient_name: ingredient,
+                                  })
+                                }
+                              >
+                                {ingredient}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* V4: best_for from assessment — shown alongside legacy best_for when available */}
+                {isV4Payload && v4BestFor.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "更适合" : "Best for"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {v4BestFor.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : !isV4Payload &&
+                  (bestForSignals.length || cautionSignals.length) ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN"
+                        ? "是否适合你"
+                        : "Is it a fit for you?"}
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {bestForSignals.length ? (
+                        <div>
+                          <div className="text-[11px] font-semibold text-muted-foreground">
+                            {language === "CN" ? "更适合" : "Best for"}
+                          </div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                            {bestForSignals.slice(0, 3).map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {cautionSignals.length ? (
+                        <div>
+                          <div className="text-[11px] font-semibold text-muted-foreground">
+                            {language === "CN"
+                              ? "不太适合/需谨慎"
+                              : "Not ideal for / caution"}
+                          </div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                            {cautionSignals.slice(0, 3).map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {ifNotIdealSignals.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN"
+                        ? "如果不太适合，现在该怎么做"
+                        : "If not ideal, what to do now"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {ifNotIdealSignals.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {betterPairingSignals.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN"
+                        ? "更理想的搭配方式"
+                        : "Better pairing for your goals"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {betterPairingSignals.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {/* V4: structured watchouts with confirmed/possible status icons */}
+                {isV4Payload && v4Watchouts.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "需要注意的地方" : "Watchouts"}
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {v4Watchouts.map((w, i) => (
+                        <div
+                          key={`watchout_${i}_${w.issue}`}
+                          className="rounded-xl border border-border/40 bg-background/70 p-2"
+                        >
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`mt-0.5 shrink-0 text-sm ${w.status === "confirmed" ? "text-amber-600" : "text-orange-500"}`}
+                            >
+                              {watchoutStatusIcon(w.status)}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium text-foreground">
+                                {w.issue}
+                              </div>
+                              {w.what_to_do ? (
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {w.what_to_do}
+                                </div>
+                              ) : null}
+                            </div>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                w.status === "confirmed"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-orange-100 text-orange-600"
+                              }`}
+                            >
+                              {w.status === "confirmed"
+                                ? language === "CN"
+                                  ? "已确认"
+                                  : "Confirmed"
+                                : language === "CN"
+                                  ? "可能"
+                                  : "Possible"}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* V4: structured how_to_use with when/frequency/order/pairing/stop_signs */}
+                {isV4Payload && v4HowToUse ? (
+                  <details
+                    open
+                    className="rounded-2xl border border-border/60 bg-background/60 p-3"
+                    onToggle={(event) => {
+                      const current = event.currentTarget;
+                      if (!current.open || !analyticsCtx) return;
+                      const eventKey = `${card.card_id || "product_analysis"}::how_to_layer_inline_opened`;
+                      if (howToLayerEventKeysRef.current.has(eventKey)) return;
+                      howToLayerEventKeysRef.current.add(eventKey);
+                      emitAuroraHowToLayerInlineOpened(analyticsCtx, {
+                        request_id:
+                          asString((payload as any)?.request_id) || null,
+                        bff_trace_id: requestHeaders.trace_id || null,
+                      });
+                    }}
+                  >
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                      <span>
+                        {language === "CN"
+                          ? "怎么用（使用指南）"
+                          : "How to use"}
+                      </span>
+                      <ChevronDown className="h-4 w-4" />
+                    </summary>
+                    <div className="mt-2 space-y-2 text-sm">
+                      {v4HowToUse.when ? (
+                        <div>
+                          <span className="font-medium text-foreground">
+                            {language === "CN" ? "使用时段：" : "When: "}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {v4HowToUse.when}
+                          </span>
+                        </div>
+                      ) : null}
+                      {v4HowToUse.frequency ? (
+                        <div>
+                          <span className="font-medium text-foreground">
+                            {language === "CN" ? "频率：" : "Frequency: "}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {v4HowToUse.frequency}
+                          </span>
+                        </div>
+                      ) : null}
+                      {v4HowToUse.order_in_routine ? (
+                        <div>
+                          <span className="font-medium text-foreground">
+                            {language === "CN"
+                              ? "Routine 顺序："
+                              : "Order in routine: "}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {v4HowToUse.order_in_routine}
+                          </span>
+                        </div>
+                      ) : null}
+                      {v4HowToUse.pairing_rules.length ? (
+                        <div>
+                          <div className="font-medium text-foreground">
+                            {language === "CN"
+                              ? "搭配建议："
+                              : "Pairing rules:"}
+                          </div>
+                          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                            {v4HowToUse.pairing_rules.map((rule) => (
+                              <li key={rule}>{rule}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {v4HowToUse.stop_signs.length ? (
+                        <div>
+                          <div className="font-medium text-rose-700">
+                            {language === "CN" ? "停用信号：" : "Stop signs:"}
+                          </div>
+                          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-rose-700/80">
+                            {v4HowToUse.stop_signs.map((sign) => (
+                              <li key={sign}>{sign}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  </details>
+                ) : howToUseBullets.length ? (
+                  <details
+                    open
+                    className="rounded-2xl border border-border/60 bg-background/60 p-3"
+                    onToggle={(event) => {
+                      const current = event.currentTarget;
+                      if (!current.open || !analyticsCtx) return;
+                      const eventKey = `${card.card_id || "product_analysis"}::how_to_layer_inline_opened`;
+                      if (howToLayerEventKeysRef.current.has(eventKey)) return;
+                      howToLayerEventKeysRef.current.add(eventKey);
+                      emitAuroraHowToLayerInlineOpened(analyticsCtx, {
+                        request_id:
+                          asString((payload as any)?.request_id) || null,
+                        bff_trace_id: requestHeaders.trace_id || null,
+                      });
+                    }}
+                  >
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                      <span>
+                        {language === "CN"
+                          ? "How to layer（就地建议）"
+                          : "How to layer (inline guidance)"}
+                      </span>
+                      <ChevronDown className="h-4 w-4" />
+                    </summary>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {howToUseBullets.map((tip) => (
+                        <li key={tip}>{tip}</li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+
+                {/* V4: key_ingredients_by_function grouped display */}
+                {isV4Payload && v4KeyIngredientsByFunction.length ? (
+                  <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+                      <span>
+                        {language === "CN"
+                          ? "关键成分（按功能分组）"
+                          : "Key ingredients by function"}
+                      </span>
+                      <ChevronDown className="h-4 w-4" />
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      {v4KeyIngredientsByFunction.map((group) => (
+                        <div key={group.function}>
+                          <div className="flex items-center gap-2">
+                            <div className="text-[11px] font-semibold text-muted-foreground">
+                              {group.function}
+                            </div>
+                            <span
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                group.confidence === "high"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : group.confidence === "medium"
+                                    ? "bg-amber-100 text-amber-700"
+                                    : "bg-slate-100 text-slate-500"
+                              }`}
+                            >
+                              {group.confidence}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {group.ingredients.map((ingredient) => (
+                              <button
+                                key={`${group.function}_${ingredient}`}
+                                type="button"
+                                className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] transition hover:opacity-90"
+                                title={
+                                  language === "CN"
+                                    ? "点击查看成分分析"
+                                    : "Click to view ingredient analysis"
+                                }
+                                onClick={() =>
+                                  onAction("ingredient_drilldown", {
+                                    ingredient_name: ingredient,
+                                  })
+                                }
+                              >
+                                {ingredient}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+
+                {/* V4: product type reasoning */}
+                {isV4Payload && v4ProductTypeReasoning ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {language === "CN" ? "产品分类：" : "Product type: "}
+                    </span>
+                    {v4ProductTypeReasoning}
+                  </div>
+                ) : null}
+
+                {followUpQuestion ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN"
+                        ? "下一步关键追问"
+                        : "One smart follow-up question"}
+                    </div>
+                    <div className="mt-2 text-sm text-foreground">
+                      {followUpQuestion}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     className="chip-button"
-                    onClick={() => {
-                      if (onOpenProfile) {
-                        onOpenProfile();
-                        return;
-                      }
-                      onAction('chip_quick_profile');
-                    }}
+                    onClick={() =>
+                      onAction("analysis_followup_prompt", {
+                        goal: "less_drying",
+                        anchor: followupAnchorPayload,
+                        prompt:
+                          language === "CN"
+                            ? "基于这款产品，帮我找更不容易拔干的替代品，并说明利弊取舍。"
+                            : "Find less-drying alternatives to this product and explain the tradeoffs.",
+                      })
+                    }
                   >
-                    {language === 'CN' ? '一键补充画像' : 'Complete profile'}
+                    {language === "CN"
+                      ? "Find less-drying alternatives"
+                      : "Find less-drying alternatives"}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip-button"
+                    onClick={() =>
+                      onAction("analysis_followup_prompt", {
+                        goal: "acne_focus",
+                        anchor: followupAnchorPayload,
+                        prompt:
+                          language === "CN"
+                            ? "如果目标是 acne 控制，帮我找更聚焦的替代品并给出选择建议。"
+                            : "Find acne-focused alternatives and give me a clear pick recommendation.",
+                      })
+                    }
+                  >
+                    {language === "CN"
+                      ? "Find acne-focused alternatives"
+                      : "Find acne-focused alternatives"}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip-button"
+                    onClick={() =>
+                      onAction("analysis_followup_prompt", {
+                        goal: "pros_cons",
+                        anchor: followupAnchorPayload,
+                        prompt:
+                          language === "CN"
+                            ? "总结这个产品的用户反馈优缺点，按常见好评和常见踩雷分开。"
+                            : "Show user-reported pros and cons for this product.",
+                      })
+                    }
+                  >
+                    {language === "CN"
+                      ? "Show user-reported pros/cons"
+                      : "Show user-reported pros/cons"}
                   </button>
                 </div>
-              </div>
-            ) : null}
 
-            {(heroName || heroWhy) ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '核心成分' : 'Hero ingredient(s)'}</div>
-                {heroName ? <div className="mt-1 text-sm font-semibold text-foreground">{heroName}</div> : null}
-                {heroRole ? (
-                  <div className="mt-1 text-[11px] font-medium text-muted-foreground">
-                    {language === 'CN' ? `角色：${heroRole}` : `Role: ${heroRole}`}
-                  </div>
-                ) : null}
-                {heroWhy ? <div className="mt-2 text-sm text-foreground">{heroWhy}</div> : null}
-              </div>
-            ) : null}
-
-            {formulaIntent.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">
-                  {language === 'CN' ? '这个配方主要在做什么' : 'What the formula is trying to do'}
-                </div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {formulaIntent.slice(0, 3).map((r) => (
-                    <li key={r}>{r}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {ingredientGroups.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">
-                  {language === 'CN' ? '关键活性与支持成分' : 'Notable actives & support ingredients'}
-                </div>
-                <div className="mt-3 space-y-2">
-                  {ingredientGroups.map((group) => (
-                    <div key={group.key}>
-                      <div className="mb-1 text-[11px] font-semibold text-muted-foreground">{group.title}</div>
-                      <div className="flex flex-wrap gap-2">
-                        {group.items.map((ingredient) => (
-                          <button
-                            key={`${group.key}_${ingredient}`}
-                            type="button"
-                            className={`rounded-full border px-2 py-1 text-[11px] transition hover:opacity-90 ${group.colorClass}`}
-                            title={language === 'CN' ? '点击查看成分分析' : 'Click to view ingredient analysis'}
-                            onClick={() => onAction('ingredient_drilldown', { ingredient_name: ingredient })}
-                          >
-                            {ingredient}
-                          </button>
-                        ))}
-                      </div>
+                {socialOverall ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN"
+                        ? "社媒反馈摘要"
+                        : "Social feedback snapshot"}
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {/* V4: best_for from assessment — shown alongside legacy best_for when available */}
-            {isV4Payload && v4BestFor.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {v4BestFor.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : !isV4Payload && (bestForSignals.length || cautionSignals.length) ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '是否适合你' : 'Is it a fit for you?'}</div>
-                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {bestForSignals.length ? (
-                  <div>
-                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                      {bestForSignals.slice(0, 3).map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {cautionSignals.length ? (
-                  <div>
-                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '不太适合/需谨慎' : 'Not ideal for / caution'}</div>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                      {cautionSignals.slice(0, 3).map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            {ifNotIdealSignals.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">
-                  {language === 'CN' ? '如果不太适合，现在该怎么做' : 'If not ideal, what to do now'}
-                </div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {ifNotIdealSignals.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {betterPairingSignals.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">
-                  {language === 'CN' ? '更理想的搭配方式' : 'Better pairing for your goals'}
-                </div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {betterPairingSignals.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {/* V4: structured watchouts with confirmed/possible status icons */}
-            {isV4Payload && v4Watchouts.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">
-                  {language === 'CN' ? '需要注意的地方' : 'Watchouts'}
-                </div>
-                <div className="mt-2 space-y-2">
-                  {v4Watchouts.map((w, i) => (
-                    <div key={`watchout_${i}_${w.issue}`} className="rounded-xl border border-border/40 bg-background/70 p-2">
-                      <div className="flex items-start gap-2">
-                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : 'text-orange-500'}`}>
-                          {watchoutStatusIcon(w.status)}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-foreground">{w.issue}</div>
-                          {w.what_to_do ? (
-                            <div className="mt-1 text-xs text-muted-foreground">{w.what_to_do}</div>
-                          ) : null}
-                        </div>
-                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                          w.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
-                          'bg-orange-100 text-orange-600'
-                        }`}>
-                          {w.status === 'confirmed'
-                            ? (language === 'CN' ? '已确认' : 'Confirmed')
-                            : (language === 'CN' ? '可能' : 'Possible')}
-                        </span>
-                      </div>
+                    <div className="mt-1 text-sm font-semibold text-foreground">
+                      {socialOverall.headline}
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {/* V4: structured how_to_use with when/frequency/order/pairing/stop_signs */}
-            {isV4Payload && v4HowToUse ? (
-              <details
-                open
-                className="rounded-2xl border border-border/60 bg-background/60 p-3"
-                onToggle={(event) => {
-                  const current = event.currentTarget;
-                  if (!current.open || !analyticsCtx) return;
-                  const eventKey = `${card.card_id || 'product_analysis'}::how_to_layer_inline_opened`;
-                  if (howToLayerEventKeysRef.current.has(eventKey)) return;
-                  howToLayerEventKeysRef.current.add(eventKey);
-                  emitAuroraHowToLayerInlineOpened(analyticsCtx, {
-                    request_id: asString((payload as any)?.request_id) || null,
-                    bff_trace_id: requestHeaders.trace_id || null,
-                  });
-                }}
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
-                  <span>{language === 'CN' ? '怎么用（使用指南）' : 'How to use'}</span>
-                  <ChevronDown className="h-4 w-4" />
-                </summary>
-                <div className="mt-2 space-y-2 text-sm">
-                  {v4HowToUse.when ? (
-                    <div><span className="font-medium text-foreground">{language === 'CN' ? '使用时段：' : 'When: '}</span><span className="text-muted-foreground">{v4HowToUse.when}</span></div>
-                  ) : null}
-                  {v4HowToUse.frequency ? (
-                    <div><span className="font-medium text-foreground">{language === 'CN' ? '频率：' : 'Frequency: '}</span><span className="text-muted-foreground">{v4HowToUse.frequency}</span></div>
-                  ) : null}
-                  {v4HowToUse.order_in_routine ? (
-                    <div><span className="font-medium text-foreground">{language === 'CN' ? 'Routine 顺序：' : 'Order in routine: '}</span><span className="text-muted-foreground">{v4HowToUse.order_in_routine}</span></div>
-                  ) : null}
-                  {v4HowToUse.pairing_rules.length ? (
-                    <div>
-                      <div className="font-medium text-foreground">{language === 'CN' ? '搭配建议：' : 'Pairing rules:'}</div>
-                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
-                        {v4HowToUse.pairing_rules.map((rule) => <li key={rule}>{rule}</li>)}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {v4HowToUse.stop_signs.length ? (
-                    <div>
-                      <div className="font-medium text-rose-700">{language === 'CN' ? '停用信号：' : 'Stop signs:'}</div>
-                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-rose-700/80">
-                        {v4HowToUse.stop_signs.map((sign) => <li key={sign}>{sign}</li>)}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              </details>
-            ) : howToUseBullets.length ? (
-              <details
-                open
-                className="rounded-2xl border border-border/60 bg-background/60 p-3"
-                onToggle={(event) => {
-                  const current = event.currentTarget;
-                  if (!current.open || !analyticsCtx) return;
-                  const eventKey = `${card.card_id || 'product_analysis'}::how_to_layer_inline_opened`;
-                  if (howToLayerEventKeysRef.current.has(eventKey)) return;
-                  howToLayerEventKeysRef.current.add(eventKey);
-                  emitAuroraHowToLayerInlineOpened(analyticsCtx, {
-                    request_id: asString((payload as any)?.request_id) || null,
-                    bff_trace_id: requestHeaders.trace_id || null,
-                  });
-                }}
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
-                  <span>{language === 'CN' ? 'How to layer（就地建议）' : 'How to layer (inline guidance)'}</span>
-                  <ChevronDown className="h-4 w-4" />
-                </summary>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {howToUseBullets.map((tip) => (
-                    <li key={tip}>{tip}</li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-
-            {/* V4: key_ingredients_by_function grouped display */}
-            {isV4Payload && v4KeyIngredientsByFunction.length ? (
-              <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
-                  <span>{language === 'CN' ? '关键成分（按功能分组）' : 'Key ingredients by function'}</span>
-                  <ChevronDown className="h-4 w-4" />
-                </summary>
-                <div className="mt-3 space-y-3">
-                  {v4KeyIngredientsByFunction.map((group) => (
-                    <div key={group.function}>
-                      <div className="flex items-center gap-2">
-                        <div className="text-[11px] font-semibold text-muted-foreground">{group.function}</div>
-                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                          group.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' :
-                          group.confidence === 'medium' ? 'bg-amber-100 text-amber-700' :
-                          'bg-slate-100 text-slate-500'
-                        }`}>
-                          {group.confidence}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1.5">
-                        {group.ingredients.map((ingredient) => (
-                          <button
-                            key={`${group.function}_${ingredient}`}
-                            type="button"
-                            className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] transition hover:opacity-90"
-                            title={language === 'CN' ? '点击查看成分分析' : 'Click to view ingredient analysis'}
-                            onClick={() => onAction('ingredient_drilldown', { ingredient_name: ingredient })}
-                          >
-                            {ingredient}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            ) : null}
-
-            {/* V4: product type reasoning */}
-            {isV4Payload && v4ProductTypeReasoning ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">{language === 'CN' ? '产品分类：' : 'Product type: '}</span>
-                {v4ProductTypeReasoning}
-              </div>
-            ) : null}
-
-            {followUpQuestion ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">
-                  {language === 'CN' ? '下一步关键追问' : 'One smart follow-up question'}
-                </div>
-                <div className="mt-2 text-sm text-foreground">{followUpQuestion}</div>
-              </div>
-            ) : null}
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="chip-button"
-                onClick={() => onAction('analysis_followup_prompt', {
-                  goal: 'less_drying',
-                  anchor: followupAnchorPayload,
-                  prompt: language === 'CN'
-                    ? '基于这款产品，帮我找更不容易拔干的替代品，并说明利弊取舍。'
-                    : 'Find less-drying alternatives to this product and explain the tradeoffs.',
-                })}
-              >
-                {language === 'CN' ? 'Find less-drying alternatives' : 'Find less-drying alternatives'}
-              </button>
-              <button
-                type="button"
-                className="chip-button"
-                onClick={() => onAction('analysis_followup_prompt', {
-                  goal: 'acne_focus',
-                  anchor: followupAnchorPayload,
-                  prompt: language === 'CN'
-                    ? '如果目标是 acne 控制，帮我找更聚焦的替代品并给出选择建议。'
-                    : 'Find acne-focused alternatives and give me a clear pick recommendation.',
-                })}
-              >
-                {language === 'CN' ? 'Find acne-focused alternatives' : 'Find acne-focused alternatives'}
-              </button>
-              <button
-                type="button"
-                className="chip-button"
-                onClick={() => onAction('analysis_followup_prompt', {
-                  goal: 'pros_cons',
-                  anchor: followupAnchorPayload,
-                  prompt: language === 'CN'
-                    ? '总结这个产品的用户反馈优缺点，按常见好评和常见踩雷分开。'
-                    : 'Show user-reported pros and cons for this product.',
-                })}
-              >
-                {language === 'CN' ? 'Show user-reported pros/cons' : 'Show user-reported pros/cons'}
-              </button>
-            </div>
-
-            {socialOverall ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '社媒反馈摘要' : 'Social feedback snapshot'}</div>
-                <div className="mt-1 text-sm font-semibold text-foreground">{socialOverall.headline}</div>
-                {socialOverall.details && !(socialPositive.length || socialNegative.length || socialRisks.length) ? (
-                  <div className="mt-2 text-xs text-muted-foreground">{socialOverall.details}</div>
-                ) : null}
-                {Array.isArray((socialOverall as any).channels) && (socialOverall as any).channels.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {((socialOverall as any).channels as string[]).slice(0, 5).map((channel) => (
-                      <span key={channel} className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                        {channel}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                {(socialPositive.length || socialNegative.length || socialRisks.length) ? (
-                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    {socialPositive.length ? (
-                      <div>
-                        <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '常见好评' : 'Common positives'}</div>
-                        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                          {socialPositive.slice(0, 3).map((item) => (
-                            <li key={item}>{item}</li>
-                          ))}
-                        </ul>
+                    {socialOverall.details &&
+                    !(
+                      socialPositive.length ||
+                      socialNegative.length ||
+                      socialRisks.length
+                    ) ? (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {socialOverall.details}
                       </div>
                     ) : null}
-                    {socialNegative.length ? (
-                      <div>
-                        <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '常见担忧' : 'Common concerns'}</div>
-                        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                          {socialNegative.slice(0, 3).map((item) => (
-                            <li key={item}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                    {socialRisks.length ? (
-                      <div>
-                        <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '重点提醒' : 'Watchouts'}</div>
-                        <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                          {socialRisks.slice(0, 3).map((item) => (
-                            <li key={item}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="mt-2 text-[11px] text-muted-foreground">
-                  {language === 'CN'
-                    ? '说明：这是聚合口碑信号，用于辅助判断，不等同于医疗建议。'
-                    : 'Note: this is aggregated feedback for guidance, not medical advice.'}
-                </div>
-              </div>
-            ) : null}
-
-            {dataNotes.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '数据说明' : 'Data notes'}</div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                  {dataNotes.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {evidenceSources.length ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '证据来源' : 'Evidence sources'}</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {evidenceSources.map((source) => {
-                    const sourceLabel = source.label ||
-                      (source.type === 'regulatory'
-                        ? (language === 'CN' ? '监管源' : 'Regulatory')
-                        : source.type === 'retail_page'
-                          ? (language === 'CN' ? '零售页补充' : 'Retail PDP')
-                        : source.type === 'inci_decoder'
-                          ? (language === 'CN' ? 'INCIDecoder' : 'INCIDecoder')
-                        : (language === 'CN' ? '官网页面' : 'Official page'));
-                    return (
-                      <a
-                        key={`${source.type}_${source.url}`}
-                        href={source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-foreground transition hover:bg-muted/80"
-                      >
-                        {sourceLabel}
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {/* G3: when all three alternative sections are empty, show a single line instead of empty blocks */}
-            {!hasAlternatives && (rawCompetitorCandidates.length > 0 || rawRelatedCandidates.length > 0 || rawDupeCandidates.length > 0) ? (
-              <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                {language === 'CN' ? '暂未找到合适的替代品或搭配建议。' : 'No alternatives found for this product.'}
-              </div>
-            ) : null}
-
-            {hasAlternatives ? (
-              <div className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-sm font-semibold text-foreground">
-                  {language === 'CN' ? '可比替代与搭配建议' : 'Comparable alternatives'}
-                </div>
-                <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                  {competitorCandidates.length ? <span>{language === 'CN' ? '对标品' : 'Competitors'}</span> : null}
-                  {dupeCandidates.length ? <span>{language === 'CN' ? '平替' : 'Dupes'}</span> : null}
-                  {relatedCandidates.length ? <span>{language === 'CN' ? '相关产品' : 'Related products'}</span> : null}
-                </div>
-                {alternativeTracks.map((section) => {
-                  if (!section.items.length) return null;
-                  return (
-                    <div key={section.key} className="rounded-xl border border-border/50 bg-muted/30 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-semibold text-muted-foreground">{section.title}</div>
-                          <div className="text-[11px] text-muted-foreground">{section.subtitle}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {section.items.length > 1 ? (
-                            <button
-                              type="button"
-                              className="chip-button text-[11px]"
-                              onClick={() => {
-                                onOpenRecommendationAlternatives?.(alternativeTracks);
-                              }}
+                    {Array.isArray((socialOverall as any).channels) &&
+                    (socialOverall as any).channels.length ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {((socialOverall as any).channels as string[])
+                          .slice(0, 5)
+                          .map((channel) => (
+                            <span
+                              key={channel}
+                              className="rounded-full border border-border/60 bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground"
                             >
-                              {language === 'CN' ? '更多' : 'More'}
-                            </button>
-                          ) : null}
-                          {section.filteredCount > 0 ? (
-                            <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
-                              {language === 'CN'
-                                ? `已过滤非护肤 ${section.filteredCount}`
-                                : `${section.filteredCount} non-skincare filtered`}
+                              {channel}
                             </span>
-                          ) : null}
-                        </div>
+                          ))}
                       </div>
-                      <div className="mt-2 space-y-2">
-                        {section.items.slice(0, 1).map((entry, idx) => {
-                          const candidate = entry.candidate;
-                          const sourceBlock = entry.block;
-                          const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
-                          const cName =
-                            asString(candidate.name) ||
-                            asString((candidate as any).display_name) ||
-                            asString((candidate as any).displayName) ||
-                            (language === 'CN' ? '未知产品' : 'Unknown product');
-                          const cSimilarity = asNumber((candidate as any).similarity_score ?? (candidate as any).similarityScore);
-                          const cWhyObj = asObject((candidate as any).why_candidate || (candidate as any).whyCandidate) || null;
-                          const cWhy = cWhyObj
-                            ? uniqueStrings([
-                              asString((cWhyObj as any).summary),
-                              ...asArray((cWhyObj as any).reasons_user_visible || (cWhyObj as any).reasonsUserVisible).map((x) => asString(x)),
-                            ]).slice(0, 2)
-                            : uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate).slice(0, 2);
-                          const cHighlights = uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights).slice(0, 3);
-                          const cTradeoffNotes = uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes).slice(0, 3);
-                          const cTradeoff = cTradeoffNotes[0] || cHighlights.find((line) => !isLikelyUrl(line)) || cWhy[1] || '';
-                          const cExpectedOutcome = asString((candidate as any).expected_outcome || (candidate as any).expectedOutcome);
-                          const cUrl = cHighlights.find((x) => isLikelyUrl(x)) || asString((candidate as any).url) || '';
-                          const llmSuggestion = asObject((candidate as any).llm_suggestion || (candidate as any).llmSuggestion) || null;
-                          const llmSuggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
-                          const llmWrongBlockTarget = isRecoBlockType(llmSuggestion?.wrong_block_target)
-                            ? llmSuggestion?.wrong_block_target
-                            : undefined;
-                          const llmRationale = asString(llmSuggestion?.rationale_user_visible);
-                          const llmFlags = uniqueStrings(llmSuggestion?.flags).slice(0, 4);
-                          const llmConfidence = asNumber(llmSuggestion?.confidence);
-                          const candidateId = asString((candidate as any).product_id) || asString((candidate as any).sku_id) || cName;
-                          const feedbackKey = `${sourceBlock}::${candidateId}`.toLowerCase();
-                          const feedbackBusy = feedbackBusyByKey[feedbackKey] === true;
-                          const feedbackSaved = feedbackSavedByKey[feedbackKey] || null;
-                          const feedbackError = asString(feedbackErrorByKey[feedbackKey]);
+                    ) : null}
+                    {socialPositive.length ||
+                    socialNegative.length ||
+                    socialRisks.length ? (
+                      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        {socialPositive.length ? (
+                          <div>
+                            <div className="text-[11px] font-semibold text-muted-foreground">
+                              {language === "CN"
+                                ? "常见好评"
+                                : "Common positives"}
+                            </div>
+                            <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                              {socialPositive.slice(0, 3).map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {socialNegative.length ? (
+                          <div>
+                            <div className="text-[11px] font-semibold text-muted-foreground">
+                              {language === "CN"
+                                ? "常见担忧"
+                                : "Common concerns"}
+                            </div>
+                            <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                              {socialNegative.slice(0, 3).map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {socialRisks.length ? (
+                          <div>
+                            <div className="text-[11px] font-semibold text-muted-foreground">
+                              {language === "CN" ? "重点提醒" : "Watchouts"}
+                            </div>
+                            <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                              {socialRisks.slice(0, 3).map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="mt-2 text-[11px] text-muted-foreground">
+                      {language === "CN"
+                        ? "说明：这是聚合口碑信号，用于辅助判断，不等同于医疗建议。"
+                        : "Note: this is aggregated feedback for guidance, not medical advice."}
+                    </div>
+                  </div>
+                ) : null}
 
-                          return (
-                            <div key={`${section.key}_${sourceBlock}_${cBrand}_${cName}_${idx}`} className="rounded-xl border border-border/50 bg-background/60 p-3">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="text-[11px] text-muted-foreground">#{idx + 1}</div>
-                                  <div className="truncate text-sm font-semibold text-foreground">{cBrand}</div>
-                                  <div className="truncate text-xs text-muted-foreground">{cName}</div>
-                                </div>
-                                {typeof cSimilarity === 'number' && Number.isFinite(cSimilarity) ? (
-                                  <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                                    {language === 'CN'
-                                      ? `相似度 ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`
-                                      : `Similarity ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`}
-                                  </span>
-                                ) : null}
+                {dataNotes.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "数据说明" : "Data notes"}
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                      {dataNotes.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {evidenceSources.length ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      {language === "CN" ? "证据来源" : "Evidence sources"}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {evidenceSources.map((source) => {
+                        const sourceLabel =
+                          source.label ||
+                          (source.type === "regulatory"
+                            ? language === "CN"
+                              ? "监管源"
+                              : "Regulatory"
+                            : source.type === "retail_page"
+                              ? language === "CN"
+                                ? "零售页补充"
+                                : "Retail PDP"
+                              : source.type === "inci_decoder"
+                                ? language === "CN"
+                                  ? "INCIDecoder"
+                                  : "INCIDecoder"
+                                : language === "CN"
+                                  ? "官网页面"
+                                  : "Official page");
+                        return (
+                          <a
+                            key={`${source.type}_${source.url}`}
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px] text-foreground transition hover:bg-muted/80"
+                          >
+                            {sourceLabel}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* G3: when all three alternative sections are empty, show a single line instead of empty blocks */}
+                {!hasAlternatives &&
+                (rawCompetitorCandidates.length > 0 ||
+                  rawRelatedCandidates.length > 0 ||
+                  rawDupeCandidates.length > 0) ? (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                    {language === "CN"
+                      ? "暂未找到合适的替代品或搭配建议。"
+                      : "No alternatives found for this product."}
+                  </div>
+                ) : null}
+
+                {hasAlternatives ? (
+                  <div className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <div className="text-sm font-semibold text-foreground">
+                      {language === "CN"
+                        ? "可比替代与搭配建议"
+                        : "Comparable alternatives"}
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                      {competitorCandidates.length ? (
+                        <span>
+                          {language === "CN" ? "对标品" : "Competitors"}
+                        </span>
+                      ) : null}
+                      {dupeCandidates.length ? (
+                        <span>{language === "CN" ? "平替" : "Dupes"}</span>
+                      ) : null}
+                      {relatedCandidates.length ? (
+                        <span>
+                          {language === "CN" ? "相关产品" : "Related products"}
+                        </span>
+                      ) : null}
+                    </div>
+                    {alternativeTracks.map((section) => {
+                      if (!section.items.length) return null;
+                      return (
+                        <div
+                          key={section.key}
+                          className="rounded-xl border border-border/50 bg-muted/30 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="text-xs font-semibold text-muted-foreground">
+                                {section.title}
                               </div>
-
-                              {cWhy.length ? (
-                                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                                  {cWhy.map((x) => (
-                                    <li key={x}>
-                                      <span className="font-medium text-foreground">{language === 'CN' ? 'Why this: ' : 'Why this: '}</span>
-                                      {x}
-                                    </li>
-                                  ))}
-                                </ul>
+                              <div className="text-[11px] text-muted-foreground">
+                                {section.subtitle}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {section.items.length > 1 ? (
+                                <button
+                                  type="button"
+                                  className="chip-button text-[11px]"
+                                  onClick={() => {
+                                    onOpenRecommendationAlternatives?.(
+                                      alternativeTracks,
+                                    );
+                                  }}
+                                >
+                                  {language === "CN" ? "更多" : "More"}
+                                </button>
                               ) : null}
-
-                              {cExpectedOutcome ? (
-                                <div className="mt-2 text-[11px] text-muted-foreground">
-                                  <span className="font-medium text-foreground">{language === 'CN' ? 'Best use: ' : 'Best use: '}</span>
-                                  {cExpectedOutcome}
-                                </div>
+                              {section.filteredCount > 0 ? (
+                                <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
+                                  {language === "CN"
+                                    ? `已过滤非护肤 ${section.filteredCount}`
+                                    : `${section.filteredCount} non-skincare filtered`}
+                                </span>
                               ) : null}
+                            </div>
+                          </div>
+                          <div className="mt-2 space-y-2">
+                            {section.items.slice(0, 1).map((entry, idx) => {
+                              const candidate = entry.candidate;
+                              const sourceBlock = entry.block;
+                              const cBrand =
+                                asString(candidate.brand) ||
+                                (language === "CN"
+                                  ? "未知品牌"
+                                  : "Unknown brand");
+                              const cName =
+                                asString(candidate.name) ||
+                                asString((candidate as any).display_name) ||
+                                asString((candidate as any).displayName) ||
+                                (language === "CN"
+                                  ? "未知产品"
+                                  : "Unknown product");
+                              const cSimilarity = asNumber(
+                                (candidate as any).similarity_score ??
+                                  (candidate as any).similarityScore,
+                              );
+                              const cWhyObj =
+                                asObject(
+                                  (candidate as any).why_candidate ||
+                                    (candidate as any).whyCandidate,
+                                ) || null;
+                              const cWhy = cWhyObj
+                                ? uniqueStrings([
+                                    asString((cWhyObj as any).summary),
+                                    ...asArray(
+                                      (cWhyObj as any).reasons_user_visible ||
+                                        (cWhyObj as any).reasonsUserVisible,
+                                    ).map((x) => asString(x)),
+                                  ]).slice(0, 2)
+                                : uniqueStrings(
+                                    (candidate as any).why_candidate ||
+                                      (candidate as any).whyCandidate,
+                                  ).slice(0, 2);
+                              const cHighlights = uniqueStrings(
+                                (candidate as any).compare_highlights ||
+                                  (candidate as any).compareHighlights,
+                              ).slice(0, 3);
+                              const cTradeoffNotes = uniqueStrings(
+                                (candidate as any).tradeoff_notes ||
+                                  (candidate as any).tradeoffNotes,
+                              ).slice(0, 3);
+                              const cTradeoff =
+                                cTradeoffNotes[0] ||
+                                cHighlights.find(
+                                  (line) => !isLikelyUrl(line),
+                                ) ||
+                                cWhy[1] ||
+                                "";
+                              const cExpectedOutcome = asString(
+                                (candidate as any).expected_outcome ||
+                                  (candidate as any).expectedOutcome,
+                              );
+                              const cUrl =
+                                cHighlights.find((x) => isLikelyUrl(x)) ||
+                                asString((candidate as any).url) ||
+                                "";
+                              const llmSuggestion =
+                                asObject(
+                                  (candidate as any).llm_suggestion ||
+                                    (candidate as any).llmSuggestion,
+                                ) || null;
+                              const llmSuggestedLabel = normalizeRecoLabel(
+                                llmSuggestion?.suggested_label,
+                              );
+                              const llmWrongBlockTarget = isRecoBlockType(
+                                llmSuggestion?.wrong_block_target,
+                              )
+                                ? llmSuggestion?.wrong_block_target
+                                : undefined;
+                              const llmRationale = asString(
+                                llmSuggestion?.rationale_user_visible,
+                              );
+                              const llmFlags = uniqueStrings(
+                                llmSuggestion?.flags,
+                              ).slice(0, 4);
+                              const llmConfidence = asNumber(
+                                llmSuggestion?.confidence,
+                              );
+                              const candidateId =
+                                asString((candidate as any).product_id) ||
+                                asString((candidate as any).sku_id) ||
+                                cName;
+                              const feedbackKey =
+                                `${sourceBlock}::${candidateId}`.toLowerCase();
+                              const feedbackBusy =
+                                feedbackBusyByKey[feedbackKey] === true;
+                              const feedbackSaved =
+                                feedbackSavedByKey[feedbackKey] || null;
+                              const feedbackError = asString(
+                                feedbackErrorByKey[feedbackKey],
+                              );
 
-                              {cTradeoff ? (
-                                <div className="mt-2 text-[11px] text-muted-foreground">
-                                  {language === 'CN' ? `Tradeoff: ${cTradeoff}` : `Tradeoff: ${cTradeoff}`}
-                                </div>
-                              ) : null}
-
-                              {(canShowEmployeeFeedbackControls && anchorProductIdForFeedback && sourceBlock === 'competitors') ? (
-                                <div className="mt-2 space-y-2 rounded-xl border border-border/60 bg-background/70 p-2">
-                                  {llmSuggestedLabel ? (
-                                    <div className="space-y-1 text-[11px] text-muted-foreground">
-                                      <div className="font-medium text-foreground">
-                                        {language === 'CN' ? 'LLM 预标注：' : 'LLM prelabel: '}
-                                        {formatRecoLabel(llmSuggestedLabel, language)}
-                                        {typeof llmConfidence === 'number' ? ` (${Math.round(llmConfidence * 100)}%)` : ''}
+                              return (
+                                <div
+                                  key={`${section.key}_${sourceBlock}_${cBrand}_${cName}_${idx}`}
+                                  className="rounded-xl border border-border/50 bg-background/60 p-3"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] text-muted-foreground">
+                                        #{idx + 1}
                                       </div>
-                                      {llmRationale ? <div>{llmRationale}</div> : null}
-                                      {llmFlags.length ? (
-                                        <div className="flex flex-wrap gap-1">
-                                          {llmFlags.map((flag) => (
-                                            <span key={flag} className="rounded-full border border-border/60 bg-muted/70 px-2 py-0.5 text-[10px]">
-                                              {flag}
-                                            </span>
-                                          ))}
+                                      <div className="truncate text-sm font-semibold text-foreground">
+                                        {cBrand}
+                                      </div>
+                                      <div className="truncate text-xs text-muted-foreground">
+                                        {cName}
+                                      </div>
+                                    </div>
+                                    {typeof cSimilarity === "number" &&
+                                    Number.isFinite(cSimilarity) ? (
+                                      <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                                        {language === "CN"
+                                          ? `相似度 ${Math.round(cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity)}%`
+                                          : `Similarity ${Math.round(cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity)}%`}
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  {cWhy.length ? (
+                                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                      {cWhy.map((x) => (
+                                        <li key={x}>
+                                          <span className="font-medium text-foreground">
+                                            {language === "CN"
+                                              ? "Why this: "
+                                              : "Why this: "}
+                                          </span>
+                                          {x}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : null}
+
+                                  {cExpectedOutcome ? (
+                                    <div className="mt-2 text-[11px] text-muted-foreground">
+                                      <span className="font-medium text-foreground">
+                                        {language === "CN"
+                                          ? "Best use: "
+                                          : "Best use: "}
+                                      </span>
+                                      {cExpectedOutcome}
+                                    </div>
+                                  ) : null}
+
+                                  {cTradeoff ? (
+                                    <div className="mt-2 text-[11px] text-muted-foreground">
+                                      {language === "CN"
+                                        ? `Tradeoff: ${cTradeoff}`
+                                        : `Tradeoff: ${cTradeoff}`}
+                                    </div>
+                                  ) : null}
+
+                                  {canShowEmployeeFeedbackControls &&
+                                  anchorProductIdForFeedback &&
+                                  sourceBlock === "competitors" ? (
+                                    <div className="mt-2 space-y-2 rounded-xl border border-border/60 bg-background/70 p-2">
+                                      {llmSuggestedLabel ? (
+                                        <div className="space-y-1 text-[11px] text-muted-foreground">
+                                          <div className="font-medium text-foreground">
+                                            {language === "CN"
+                                              ? "LLM 预标注："
+                                              : "LLM prelabel: "}
+                                            {formatRecoLabel(
+                                              llmSuggestedLabel,
+                                              language,
+                                            )}
+                                            {typeof llmConfidence === "number"
+                                              ? ` (${Math.round(llmConfidence * 100)}%)`
+                                              : ""}
+                                          </div>
+                                          {llmRationale ? (
+                                            <div>{llmRationale}</div>
+                                          ) : null}
+                                          {llmFlags.length ? (
+                                            <div className="flex flex-wrap gap-1">
+                                              {llmFlags.map((flag) => (
+                                                <span
+                                                  key={flag}
+                                                  className="rounded-full border border-border/60 bg-muted/70 px-2 py-0.5 text-[10px]"
+                                                >
+                                                  {flag}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      ) : null}
+
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          className="chip-button"
+                                          disabled={feedbackBusy}
+                                          onClick={() => {
+                                            void submitRecoFeedback({
+                                              candidate,
+                                              block: sourceBlock,
+                                              rankPosition: idx + 1,
+                                              feedbackType: "relevant",
+                                              anchorProductId:
+                                                anchorProductIdForFeedback,
+                                              pipelineVersion,
+                                              models: feedbackModels,
+                                            });
+                                          }}
+                                        >
+                                          {language === "CN"
+                                            ? "✅ 相关"
+                                            : "✅ Relevant"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="chip-button"
+                                          disabled={feedbackBusy}
+                                          onClick={() => {
+                                            void submitRecoFeedback({
+                                              candidate,
+                                              block: sourceBlock,
+                                              rankPosition: idx + 1,
+                                              feedbackType: "not_relevant",
+                                              anchorProductId:
+                                                anchorProductIdForFeedback,
+                                              pipelineVersion,
+                                              models: feedbackModels,
+                                            });
+                                          }}
+                                        >
+                                          {language === "CN"
+                                            ? "❌ 不相关"
+                                            : "❌ Not relevant"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="chip-button"
+                                          disabled={feedbackBusy}
+                                          onClick={() => {
+                                            void submitRecoFeedback({
+                                              candidate,
+                                              block: sourceBlock,
+                                              rankPosition: idx + 1,
+                                              feedbackType: "wrong_block",
+                                              wrongBlockTarget:
+                                                llmWrongBlockTarget || "dupes",
+                                              anchorProductId:
+                                                anchorProductIdForFeedback,
+                                              pipelineVersion,
+                                              models: feedbackModels,
+                                            });
+                                          }}
+                                        >
+                                          {language === "CN"
+                                            ? "⚠️ 分块错了"
+                                            : "⚠️ Wrong block"}
+                                        </button>
+                                      </div>
+
+                                      {feedbackSaved ? (
+                                        <div className="text-[11px] text-emerald-700">
+                                          {language === "CN"
+                                            ? `已记录：${formatRecoLabel(feedbackSaved, language)}`
+                                            : `Saved: ${formatRecoLabel(feedbackSaved, language)}`}
+                                        </div>
+                                      ) : null}
+                                      {feedbackError ? (
+                                        <div className="text-[11px] text-rose-700">
+                                          {language === "CN"
+                                            ? `提交失败：${feedbackError}`
+                                            : `Submit failed: ${feedbackError}`}
                                         </div>
                                       ) : null}
                                     </div>
                                   ) : null}
 
-                                  <div className="flex flex-wrap gap-2">
-                                    <button
-                                      type="button"
-                                      className="chip-button"
-                                      disabled={feedbackBusy}
-                                      onClick={() => {
-                                        void submitRecoFeedback({
-                                          candidate,
-                                          block: sourceBlock,
-                                          rankPosition: idx + 1,
-                                          feedbackType: 'relevant',
-                                          anchorProductId: anchorProductIdForFeedback,
-                                          pipelineVersion,
-                                          models: feedbackModels,
-                                        });
-                                      }}
-                                    >
-                                      {language === 'CN' ? '✅ 相关' : '✅ Relevant'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="chip-button"
-                                      disabled={feedbackBusy}
-                                      onClick={() => {
-                                        void submitRecoFeedback({
-                                          candidate,
-                                          block: sourceBlock,
-                                          rankPosition: idx + 1,
-                                          feedbackType: 'not_relevant',
-                                          anchorProductId: anchorProductIdForFeedback,
-                                          pipelineVersion,
-                                          models: feedbackModels,
-                                        });
-                                      }}
-                                    >
-                                      {language === 'CN' ? '❌ 不相关' : '❌ Not relevant'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="chip-button"
-                                      disabled={feedbackBusy}
-                                      onClick={() => {
-                                        void submitRecoFeedback({
-                                          candidate,
-                                          block: sourceBlock,
-                                          rankPosition: idx + 1,
-                                          feedbackType: 'wrong_block',
-                                          wrongBlockTarget: llmWrongBlockTarget || 'dupes',
-                                          anchorProductId: anchorProductIdForFeedback,
-                                          pipelineVersion,
-                                          models: feedbackModels,
-                                        });
-                                      }}
-                                    >
-                                      {language === 'CN' ? '⚠️ 分块错了' : '⚠️ Wrong block'}
-                                    </button>
-                                  </div>
-
-                                  {feedbackSaved ? (
-                                    <div className="text-[11px] text-emerald-700">
-                                      {language === 'CN'
-                                        ? `已记录：${formatRecoLabel(feedbackSaved, language)}`
-                                        : `Saved: ${formatRecoLabel(feedbackSaved, language)}`}
-                                    </div>
-                                  ) : null}
-                                  {feedbackError ? (
-                                    <div className="text-[11px] text-rose-700">
-                                      {language === 'CN' ? `提交失败：${feedbackError}` : `Submit failed: ${feedbackError}`}
+                                  {originalForCompare || (cUrl && onOpenPdp) ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {originalForCompare ? (
+                                        <button
+                                          type="button"
+                                          className="chip-button"
+                                          onClick={() =>
+                                            onAction("dupe_compare", {
+                                              original: originalForCompare,
+                                              dupe: candidate,
+                                            })
+                                          }
+                                        >
+                                          {language === "CN"
+                                            ? "Compare tradeoffs"
+                                            : "Compare tradeoffs"}
+                                        </button>
+                                      ) : null}
+                                      {cUrl && onOpenPdp ? (
+                                        <button
+                                          type="button"
+                                          className="chip-button"
+                                          onClick={() =>
+                                            onOpenPdp({
+                                              url: cUrl,
+                                              title:
+                                                `${cBrand} ${cName}`.trim(),
+                                            })
+                                          }
+                                        >
+                                          {language === "CN"
+                                            ? "查看商品页"
+                                            : "Open product page"}
+                                        </button>
+                                      ) : null}
                                     </div>
                                   ) : null}
                                 </div>
-                              ) : null}
-
-                              {(originalForCompare || (cUrl && onOpenPdp)) ? (
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {originalForCompare ? (
-                                    <button
-                                      type="button"
-                                      className="chip-button"
-                                      onClick={() => onAction('dupe_compare', { original: originalForCompare, dupe: candidate })}
-                                    >
-                                      {language === 'CN' ? 'Compare tradeoffs' : 'Compare tradeoffs'}
-                                    </button>
-                                  ) : null}
-                                  {(cUrl && onOpenPdp) ? (
-                                    <button
-                                      type="button"
-                                      className="chip-button"
-                                      onClick={() => onOpenPdp({ url: cUrl, title: `${cBrand} ${cName}`.trim() })}
-                                    >
-                                      {language === 'CN' ? '查看商品页' : 'Open product page'}
-                                    </button>
-                                  ) : null}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                        {section.items.length > 1 ? (
-                          <div className="text-[11px] text-muted-foreground">
-                            {language === 'CN'
-                              ? `还有 ${section.items.length - 1} 个候选，点击 More 查看。`
-                              : `${section.items.length - 1} more options available. Tap More to view.`}
+                              );
+                            })}
+                            {section.items.length > 1 ? (
+                              <div className="text-[11px] text-muted-foreground">
+                                {language === "CN"
+                                  ? `还有 ${section.items.length - 1} 个候选，点击 More 查看。`
+                                  : `${section.items.length - 1} more options available. Tap More to view.`}
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-            {(!hasAlternatives && totalFilteredAlternatives > 0) ? (
-              <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
-                {language === 'CN'
-                  ? `已自动过滤 ${totalFilteredAlternatives} 个非护肤候选，当前暂未返回可用替代。`
-                  : `${totalFilteredAlternatives} non-skincare alternatives were filtered; no valid alternatives returned yet.`}
-              </div>
-            ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {!hasAlternatives && totalFilteredAlternatives > 0 ? (
+                  <div className="rounded-xl border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+                    {language === "CN"
+                      ? `已自动过滤 ${totalFilteredAlternatives} 个非护肤候选，当前暂未返回可用替代。`
+                      : `${totalFilteredAlternatives} non-skincare alternatives were filtered; no valid alternatives returned yet.`}
+                  </div>
+                ) : null}
 
-            {(evidenceKeyIngredients.length ||
-              evidenceMechanisms.length ||
-              evidenceFitNotes.length ||
-              evidenceRiskNotes.length ||
-              socialPositive.length ||
-              socialNegative.length ||
-              socialRisks.length ||
-              expertNotes.length ||
-              platformScores) ? (
-              <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-                  <span>{language === 'CN' ? '证据与注意事项' : 'Evidence & notes'}</span>
-                  <ChevronDown className="h-4 w-4" />
-                </summary>
-                <div className="mt-3 space-y-3 text-sm text-foreground">
-                  {evidenceKeyIngredients.length ? (
-                    <div>
-                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '关键成分' : 'Key ingredients'}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {evidenceKeyIngredients.map((x) => (
-                          <span key={x} className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]">
-                            {x}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
+                {evidenceKeyIngredients.length ||
+                evidenceMechanisms.length ||
+                evidenceFitNotes.length ||
+                evidenceRiskNotes.length ||
+                socialPositive.length ||
+                socialNegative.length ||
+                socialRisks.length ||
+                expertNotes.length ||
+                platformScores ? (
+                  <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+                      <span>
+                        {language === "CN"
+                          ? "证据与注意事项"
+                          : "Evidence & notes"}
+                      </span>
+                      <ChevronDown className="h-4 w-4" />
+                    </summary>
+                    <div className="mt-3 space-y-3 text-sm text-foreground">
+                      {evidenceKeyIngredients.length ? (
+                        <div>
+                          <div className="text-[11px] font-semibold text-muted-foreground">
+                            {language === "CN" ? "关键成分" : "Key ingredients"}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {evidenceKeyIngredients.map((x) => (
+                              <span
+                                key={x}
+                                className="rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-[11px]"
+                              >
+                                {x}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
 
-                  {evidenceMechanisms.length ? (
-                    <div>
-                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '机制/作用' : 'Mechanisms'}</div>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                        {evidenceMechanisms.map((x) => (
-                          <li key={x}>{x}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+                      {evidenceMechanisms.length ? (
+                        <div>
+                          <div className="text-[11px] font-semibold text-muted-foreground">
+                            {language === "CN" ? "机制/作用" : "Mechanisms"}
+                          </div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                            {evidenceMechanisms.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
 
-                  {evidenceFitNotes.length ? (
-                    <div>
-                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '适配提示' : 'Fit notes'}</div>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                        {evidenceFitNotes.map((x) => (
-                          <li key={x}>{x}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+                      {evidenceFitNotes.length ? (
+                        <div>
+                          <div className="text-[11px] font-semibold text-muted-foreground">
+                            {language === "CN" ? "适配提示" : "Fit notes"}
+                          </div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                            {evidenceFitNotes.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
 
-                  {evidenceRiskNotes.length ? (
-                    <div>
-                      <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '风险点' : 'Risks'}</div>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
-                        {evidenceRiskNotes.map((x) => (
-                          <li key={x}>{x}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+                      {evidenceRiskNotes.length ? (
+                        <div>
+                          <div className="text-[11px] font-semibold text-muted-foreground">
+                            {language === "CN" ? "风险点" : "Risks"}
+                          </div>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+                            {evidenceRiskNotes.map((x) => (
+                              <li key={x}>{x}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
 
-                  {platformScores ? (
-                    <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
-                      <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '平台信号' : 'Platform signals'}</div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        {Object.entries(platformScores).slice(0, 6).map(([k, v]) => (
-                          <span key={k} className="rounded-full border border-border/60 bg-background/60 px-2 py-1">
-                            {k}: {typeof v === 'number' ? v : String(v)}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {(socialPositive.length || socialNegative.length || socialRisks.length) ? (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {socialPositive.length ? (
+                      {platformScores ? (
                         <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
-                          <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '常见好评' : 'Typical positives'}</div>
-                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                            {socialPositive.map((x) => (
-                              <li key={x}>{x}</li>
-                            ))}
-                          </ul>
+                          <div className="text-[11px] font-semibold text-foreground">
+                            {language === "CN"
+                              ? "平台信号"
+                              : "Platform signals"}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            {Object.entries(platformScores)
+                              .slice(0, 6)
+                              .map(([k, v]) => (
+                                <span
+                                  key={k}
+                                  className="rounded-full border border-border/60 bg-background/60 px-2 py-1"
+                                >
+                                  {k}: {typeof v === "number" ? v : String(v)}
+                                </span>
+                              ))}
+                          </div>
                         </div>
                       ) : null}
-                      {socialNegative.length ? (
+
+                      {socialPositive.length ||
+                      socialNegative.length ||
+                      socialRisks.length ? (
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          {socialPositive.length ? (
+                            <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                              <div className="text-[11px] font-semibold text-foreground">
+                                {language === "CN"
+                                  ? "常见好评"
+                                  : "Typical positives"}
+                              </div>
+                              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                {socialPositive.map((x) => (
+                                  <li key={x}>{x}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                          {socialNegative.length ? (
+                            <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
+                              <div className="text-[11px] font-semibold text-foreground">
+                                {language === "CN"
+                                  ? "常见差评"
+                                  : "Typical negatives"}
+                              </div>
+                              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                {socialNegative.map((x) => (
+                                  <li key={x}>{x}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                          {socialRisks.length ? (
+                            <div className="rounded-xl border border-border/50 bg-muted/40 p-3 sm:col-span-2">
+                              <div className="text-[11px] font-semibold text-foreground">
+                                {language === "CN"
+                                  ? "对人群风险"
+                                  : "Risks for groups"}
+                              </div>
+                              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                {socialRisks.map((x) => (
+                                  <li key={x}>{x}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {expertNotes.length ? (
                         <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
-                          <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '常见差评' : 'Typical negatives'}</div>
+                          <div className="text-[11px] font-semibold text-foreground">
+                            {language === "CN" ? "专家/说明" : "Expert notes"}
+                          </div>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                            {socialNegative.map((x) => (
-                              <li key={x}>{x}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      {socialRisks.length ? (
-                        <div className="rounded-xl border border-border/50 bg-muted/40 p-3 sm:col-span-2">
-                          <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '对人群风险' : 'Risks for groups'}</div>
-                          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                            {socialRisks.map((x) => (
+                            {expertNotes.slice(0, 6).map((x) => (
                               <li key={x}>{x}</li>
                             ))}
                           </ul>
                         </div>
                       ) : null}
                     </div>
-                  ) : null}
+                  </details>
+                ) : null}
 
-                  {expertNotes.length ? (
-                    <div className="rounded-xl border border-border/50 bg-muted/40 p-3">
-                      <div className="text-[11px] font-semibold text-foreground">{language === 'CN' ? '专家/说明' : 'Expert notes'}</div>
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                        {expertNotes.slice(0, 6).map((x) => (
-                          <li key={x}>{x}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              </details>
-            ) : null}
+                <RoutineCompatibilityFooter
+                  language={language}
+                  baseProduct={compatibilityBaseProduct}
+                  routineProducts={routineCompatibilityProducts}
+                  resolveProductsSearch={resolveProductsSearch}
+                  analyticsCtx={analyticsCtx}
+                />
+              </div>
+            );
+          })()
+        : null}
 
-            <RoutineCompatibilityFooter
-              language={language}
-              baseProduct={compatibilityBaseProduct}
-              routineProducts={routineCompatibilityProducts}
-              resolveProductsSearch={resolveProductsSearch}
-              analyticsCtx={analyticsCtx}
-            />
+      {cardType === "dupe_suggest"
+        ? (() => {
+            const originalRaw =
+              asObject((payload as any).original) ||
+              asObject((payload as any).anchor_product) ||
+              null;
+            const dupes = asArray((payload as any).dupes)
+              .map((v) => asObject(v))
+              .filter(Boolean) as Array<Record<string, unknown>>;
+            const comparables = asArray((payload as any).comparables)
+              .map((v) => asObject(v))
+              .filter(Boolean) as Array<Record<string, unknown>>;
 
-          </div>
-        );
-      })() : null}
+            return (
+              <DupeSuggestCard
+                original={originalRaw}
+                dupes={dupes as any}
+                comparables={comparables as any}
+                language={language}
+                onCompare={({ original, dupe }) =>
+                  onAction("dupe_compare", { original, dupe })
+                }
+              />
+            );
+          })()
+        : null}
 
-      {cardType === 'dupe_suggest' ? (() => {
-        const originalRaw = asObject((payload as any).original) || asObject((payload as any).anchor_product) || null;
-        const dupes = asArray((payload as any).dupes).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-        const comparables = asArray((payload as any).comparables).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+      {cardType === "dupe_compare"
+        ? (() => {
+            const originalRaw =
+              asObject((payload as any).original) ||
+              asObject((payload as any).original_product) ||
+              asObject((payload as any).originalProduct);
+            const dupeRaw =
+              asObject((payload as any).dupe) ||
+              asObject((payload as any).dupe_product) ||
+              asObject((payload as any).dupeProduct);
+            const similarity = asNumber((payload as any).similarity);
+            const compareQuality = asString(
+              (payload as any).compare_quality ||
+                (payload as any).compareQuality,
+            ).toLowerCase();
+            const isLimitedCompare = compareQuality === "limited";
+            const limitedReasonCode = asString(
+              (payload as any).limited_reason || (payload as any).limitedReason,
+            ).toLowerCase();
 
-        return (
-          <DupeSuggestCard
-            original={originalRaw}
-            dupes={dupes as any}
-            comparables={comparables as any}
-            language={language}
-            onCompare={({ original, dupe }) => onAction('dupe_compare', { original, dupe })}
-          />
-        );
-      })() : null}
+            const tradeoffs = uniqueStrings((payload as any).tradeoffs);
+            const tradeoffsDetail =
+              asObject(
+                (payload as any).tradeoffs_detail ||
+                  (payload as any).tradeoffsDetail,
+              ) || null;
 
-      {cardType === 'dupe_compare' ? (() => {
-        const originalRaw = asObject((payload as any).original) || asObject((payload as any).original_product) || asObject((payload as any).originalProduct);
-        const dupeRaw = asObject((payload as any).dupe) || asObject((payload as any).dupe_product) || asObject((payload as any).dupeProduct);
-        const similarity = asNumber((payload as any).similarity);
-        const compareQuality = asString((payload as any).compare_quality || (payload as any).compareQuality).toLowerCase();
-        const isLimitedCompare = compareQuality === 'limited';
-        const limitedReasonCode = asString((payload as any).limited_reason || (payload as any).limitedReason).toLowerCase();
+            const missingActives = uniqueStrings(
+              tradeoffsDetail?.missing_actives ||
+                (tradeoffsDetail as any)?.missingActives,
+            );
+            const addedBenefits = uniqueStrings(
+              tradeoffsDetail?.added_benefits ||
+                (tradeoffsDetail as any)?.addedBenefits,
+            );
+            const textureDiff = uniqueStrings(
+              tradeoffsDetail?.texture_finish_differences ||
+                (tradeoffsDetail as any)?.textureFinishDifferences,
+            );
+            const availabilityNote = asString(
+              tradeoffsDetail?.availability_note ||
+                (tradeoffsDetail as any)?.availabilityNote,
+            );
+            const priceDeltaUsd = asNumber(
+              tradeoffsDetail?.price_delta_usd ||
+                (tradeoffsDetail as any)?.priceDeltaUsd,
+            );
 
-        const tradeoffs = uniqueStrings((payload as any).tradeoffs);
-        const tradeoffsDetail = asObject((payload as any).tradeoffs_detail || (payload as any).tradeoffsDetail) || null;
+            const tradeoffNoteParts = [
+              ...textureDiff,
+              ...(availabilityNote ? [availabilityNote] : []),
+              ...(priceDeltaUsd != null
+                ? [`Price delta (USD): ${priceDeltaUsd}`]
+                : []),
+            ].filter(Boolean);
 
-        const missingActives = uniqueStrings(tradeoffsDetail?.missing_actives || (tradeoffsDetail as any)?.missingActives);
-        const addedBenefits = uniqueStrings(tradeoffsDetail?.added_benefits || (tradeoffsDetail as any)?.addedBenefits);
-        const textureDiff = uniqueStrings(tradeoffsDetail?.texture_finish_differences || (tradeoffsDetail as any)?.textureFinishDifferences);
-        const availabilityNote = asString(tradeoffsDetail?.availability_note || (tradeoffsDetail as any)?.availabilityNote);
-        const priceDeltaUsd = asNumber(tradeoffsDetail?.price_delta_usd || (tradeoffsDetail as any)?.priceDeltaUsd);
-
-        const tradeoffNoteParts = [
-          ...textureDiff,
-          ...(availabilityNote ? [availabilityNote] : []),
-          ...(priceDeltaUsd != null ? [`Price delta (USD): ${priceDeltaUsd}`] : []),
-        ].filter(Boolean);
-
-        const tradeoffNote = isLimitedCompare
-          ? undefined
-          : tradeoffNoteParts.length
-            ? tradeoffNoteParts.slice(0, 2).join(' · ')
-            : tradeoffs[0] || undefined;
-        const limitedReason = (() => {
-          if (limitedReasonCode === 'tradeoffs_detail_missing') {
-            return language === 'CN'
-              ? '这组对比缺少更完整的取舍细节；补充更明确的平替商品链接或全名后可提升结果。'
-              : 'Tradeoff detail is missing for this pair. Provide a clearer dupe product link/full name to improve tradeoffs.';
-          }
-          if (!limitedReasonCode) return undefined;
-          return language === 'CN'
-            ? '这组对比当前只有简版结果；补充更明确的商品信息后可提升取舍细节。'
-            : 'Comparison details are limited for this pair. Provide clearer product information to improve tradeoffs.';
-        })();
-
-        const original = toDupeProduct(originalRaw, language);
-        const dupe = toDupeProduct(dupeRaw, language);
-
-        const labels =
-          language === 'CN'
-            ? {
-                similarity: '相似度',
-                tradeoffsTitle: '取舍分析',
-                evidenceTitle: '证据与信号',
-                scienceLabel: '科学',
-                socialLabel: '口碑',
-                keyActives: '关键成分',
-                riskFlags: '风险',
-                ingredientHighlights: '成分亮点',
-                citations: '引用',
-                tradeoffNote: '取舍',
-                missingActives: '缺失成分',
-                addedBenefits: '新增亮点',
-                switchToDupe: '选平替',
-                keepOriginal: '选原版',
+            const tradeoffNote = isLimitedCompare
+              ? undefined
+              : tradeoffNoteParts.length
+                ? tradeoffNoteParts.slice(0, 2).join(" · ")
+                : tradeoffs[0] || undefined;
+            const limitedReason = (() => {
+              if (limitedReasonCode === "tradeoffs_detail_missing") {
+                return language === "CN"
+                  ? "这组对比缺少更完整的取舍细节；补充更明确的平替商品链接或全名后可提升结果。"
+                  : "Tradeoff detail is missing for this pair. Provide a clearer dupe product link/full name to improve tradeoffs.";
               }
-            : undefined;
+              if (!limitedReasonCode) return undefined;
+              return language === "CN"
+                ? "这组对比当前只有简版结果；补充更明确的商品信息后可提升取舍细节。"
+                : "Comparison details are limited for this pair. Provide clearer product information to improve tradeoffs.";
+            })();
 
-        return (
-          <div className="space-y-3">
-            <DupeComparisonCard
-              original={original as any}
-              dupe={dupe as any}
-              similarity={typeof similarity === 'number' && Number.isFinite(similarity) ? similarity : undefined}
-              quality={isLimitedCompare ? 'limited' : 'full'}
-              limitedReason={limitedReason}
-              basicCompare={isLimitedCompare ? tradeoffs.slice(0, 4) : []}
-              tradeoffNote={tradeoffNote}
-              missingActives={missingActives}
-              addedBenefits={addedBenefits}
-              labels={labels as any}
-            />
+            const original = toDupeProduct(originalRaw, language);
+            const dupe = toDupeProduct(dupeRaw, language);
 
-            {!isLimitedCompare && tradeoffs.length ? (
-              <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-                  <span>{language === 'CN' ? '更多取舍细节' : 'More tradeoffs'}</span>
-                  <ChevronDown className="h-4 w-4" />
-                </summary>
-                <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-foreground">
-                  {tradeoffs.slice(0, 10).map((t) => (
-                    <li key={t}>{t}</li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-          </div>
-        );
-      })() : null}
+            const labels =
+              language === "CN"
+                ? {
+                    similarity: "相似度",
+                    tradeoffsTitle: "取舍分析",
+                    evidenceTitle: "证据与信号",
+                    scienceLabel: "科学",
+                    socialLabel: "口碑",
+                    keyActives: "关键成分",
+                    riskFlags: "风险",
+                    ingredientHighlights: "成分亮点",
+                    citations: "引用",
+                    tradeoffNote: "取舍",
+                    missingActives: "缺失成分",
+                    addedBenefits: "新增亮点",
+                    switchToDupe: "选平替",
+                    keepOriginal: "选原版",
+                  }
+                : undefined;
 
-      {cardType === 'photo_confirm' ? (
+            return (
+              <div className="space-y-3">
+                <DupeComparisonCard
+                  original={original as any}
+                  dupe={dupe as any}
+                  similarity={
+                    typeof similarity === "number" &&
+                    Number.isFinite(similarity)
+                      ? similarity
+                      : undefined
+                  }
+                  quality={isLimitedCompare ? "limited" : "full"}
+                  limitedReason={limitedReason}
+                  basicCompare={isLimitedCompare ? tradeoffs.slice(0, 4) : []}
+                  tradeoffNote={tradeoffNote}
+                  missingActives={missingActives}
+                  addedBenefits={addedBenefits}
+                  labels={labels as any}
+                />
+
+                {!isLimitedCompare && tradeoffs.length ? (
+                  <details className="rounded-2xl border border-border/60 bg-background/60 p-3">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+                      <span>
+                        {language === "CN" ? "更多取舍细节" : "More tradeoffs"}
+                      </span>
+                      <ChevronDown className="h-4 w-4" />
+                    </summary>
+                    <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-foreground">
+                      {tradeoffs.slice(0, 10).map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+              </div>
+            );
+          })()
+        : null}
+
+      {cardType === "photo_confirm" ? (
         <div className="rounded-2xl border border-border/60 bg-background/60 p-3 text-sm text-foreground">
-          <div className="text-xs text-muted-foreground">{language === 'CN' ? '照片质检结果' : 'Photo QC result'}</div>
+          <div className="text-xs text-muted-foreground">
+            {language === "CN" ? "照片质检结果" : "Photo QC result"}
+          </div>
           <div className="mt-2 text-sm font-semibold text-foreground">
-            {qcStatus === 'passed'
-              ? language === 'CN'
-                ? '通过 ✅'
-                : 'Passed ✅'
-              : qcStatus === 'degraded'
-                ? language === 'CN'
-                  ? '可用（质量一般）⚠️'
-                  : 'Usable (degraded) ⚠️'
-                : qcStatus === 'pending' || qcStatus === 'unknown'
-                  ? language === 'CN'
-                    ? '质检中…'
-                    : 'Checking…'
-                  : language === 'CN'
+            {qcStatus === "passed"
+              ? language === "CN"
+                ? "通过 ✅"
+                : "Passed ✅"
+              : qcStatus === "degraded"
+                ? language === "CN"
+                  ? "可用（质量一般）⚠️"
+                  : "Usable (degraded) ⚠️"
+                : qcStatus === "pending" || qcStatus === "unknown"
+                  ? language === "CN"
+                    ? "质检中…"
+                    : "Checking…"
+                  : language === "CN"
                     ? `需要重拍：${qcStatus}`
                     : `Needs retry: ${qcStatus}`}
           </div>
-          {qcSummary ? <div className="mt-2 text-xs text-muted-foreground">{qcSummary}</div> : null}
+          {qcSummary ? (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {qcSummary}
+            </div>
+          ) : null}
           {qcSuggestions.length ? (
             <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
               {qcSuggestions.slice(0, 4).map((s) => (
@@ -6419,11 +8687,14 @@ function BffCardView({
         </div>
       ) : null}
 
-      {cardType !== 'recommendations' && cardType !== 'profile' && cardType !== 'analysis_summary' && debug ? (
+      {cardType !== "recommendations" &&
+      cardType !== "profile" &&
+      cardType !== "analysis_summary" &&
+      debug ? (
         <>
           <details className="rounded-2xl border border-border/50 bg-background/50 p-3">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-              <span>{language === 'CN' ? '查看详情' : 'Details'}</span>
+              <span>{language === "CN" ? "查看详情" : "Details"}</span>
               <ChevronDown className="h-4 w-4" />
             </summary>
             <pre className="mt-2 max-h-[420px] overflow-auto rounded-xl bg-muted p-3 text-[11px] text-foreground">
@@ -6443,13 +8714,16 @@ function BffCardView({
 
 export default function BffChat() {
   const initialLanguageRef = useRef<UiLanguage | null>(null);
-  if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
+  if (!initialLanguageRef.current)
+    initialLanguageRef.current = getInitialLanguage();
   const initialLanguage = initialLanguageRef.current;
 
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [history, setHistory] = useState<ChatHistoryItem[]>(() => loadChatHistory());
+  const [history, setHistory] = useState<ChatHistoryItem[]>(() =>
+    loadChatHistory(),
+  );
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -6458,34 +8732,46 @@ export default function BffChat() {
 
   const openChatByBriefId = useCallback(
     (briefId: string) => {
-      const id = String(briefId || '').trim();
+      const id = String(briefId || "").trim();
       if (!id) return;
       navigate(`/chat?brief_id=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
 
-  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'checkin';
+  type DeepLinkOpen = "photo" | "routine" | "auth" | "checkin";
   const searchParams = useMemo(() => {
     try {
       const sp = new URLSearchParams(location.search);
-      const openRaw = String(sp.get('open') || '').trim().toLowerCase();
+      const openRaw = String(sp.get("open") || "")
+        .trim()
+        .toLowerCase();
       return {
-        brief_id: String(sp.get('brief_id') || '').trim(),
-        trace_id: String(sp.get('trace_id') || '').trim(),
-        q: String(sp.get('q') || '').trim(),
-        chip_id: String(sp.get('chip_id') || '').trim(),
-        open: (
-          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'checkin'
-            ? openRaw
-            : null
-        ) as DeepLinkOpen | null,
+        brief_id: String(sp.get("brief_id") || "").trim(),
+        trace_id: String(sp.get("trace_id") || "").trim(),
+        q: String(sp.get("q") || "").trim(),
+        chip_id: String(sp.get("chip_id") || "").trim(),
+        open: (openRaw === "photo" ||
+        openRaw === "routine" ||
+        openRaw === "auth" ||
+        openRaw === "checkin"
+          ? openRaw
+          : null) as DeepLinkOpen | null,
       };
     } catch {
-      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null };
+      return {
+        brief_id: "",
+        trace_id: "",
+        q: "",
+        chip_id: "",
+        open: null as DeepLinkOpen | null,
+      };
     }
   }, [location.search]);
-  const initialAuthSessionRef = useRef<{ loaded: boolean; value: ReturnType<typeof loadAuroraAuthSession> }>({
+  const initialAuthSessionRef = useRef<{
+    loaded: boolean;
+    value: ReturnType<typeof loadAuroraAuthSession>;
+  }>({
     loaded: false,
     value: null,
   });
@@ -6496,28 +8782,38 @@ export default function BffChat() {
     };
   }
   const initialAuthSession = initialAuthSessionRef.current.value;
-  const pendingLocationSessionProfilePatchRef = useRef<Record<string, unknown> | null>(
-    asObject((location.state as any)?.session_patch?.profile) || null,
-  );
+  const pendingLocationSessionProfilePatchRef = useRef<Record<
+    string,
+    unknown
+  > | null>(asObject((location.state as any)?.session_patch?.profile) || null);
 
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
-  const [langReplyMode, setLangReplyModeState] = useState<LangReplyMode>(() => getLangReplyMode());
-  const langMismatchHintMutedUntilRef = useRef<number>(getLangMismatchHintMutedUntil());
+  const [langReplyMode, setLangReplyModeState] = useState<LangReplyMode>(() =>
+    getLangReplyMode(),
+  );
+  const langMismatchHintMutedUntilRef = useRef<number>(
+    getLangMismatchHintMutedUntil(),
+  );
   const [headers, setHeaders] = useState(() => {
     const base = makeDefaultHeaders(initialLanguage);
     const briefId = searchParams.brief_id;
     const traceId = searchParams.trace_id;
     return {
       ...base,
-      ...(initialAuthSession?.token ? { auth_token: initialAuthSession.token } : {}),
+      ...(initialAuthSession?.token
+        ? { auth_token: initialAuthSession.token }
+        : {}),
       ...(briefId ? { brief_id: briefId.slice(0, 128) } : {}),
       ...(traceId ? { trace_id: traceId.slice(0, 128) } : {}),
     };
   });
-  const [sessionState, setSessionState] = useState<string>('idle');
-  const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(null);
-  const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
-  const agentStateRef = useRef<AgentState>('IDLE_CHAT');
+  const [sessionState, setSessionState] = useState<string>("idle");
+  const [sessionMeta, setSessionMeta] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [agentState, setAgentState] = useState<AgentState>("IDLE_CHAT");
+  const agentStateRef = useRef<AgentState>("IDLE_CHAT");
   useEffect(() => {
     agentStateRef.current = agentState;
   }, [agentState]);
@@ -6525,39 +8821,48 @@ export default function BffChat() {
     agentStateRef.current = next;
     setAgentState(next);
   }, []);
-  const [quickProfileStep, setQuickProfileStep] = useState<QuickProfileStep>('skin_feel');
-  const [quickProfileDraft, setQuickProfileDraft] = useState<QuickProfileProfilePatch>({});
+  const [quickProfileStep, setQuickProfileStep] =
+    useState<QuickProfileStep>("skin_feel");
+  const [quickProfileDraft, setQuickProfileDraft] =
+    useState<QuickProfileProfilePatch>({});
   const [quickProfileBusy, setQuickProfileBusy] = useState(false);
   const [debug] = useState<boolean>(() => {
     try {
-      return new URLSearchParams(window.location.search).get('debug') === '1';
+      return new URLSearchParams(window.location.search).get("debug") === "1";
     } catch {
       return false;
     }
   });
   const [anchorProductId] = useState<string>(() => {
     try {
-      return String(new URLSearchParams(window.location.search).get('anchor_product_id') || '').trim();
+      return String(
+        new URLSearchParams(window.location.search).get("anchor_product_id") ||
+          "",
+      ).trim();
     } catch {
-      return '';
+      return "";
     }
   });
   const [anchorProductUrl] = useState<string>(() => {
     try {
-      return String(new URLSearchParams(window.location.search).get('anchor_product_url') || '').trim();
+      return String(
+        new URLSearchParams(window.location.search).get("anchor_product_url") ||
+          "",
+      ).trim();
     } catch {
-      return '';
+      return "";
     }
   });
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [items, setItems] = useState<ChatItem[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [routineFormBusy, setRoutineFormBusy] = useState(false);
   const isLoading = chatBusy || analysisBusy;
-  const [loadingIntent, setLoadingIntent] = useState<AuroraLoadingIntent>('default');
+  const [loadingIntent, setLoadingIntent] =
+    useState<AuroraLoadingIntent>("default");
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
-  const [streamedText, setStreamedText] = useState('');
+  const [streamedText, setStreamedText] = useState("");
   const [photoUploading, setPhotoUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
@@ -6567,8 +8872,13 @@ export default function BffChat() {
   const openIntentConsumedRef = useRef<string | null>(null);
   const actionIntentConsumedRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
-  const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
+  const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(
+    null,
+  );
+  const [profileSnapshot, setProfileSnapshot] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
 
@@ -6578,54 +8888,62 @@ export default function BffChat() {
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [checkinSheetOpen, setCheckinSheetOpen] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
-  const [photoSheetAutoOpenSlot, setPhotoSheetAutoOpenSlot] = useState<'daylight' | 'indoor_white' | null>(null);
+  const [photoSheetAutoOpenSlot, setPhotoSheetAutoOpenSlot] = useState<
+    "daylight" | "indoor_white" | null
+  >(null);
   const [photoSheetAutoOpenNonce, setPhotoSheetAutoOpenNonce] = useState(0);
   const [productSheetOpen, setProductSheetOpen] = useState(false);
   const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
   const [authSheetOpen, setAuthSheetOpen] = useState(false);
   const [authSession, setAuthSession] = useState(() => initialAuthSession);
-  const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
-  const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
+  const [authMode, setAuthMode] = useState<"code" | "password">("code");
+  const [authStage, setAuthStage] = useState<"email" | "code">("email");
   const [authDraft, setAuthDraft] = useState(() => ({
-    email: authSession?.email ?? '',
-    code: '',
-    password: '',
-    newPassword: '',
-    newPasswordConfirm: '',
+    email: authSession?.email ?? "",
+    code: "",
+    password: "",
+    newPassword: "",
+    newPasswordConfirm: "",
   }));
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
-  const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<AnalysisPhotoRef[]>([]);
-  const [sessionPhotos, setSessionPhotos] = useState<Session['photos']>({});
+  const [analysisPhotoRefs, setAnalysisPhotoRefs] = useState<
+    AnalysisPhotoRef[]
+  >([]);
+  const [sessionPhotos, setSessionPhotos] = useState<Session["photos"]>({});
   const [promptRoutineAfterPhoto, setPromptRoutineAfterPhoto] = useState(false);
   const [routineSheetOpen, setRoutineSheetOpen] = useState(false);
-  const [routineTab, setRoutineTab] = useState<'am' | 'pm'>('am');
-  const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() => makeEmptyRoutineDraft());
+  const [routineTab, setRoutineTab] = useState<"am" | "pm">("am");
+  const [routineDraft, setRoutineDraft] = useState<RoutineDraft>(() =>
+    makeEmptyRoutineDraft(),
+  );
   const [alternativesSheetOpen, setAlternativesSheetOpen] = useState(false);
-  const [alternativesSheetTracks, setAlternativesSheetTracks] = useState<ProductAlternativeTrack[]>([]);
+  const [alternativesSheetTracks, setAlternativesSheetTracks] = useState<
+    ProductAlternativeTrack[]
+  >([]);
 
-  const [productDraft, setProductDraft] = useState('');
-  const [dupeDraft, setDupeDraft] = useState({ original: '' });
+  const [productDraft, setProductDraft] = useState("");
+  const [dupeDraft, setDupeDraft] = useState({ original: "" });
 
   const [profileDraft, setProfileDraft] = useState({
-    skinType: '',
-    sensitivity: '',
-    barrierStatus: '',
+    skinType: "",
+    sensitivity: "",
+    barrierStatus: "",
     goals: [] as string[],
-    region: '',
-    budgetTier: '',
-    age_band: 'unknown',
-    pregnancy_status: 'unknown',
-    lactation_status: 'unknown',
-    high_risk_medications_text: '',
+    region: "",
+    budgetTier: "",
+    age_band: "unknown",
+    pregnancy_status: "unknown",
+    lactation_status: "unknown",
+    high_risk_medications_text: "",
   });
 
   const [checkinDraft, setCheckinDraft] = useState({
     redness: 0,
     acne: 0,
     hydration: 0,
-    notes: '',
+    notes: "",
   });
 
   useEffect(() => {
@@ -6637,14 +8955,16 @@ export default function BffChat() {
   }, [authSession?.token]);
 
   useEffect(() => {
-    const email = String(authSession?.email || '').trim();
+    const email = String(authSession?.email || "").trim();
     if (!email) return;
-    const normalized = normalizeProfileFromBootstrap(profileSnapshot ?? bootstrapInfo?.profile ?? null);
+    const normalized = normalizeProfileFromBootstrap(
+      profileSnapshot ?? bootstrapInfo?.profile ?? null,
+    );
     if (!normalized) return;
     saveAuroraProfileCache(email, {
-      displayName: normalized.displayName || '',
-      avatarUrl: normalized.avatarUrl || '',
-      region: normalized.region || '',
+      displayName: normalized.displayName || "",
+      avatarUrl: normalized.avatarUrl || "",
+      region: normalized.region || "",
     });
   }, [authSession?.email, bootstrapInfo?.profile, profileSnapshot]);
 
@@ -6653,12 +8973,12 @@ export default function BffChat() {
   }, [language]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [items, isLoading]);
 
   const openPdpDrawer = useCallback(
     (args: { url: string; title?: string }) => {
-      const rawUrl = String(args.url || '').trim();
+      const rawUrl = String(args.url || "").trim();
       if (!rawUrl) return;
       let parsed: URL;
       try {
@@ -6667,12 +8987,18 @@ export default function BffChat() {
         return;
       }
 
-      const segments = parsed.pathname.split('/').filter(Boolean);
-      const isPdpPath = segments.length === 2 && segments[0] === 'products' && Boolean(segments[1]);
-      const isBrowseRoute = String(parsed.searchParams.get('open') || '').trim().toLowerCase() === 'browse';
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      const isPdpPath =
+        segments.length === 2 &&
+        segments[0] === "products" &&
+        Boolean(segments[1]);
+      const isBrowseRoute =
+        String(parsed.searchParams.get("open") || "")
+          .trim()
+          .toLowerCase() === "browse";
       if (!isPdpPath || isBrowseRoute) {
         if (debug) {
-          console.warn('[PDP Guard] blocked non-PDP route', { url: rawUrl });
+          console.warn("[PDP Guard] blocked non-PDP route", { url: rawUrl });
         }
         return;
       }
@@ -6689,7 +9015,11 @@ export default function BffChat() {
         anchorKey?: string | null;
       },
     ) => {
-      const normalizedTracks = Array.isArray(tracks) ? tracks.filter((track) => Array.isArray(track.items) && track.items.length > 0) : [];
+      const normalizedTracks = Array.isArray(tracks)
+        ? tracks.filter(
+            (track) => Array.isArray(track.items) && track.items.length > 0,
+          )
+        : [];
       if (!normalizedTracks.length) return;
       setAlternativesSheetTracks(normalizedTracks);
       setAlternativesSheetOpen(true);
@@ -6702,14 +9032,24 @@ export default function BffChat() {
           state: agentState,
         },
         {
-          source: String(opts?.source || 'recommendation_card'),
+          source: String(opts?.source || "recommendation_card"),
           anchor_key: opts?.anchorKey || null,
           track_count: normalizedTracks.length,
-          item_count: normalizedTracks.reduce((sum, track) => sum + (Array.isArray(track.items) ? track.items.length : 0), 0),
+          item_count: normalizedTracks.reduce(
+            (sum, track) =>
+              sum + (Array.isArray(track.items) ? track.items.length : 0),
+            0,
+          ),
         },
       );
     },
-    [agentState, headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+    [
+      agentState,
+      headers.aurora_uid,
+      headers.brief_id,
+      headers.trace_id,
+      language,
+    ],
   );
 
   const loadRecommendationAlternatives = useCallback(
@@ -6721,24 +9061,44 @@ export default function BffChat() {
       anchorProductId?: string | null;
       productInput?: string | null;
       product?: Record<string, unknown> | null;
-    }): Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null> => {
+    }): Promise<{
+      alternatives: Array<Record<string, unknown>>;
+      llmTrace?: Record<string, unknown> | null;
+    } | null> => {
       const requestHeaders = { ...headers, lang: language };
       const body = {
-        ...(String(productInput || '').trim() ? { product_input: String(productInput || '').trim().slice(0, 240) } : {}),
-        ...(String(anchorProductId || '').trim() ? { anchor_product_id: String(anchorProductId || '').trim().slice(0, 180) } : {}),
-        ...(product && typeof product === 'object' ? { product } : {}),
+        ...(String(productInput || "").trim()
+          ? {
+              product_input: String(productInput || "")
+                .trim()
+                .slice(0, 240),
+            }
+          : {}),
+        ...(String(anchorProductId || "").trim()
+          ? {
+              anchor_product_id: String(anchorProductId || "")
+                .trim()
+                .slice(0, 180),
+            }
+          : {}),
+        ...(product && typeof product === "object" ? { product } : {}),
         max_total: 6,
         include_debug: Boolean(debug),
       };
-      if (!body.product_input && !body.anchor_product_id && !body.product) return null;
+      if (!body.product_input && !body.anchor_product_id && !body.product)
+        return null;
       try {
-        const resp = await fetchRecoAlternatives(requestHeaders, body, { timeoutMs: RECO_ALTERNATIVES_LAZY_TIMEOUT_MS });
-        const alternatives = asArray(resp && resp.alternatives).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+        const resp = await fetchRecoAlternatives(requestHeaders, body, {
+          timeoutMs: RECO_ALTERNATIVES_LAZY_TIMEOUT_MS,
+        });
+        const alternatives = asArray(resp && resp.alternatives)
+          .map((row) => asObject(row))
+          .filter(Boolean) as Array<Record<string, unknown>>;
         const llmTrace = asObject(resp && resp.llm_trace) || null;
         return { alternatives, ...(llmTrace ? { llmTrace } : {}) };
       } catch (err) {
         if (debug) {
-          console.warn('[RecoAlternatives] lazy load failed', err);
+          console.warn("[RecoAlternatives] lazy load failed", err);
         }
         return null;
       }
@@ -6746,105 +9106,178 @@ export default function BffChat() {
     [debug, headers, language],
   );
 
-  const applyEnvelope = useCallback((env: V1Envelope) => {
-    const enhancedEnv = augmentEnvelopeWithIngredientReport(env);
-    setError(null);
+  const applyEnvelope = useCallback(
+    (env: V1Envelope) => {
+      const enhancedEnv = augmentEnvelopeWithIngredientReport(env);
+      setError(null);
 
-    if (enhancedEnv.session_patch && typeof enhancedEnv.session_patch === 'object') {
-      const patch = enhancedEnv.session_patch as Record<string, unknown>;
-      const next = (enhancedEnv.session_patch as Record<string, unknown>)['next_state'];
-      if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
-      const nextMeta = asObject(patch.meta);
-      if (nextMeta) setSessionMeta(nextMeta);
+      if (
+        enhancedEnv.session_patch &&
+        typeof enhancedEnv.session_patch === "object"
+      ) {
+        const patch = enhancedEnv.session_patch as Record<string, unknown>;
+        const next = (enhancedEnv.session_patch as Record<string, unknown>)[
+          "next_state"
+        ];
+        if (typeof next === "string" && next.trim())
+          setSessionState(next.trim());
+        const nextMeta = asObject(patch.meta);
+        if (nextMeta) setSessionMeta(nextMeta);
 
-      const profilePatch = asObject(patch.profile);
-      if (profilePatch) setProfileSnapshot(profilePatch);
+        const profilePatch = asObject(patch.profile);
+        if (profilePatch) setProfileSnapshot(profilePatch);
 
-      setBootstrapInfo((prev) => {
-        const merged: BootstrapInfo = prev
-          ? { ...prev }
-          : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+        setBootstrapInfo((prev) => {
+          const merged: BootstrapInfo = prev
+            ? { ...prev }
+            : {
+                profile: null,
+                recent_logs: [],
+                checkin_due: null,
+                is_returning: null,
+                db_ready: null,
+              };
 
-        if (profilePatch) merged.profile = profilePatch;
+          if (profilePatch) merged.profile = profilePatch;
 
-        const recentLogs = asArray(patch.recent_logs).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
-        if (recentLogs.length) merged.recent_logs = recentLogs;
+          const recentLogs = asArray(patch.recent_logs)
+            .map((v) => asObject(v))
+            .filter(Boolean) as Array<Record<string, unknown>>;
+          if (recentLogs.length) merged.recent_logs = recentLogs;
 
-        if (typeof patch.checkin_due === 'boolean') merged.checkin_due = patch.checkin_due;
-        if (typeof patch.is_returning === 'boolean') merged.is_returning = patch.is_returning;
-        if (typeof patch.db_ready === 'boolean') merged.db_ready = patch.db_ready;
+          if (typeof patch.checkin_due === "boolean")
+            merged.checkin_due = patch.checkin_due;
+          if (typeof patch.is_returning === "boolean")
+            merged.is_returning = patch.is_returning;
+          if (typeof patch.db_ready === "boolean")
+            merged.db_ready = patch.db_ready;
 
-        return merged;
-      });
-    }
+          return merged;
+        });
+      }
 
-    const rawCards = Array.isArray(enhancedEnv.cards) ? enhancedEnv.cards : [];
-    const hasEnvelopeCards = rawCards.length > 0;
+      const rawCards = Array.isArray(enhancedEnv.cards)
+        ? enhancedEnv.cards
+        : [];
+      const hasEnvelopeCards = rawCards.length > 0;
 
-    const nextItems: ChatItem[] = [];
-    if (enhancedEnv.assistant_message?.content && !hasEnvelopeCards) {
-      const raw = String(enhancedEnv.assistant_message.content || '');
-      const cleaned = debug ? raw : stripInternalKbRefsFromText(raw);
-      if (cleaned.trim()) nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: cleaned });
-    }
-    const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
-    const passiveFilteredCards = filterPassiveAdvisoryCards(gatedCards, FF_SHOW_PASSIVE_GATES);
-    const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards));
-    const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
-    const cardTypes = new Set(cards.map((card) => String(card?.type || '').trim().toLowerCase()).filter(Boolean));
-    if (cardTypes.has('ingredient_goal_match') || cardTypes.has('aurora_ingredient_report') || cardTypes.has('ingredient_hub')) {
-      const analyticsCtx: AnalyticsContext = {
-        brief_id: headers.brief_id,
-        trace_id: headers.trace_id,
-        aurora_uid: headers.aurora_uid,
-        lang: toLangPref(language),
-        state: agentStateRef.current,
-      };
-      const answerType = cardTypes.has('ingredient_goal_match')
-        ? 'ingredient_goal_match'
-        : cardTypes.has('aurora_ingredient_report')
-          ? 'ingredient_report'
-          : 'ingredient_hub';
-      emitIngredientsAnswerServed(analyticsCtx, { answer_type: answerType, card_count: cards.length });
-    }
-
-    if (cards.length) {
-      nextItems.push({
-        id: nextId(),
-        role: 'assistant',
-        kind: 'cards',
-        cards,
-        meta: { request_id: enhancedEnv.request_id, trace_id: enhancedEnv.trace_id, events: enhancedEnv.events },
-      });
-    }
-
-    const suppressChips = cards.length
-      ? cards.some((c) => {
-          const t = String((c as any)?.type || '').toLowerCase();
-          return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
-        })
-      : false;
-
-    const visibleChips = dedupeSuggestedChips(
-      filterPassiveAdvisoryChips(
-        Array.isArray(enhancedEnv.suggested_chips) ? enhancedEnv.suggested_chips : [],
+      const nextItems: ChatItem[] = [];
+      if (enhancedEnv.assistant_message?.content && !hasEnvelopeCards) {
+        const raw = String(enhancedEnv.assistant_message.content || "");
+        const cleaned = debug ? raw : stripInternalKbRefsFromText(raw);
+        if (cleaned.trim())
+          nextItems.push({
+            id: nextId(),
+            role: "assistant",
+            kind: "text",
+            content: cleaned,
+          });
+      }
+      const gatedCards = filterRecommendationCardsForState(
+        rawCards,
+        agentStateRef.current,
+      );
+      const passiveFilteredCards = filterPassiveAdvisoryCards(
+        gatedCards,
         FF_SHOW_PASSIVE_GATES,
-      ),
-      12,
-    );
-    if (!suppressChips && visibleChips.length) {
-      nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: visibleChips });
-    }
+      );
+      const cards = collapseAnalysisSummaryCards(
+        collapsePhotoConfirmWhenAnalysisPresent(passiveFilteredCards),
+      );
+      const hasAnalysisSummaryCard = cards.some(
+        (card) =>
+          String(card?.type || "")
+            .trim()
+            .toLowerCase() === "analysis_summary",
+      );
+      const cardTypes = new Set(
+        cards
+          .map((card) =>
+            String(card?.type || "")
+              .trim()
+              .toLowerCase(),
+          )
+          .filter(Boolean),
+      );
+      if (
+        cardTypes.has("ingredient_goal_match") ||
+        cardTypes.has("aurora_ingredient_report") ||
+        cardTypes.has("ingredient_hub")
+      ) {
+        const analyticsCtx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: agentStateRef.current,
+        };
+        const answerType = cardTypes.has("ingredient_goal_match")
+          ? "ingredient_goal_match"
+          : cardTypes.has("aurora_ingredient_report")
+            ? "ingredient_report"
+            : "ingredient_hub";
+        emitIngredientsAnswerServed(analyticsCtx, {
+          answer_type: answerType,
+          card_count: cards.length,
+        });
+      }
 
-    if (nextItems.length) {
-      setItems((prev) => {
-        const base = hasAnalysisSummaryCard
-          ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
-          : prev;
-        return [...base, ...nextItems];
-      });
-    }
-  }, [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, language]);
+      if (cards.length) {
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "cards",
+          cards,
+          meta: {
+            request_id: enhancedEnv.request_id,
+            trace_id: enhancedEnv.trace_id,
+            events: enhancedEnv.events,
+          },
+        });
+      }
+
+      const suppressChips = cards.length
+        ? cards.some((c) => {
+            const t = String((c as any)?.type || "").toLowerCase();
+            return (
+              t === "analysis_summary" ||
+              t === "profile" ||
+              t === "diagnosis_gate"
+            );
+          })
+        : false;
+
+      const visibleChips = dedupeSuggestedChips(
+        filterPassiveAdvisoryChips(
+          Array.isArray(enhancedEnv.suggested_chips)
+            ? enhancedEnv.suggested_chips
+            : [],
+          FF_SHOW_PASSIVE_GATES,
+        ),
+        12,
+      );
+      if (!suppressChips && visibleChips.length) {
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "chips",
+          chips: visibleChips,
+        });
+      }
+
+      if (nextItems.length) {
+        setItems((prev) => {
+          const base = hasAnalysisSummaryCard
+            ? removeAnalysisSummaryCardsFromHistory(
+                removePhotoConfirmCardsFromHistory(prev),
+              )
+            : prev;
+          return [...base, ...nextItems];
+        });
+      }
+    },
+    [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+  );
 
   const applyChatResponseV1 = useCallback(
     (response: ChatResponseV1) => {
@@ -6861,7 +9294,7 @@ export default function BffChat() {
         confidence: response.telemetry.intent_confidence,
       });
       emitAuroraToolCalled(analyticsCtx, {
-        tool_name: response.telemetry.intent || 'unknown',
+        tool_name: response.telemetry.intent || "unknown",
         success: true,
       });
       response.cards.forEach((card, idx) => {
@@ -6883,13 +9316,13 @@ export default function BffChat() {
           payload: adapterPayload,
           language,
         });
-        if (adapterHit?.kind === 'triage') {
+        if (adapterHit?.kind === "triage") {
           emitTriageStageShown(analyticsCtx, {
             card_id: card.id,
             card_position: idx,
             risk_level: adapterHit.data.riskLevel,
             recovery_window_hours:
-              typeof adapterHit.data.recoveryWindowHours === 'number'
+              typeof adapterHit.data.recoveryWindowHours === "number"
                 ? adapterHit.data.recoveryWindowHours
                 : null,
             red_flag_count: adapterHit.data.redFlags.length,
@@ -6902,7 +9335,9 @@ export default function BffChat() {
           op: op.op,
           topic_id: op.topic_id,
           ...(op.summary ? { summary: op.summary } : {}),
-          ...(typeof op.timestamp_ms === 'number' ? { timestamp_ms: op.timestamp_ms } : {}),
+          ...(typeof op.timestamp_ms === "number"
+            ? { timestamp_ms: op.timestamp_ms }
+            : {}),
         });
       });
       if (
@@ -6921,19 +9356,26 @@ export default function BffChat() {
 
       const profilePatch = asObject(response.ops.profile_patch[0]) || null;
       const routinePatch = asObject(response.ops.routine_patch[0]) || null;
-      const legacySessionPatch = asObject(response.legacy_session_patch) || null;
-      const legacyProfilePatch = asObject((legacySessionPatch as any)?.profile) || null;
+      const legacySessionPatch =
+        asObject(response.legacy_session_patch) || null;
+      const legacyProfilePatch =
+        asObject((legacySessionPatch as any)?.profile) || null;
       const legacyMetaPatch = (() => {
         if (!legacySessionPatch) return null;
         const explicitMeta = asObject((legacySessionPatch as any).meta) || null;
-        const extraEntries = Object.entries(legacySessionPatch).filter(([key]) => key !== 'profile' && key !== 'meta' && key !== 'next_state');
+        const extraEntries = Object.entries(legacySessionPatch).filter(
+          ([key]) =>
+            key !== "profile" && key !== "meta" && key !== "next_state",
+        );
         if (!explicitMeta && extraEntries.length === 0) return null;
         return {
           ...(explicitMeta || {}),
           ...Object.fromEntries(extraEntries),
         };
       })();
-      const nextSessionState = asString((legacySessionPatch as any)?.next_state);
+      const nextSessionState = asString(
+        (legacySessionPatch as any)?.next_state,
+      );
 
       if (nextSessionState) setSessionState(nextSessionState);
       if (legacyMetaPatch) {
@@ -6957,7 +9399,13 @@ export default function BffChat() {
         setBootstrapInfo((prev) => {
           const merged: BootstrapInfo = prev
             ? { ...prev }
-            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+            : {
+                profile: null,
+                recent_logs: [],
+                checkin_due: null,
+                is_returning: null,
+                db_ready: null,
+              };
           const baseProfile = asObject(merged.profile) || {};
           merged.profile = {
             ...baseProfile,
@@ -6969,10 +9417,16 @@ export default function BffChat() {
         });
       }
 
-      const assistantTextRaw = String(response.assistant_text || '');
-      const assistantText = debug ? assistantTextRaw : stripInternalKbRefsFromText(assistantTextRaw);
-      const telemetryUiLang = parseUiLanguageToken(response.telemetry.ui_language);
-      const telemetryMatchLang = parseUiLanguageToken(response.telemetry.matching_language);
+      const assistantTextRaw = String(response.assistant_text || "");
+      const assistantText = debug
+        ? assistantTextRaw
+        : stripInternalKbRefsFromText(assistantTextRaw);
+      const telemetryUiLang = parseUiLanguageToken(
+        response.telemetry.ui_language,
+      );
+      const telemetryMatchLang = parseUiLanguageToken(
+        response.telemetry.matching_language,
+      );
       const hasLanguageMismatch =
         response.telemetry.language_mismatch === true &&
         Boolean(telemetryUiLang) &&
@@ -6981,14 +9435,14 @@ export default function BffChat() {
       const nowMs = Date.now();
       const shouldShowLanguageMismatchHint =
         hasLanguageMismatch &&
-        langReplyMode !== 'auto_follow_input' &&
+        langReplyMode !== "auto_follow_input" &&
         nowMs >= langMismatchHintMutedUntilRef.current;
       const mismatchTargetUiLanguage = telemetryMatchLang || null;
 
-      let autoFollowNotice = '';
+      let autoFollowNotice = "";
       if (
         hasLanguageMismatch &&
-        langReplyMode === 'auto_follow_input' &&
+        langReplyMode === "auto_follow_input" &&
         mismatchTargetUiLanguage &&
         mismatchTargetUiLanguage !== language
       ) {
@@ -7005,21 +9459,26 @@ export default function BffChat() {
         });
         setLanguage(mismatchTargetUiLanguage);
         autoFollowNotice =
-          language === 'CN'
-            ? `已按你的输入切换为${toUiLanguageName(mismatchTargetUiLanguage, 'CN')}回复。`
-            : `Reply language switched to ${toUiLanguageName(mismatchTargetUiLanguage, 'EN')} to match your input.`;
+          language === "CN"
+            ? `已按你的输入切换为${toUiLanguageName(mismatchTargetUiLanguage, "CN")}回复。`
+            : `Reply language switched to ${toUiLanguageName(mismatchTargetUiLanguage, "EN")} to match your input.`;
       }
 
-      let languageMismatchHintText = '';
+      let languageMismatchHintText = "";
       let languageMismatchHintChips: SuggestedChip[] = [];
-      if (shouldShowLanguageMismatchHint && telemetryUiLang && telemetryMatchLang && mismatchTargetUiLanguage) {
+      if (
+        shouldShowLanguageMismatchHint &&
+        telemetryUiLang &&
+        telemetryMatchLang &&
+        mismatchTargetUiLanguage
+      ) {
         const nextMutedUntil = nowMs + LANGUAGE_MISMATCH_HINT_SNOOZE_MS;
         langMismatchHintMutedUntilRef.current = nextMutedUntil;
         setLangMismatchHintMutedUntil(nextMutedUntil);
         languageMismatchHintText =
-          language === 'CN'
-            ? `支持中英文混合对话。检测到本轮输入为${toUiLanguageName(telemetryMatchLang, 'CN')}，当前界面为${toUiLanguageName(telemetryUiLang, 'CN')}。请选择回复方式：`
-            : `Mixed-language chat is supported. This turn looks ${toUiLanguageName(telemetryMatchLang, 'EN')} while UI is ${toUiLanguageName(telemetryUiLang, 'EN')}. Choose reply behavior:`;
+          language === "CN"
+            ? `支持中英文混合对话。检测到本轮输入为${toUiLanguageName(telemetryMatchLang, "CN")}，当前界面为${toUiLanguageName(telemetryUiLang, "CN")}。请选择回复方式：`
+            : `Mixed-language chat is supported. This turn looks ${toUiLanguageName(telemetryMatchLang, "EN")} while UI is ${toUiLanguageName(telemetryUiLang, "EN")}. Choose reply behavior:`;
         languageMismatchHintChips = buildLanguageMismatchStrategyChips({
           copyLanguage: language,
           currentUiLanguage: language,
@@ -7049,21 +9508,24 @@ export default function BffChat() {
       const quickReplyToChip = (reply: QuickReplyV1): SuggestedChip => ({
         chip_id: reply.id,
         label: reply.label,
-        kind: 'quick_reply',
+        kind: "quick_reply",
         data: {
           action_id: reply.id,
           ...(reply.metadata || {}),
           reply_text: reply.value || reply.label,
-          trigger_source: 'chip',
+          trigger_source: "chip",
         },
       });
 
-      const followUpToChips = (followUp: ChatResponseV1['follow_up_questions'][number]): SuggestedChip[] => {
-        if (!Array.isArray(followUp.options) || followUp.options.length === 0) return [];
+      const followUpToChips = (
+        followUp: ChatResponseV1["follow_up_questions"][number],
+      ): SuggestedChip[] => {
+        if (!Array.isArray(followUp.options) || followUp.options.length === 0)
+          return [];
         return followUp.options.slice(0, 3).map((option) => ({
           chip_id: option.id,
           label: option.label,
-          kind: 'quick_reply',
+          kind: "quick_reply",
           data: {
             action_id: option.id,
             ...(option.metadata || {}),
@@ -7072,7 +9534,7 @@ export default function BffChat() {
             follow_up_question: followUp.question,
             follow_up_required: followUp.required,
             reply_text: option.value || option.label,
-            trigger_source: 'chip',
+            trigger_source: "chip",
           },
         }));
       };
@@ -7085,43 +9547,81 @@ export default function BffChat() {
         12,
       );
 
-      const introHint = resolveIntroHintForLanguage(response.intro_hint, language);
+      const introHint = resolveIntroHintForLanguage(
+        response.intro_hint,
+        language,
+      );
       const hasStructuredCards = response.cards.length > 0;
 
       const nextItems: ChatItem[] = [];
       if (assistantText.trim() && !hasStructuredCards) {
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: assistantText });
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "text",
+          content: assistantText,
+        });
       }
       if (introHint) {
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: introHint });
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "text",
+          content: introHint,
+        });
       }
       if (autoFollowNotice) {
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: autoFollowNotice });
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "text",
+          content: autoFollowNotice,
+        });
       }
       if (languageMismatchHintText) {
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: languageMismatchHintText });
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "text",
+          content: languageMismatchHintText,
+        });
       }
       if (languageMismatchHintChips.length) {
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: languageMismatchHintChips });
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "chips",
+          chips: languageMismatchHintChips,
+        });
       }
 
       const rawCards = response.cards.map(toLegacyCard);
-      const gatedCards = filterRecommendationCardsForState(rawCards, agentStateRef.current);
-      const cards = collapseAnalysisSummaryCards(collapsePhotoConfirmWhenAnalysisPresent(gatedCards));
-      const hasAnalysisSummaryCard = cards.some((card) => String(card?.type || '').trim().toLowerCase() === 'analysis_summary');
+      const gatedCards = filterRecommendationCardsForState(
+        rawCards,
+        agentStateRef.current,
+      );
+      const cards = collapseAnalysisSummaryCards(
+        collapsePhotoConfirmWhenAnalysisPresent(gatedCards),
+      );
+      const hasAnalysisSummaryCard = cards.some(
+        (card) =>
+          String(card?.type || "")
+            .trim()
+            .toLowerCase() === "analysis_summary",
+      );
 
       if (cards.length) {
         nextItems.push({
           id: nextId(),
-          role: 'assistant',
-          kind: 'cards',
+          role: "assistant",
+          kind: "cards",
           cards,
           meta: {
             request_id: response.request_id,
             trace_id: response.trace_id,
             events: [
               {
-                event_name: 'intent_detected',
+                event_name: "intent_detected",
                 data: {
                   intent: response.telemetry.intent,
                   confidence: response.telemetry.intent_confidence,
@@ -7132,7 +9632,9 @@ export default function BffChat() {
                 data: {
                   topic_id: op.topic_id,
                   ...(op.summary ? { summary: op.summary } : {}),
-                  ...(typeof op.timestamp_ms === 'number' ? { timestamp_ms: op.timestamp_ms } : {}),
+                  ...(typeof op.timestamp_ms === "number"
+                    ? { timestamp_ms: op.timestamp_ms }
+                    : {}),
                 },
               })),
             ],
@@ -7142,39 +9644,58 @@ export default function BffChat() {
 
       const suppressChips = cards.length
         ? cards.some((c) => {
-            const t = String((c as any)?.type || '').toLowerCase();
-            return t === 'analysis_summary' || t === 'profile' || t === 'diagnosis_gate';
+            const t = String((c as any)?.type || "").toLowerCase();
+            return (
+              t === "analysis_summary" ||
+              t === "profile" ||
+              t === "diagnosis_gate"
+            );
           })
         : false;
 
       if (!suppressChips && suggestedChips.length) {
-        nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: suggestedChips });
+        nextItems.push({
+          id: nextId(),
+          role: "assistant",
+          kind: "chips",
+          chips: suggestedChips,
+        });
       }
 
       if (nextItems.length) {
         setItems((prev) => {
           const base = hasAnalysisSummaryCard
-            ? removeAnalysisSummaryCardsFromHistory(removePhotoConfirmCardsFromHistory(prev))
+            ? removeAnalysisSummaryCardsFromHistory(
+                removePhotoConfirmCardsFromHistory(prev),
+              )
             : prev;
           return [...base, ...nextItems];
         });
       }
     },
-    [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, langReplyMode, language],
+    [
+      debug,
+      headers.aurora_uid,
+      headers.brief_id,
+      headers.trace_id,
+      langReplyMode,
+      language,
+    ],
   );
 
   const tryApplyEnvelopeFromBffError = useCallback(
     (err: unknown) => {
       if (!(err instanceof PivotaAgentBffError)) return false;
       const body = err.responseBody;
-      if (!body || typeof body !== 'object') return false;
+      if (!body || typeof body !== "object") return false;
       const parsedV1 = parseChatResponseV1(body);
       if (parsedV1) {
         applyChatResponseV1(parsedV1);
         return true;
       }
       const env = body as any;
-      if (typeof env.request_id !== 'string' || !Array.isArray(env.cards)) return false;
+      if (typeof env.request_id !== "string" || !Array.isArray(env.cards))
+        return false;
       applyEnvelope(env as V1Envelope);
       return true;
     },
@@ -7186,7 +9707,11 @@ export default function BffChat() {
     try {
       const requestHeaders = { ...headers, lang: language };
       const langPref = toLangPref(language);
-      const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
+      const env = await bffJson<V1Envelope>(
+        "/v1/session/bootstrap",
+        requestHeaders,
+        { method: "GET" },
+      );
       const info = readBootstrapInfo(env);
       setBootstrapInfo(info);
       const profile = info?.profile;
@@ -7234,66 +9759,100 @@ export default function BffChat() {
         emitUiReturnVisit(analyticsCtx, {
           days_since_last: returnWelcomeSummary.days_since_last ?? 0,
           has_active_plan:
-            typeof currentRoutine === 'string' ? Boolean(currentRoutine.trim()) : Boolean(currentRoutine),
+            typeof currentRoutine === "string"
+              ? Boolean(currentRoutine.trim())
+              : Boolean(currentRoutine),
           has_checkin_due: Boolean(info?.checkin_due),
         });
       }
 
-      const lang = language === 'CN' ? 'CN' : 'EN';
+      const lang = language === "CN" ? "CN" : "EN";
       const intro =
-        lang === 'CN'
-          ? `你好，我是你的护肤搭子。${isReturning ? '欢迎回来！' : ''}你想先做什么？`
-          : `Hi — I’m your skincare partner. ${isReturning ? 'Welcome back! ' : ''}What would you like to do?`;
+        lang === "CN"
+          ? `你好，我是你的护肤搭子。${isReturning ? "欢迎回来！" : ""}你想先做什么？`
+          : `Hi — I’m your skincare partner. ${isReturning ? "Welcome back! " : ""}What would you like to do?`;
 
       const startChips: SuggestedChip[] = [
         {
-          chip_id: 'chip_quick_profile',
-          label: lang === 'CN' ? '30秒快速画像' : '30-sec quick profile',
-          kind: 'quick_reply',
-          data: { trigger_source: 'chip' },
+          chip_id: "chip_quick_profile",
+          label: lang === "CN" ? "30秒快速画像" : "30-sec quick profile",
+          kind: "quick_reply",
+          data: { trigger_source: "chip" },
         },
         {
-          chip_id: 'chip.start.diagnosis',
-          label: lang === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis',
-          kind: 'quick_reply',
-          data: { reply_text: lang === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis' },
-        },
-        {
-          chip_id: 'chip.start.reco_products',
-          label: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
-          kind: 'quick_reply',
+          chip_id: "chip.start.diagnosis",
+          label: lang === "CN" ? "开始皮肤诊断" : "Start skin diagnosis",
+          kind: "quick_reply",
           data: {
-            reply_text: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
+            reply_text: lang === "CN" ? "开始皮肤诊断" : "Start skin diagnosis",
+          },
+        },
+        {
+          chip_id: "chip.start.reco_products",
+          label:
+            lang === "CN"
+              ? "推荐一些产品（例如：提亮精华）"
+              : "Recommend a few products (e.g., brightening serum)",
+          kind: "quick_reply",
+          data: {
+            reply_text:
+              lang === "CN"
+                ? "推荐一些产品（例如：提亮精华）"
+                : "Recommend a few products (e.g., brightening serum)",
             include_alternatives: true,
           },
         },
         {
-          chip_id: 'chip.start.routine',
-          label: lang === 'CN' ? '生成早晚护肤 routine' : 'Build an AM/PM routine',
-          kind: 'quick_reply',
-          data: { reply_text: lang === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine', include_alternatives: true },
-        },
-        {
-          chip_id: 'chip.start.evaluate',
-          label: lang === 'CN' ? '评估某个产品适合吗' : 'Evaluate a specific product for me',
-          kind: 'quick_reply',
-          data: { reply_text: lang === 'CN' ? '评估这款产品是否适合我' : 'Evaluate a specific product for me' },
-        },
-        {
-          chip_id: 'chip.start.dupes',
-          label: lang === 'CN' ? '找平替/更便宜替代品' : 'Find dupes / cheaper alternatives',
-          kind: 'quick_reply',
-          data: { reply_text: lang === 'CN' ? '帮我找平替并比较 tradeoffs' : 'Find dupes/cheaper alternatives' },
-        },
-        {
-          chip_id: 'chip.start.ingredients.entry',
-          label: lang === 'CN' ? '成分机理/证据链' : 'Ingredient science (evidence)',
-          kind: 'quick_reply',
+          chip_id: "chip.start.routine",
+          label:
+            lang === "CN" ? "生成早晚护肤 routine" : "Build an AM/PM routine",
+          kind: "quick_reply",
           data: {
             reply_text:
-              lang === 'CN'
-                ? '我想聊成分科学（证据/机制），先不做产品推荐。'
-                : 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
+              lang === "CN"
+                ? "生成一套早晚护肤 routine"
+                : "Build an AM/PM skincare routine",
+            include_alternatives: true,
+          },
+        },
+        {
+          chip_id: "chip.start.evaluate",
+          label:
+            lang === "CN"
+              ? "评估某个产品适合吗"
+              : "Evaluate a specific product for me",
+          kind: "quick_reply",
+          data: {
+            reply_text:
+              lang === "CN"
+                ? "评估这款产品是否适合我"
+                : "Evaluate a specific product for me",
+          },
+        },
+        {
+          chip_id: "chip.start.dupes",
+          label:
+            lang === "CN"
+              ? "找平替/更便宜替代品"
+              : "Find dupes / cheaper alternatives",
+          kind: "quick_reply",
+          data: {
+            reply_text:
+              lang === "CN"
+                ? "帮我找平替并比较 tradeoffs"
+                : "Find dupes/cheaper alternatives",
+          },
+        },
+        {
+          chip_id: "chip.start.ingredients.entry",
+          label:
+            lang === "CN" ? "成分机理/证据链" : "Ingredient science (evidence)",
+          kind: "quick_reply",
+          data: {
+            reply_text:
+              lang === "CN"
+                ? "我想聊成分科学（证据/机制），先不做产品推荐。"
+                : "I want ingredient science (evidence/mechanism), not product recommendations yet.",
           },
         },
       ];
@@ -7301,35 +9860,52 @@ export default function BffChat() {
       if (!hasBootstrapped) {
         if (FF_RETURN_WELCOME && isReturning) {
           setItems([
-            { id: nextId(), role: 'assistant', kind: 'text', content: intro },
-            { id: nextId(), role: 'assistant', kind: 'return_welcome', summary: returnWelcomeSummary },
+            { id: nextId(), role: "assistant", kind: "text", content: intro },
+            {
+              id: nextId(),
+              role: "assistant",
+              kind: "return_welcome",
+              summary: returnWelcomeSummary,
+            },
           ]);
         } else {
           setItems([
-            { id: nextId(), role: 'assistant', kind: 'text', content: intro },
+            { id: nextId(), role: "assistant", kind: "text", content: intro },
             {
               id: nextId(),
-              role: 'assistant',
-              kind: 'text',
+              role: "assistant",
+              kind: "text",
               content: formatProfileLine(profile, language),
             },
-            { id: nextId(), role: 'assistant', kind: 'chips', chips: startChips },
+            {
+              id: nextId(),
+              role: "assistant",
+              kind: "chips",
+              chips: startChips,
+            },
           ]);
         }
         setHasBootstrapped(true);
       }
     } catch (err) {
-      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err))
+        setError(err instanceof Error ? err.message : String(err));
     } finally {
       setChatBusy(false);
     }
-  }, [agentState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [
+    agentState,
+    hasBootstrapped,
+    headers,
+    language,
+    tryApplyEnvelopeFromBffError,
+  ]);
 
   const startNewChat = useCallback(() => {
     setError(null);
-    setSessionState('idle');
-    setAgentStateSafe('IDLE_CHAT');
-    setQuickProfileStep('skin_feel');
+    setSessionState("idle");
+    setAgentStateSafe("IDLE_CHAT");
+    setQuickProfileStep("skin_feel");
     setQuickProfileDraft({});
     setQuickProfileBusy(false);
     setChatBusy(false);
@@ -7351,7 +9927,7 @@ export default function BffChat() {
   useEffect(() => {
     if (!hasBootstrapped) return;
     // If the user toggles language before interacting, restart so the intro/chips match.
-    const hasUserInteracted = items.some((it) => it.role === 'user');
+    const hasUserInteracted = items.some((it) => it.role === "user");
     if (!hasUserInteracted) startNewChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language]);
@@ -7373,16 +9949,19 @@ export default function BffChat() {
       .map((item) => asString(item))
       .filter(Boolean) as string[];
     setProfileDraft({
-      skinType: asString(p?.skinType) ?? '',
-      sensitivity: asString(p?.sensitivity) ?? '',
-      barrierStatus: asString(p?.barrierStatus) ?? '',
-      goals: (asArray(p?.goals).map((g) => asString(g)).filter(Boolean) as string[]) ?? [],
-      region: asString(p?.region) ?? '',
-      budgetTier: asString(p?.budgetTier) ?? '',
-      age_band: asString((p as any)?.age_band) ?? 'unknown',
-      pregnancy_status: asString((p as any)?.pregnancy_status) ?? 'unknown',
-      lactation_status: asString((p as any)?.lactation_status) ?? 'unknown',
-      high_risk_medications_text: meds.join(', '),
+      skinType: asString(p?.skinType) ?? "",
+      sensitivity: asString(p?.sensitivity) ?? "",
+      barrierStatus: asString(p?.barrierStatus) ?? "",
+      goals:
+        (asArray(p?.goals)
+          .map((g) => asString(g))
+          .filter(Boolean) as string[]) ?? [],
+      region: asString(p?.region) ?? "",
+      budgetTier: asString(p?.budgetTier) ?? "",
+      age_band: asString((p as any)?.age_band) ?? "unknown",
+      pregnancy_status: asString((p as any)?.pregnancy_status) ?? "unknown",
+      lactation_status: asString((p as any)?.lactation_status) ?? "unknown",
+      high_risk_medications_text: meds.join(", "),
     });
   }, [profileSheetOpen, bootstrapInfo, profileSnapshot]);
 
@@ -7392,30 +9971,46 @@ export default function BffChat() {
       const patch = buildProfileUpdatePatch(profileDraft);
 
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify(patch),
-        timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
-      });
+      const env = await bffJson<V1Envelope>(
+        "/v1/profile/update",
+        requestHeaders,
+        {
+          method: "POST",
+          body: JSON.stringify(patch),
+          timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
+        },
+      );
 
       const info = readBootstrapInfo(env);
-      const nextProfile = info?.profile ?? asObject((env.session_patch as Record<string, unknown> | undefined)?.profile) ?? null;
+      const nextProfile =
+        info?.profile ??
+        asObject(
+          (env.session_patch as Record<string, unknown> | undefined)?.profile,
+        ) ??
+        null;
       if (nextProfile) {
         setProfileSnapshot(nextProfile);
         setBootstrapInfo((prev) => {
           const merged: BootstrapInfo = prev
             ? { ...prev }
-            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+            : {
+                profile: null,
+                recent_logs: [],
+                checkin_due: null,
+                is_returning: null,
+                db_ready: null,
+              };
           merged.profile = nextProfile;
           return merged;
         });
       }
       setProfileSheetOpen(false);
       toast({
-        title: language === 'CN' ? '资料已更新' : 'Profile updated',
+        title: language === "CN" ? "资料已更新" : "Profile updated",
       });
     } catch (err) {
-      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err))
+        setError(err instanceof Error ? err.message : String(err));
     } finally {
       setChatBusy(false);
     }
@@ -7424,8 +10019,8 @@ export default function BffChat() {
   const updateProfileWithTimeout = useCallback(
     async (patch: Record<string, unknown>): Promise<void> => {
       const requestHeaders = { ...headers, lang: language };
-      await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-        method: 'POST',
+      await bffJson<V1Envelope>("/v1/profile/update", requestHeaders, {
+        method: "POST",
         body: JSON.stringify(patch),
         timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
       });
@@ -7441,12 +10036,17 @@ export default function BffChat() {
 
       const patch: Record<string, unknown> = {};
       const fitProfile = profileSnapshot ?? bootstrapInfo?.profile ?? null;
-      if (questionId === 'goal') {
+      if (questionId === "goal") {
         const mapped = mapIngredientGoalChipToProfileGoal(chip);
         if (!mapped) return;
-        const existingGoals = normalizeProfileGoals(asObject(fitProfile)?.goals ?? (fitProfile as any)?.goals);
-        patch.goals = normalizeProfileGoals([mapped, ...existingGoals]).slice(0, 3);
-      } else if (questionId === 'sensitivity') {
+        const existingGoals = normalizeProfileGoals(
+          asObject(fitProfile)?.goals ?? (fitProfile as any)?.goals,
+        );
+        patch.goals = normalizeProfileGoals([mapped, ...existingGoals]).slice(
+          0,
+          3,
+        );
+      } else if (questionId === "sensitivity") {
         const mapped = mapIngredientSensitivityChipToProfileSensitivity(chip);
         if (!mapped) return;
         patch.sensitivity = mapped;
@@ -7456,7 +10056,9 @@ export default function BffChat() {
 
       const profileSnapshotBeforeUpdate = profileSnapshot;
       const hadBootstrapInfo = Boolean(bootstrapInfo);
-      const bootstrapProfileBeforeUpdate = hadBootstrapInfo ? asObject(bootstrapInfo?.profile) ?? null : null;
+      const bootstrapProfileBeforeUpdate = hadBootstrapInfo
+        ? (asObject(bootstrapInfo?.profile) ?? null)
+        : null;
       setIngredientQuestionBusy(true);
 
       // Optimistic profile update so "Next questions" can auto-hide immediately after required fields are filled.
@@ -7467,7 +10069,13 @@ export default function BffChat() {
       setBootstrapInfo((prev) => {
         const merged: BootstrapInfo = prev
           ? { ...prev }
-          : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+          : {
+              profile: null,
+              recent_logs: [],
+              checkin_due: null,
+              is_returning: null,
+              db_ready: null,
+            };
         const baseProfile = asObject(merged.profile) ?? {};
         merged.profile = { ...baseProfile, ...patch };
         return merged;
@@ -7477,11 +10085,11 @@ export default function BffChat() {
         await updateProfileWithTimeout(patch);
 
         toast({
-          title: language === 'CN' ? '已记录偏好' : 'Preference saved',
+          title: language === "CN" ? "已记录偏好" : "Preference saved",
           description:
-            language === 'CN'
-              ? '已用于后续成分适配度分析。'
-              : 'This will be used for ingredient skin-fit analysis.',
+            language === "CN"
+              ? "已用于后续成分适配度分析。"
+              : "This will be used for ingredient skin-fit analysis.",
         });
       } catch {
         setProfileSnapshot(profileSnapshotBeforeUpdate);
@@ -7489,18 +10097,24 @@ export default function BffChat() {
           if (!hadBootstrapInfo) return null;
           const merged: BootstrapInfo = prev
             ? { ...prev }
-            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+            : {
+                profile: null,
+                recent_logs: [],
+                checkin_due: null,
+                is_returning: null,
+                db_ready: null,
+              };
           merged.profile = bootstrapProfileBeforeUpdate;
           return merged;
         });
 
         const failureMessage =
-          language === 'CN'
-            ? '保存超时/失败，请重试；暂未应用到你的画像。'
-            : 'Save timed out/failed. Please retry; profile was not updated.';
+          language === "CN"
+            ? "保存超时/失败，请重试；暂未应用到你的画像。"
+            : "Save timed out/failed. Please retry; profile was not updated.";
         setError(failureMessage);
         toast({
-          title: language === 'CN' ? '保存失败' : 'Save failed',
+          title: language === "CN" ? "保存失败" : "Save failed",
           description: failureMessage,
         });
       } finally {
@@ -7521,42 +10135,66 @@ export default function BffChat() {
       if (checkinDraft.notes.trim()) payload.notes = checkinDraft.notes.trim();
 
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/tracker/log', requestHeaders, {
-        method: 'POST',
+      const env = await bffJson<V1Envelope>("/v1/tracker/log", requestHeaders, {
+        method: "POST",
         body: JSON.stringify(payload),
       });
       const refreshHint = asObject(env.reco_refresh_hint);
       const shouldRefreshReco = (refreshHint as any)?.should_refresh === true;
-      const refreshReason = asString((refreshHint as any)?.reason) || 'checkin_logged';
+      const refreshReason =
+        asString((refreshHint as any)?.reason) || "checkin_logged";
 
       setItems((prev) => [
         ...prev,
-        { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '今日打卡' : 'Daily check-in' },
+        {
+          id: nextId(),
+          role: "user",
+          kind: "text",
+          content: language === "CN" ? "今日打卡" : "Daily check-in",
+        },
       ]);
       applyEnvelope(env);
       if (shouldRefreshReco) {
         const refreshChip: SuggestedChip = {
-          chip_id: 'chip.start.reco_products',
-          label: language === 'CN' ? '按最新打卡刷新推荐' : 'Refresh recommendations',
-          kind: 'quick_reply',
+          chip_id: "chip.start.reco_products",
+          label:
+            language === "CN"
+              ? "按最新打卡刷新推荐"
+              : "Refresh recommendations",
+          kind: "quick_reply",
           data: {
             reply_text:
-              language === 'CN'
-                ? '根据我最新打卡刷新推荐，并说明你参考了哪些变化。'
-                : 'Refresh recommendations based on my latest check-in and show what changed.',
+              language === "CN"
+                ? "根据我最新打卡刷新推荐，并说明你参考了哪些变化。"
+                : "Refresh recommendations based on my latest check-in and show what changed.",
             reco_refresh_reason: refreshReason,
             include_alternatives: true,
           },
         };
-        setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'chips', chips: [refreshChip] }]);
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: "assistant",
+            kind: "chips",
+            chips: [refreshChip],
+          },
+        ]);
       }
       setCheckinSheetOpen(false);
     } catch (err) {
-      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+      if (!tryApplyEnvelopeFromBffError(err))
+        setError(err instanceof Error ? err.message : String(err));
     } finally {
       setChatBusy(false);
     }
-  }, [applyEnvelope, checkinDraft, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [
+    applyEnvelope,
+    checkinDraft,
+    headers,
+    language,
+    tryApplyEnvelopeFromBffError,
+  ]);
 
   const refreshBootstrapInfo = useCallback(async () => {
     try {
@@ -7566,7 +10204,11 @@ export default function BffChat() {
         lang: language,
         auth_token: latestAuthToken,
       };
-      const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
+      const env = await bffJson<V1Envelope>(
+        "/v1/session/bootstrap",
+        requestHeaders,
+        { method: "GET" },
+      );
       const info = readBootstrapInfo(env);
       if (info) setBootstrapInfo(info);
       if (info?.profile) setProfileSnapshot(info.profile);
@@ -7579,44 +10221,54 @@ export default function BffChat() {
     const handleAuthSessionChanged = () => {
       const nextSession = loadAuroraAuthSession();
       setAuthSession(nextSession);
-      setAuthMode('code');
-      setAuthStage('email');
+      setAuthMode("code");
+      setAuthStage("email");
       setAuthError(null);
       setAuthNotice(null);
       setAuthDraft({
-        email: nextSession?.email ?? '',
-        code: '',
-        password: '',
-        newPassword: '',
-        newPasswordConfirm: '',
+        email: nextSession?.email ?? "",
+        code: "",
+        password: "",
+        newPassword: "",
+        newPasswordConfirm: "",
       });
       void refreshBootstrapInfo();
     };
 
-    window.addEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, handleAuthSessionChanged);
-    return () => window.removeEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, handleAuthSessionChanged);
+    window.addEventListener(
+      AURORA_AUTH_SESSION_CHANGED_EVENT,
+      handleAuthSessionChanged,
+    );
+    return () =>
+      window.removeEventListener(
+        AURORA_AUTH_SESSION_CHANGED_EVENT,
+        handleAuthSessionChanged,
+      );
   }, [refreshBootstrapInfo]);
 
   const persistQuickProfilePatch = useCallback(
-    async (profilePatch: QuickProfileProfilePatch, auroraProfilePatch: Record<string, unknown> | null) => {
+    async (
+      profilePatch: QuickProfileProfilePatch,
+      auroraProfilePatch: Record<string, unknown> | null,
+    ) => {
       if (auroraProfilePatch) {
         try {
           const requestHeaders = { ...headers, lang: language };
-          await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-            method: 'POST',
+          await bffJson<V1Envelope>("/v1/profile/update", requestHeaders, {
+            method: "POST",
             body: JSON.stringify(auroraProfilePatch),
             timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
           });
         } catch (err) {
           if (debug) {
-            console.warn('[QuickProfile] /v1/profile/update failed', err);
+            console.warn("[QuickProfile] /v1/profile/update failed", err);
           }
           toast({
-            title: language === 'CN' ? '已继续流程' : 'Progress saved locally',
+            title: language === "CN" ? "已继续流程" : "Progress saved locally",
             description:
-              language === 'CN'
-                ? '画像已临时保存在当前会话。云端同步失败，可稍后登录后刷新。'
-                : 'Quick profile continued in this session. Cloud sync failed; sign in and refresh later.',
+              language === "CN"
+                ? "画像已临时保存在当前会话。云端同步失败，可稍后登录后刷新。"
+                : "Quick profile continued in this session. Cloud sync failed; sign in and refresh later.",
           });
         }
       }
@@ -7628,7 +10280,10 @@ export default function BffChat() {
         );
       } catch (err) {
         if (debug) {
-          console.warn('[QuickProfile] legacy /session/profile/patch failed', err);
+          console.warn(
+            "[QuickProfile] legacy /session/profile/patch failed",
+            err,
+          );
         }
       }
     },
@@ -7638,7 +10293,9 @@ export default function BffChat() {
   const startAuth = useCallback(async () => {
     const email = authDraft.email.trim();
     if (!email) {
-      setAuthError(language === 'CN' ? '请输入邮箱。' : 'Please enter your email.');
+      setAuthError(
+        language === "CN" ? "请输入邮箱。" : "Please enter your email.",
+      );
       return;
     }
     setAuthLoading(true);
@@ -7646,11 +10303,11 @@ export default function BffChat() {
     setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
-      await bffJson<V1Envelope>('/v1/auth/start', requestHeaders, {
-        method: 'POST',
+      await bffJson<V1Envelope>("/v1/auth/start", requestHeaders, {
+        method: "POST",
         body: JSON.stringify({ email }),
       });
-      setAuthStage('code');
+      setAuthStage("code");
     } catch (err) {
       setAuthError(toBffErrorMessage(err));
     } finally {
@@ -7662,7 +10319,11 @@ export default function BffChat() {
     const email = authDraft.email.trim();
     const code = authDraft.code.trim();
     if (!email || !code) {
-      setAuthError(language === 'CN' ? '请输入邮箱和验证码。' : 'Please enter email + code.');
+      setAuthError(
+        language === "CN"
+          ? "请输入邮箱和验证码。"
+          : "Please enter email + code.",
+      );
       return;
     }
     setAuthLoading(true);
@@ -7670,21 +10331,28 @@ export default function BffChat() {
     setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/auth/verify', requestHeaders, {
-        method: 'POST',
+      const env = await bffJson<V1Envelope>("/v1/auth/verify", requestHeaders, {
+        method: "POST",
         body: JSON.stringify({ email, code }),
       });
 
-      const sessionCard = Array.isArray(env.cards) ? env.cards.find((c) => c && c.type === 'auth_session') : null;
-      const token = asString(sessionCard && (sessionCard.payload as any)?.token) || '';
-      const userEmail = asString(sessionCard && (sessionCard.payload as any)?.user?.email) || email;
-      const expiresAt = asString(sessionCard && (sessionCard.payload as any)?.expires_at) || null;
-      if (!token) throw new Error('Missing auth token from server.');
+      const sessionCard = Array.isArray(env.cards)
+        ? env.cards.find((c) => c && c.type === "auth_session")
+        : null;
+      const token =
+        asString(sessionCard && (sessionCard.payload as any)?.token) || "";
+      const userEmail =
+        asString(sessionCard && (sessionCard.payload as any)?.user?.email) ||
+        email;
+      const expiresAt =
+        asString(sessionCard && (sessionCard.payload as any)?.expires_at) ||
+        null;
+      if (!token) throw new Error("Missing auth token from server.");
 
       const nextSession = { token, email: userEmail, expires_at: expiresAt };
       saveAuroraAuthSession(nextSession);
       setAuthSession(nextSession);
-      setAuthDraft((prev) => ({ ...prev, code: '' }));
+      setAuthDraft((prev) => ({ ...prev, code: "" }));
       setAuthSheetOpen(false);
       await refreshBootstrapInfo();
     } catch (err) {
@@ -7692,13 +10360,23 @@ export default function BffChat() {
     } finally {
       setAuthLoading(false);
     }
-  }, [authDraft.code, authDraft.email, headers, language, refreshBootstrapInfo]);
+  }, [
+    authDraft.code,
+    authDraft.email,
+    headers,
+    language,
+    refreshBootstrapInfo,
+  ]);
 
   const passwordLogin = useCallback(async () => {
     const email = authDraft.email.trim();
     const password = authDraft.password;
     if (!email || !password) {
-      setAuthError(language === 'CN' ? '请输入邮箱和密码。' : 'Please enter email + password.');
+      setAuthError(
+        language === "CN"
+          ? "请输入邮箱和密码。"
+          : "Please enter email + password.",
+      );
       return;
     }
     setAuthLoading(true);
@@ -7706,21 +10384,32 @@ export default function BffChat() {
     setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/auth/password/login', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
+      const env = await bffJson<V1Envelope>(
+        "/v1/auth/password/login",
+        requestHeaders,
+        {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        },
+      );
 
-      const sessionCard = Array.isArray(env.cards) ? env.cards.find((c) => c && c.type === 'auth_session') : null;
-      const token = asString(sessionCard && (sessionCard.payload as any)?.token) || '';
-      const userEmail = asString(sessionCard && (sessionCard.payload as any)?.user?.email) || email;
-      const expiresAt = asString(sessionCard && (sessionCard.payload as any)?.expires_at) || null;
-      if (!token) throw new Error('Missing auth token from server.');
+      const sessionCard = Array.isArray(env.cards)
+        ? env.cards.find((c) => c && c.type === "auth_session")
+        : null;
+      const token =
+        asString(sessionCard && (sessionCard.payload as any)?.token) || "";
+      const userEmail =
+        asString(sessionCard && (sessionCard.payload as any)?.user?.email) ||
+        email;
+      const expiresAt =
+        asString(sessionCard && (sessionCard.payload as any)?.expires_at) ||
+        null;
+      if (!token) throw new Error("Missing auth token from server.");
 
       const nextSession = { token, email: userEmail, expires_at: expiresAt };
       saveAuroraAuthSession(nextSession);
       setAuthSession(nextSession);
-      setAuthDraft((prev) => ({ ...prev, password: '' }));
+      setAuthDraft((prev) => ({ ...prev, password: "" }));
       setAuthSheetOpen(false);
       await refreshBootstrapInfo();
     } catch (err) {
@@ -7728,17 +10417,29 @@ export default function BffChat() {
     } finally {
       setAuthLoading(false);
     }
-  }, [authDraft.email, authDraft.password, headers, language, refreshBootstrapInfo]);
+  }, [
+    authDraft.email,
+    authDraft.password,
+    headers,
+    language,
+    refreshBootstrapInfo,
+  ]);
 
   const savePassword = useCallback(async () => {
     const password = authDraft.newPassword;
     const confirm = authDraft.newPasswordConfirm;
     if (!password || password.length < 8) {
-      setAuthError(language === 'CN' ? '密码至少 8 位。' : 'Password must be at least 8 characters.');
+      setAuthError(
+        language === "CN"
+          ? "密码至少 8 位。"
+          : "Password must be at least 8 characters.",
+      );
       return;
     }
     if (password !== confirm) {
-      setAuthError(language === 'CN' ? '两次输入的密码不一致。' : "Passwords don't match.");
+      setAuthError(
+        language === "CN" ? "两次输入的密码不一致。" : "Passwords don't match.",
+      );
       return;
     }
     setAuthLoading(true);
@@ -7746,31 +10447,53 @@ export default function BffChat() {
     setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/auth/password/set', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({ password }),
-      });
+      const env = await bffJson<V1Envelope>(
+        "/v1/auth/password/set",
+        requestHeaders,
+        {
+          method: "POST",
+          body: JSON.stringify({ password }),
+        },
+      );
 
       const passwordCard = Array.isArray(env?.cards)
-        ? env.cards.find((c) => c && typeof c === 'object' && (c as any).type === 'auth_password_set')
+        ? env.cards.find(
+            (c) =>
+              c &&
+              typeof c === "object" &&
+              (c as any).type === "auth_password_set",
+          )
         : null;
       const passwordSetOk = Boolean((passwordCard as any)?.payload?.ok);
       if (!passwordSetOk) {
-        throw new Error(language === 'CN' ? '服务器未确认密码已更新，请重试。' : 'Server did not confirm password update. Please retry.');
+        throw new Error(
+          language === "CN"
+            ? "服务器未确认密码已更新，请重试。"
+            : "Server did not confirm password update. Please retry.",
+        );
       }
 
       const serverMessageRaw = asString(env?.assistant_message?.content);
-      const serverMessageTrimmed = serverMessageRaw ? serverMessageRaw.trim() : '';
-      const serverMessage = serverMessageTrimmed.length >= MIN_ACTIONABLE_NOTICE_LEN ? serverMessageTrimmed : '';
+      const serverMessageTrimmed = serverMessageRaw
+        ? serverMessageRaw.trim()
+        : "";
+      const serverMessage =
+        serverMessageTrimmed.length >= MIN_ACTIONABLE_NOTICE_LEN
+          ? serverMessageTrimmed
+          : "";
       const notice =
         serverMessage ||
-        (language === 'CN'
-          ? '密码已设置成功。下次可用邮箱 + 密码直接登录（验证码仍可用）。'
-          : 'Password updated successfully. Next time you can sign in with email + password (OTP still works).');
-      setAuthDraft((prev) => ({ ...prev, newPassword: '', newPasswordConfirm: '' }));
+        (language === "CN"
+          ? "密码已设置成功。下次可用邮箱 + 密码直接登录（验证码仍可用）。"
+          : "Password updated successfully. Next time you can sign in with email + password (OTP still works).");
+      setAuthDraft((prev) => ({
+        ...prev,
+        newPassword: "",
+        newPasswordConfirm: "",
+      }));
       setAuthNotice(notice);
       toast({
-        title: language === 'CN' ? '密码已设置' : 'Password updated',
+        title: language === "CN" ? "密码已设置" : "Password updated",
         description: notice,
       });
     } catch (err) {
@@ -7786,14 +10509,22 @@ export default function BffChat() {
     setAuthNotice(null);
     try {
       const requestHeaders = { ...headers, lang: language };
-      await bffJson<V1Envelope>('/v1/auth/logout', requestHeaders, { method: 'POST' });
+      await bffJson<V1Envelope>("/v1/auth/logout", requestHeaders, {
+        method: "POST",
+      });
     } catch {
       // ignore
     } finally {
       clearAuroraAuthSession();
       setAuthSession(null);
-      setAuthStage('email');
-      setAuthDraft({ email: '', code: '', password: '', newPassword: '', newPasswordConfirm: '' });
+      setAuthStage("email");
+      setAuthDraft({
+        email: "",
+        code: "",
+        password: "",
+        newPassword: "",
+        newPasswordConfirm: "",
+      });
       setAuthSheetOpen(false);
       setAuthLoading(false);
       await refreshBootstrapInfo();
@@ -7807,37 +10538,60 @@ export default function BffChat() {
   }, [setPhotoSheetOpen]);
 
   const uploadPhotoViaProxy = useCallback(
-    async ({ file, slotId, consent }: { file: File; slotId: string; consent: boolean }) => {
+    async ({
+      file,
+      slotId,
+      consent,
+    }: {
+      file: File;
+      slotId: string;
+      consent: boolean;
+    }) => {
       setPhotoUploading(true);
       let result: AnalysisPhotoRef | null = null;
       try {
         const requestHeaders = { ...headers, lang: language };
         const form = new FormData();
-        form.append('slot_id', slotId);
-        form.append('consent', consent ? 'true' : 'false');
-        form.append('photo', file, file.name || `photo_${slotId}.jpg`);
+        form.append("slot_id", slotId);
+        form.append("consent", consent ? "true" : "false");
+        form.append("photo", file, file.name || `photo_${slotId}.jpg`);
 
-        const confirmEnv = await bffJson<V1Envelope>('/v1/photos/upload', requestHeaders, {
-          method: 'POST',
-          body: form,
-        });
+        const confirmEnv = await bffJson<V1Envelope>(
+          "/v1/photos/upload",
+          requestHeaders,
+          {
+            method: "POST",
+            body: form,
+          },
+        );
         applyEnvelope(confirmEnv);
 
-        const confirmCard = confirmEnv.cards.find((c) => c && c.type === 'photo_confirm');
-        const qcStatus = normalizePhotoQcStatus(asString(confirmCard && (confirmCard.payload as any)?.qc_status));
-        const photoId = asString(confirmCard && (confirmCard.payload as any)?.photo_id);
+        const confirmCard = confirmEnv.cards.find(
+          (c) => c && c.type === "photo_confirm",
+        );
+        const qcStatus = normalizePhotoQcStatus(
+          asString(confirmCard && (confirmCard.payload as any)?.qc_status),
+        );
+        const photoId = asString(
+          confirmCard && (confirmCard.payload as any)?.photo_id,
+        );
 
         if (isPhotoUsableForDiagnosis(qcStatus) && photoId) {
           result = { slot_id: slotId, photo_id: photoId, qc_status: qcStatus };
           setAnalysisPhotoRefs((prev) => {
             const next = prev.filter((p) => p.slot_id !== slotId);
-            next.push({ slot_id: slotId, photo_id: photoId, qc_status: qcStatus });
+            next.push({
+              slot_id: slotId,
+              photo_id: photoId,
+              qc_status: qcStatus,
+            });
             return next.slice(0, 4);
           });
         }
         return result;
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err))
+          setError(err instanceof Error ? err.message : String(err));
         return result;
       } finally {
         setPhotoUploading(false);
@@ -7848,123 +10602,187 @@ export default function BffChat() {
 
   const onPhotoAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
-      if (actionId === 'photo_skip') {
+      if (actionId === "photo_skip") {
         setPhotoSheetOpen(false);
         const shouldPrompt = promptRoutineAfterPhoto;
         setPromptRoutineAfterPhoto(false);
         if (shouldPrompt) {
           setItems((prev) => [
             ...prev,
-            { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过照片' : 'Skip photos' },
+            {
+              id: nextId(),
+              role: "user",
+              kind: "text",
+              content: language === "CN" ? "跳过照片" : "Skip photos",
+            },
           ]);
           const prompt =
-            language === 'CN'
-              ? '没关系 ✅ 为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也补充一下（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以先跳过，我会给低置信度的通用 7 天基线（不做评分/不推推荐）。'
+            language === "CN"
+              ? "没关系 ✅ 为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也补充一下（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以先跳过，我会给低置信度的通用 7 天基线（不做评分/不推推荐）。"
               : "No worries ✅ To make this accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). Or you can skip and I’ll give a low-confidence 7‑day baseline (no scoring, no recommendations).";
           const chips: SuggestedChip[] = [
             {
-              chip_id: 'chip.intake.paste_routine',
-              label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
-              kind: 'quick_reply',
+              chip_id: "chip.intake.paste_routine",
+              label:
+                language === "CN"
+                  ? "填写 AM/PM 产品（更准）"
+                  : "Add AM/PM products (more accurate)",
+              kind: "quick_reply",
               data: {},
             },
             {
-              chip_id: 'chip.intake.skip_analysis',
-              label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
-              kind: 'quick_reply',
+              chip_id: "chip.intake.skip_analysis",
+              label:
+                language === "CN"
+                  ? "直接分析（低置信度）"
+                  : "Skip and analyze (low confidence)",
+              kind: "quick_reply",
               data: {},
             },
           ];
           setItems((prev) => [
             ...prev,
-            { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
-            { id: nextId(), role: 'assistant', kind: 'chips', chips },
+            { id: nextId(), role: "assistant", kind: "text", content: prompt },
+            { id: nextId(), role: "assistant", kind: "chips", chips },
           ]);
         }
         return;
       }
-      if (actionId !== 'photo_upload') {
-        setError(language === 'CN' ? '暂不支持该照片操作。' : 'That photo action is not supported yet.');
+      if (actionId !== "photo_upload") {
+        setError(
+          language === "CN"
+            ? "暂不支持该照片操作。"
+            : "That photo action is not supported yet.",
+        );
         return;
       }
 
       const consent = Boolean(data?.consent);
       if (!consent) {
-        setError(language === 'CN' ? '需要勾选同意后才能上传。' : 'Please consent before uploading.');
+        setError(
+          language === "CN"
+            ? "需要勾选同意后才能上传。"
+            : "Please consent before uploading.",
+        );
         return;
       }
 
-      const photos = (data?.photos && typeof data.photos === 'object' ? data.photos : {}) as Record<string, any>;
+      const photos = (
+        data?.photos && typeof data.photos === "object" ? data.photos : {}
+      ) as Record<string, any>;
       const entries: Array<{ slotId: string; file: File }> = [];
-      if (photos.daylight?.file instanceof File) entries.push({ slotId: 'daylight', file: photos.daylight.file });
-      if (photos.indoor_white?.file instanceof File) entries.push({ slotId: 'indoor_white', file: photos.indoor_white.file });
+      if (photos.daylight?.file instanceof File)
+        entries.push({ slotId: "daylight", file: photos.daylight.file });
+      if (photos.indoor_white?.file instanceof File)
+        entries.push({
+          slotId: "indoor_white",
+          file: photos.indoor_white.file,
+        });
 
       if (!entries.length) return;
-      setSessionPhotos({ daylight: photos.daylight, indoor_white: photos.indoor_white });
+      setSessionPhotos({
+        daylight: photos.daylight,
+        indoor_white: photos.indoor_white,
+      });
 
       const uploadedPassedRefs: AnalysisPhotoRef[] = [];
       for (const entry of entries) {
         const slotLabel =
-          entry.slotId === 'daylight'
-            ? language === 'CN'
-              ? '自然光'
-              : 'daylight'
-            : language === 'CN'
-              ? '室内白光'
-              : 'indoor white';
+          entry.slotId === "daylight"
+            ? language === "CN"
+              ? "自然光"
+              : "daylight"
+            : language === "CN"
+              ? "室内白光"
+              : "indoor white";
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
-            role: 'user',
-            kind: 'text',
-            content: language === 'CN' ? `上传照片（${slotLabel}）` : `Upload photo (${slotLabel})`,
+            role: "user",
+            kind: "text",
+            content:
+              language === "CN"
+                ? `上传照片（${slotLabel}）`
+                : `Upload photo (${slotLabel})`,
           },
         ]);
-        const uploaded = await uploadPhotoViaProxy({ file: entry.file, slotId: entry.slotId, consent });
-        if (uploaded && isPhotoUsableForDiagnosis(uploaded.qc_status) && uploaded.photo_id) uploadedPassedRefs.push(uploaded);
+        const uploaded = await uploadPhotoViaProxy({
+          file: entry.file,
+          slotId: entry.slotId,
+          consent,
+        });
+        if (
+          uploaded &&
+          isPhotoUsableForDiagnosis(uploaded.qc_status) &&
+          uploaded.photo_id
+        )
+          uploadedPassedRefs.push(uploaded);
       }
 
       setPhotoSheetOpen(false);
       const existingPhotos: AnalysisPhotoRef[] = analysisPhotoRefs
         .map((p) => ({
-          slot_id: String(p?.slot_id || '').trim(),
-          photo_id: String(p?.photo_id || '').trim(),
+          slot_id: String(p?.slot_id || "").trim(),
+          photo_id: String(p?.photo_id || "").trim(),
           qc_status: normalizePhotoQcStatus(p?.qc_status),
         }))
         .filter((p) => p.slot_id && p.photo_id)
         .slice(0, 4);
-      const photosForAnalysis = mergeAnalysisPhotoRefs(existingPhotos, uploadedPassedRefs);
+      const photosForAnalysis = mergeAnalysisPhotoRefs(
+        existingPhotos,
+        uploadedPassedRefs,
+      );
       if (photosForAnalysis.length > 0) {
         setPromptRoutineAfterPhoto(false);
-        const profileCurrentRoutine = (profileSnapshot ?? bootstrapInfo?.profile)?.currentRoutine;
+        const profileCurrentRoutine = (
+          profileSnapshot ?? bootstrapInfo?.profile
+        )?.currentRoutine;
         const hasCurrentRoutine =
-          typeof profileCurrentRoutine === 'string'
+          typeof profileCurrentRoutine === "string"
             ? Boolean(profileCurrentRoutine.trim())
-            : Boolean(profileCurrentRoutine && typeof profileCurrentRoutine === 'object');
+            : Boolean(
+                profileCurrentRoutine &&
+                typeof profileCurrentRoutine === "object",
+              );
         setAnalysisBusy(true);
-        setThinkingSteps([{
-          step: 'sim_0',
-          message: language === 'CN' ? '正在上传照片并分析肤况...' : 'Uploading photos and analyzing skin...',
-          completed: false,
-        }]);
+        setThinkingSteps([
+          {
+            step: "sim_0",
+            message:
+              language === "CN"
+                ? "正在上传照片并分析肤况..."
+                : "Uploading photos and analyzing skin...",
+            completed: false,
+          },
+        ]);
         setError(null);
-        const stopPhotoSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
+        const stopPhotoSim = startSimulatedThinking(
+          ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN,
+          setThinkingSteps,
+        );
         try {
-          setSessionState('S4_ANALYSIS_LOADING');
+          setSessionState("S4_ANALYSIS_LOADING");
           const requestHeaders = { ...headers, lang: language };
           const body: Record<string, unknown> = {
             use_photo: true,
             photos: photosForAnalysis,
-            ...(hasCurrentRoutine ? { currentRoutine: profileCurrentRoutine } : {}),
+            ...(hasCurrentRoutine
+              ? { currentRoutine: profileCurrentRoutine }
+              : {}),
           };
-          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(body),
-          });
+          const env = await bffJson<V1Envelope>(
+            "/v1/analysis/skin",
+            requestHeaders,
+            {
+              method: "POST",
+              body: JSON.stringify(body),
+            },
+          );
           applyEnvelope(env);
         } catch (err) {
-          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+          if (!tryApplyEnvelopeFromBffError(err))
+            setError(err instanceof Error ? err.message : String(err));
         } finally {
           stopPhotoSim();
           setAnalysisBusy(false);
@@ -7976,27 +10794,33 @@ export default function BffChat() {
       if (promptRoutineAfterPhoto) {
         setPromptRoutineAfterPhoto(false);
         const prompt =
-          language === 'CN'
-            ? '照片已收到 ✅ 为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也补充一下（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以先跳过，我会给低置信度的通用 7 天基线（不做评分/不推推荐）。'
+          language === "CN"
+            ? "照片已收到 ✅ 为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也补充一下（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以先跳过，我会给低置信度的通用 7 天基线（不做评分/不推推荐）。"
             : "Photo received ✅ To make this accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). Or you can skip and I’ll give a low-confidence 7‑day baseline (no scoring, no recommendations).";
         const chips: SuggestedChip[] = [
           {
-            chip_id: 'chip.intake.paste_routine',
-            label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
-            kind: 'quick_reply',
+            chip_id: "chip.intake.paste_routine",
+            label:
+              language === "CN"
+                ? "填写 AM/PM 产品（更准）"
+                : "Add AM/PM products (more accurate)",
+            kind: "quick_reply",
             data: {},
           },
           {
-            chip_id: 'chip.intake.skip_analysis',
-            label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
-            kind: 'quick_reply',
+            chip_id: "chip.intake.skip_analysis",
+            label:
+              language === "CN"
+                ? "直接分析（低置信度）"
+                : "Skip and analyze (low confidence)",
+            kind: "quick_reply",
             data: {},
           },
         ];
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
-          { id: nextId(), role: 'assistant', kind: 'chips', chips },
+          { id: nextId(), role: "assistant", kind: "text", content: prompt },
+          { id: nextId(), role: "assistant", kind: "chips", chips },
         ]);
       }
     },
@@ -8024,13 +10848,20 @@ export default function BffChat() {
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
       setChatBusy(true);
-      setThinkingSteps([{
-        step: 'sim_0',
-        message: language === 'CN' ? '正在读取你的档案...' : 'Reading your profile...',
-        completed: false,
-      }]);
-      setStreamedText('');
-      const timeoutMs = isRoutineChatAction(action) ? ROUTINE_CHAT_TIMEOUT_MS : CHAT_TIMEOUT_MS;
+      setThinkingSteps([
+        {
+          step: "sim_0",
+          message:
+            language === "CN"
+              ? "正在读取你的档案..."
+              : "Reading your profile...",
+          completed: false,
+        },
+      ]);
+      setStreamedText("");
+      const timeoutMs = isRoutineChatAction(action)
+        ? ROUTINE_CHAT_TIMEOUT_MS
+        : CHAT_TIMEOUT_MS;
       try {
         const requestHeaders = { ...headers, lang: language };
         const session = buildChatSession({
@@ -8046,7 +10877,9 @@ export default function BffChat() {
           ...(action ? { action } : {}),
           language,
           client_state: normalizeAgentState(opts?.client_state ?? agentState),
-          ...(opts?.requested_transition ? { requested_transition: opts.requested_transition } : {}),
+          ...(opts?.requested_transition
+            ? { requested_transition: opts.requested_transition }
+            : {}),
           ...(debug ? { debug: true } : {}),
           ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
@@ -8057,22 +10890,39 @@ export default function BffChat() {
 
         if (!streamEndpointDisabledRef.current) {
           try {
-            await bffChatStream(requestHeaders, body, {
-              onThinking: (event) => {
-                setThinkingSteps((prev) => {
-                  const updated = prev.map((s) => ({ ...s, completed: true }));
-                  return [...updated, { step: event.step, message: event.message, completed: false }];
-                });
+            await bffChatStream(
+              requestHeaders,
+              body,
+              {
+                onThinking: (event) => {
+                  setThinkingSteps((prev) => {
+                    const updated = prev.map((s) => ({
+                      ...s,
+                      completed: true,
+                    }));
+                    return [
+                      ...updated,
+                      {
+                        step: event.step,
+                        message: event.message,
+                        completed: false,
+                      },
+                    ];
+                  });
+                },
+                onChunk: (event) => {
+                  setStreamedText((prev) => prev + event.text);
+                },
+                onResult: (event) => {
+                  parsedStreamResponse = parseChatResponseV1(event);
+                },
               },
-              onChunk: (event) => {
-                setStreamedText((prev) => prev + event.text);
-              },
-              onResult: (event) => {
-                parsedStreamResponse = parseChatResponseV1(event);
-              },
-            }, { timeoutMs });
+              { timeoutMs },
+            );
             if (!parsedStreamResponse) {
-              throw new Error('Invalid /v1/chat/stream result: expected ChatCards v1 schema.');
+              throw new Error(
+                "Invalid /v1/chat/stream result: expected ChatCards v1 schema.",
+              );
             }
             usedStream = true;
           } catch {
@@ -8081,28 +10931,41 @@ export default function BffChat() {
         }
 
         if (!usedStream) {
-          const simSteps = language === 'CN'
-            ? ['正在读取你的档案...', '搜索知识库...', '运行安全检查...', '生成回复中...']
-            : ['Reading your profile...', 'Searching knowledge base...', 'Running safety checks...', 'Generating response...'];
+          const simSteps =
+            language === "CN"
+              ? [
+                  "正在读取你的档案...",
+                  "搜索知识库...",
+                  "运行安全检查...",
+                  "生成回复中...",
+                ]
+              : [
+                  "Reading your profile...",
+                  "Searching knowledge base...",
+                  "Running safety checks...",
+                  "Generating response...",
+                ];
           const stopSim = startSimulatedThinking(simSteps, setThinkingSteps);
           try {
-            const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
-              method: 'POST',
+            const bodyRaw = await bffJson<unknown>("/v1/chat", requestHeaders, {
+              method: "POST",
               body: JSON.stringify(body),
               timeoutMs,
             });
             const parsedV1 = parseChatResponseV1(bodyRaw);
             const legacyEnvelope =
-              !parsedV1
-              && bodyRaw
-              && typeof bodyRaw === 'object'
-              && !Array.isArray(bodyRaw)
-              && asString((bodyRaw as Record<string, unknown>).request_id)
-              && asString((bodyRaw as Record<string, unknown>).trace_id)
+              !parsedV1 &&
+              bodyRaw &&
+              typeof bodyRaw === "object" &&
+              !Array.isArray(bodyRaw) &&
+              asString((bodyRaw as Record<string, unknown>).request_id) &&
+              asString((bodyRaw as Record<string, unknown>).trace_id)
                 ? (bodyRaw as V1Envelope)
                 : null;
             if (!parsedV1 && !legacyEnvelope) {
-              throw new Error('Invalid /v1/chat response: expected ChatCards v1 schema.');
+              throw new Error(
+                "Invalid /v1/chat response: expected ChatCards v1 schema.",
+              );
             }
             if (parsedV1) applyChatResponseV1(parsedV1);
             else if (legacyEnvelope) applyEnvelope(legacyEnvelope);
@@ -8117,12 +10980,13 @@ export default function BffChat() {
         }
         pendingLocationSessionProfilePatchRef.current = null;
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err))
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
-        setLoadingIntent('default');
+        setLoadingIntent("default");
         setThinkingSteps([]);
-        setStreamedText('');
+        setStreamedText("");
       }
     },
     [
@@ -8139,49 +11003,54 @@ export default function BffChat() {
       sessionMeta,
       sessionState,
       tryApplyEnvelopeFromBffError,
-    ]
+    ],
   );
-
-  const parseMaybeUrl = useCallback((text: string) => {
-    const t = String(text || '').trim();
-    if (!t) return null;
-    try {
-      const u = new URL(t);
-      if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString();
-    } catch {
-      // ignore
-    }
-    return null;
-  }, []);
 
   const runProductDeepScan = useCallback(
     async (rawInput: string) => {
-      const inputText = String(rawInput || '').trim();
+      const inputText = String(rawInput || "").trim();
       if (!inputText) return;
 
-      setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: inputText }]);
+      setItems((prev) => [
+        ...prev,
+        { id: nextId(), role: "user", kind: "text", content: inputText },
+      ]);
       setChatBusy(true);
       setError(null);
 
       try {
-        setSessionState('P1_PRODUCT_ANALYZING');
+        setSessionState("P1_PRODUCT_ANALYZING");
 
         const requestHeaders = { ...headers, lang: language };
         const asUrl = parseMaybeUrl(inputText);
 
-        const parseEnv = await bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(asUrl ? { url: asUrl } : { text: inputText }),
-        });
-        const parseCard = Array.isArray(parseEnv.cards) ? parseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
-        const parsePayload = parseCard && parseCard.payload && typeof parseCard.payload === 'object'
-          ? parseCard.payload as Record<string, unknown>
+        const parseEnv = await bffJson<V1Envelope>(
+          "/v1/product/parse",
+          requestHeaders,
+          {
+            method: "POST",
+            body: JSON.stringify(asUrl ? { url: asUrl } : { text: inputText }),
+          },
+        );
+        const parseCard = Array.isArray(parseEnv.cards)
+          ? parseEnv.cards.find((c) => c && c.type === "product_parse")
           : null;
-        const parsedProduct = parsePayload && typeof parsePayload.product === 'object' && !Array.isArray(parsePayload.product)
-          ? parsePayload.product
-          : null;
+        const parsePayload =
+          parseCard &&
+          parseCard.payload &&
+          typeof parseCard.payload === "object"
+            ? (parseCard.payload as Record<string, unknown>)
+            : null;
+        const parsedProduct =
+          parsePayload &&
+          typeof parsePayload.product === "object" &&
+          !Array.isArray(parsePayload.product)
+            ? parsePayload.product
+            : null;
         const parseMissingReasons = uniqueStrings([
-          ...asArray(parsePayload?.missing_info).map((item) => asString(item)).filter(Boolean),
+          ...asArray(parsePayload?.missing_info)
+            .map((item) => asString(item))
+            .filter(Boolean),
           ...asArray(parseCard?.field_missing)
             .map((item) => asObject(item))
             .filter(Boolean)
@@ -8199,7 +11068,8 @@ export default function BffChat() {
           emitAuroraProductParseMissing(analyticsCtx, {
             request_id: asString(parseEnv?.request_id) || null,
             bff_trace_id: asString(parseEnv?.trace_id) || null,
-            reason: parseMissingReasons[0] || 'upstream_missing_or_unstructured',
+            reason:
+              parseMissingReasons[0] || "upstream_missing_or_unstructured",
             reasons: parseMissingReasons.slice(0, 6),
           });
         }
@@ -8214,10 +11084,14 @@ export default function BffChat() {
 
         let analyzeEnv: V1Envelope;
         try {
-          analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(analyzeBody),
-          });
+          analyzeEnv = await bffJson<V1Envelope>(
+            "/v1/product/analyze",
+            requestHeaders,
+            {
+              method: "POST",
+              body: JSON.stringify(analyzeBody),
+            },
+          );
         } catch (err) {
           if (!parseEnvelopeApplied) {
             applyEnvelope(parseEnv);
@@ -8225,31 +11099,59 @@ export default function BffChat() {
           }
           throw err;
         }
-        const analyzeCard = Array.isArray(analyzeEnv.cards) ? analyzeEnv.cards.find((c) => c && c.type === 'product_analysis') : null;
+        const analyzeCard = Array.isArray(analyzeEnv.cards)
+          ? analyzeEnv.cards.find((c) => c && c.type === "product_analysis")
+          : null;
         const analyzeAssessment =
-          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
+          analyzeCard &&
+          analyzeCard.payload &&
+          typeof analyzeCard.payload === "object"
             ? asObject((analyzeCard.payload as any).assessment)
             : null;
         const analyzePayload =
-          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
+          analyzeCard &&
+          analyzeCard.payload &&
+          typeof analyzeCard.payload === "object"
             ? (analyzeCard.payload as Record<string, unknown>)
             : null;
-        const verdict = (asString((analyzeAssessment as any)?.verdict) || '').trim().toLowerCase();
-        const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
+        const verdict = (asString((analyzeAssessment as any)?.verdict) || "")
+          .trim()
+          .toLowerCase();
+        const hasEffectiveVerdict = Boolean(
+          verdict && verdict !== "unknown" && verdict !== "未知",
+        );
         const analyzeMissingReasons = uniqueStrings([
-          ...asArray((analyzePayload as any)?.missing_info).map((item) => asString(item)).filter(Boolean),
-          ...asArray((analyzePayload as any)?.user_facing_gaps).map((item) => asString(item)).filter(Boolean),
-          ...asArray((analyzePayload as any)?.internal_debug_codes).map((item) => asString(item)).filter(Boolean),
+          ...asArray((analyzePayload as any)?.missing_info)
+            .map((item) => asString(item))
+            .filter(Boolean),
+          ...asArray((analyzePayload as any)?.user_facing_gaps)
+            .map((item) => asString(item))
+            .filter(Boolean),
+          ...asArray((analyzePayload as any)?.internal_debug_codes)
+            .map((item) => asString(item))
+            .filter(Boolean),
         ]);
-        const analyzeProvenance = asObject((analyzePayload as any)?.provenance) || null;
-        const sourceChain = uniqueStrings(asArray((analyzeProvenance as any)?.source_chain).map((item) => asString(item)).filter(Boolean));
-        const kbWrite = asObject((analyzeProvenance as any)?.kb_write || (analyzeProvenance as any)?.kbWrite) || null;
-        const blockedReason = asString((kbWrite as any)?.blocked_reason || (kbWrite as any)?.blockedReason) || null;
+        const analyzeProvenance =
+          asObject((analyzePayload as any)?.provenance) || null;
+        const sourceChain = uniqueStrings(
+          asArray((analyzeProvenance as any)?.source_chain)
+            .map((item) => asString(item))
+            .filter(Boolean),
+        );
+        const kbWrite =
+          asObject(
+            (analyzeProvenance as any)?.kb_write ||
+              (analyzeProvenance as any)?.kbWrite,
+          ) || null;
+        const blockedReason =
+          asString(
+            (kbWrite as any)?.blocked_reason || (kbWrite as any)?.blockedReason,
+          ) || null;
         const looksDegraded =
           !hasEffectiveVerdict ||
           analyzeMissingReasons.some((code) =>
             /(analysis_limited|evidence_missing|upstream_missing_or_unstructured|url_fetch_|on_page_fetch_blocked|incidecoder_|catalog_)/i.test(
-              String(code || ''),
+              String(code || ""),
             ),
           );
         if (looksDegraded) {
@@ -8263,7 +11165,9 @@ export default function BffChat() {
           emitAuroraProductAnalysisDegraded(analyticsCtx, {
             request_id: asString(analyzeEnv?.request_id) || null,
             bff_trace_id: asString(analyzeEnv?.trace_id) || null,
-            reason: analyzeMissingReasons[0] || (!hasEffectiveVerdict ? 'unknown_verdict' : null),
+            reason:
+              analyzeMissingReasons[0] ||
+              (!hasEffectiveVerdict ? "unknown_verdict" : null),
             reasons: analyzeMissingReasons.slice(0, 8),
             source_chain: sourceChain.slice(0, 6),
             blocked_reason: blockedReason,
@@ -8274,21 +11178,32 @@ export default function BffChat() {
           parseEnvelopeApplied = true;
         }
         applyEnvelope(analyzeEnv);
-        setSessionState('P2_PRODUCT_RESULT');
+        setSessionState("P2_PRODUCT_RESULT");
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err))
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
       }
     },
-    [agentState, applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      applyEnvelope,
+      headers,
+      language,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
 
   const runDupeSearch = useCallback(
     async (rawOriginal: string) => {
-      const originalText = String(rawOriginal || '').trim();
+      const originalText = String(rawOriginal || "").trim();
       if (!originalText) {
-        setError(language === 'CN' ? '请先填写「目标商品」。' : 'Please provide a target product.');
+        setError(
+          language === "CN"
+            ? "请先填写「目标商品」。"
+            : "Please provide a target product.",
+        );
         return;
       }
 
@@ -8296,53 +11211,86 @@ export default function BffChat() {
         ...prev,
         {
           id: nextId(),
-          role: 'user',
-          kind: 'text',
-          content: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
+          role: "user",
+          kind: "text",
+          content:
+            language === "CN"
+              ? `找平替：${originalText}`
+              : `Find dupes: ${originalText}`,
         },
       ]);
       setChatBusy(true);
-      setLoadingIntent('default');
+      setLoadingIntent("default");
       setError(null);
 
       try {
         const requestHeaders = { ...headers, lang: language };
         const asUrl = parseMaybeUrl(originalText);
-        const env = await bffJson<V1Envelope>('/v1/dupe/suggest', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(asUrl ? { original_url: asUrl } : { original_text: originalText }),
-        });
+        const env = await bffJson<V1Envelope>(
+          "/v1/dupe/suggest",
+          requestHeaders,
+          {
+            method: "POST",
+            body: JSON.stringify(
+              asUrl ? { original_url: asUrl } : { original_text: originalText },
+            ),
+          },
+        );
         applyEnvelope(env);
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err))
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
-        setLoadingIntent('default');
+        setLoadingIntent("default");
       }
     },
-    [applyEnvelope, headers, language, parseMaybeUrl, tryApplyEnvelopeFromBffError],
+    [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
   );
 
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
-      if (actionId === 'diagnosis_skip') {
+      if (actionId === "diagnosis_skip") {
         pendingActionAfterDiagnosisRef.current = null;
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
+          {
+            id: nextId(),
+            role: "user",
+            kind: "text",
+            content: language === "CN" ? "跳过诊断" : "Skip diagnosis",
+          },
         ]);
-        setSessionState('idle');
+        setSessionState("idle");
         return;
       }
 
-      if (actionId === 'diagnosis_submit') {
-        const skinType = typeof data?.skinType === 'string' ? data.skinType.trim() : '';
-        const barrierStatus = typeof data?.barrierStatus === 'string' ? data.barrierStatus.trim() : '';
-        const sensitivity = typeof data?.sensitivity === 'string' ? data.sensitivity.trim() : '';
-        const concerns = Array.isArray(data?.concerns) ? (data?.concerns as unknown[]).map((c) => String(c || '').trim()).filter(Boolean) : [];
+      if (actionId === "diagnosis_submit") {
+        const skinType =
+          typeof data?.skinType === "string" ? data.skinType.trim() : "";
+        const barrierStatus =
+          typeof data?.barrierStatus === "string"
+            ? data.barrierStatus.trim()
+            : "";
+        const sensitivity =
+          typeof data?.sensitivity === "string" ? data.sensitivity.trim() : "";
+        const concerns = Array.isArray(data?.concerns)
+          ? (data?.concerns as unknown[])
+              .map((c) => String(c || "").trim())
+              .filter(Boolean)
+          : [];
 
-        if (!skinType || !barrierStatus || !sensitivity || concerns.length === 0) {
-          setError(language === 'CN' ? '请先完成诊断信息。' : 'Please complete the diagnosis first.');
+        if (
+          !skinType ||
+          !barrierStatus ||
+          !sensitivity ||
+          concerns.length === 0
+        ) {
+          setError(
+            language === "CN"
+              ? "请先完成诊断信息。"
+              : "Please complete the diagnosis first.",
+          );
           return;
         }
 
@@ -8353,21 +11301,21 @@ export default function BffChat() {
           ...prev,
           {
             id: nextId(),
-            role: 'user',
-            kind: 'text',
+            role: "user",
+            kind: "text",
             content: pending
-              ? language === 'CN'
-                ? '已填写肤况信息（继续推荐）'
-                : 'Saved skin profile (continue recommendations)'
-              : language === 'CN'
-                ? '分析我的皮肤'
-                : 'Analyze my skin',
+              ? language === "CN"
+                ? "已填写肤况信息（继续推荐）"
+                : "Saved skin profile (continue recommendations)"
+              : language === "CN"
+                ? "分析我的皮肤"
+                : "Analyze my skin",
           },
         ]);
 
         await sendChat(undefined, {
-          action_id: 'profile.patch',
-          kind: 'action',
+          action_id: "profile.patch",
+          kind: "action",
           data: {
             profile_patch: {
               skinType,
@@ -8384,13 +11332,13 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'ingredient.lookup') {
+      if (actionId === "ingredient.lookup") {
         const ingredientQuery =
-          typeof data?.ingredient_query === 'string'
+          typeof data?.ingredient_query === "string"
             ? data.ingredient_query.trim()
-            : typeof data?.query === 'string'
+            : typeof data?.query === "string"
               ? data.query.trim()
-              : '';
+              : "";
 
         const analyticsCtx: AnalyticsContext = {
           brief_id: headers.brief_id,
@@ -8400,8 +11348,9 @@ export default function BffChat() {
           state: agentState,
         };
         emitIngredientsModeSelected(analyticsCtx, {
-          mode: 'lookup',
-          entry_source: typeof data?.entry_source === 'string' ? data.entry_source : null,
+          mode: "lookup",
+          entry_source:
+            typeof data?.entry_source === "string" ? data.entry_source : null,
         });
 
         if (!ingredientQuery) {
@@ -8409,12 +11358,12 @@ export default function BffChat() {
             ...prev,
             {
               id: nextId(),
-              role: 'assistant',
-              kind: 'text',
+              role: "assistant",
+              kind: "text",
               content:
-                language === 'CN'
-                  ? '请输入想查询的成分（INCI/别名）。例如：niacinamide、azelaic acid。'
-                  : 'Please enter an ingredient to lookup (INCI/alias), for example niacinamide or azelaic acid.',
+                language === "CN"
+                  ? "请输入想查询的成分（INCI/别名）。例如：niacinamide、azelaic acid。"
+                  : "Please enter an ingredient to lookup (INCI/alias), for example niacinamide or azelaic acid.",
             },
           ]);
           return;
@@ -8424,14 +11373,17 @@ export default function BffChat() {
           ...prev,
           {
             id: nextId(),
-            role: 'user',
-            kind: 'text',
-            content: language === 'CN' ? `查成分：${ingredientQuery}` : `Lookup ingredient: ${ingredientQuery}`,
+            role: "user",
+            kind: "text",
+            content:
+              language === "CN"
+                ? `查成分：${ingredientQuery}`
+                : `Lookup ingredient: ${ingredientQuery}`,
           },
         ]);
         await sendChat(undefined, {
-          action_id: 'ingredient.lookup',
-          kind: 'action',
+          action_id: "ingredient.lookup",
+          kind: "action",
           data: {
             ...(data || {}),
             ingredient_query: ingredientQuery,
@@ -8440,29 +11392,36 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'ingredient.research.poll') {
+      if (actionId === "ingredient.research.poll") {
         const ingredientQuery =
-          typeof data?.ingredient_query === 'string'
+          typeof data?.ingredient_query === "string"
             ? data.ingredient_query.trim()
-            : typeof data?.normalized_query === 'string'
+            : typeof data?.normalized_query === "string"
               ? data.normalized_query.trim()
-              : '';
+              : "";
         if (!ingredientQuery) {
-          setError(language === 'CN' ? '请先输入要查询的成分。' : 'Please enter an ingredient first.');
+          setError(
+            language === "CN"
+              ? "请先输入要查询的成分。"
+              : "Please enter an ingredient first.",
+          );
           return;
         }
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
-            role: 'user',
-            kind: 'text',
-            content: language === 'CN' ? `刷新增强结果：${ingredientQuery}` : `Refresh enhanced result: ${ingredientQuery}`,
+            role: "user",
+            kind: "text",
+            content:
+              language === "CN"
+                ? `刷新增强结果：${ingredientQuery}`
+                : `Refresh enhanced result: ${ingredientQuery}`,
           },
         ]);
         await sendChat(undefined, {
-          action_id: 'ingredient.research.poll',
-          kind: 'action',
+          action_id: "ingredient.research.poll",
+          kind: "action",
           data: {
             ...(data || {}),
             ingredient_query: ingredientQuery,
@@ -8472,9 +11431,12 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'ingredient.by_goal') {
-        const goal = typeof data?.goal === 'string' ? data.goal.trim() : '';
-        const sensitivity = typeof data?.sensitivity === 'string' ? data.sensitivity.trim() : 'unknown';
+      if (actionId === "ingredient.by_goal") {
+        const goal = typeof data?.goal === "string" ? data.goal.trim() : "";
+        const sensitivity =
+          typeof data?.sensitivity === "string"
+            ? data.sensitivity.trim()
+            : "unknown";
         const analyticsCtx: AnalyticsContext = {
           brief_id: headers.brief_id,
           trace_id: headers.trace_id,
@@ -8483,34 +11445,35 @@ export default function BffChat() {
           state: agentState,
         };
         emitIngredientsModeSelected(analyticsCtx, {
-          mode: 'by_goal',
-          entry_source: typeof data?.entry_source === 'string' ? data.entry_source : null,
+          mode: "by_goal",
+          entry_source:
+            typeof data?.entry_source === "string" ? data.entry_source : null,
         });
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
-            role: 'user',
-            kind: 'text',
+            role: "user",
+            kind: "text",
             content:
-              language === 'CN'
-                ? `按功效找成分：${goal || '修护'}（敏感度：${sensitivity || 'unknown'}）`
-                : `Find ingredients by goal: ${goal || 'barrier'} (sensitivity: ${sensitivity || 'unknown'})`,
+              language === "CN"
+                ? `按功效找成分：${goal || "修护"}（敏感度：${sensitivity || "unknown"}）`
+                : `Find ingredients by goal: ${goal || "barrier"} (sensitivity: ${sensitivity || "unknown"})`,
           },
         ]);
         await sendChat(undefined, {
-          action_id: 'ingredient.by_goal',
-          kind: 'action',
+          action_id: "ingredient.by_goal",
+          kind: "action",
           data: {
             ...(data || {}),
-            goal: goal || 'barrier',
-            sensitivity: sensitivity || 'unknown',
+            goal: goal || "barrier",
+            sensitivity: sensitivity || "unknown",
           },
         });
         return;
       }
 
-      if (actionId === 'ingredient.optin_diagnosis') {
+      if (actionId === "ingredient.optin_diagnosis") {
         const analyticsCtx: AnalyticsContext = {
           brief_id: headers.brief_id,
           trace_id: headers.trace_id,
@@ -8519,20 +11482,24 @@ export default function BffChat() {
           state: agentState,
         };
         emitIngredientsOptinDiagnosis(analyticsCtx, {
-          entry_source: typeof data?.entry_source === 'string' ? data.entry_source : null,
+          entry_source:
+            typeof data?.entry_source === "string" ? data.entry_source : null,
         });
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
-            role: 'user',
-            kind: 'text',
-            content: language === 'CN' ? '提高准确度（开始诊断）' : 'Improve accuracy (start diagnosis)',
+            role: "user",
+            kind: "text",
+            content:
+              language === "CN"
+                ? "提高准确度（开始诊断）"
+                : "Improve accuracy (start diagnosis)",
           },
         ]);
         await sendChat(undefined, {
-          action_id: 'ingredient.optin_diagnosis',
-          kind: 'action',
+          action_id: "ingredient.optin_diagnosis",
+          kind: "action",
           data: {
             ...(data || {}),
           },
@@ -8540,49 +11507,62 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'dupe_compare') {
-        const original = data?.original && typeof data.original === 'object' ? data.original : null;
-        const dupe = data?.dupe && typeof data.dupe === 'object' ? data.dupe : null;
+      if (actionId === "dupe_compare") {
+        const original =
+          data?.original && typeof data.original === "object"
+            ? data.original
+            : null;
+        const dupe =
+          data?.dupe && typeof data.dupe === "object" ? data.dupe : null;
         if (!original || !dupe) return;
 
         const dupeName =
-          typeof (dupe as any)?.display_name === 'string'
+          typeof (dupe as any)?.display_name === "string"
             ? String((dupe as any).display_name).trim()
-            : typeof (dupe as any)?.name === 'string'
+            : typeof (dupe as any)?.name === "string"
               ? String((dupe as any).name).trim()
-              : '';
+              : "";
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
-            role: 'user',
-            kind: 'text',
-            content: language === 'CN' ? `对比：${dupeName || '平替'}` : `Compare: ${dupeName || 'dupe'}`,
+            role: "user",
+            kind: "text",
+            content:
+              language === "CN"
+                ? `对比：${dupeName || "平替"}`
+                : `Compare: ${dupeName || "dupe"}`,
           },
         ]);
 
         setChatBusy(true);
-        setLoadingIntent('default');
+        setLoadingIntent("default");
         setError(null);
         try {
           const requestHeaders = { ...headers, lang: language };
-          const env = await bffJson<V1Envelope>('/v1/dupe/compare', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({ original, dupe }),
-          });
+          const env = await bffJson<V1Envelope>(
+            "/v1/dupe/compare",
+            requestHeaders,
+            {
+              method: "POST",
+              body: JSON.stringify({ original, dupe }),
+            },
+          );
           applyEnvelope(env);
         } catch (err) {
-          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+          if (!tryApplyEnvelopeFromBffError(err))
+            setError(err instanceof Error ? err.message : String(err));
         } finally {
           setChatBusy(false);
-          setLoadingIntent('default');
+          setLoadingIntent("default");
         }
         return;
       }
 
-      if (actionId === 'affiliate_open') {
-        const url = typeof data?.url === 'string' ? data.url.trim() : '';
-        const offerId = typeof data?.offer_id === 'string' ? data.offer_id.trim() : undefined;
+      if (actionId === "affiliate_open") {
+        const url = typeof data?.url === "string" ? data.url.trim() : "";
+        const offerId =
+          typeof data?.offer_id === "string" ? data.offer_id.trim() : undefined;
         if (!url) return;
 
         const outboundCtx: AnalyticsContext = {
@@ -8594,28 +11574,43 @@ export default function BffChat() {
         };
         const merchantDomain = (() => {
           try {
-            return new URL(url).hostname || '';
+            return new URL(url).hostname || "";
           } catch {
-            return '';
+            return "";
           }
         })();
-        emitUiOutboundOpened(outboundCtx, { merchant_domain: merchantDomain, card_position: 0, sku_type: 'unknown' });
+        emitUiOutboundOpened(outboundCtx, {
+          merchant_domain: merchantDomain,
+          card_position: 0,
+          sku_type: "unknown",
+        });
 
         let opened = false;
         try {
-          const w = window.open(url, '_blank', 'noopener,noreferrer');
+          const w = window.open(url, "_blank", "noopener,noreferrer");
           opened = Boolean(w);
-          if (!opened) setError(language === 'CN' ? '浏览器拦截了弹窗，请允许后重试。' : 'Popup blocked by browser. Please allow popups and retry.');
+          if (!opened)
+            setError(
+              language === "CN"
+                ? "浏览器拦截了弹窗，请允许后重试。"
+                : "Popup blocked by browser. Please allow popups and retry.",
+            );
         } catch {
-          setError(language === 'CN' ? '打开链接失败。' : 'Failed to open link.');
+          setError(
+            language === "CN" ? "打开链接失败。" : "Failed to open link.",
+          );
         }
 
         // Best-effort tracking (do not render the returned card).
         try {
           const requestHeaders = { ...headers, lang: language };
-          await bffJson('/v1/affiliate/outcome', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({ outcome: opened ? 'success' : 'failed', url, ...(offerId ? { offer_id: offerId } : {}) }),
+          await bffJson("/v1/affiliate/outcome", requestHeaders, {
+            method: "POST",
+            body: JSON.stringify({
+              outcome: opened ? "success" : "failed",
+              url,
+              ...(offerId ? { offer_id: offerId } : {}),
+            }),
           });
         } catch {
           // ignore tracking errors
@@ -8623,148 +11618,202 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'profile_upload_selfie') {
+      if (actionId === "profile_upload_selfie") {
         setPromptRoutineAfterPhoto(true);
         setPhotoSheetOpen(true);
         return;
       }
 
-      if (actionId === 'profile_confirm') {
+      if (actionId === "profile_confirm") {
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '先不传照片，继续' : 'Continue without photos' },
+          {
+            id: nextId(),
+            role: "user",
+            kind: "text",
+            content:
+              language === "CN"
+                ? "先不传照片，继续"
+                : "Continue without photos",
+          },
         ]);
 
         const prompt =
-          language === 'CN'
-            ? '为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也发我（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以直接跳过，我会先给低置信度的通用 7 天建议。'
-            : 'To make this analysis accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). You can also skip; I’ll give a low-confidence 7‑day baseline.';
+          language === "CN"
+            ? "为了把分析做得更准，我强烈建议你把最近在用的产品/步骤也发我（AM/PM：洁面/活性/保湿/SPF，名字或链接都行）。你也可以直接跳过，我会先给低置信度的通用 7 天建议。"
+            : "To make this analysis accurate, I strongly recommend sharing your current products/steps (AM/PM: cleanser/actives/moisturizer/SPF — names or links). You can also skip; I’ll give a low-confidence 7‑day baseline.";
         const chips: SuggestedChip[] = [
           {
-            chip_id: 'chip.intake.paste_routine',
-            label: language === 'CN' ? '填写 AM/PM 产品（更准）' : 'Add AM/PM products (more accurate)',
-            kind: 'quick_reply',
+            chip_id: "chip.intake.paste_routine",
+            label:
+              language === "CN"
+                ? "填写 AM/PM 产品（更准）"
+                : "Add AM/PM products (more accurate)",
+            kind: "quick_reply",
             data: {},
           },
           {
-            chip_id: 'chip.intake.skip_analysis',
-            label: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
-            kind: 'quick_reply',
+            chip_id: "chip.intake.skip_analysis",
+            label:
+              language === "CN"
+                ? "直接分析（低置信度）"
+                : "Skip and analyze (low confidence)",
+            kind: "quick_reply",
             data: {},
           },
         ];
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'assistant', kind: 'text', content: prompt },
-          { id: nextId(), role: 'assistant', kind: 'chips', chips },
+          { id: nextId(), role: "assistant", kind: "text", content: prompt },
+          { id: nextId(), role: "assistant", kind: "chips", chips },
         ]);
         return;
       }
 
-      if (actionId === 'profile_update_concerns') {
-        const concernsRaw = Array.isArray(data?.concerns) ? (data?.concerns as unknown[]) : [];
-        const concerns = concernsRaw.map((c) => String(c || '').trim()).filter(Boolean);
+      if (actionId === "profile_update_concerns") {
+        const concernsRaw = Array.isArray(data?.concerns)
+          ? (data?.concerns as unknown[])
+          : [];
+        const concerns = concernsRaw
+          .map((c) => String(c || "").trim())
+          .filter(Boolean);
         const requestHeaders = { ...headers, lang: language };
 
         setChatBusy(true);
         try {
-          const env = await bffJson<V1Envelope>('/v1/profile/update', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({ goals: concerns }),
-            timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
-          });
+          const env = await bffJson<V1Envelope>(
+            "/v1/profile/update",
+            requestHeaders,
+            {
+              method: "POST",
+              body: JSON.stringify({ goals: concerns }),
+              timeoutMs: PROFILE_UPDATE_TIMEOUT_MS,
+            },
+          );
           applyEnvelope(env);
         } catch (err) {
-          if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+          if (!tryApplyEnvelopeFromBffError(err))
+            setError(err instanceof Error ? err.message : String(err));
         } finally {
           setChatBusy(false);
         }
         return;
       }
 
-      if (actionId === 'analysis_review_products') {
+      if (actionId === "analysis_review_products") {
         setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
+        setRoutineTab("am");
         setRoutineSheetOpen(true);
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '评估我现在用的产品' : 'Review my current products' },
           {
             id: nextId(),
-            role: 'assistant',
-            kind: 'text',
+            role: "user",
+            kind: "text",
             content:
-              language === 'CN'
-                ? '把你现在正在用的产品按 AM/PM 填一下（洁面/活性/保湿/SPF，名字或链接都行），我先帮你做兼容性与刺激风险检查，再决定要不要换/加。'
-                : 'Fill in your AM/PM products (cleanser/actives/moisturizer/SPF, names or links). I’ll check conflicts and irritation risk first, then decide what to keep/change.',
+              language === "CN"
+                ? "评估我现在用的产品"
+                : "Review my current products",
+          },
+          {
+            id: nextId(),
+            role: "assistant",
+            kind: "text",
+            content:
+              language === "CN"
+                ? "把你现在正在用的产品按 AM/PM 填一下（洁面/活性/保湿/SPF，名字或链接都行），我先帮你做兼容性与刺激风险检查，再决定要不要换/加。"
+                : "Fill in your AM/PM products (cleanser/actives/moisturizer/SPF, names or links). I’ll check conflicts and irritation risk first, then decide what to keep/change.",
           },
         ]);
         return;
       }
 
-      if (actionId === 'analysis_quick_check') {
-        const value = typeof data?.value === 'string' ? data.value.trim().toLowerCase() : '';
-        if (value !== 'yes' && value !== 'no') return;
+      if (actionId === "analysis_quick_check") {
+        const value =
+          typeof data?.value === "string"
+            ? data.value.trim().toLowerCase()
+            : "";
+        if (value !== "yes" && value !== "no") return;
         const userText =
-          value === 'yes'
-            ? language === 'CN'
-              ? '有（最近刺痛/泛红）'
-              : 'Yes — stinging/redness recently'
-            : language === 'CN'
-              ? '没有（最近没有刺痛/泛红）'
-              : 'No — no stinging/redness recently';
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: userText }]);
+          value === "yes"
+            ? language === "CN"
+              ? "有（最近刺痛/泛红）"
+              : "Yes — stinging/redness recently"
+            : language === "CN"
+              ? "没有（最近没有刺痛/泛红）"
+              : "No — no stinging/redness recently";
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: "user", kind: "text", content: userText },
+        ]);
 
         const immediate =
-          value === 'yes'
-            ? language === 'CN'
-              ? '我会按“屏障优先”来给建议，先避免叠加强活性。'
-              : 'I’ll keep this barrier-first and avoid stacking strong actives for now.'
-            : language === 'CN'
-              ? '我会更放心一些推进，但仍会从低频、单一活性开始。'
-              : 'We can be a bit more proactive, but still start low-frequency with one active at a time.';
-        setItems((prev) => [...prev, { id: nextId(), role: 'assistant', kind: 'text', content: immediate }]);
+          value === "yes"
+            ? language === "CN"
+              ? "我会按“屏障优先”来给建议，先避免叠加强活性。"
+              : "I’ll keep this barrier-first and avoid stacking strong actives for now."
+            : language === "CN"
+              ? "我会更放心一些推进，但仍会从低频、单一活性开始。"
+              : "We can be a bit more proactive, but still start low-frequency with one active at a time.";
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: "assistant", kind: "text", content: immediate },
+        ]);
 
         // IMPORTANT: keep quick-check UI-only to avoid accidentally triggering unrelated
         // backend flows (e.g. budget gating) from a short free-text message.
         return;
       }
 
-      if (actionId === 'ingredient_drilldown') {
-        const ingredientName = typeof data?.ingredient_name === 'string' ? data.ingredient_name.trim() : '';
+      if (actionId === "ingredient_drilldown") {
+        const ingredientName =
+          typeof data?.ingredient_name === "string"
+            ? data.ingredient_name.trim()
+            : "";
         if (!ingredientName) return;
         const prompt =
-          language === 'CN'
+          language === "CN"
             ? `请分析成分“${ingredientName}”：说明常见功效、使用注意点，并给出含该成分的主流产品例子（按平价/中端/高端各举例）。`
             : `Analyze ingredient "${ingredientName}": explain common benefits, key watchouts, and example mainstream products containing it (budget/mid/premium).`;
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: prompt }]);
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: "user", kind: "text", content: prompt },
+        ]);
         await sendChat(prompt);
         return;
       }
 
-      if (actionId === 'analysis_followup_prompt') {
-        const prompt = typeof data?.prompt === 'string' ? data.prompt.trim() : '';
-        const goalRaw = typeof data?.goal === 'string' ? data.goal.trim().toLowerCase() : '';
+      if (actionId === "analysis_followup_prompt") {
+        const prompt =
+          typeof data?.prompt === "string" ? data.prompt.trim() : "";
+        const goalRaw =
+          typeof data?.goal === "string" ? data.goal.trim().toLowerCase() : "";
         const goal =
-          goalRaw === 'acne_focus' || goalRaw === 'less_drying' || goalRaw === 'pros_cons'
+          goalRaw === "acne_focus" ||
+          goalRaw === "less_drying" ||
+          goalRaw === "pros_cons"
             ? goalRaw
             : undefined;
-        const anchorFromData = data?.anchor && typeof data.anchor === 'object'
-          ? (data.anchor as Record<string, unknown>)
-          : null;
+        const anchorFromData =
+          data?.anchor && typeof data.anchor === "object"
+            ? (data.anchor as Record<string, unknown>)
+            : null;
         const fallbackAnchor =
           anchorProductId || anchorProductUrl
             ? {
-              ...(anchorProductId ? { product_id: anchorProductId } : {}),
-              ...(anchorProductUrl ? { url: anchorProductUrl } : {}),
-            }
+                ...(anchorProductId ? { product_id: anchorProductId } : {}),
+                ...(anchorProductUrl ? { url: anchorProductUrl } : {}),
+              }
             : null;
         const anchor = anchorFromData || fallbackAnchor;
         if (!prompt) return;
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: prompt }]);
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: "user", kind: "text", content: prompt },
+        ]);
         await sendChat(undefined, {
-          action_id: 'chat.followup.alternatives',
-          kind: 'action',
+          action_id: "chat.followup.alternatives",
+          kind: "action",
           data: {
             ...(goal ? { goal } : {}),
             ...(anchor ? { anchor } : {}),
@@ -8777,19 +11826,19 @@ export default function BffChat() {
       }
 
       const msg =
-        actionId === 'analysis_continue'
+        actionId === "analysis_continue"
           ? null
-          : actionId === 'analysis_gentler'
-            ? language === 'CN'
-              ? '给我更温和的方案'
-              : 'Make it gentler'
-            : actionId === 'analysis_simple'
-              ? language === 'CN'
-                ? '给我更简单的方案'
-                : 'Make it simpler'
+          : actionId === "analysis_gentler"
+            ? language === "CN"
+              ? "给我更温和的方案"
+              : "Make it gentler"
+            : actionId === "analysis_simple"
+              ? language === "CN"
+                ? "给我更简单的方案"
+                : "Make it simpler"
               : null;
 
-      if (actionId === 'analysis_continue') {
+      if (actionId === "analysis_continue") {
         // Explicitly request recommendations via a chip trigger so the backend
         // can safely allow recommendation cards (no accidental auto-push).
         const fromState = agentState;
@@ -8802,47 +11851,80 @@ export default function BffChat() {
         };
         const validation = validateRequestedTransition({
           from_state: fromState,
-          trigger_source: 'action',
+          trigger_source: "action",
           trigger_id: actionId,
-          requested_next_state: 'RECO_GATE',
+          requested_next_state: "RECO_GATE",
         });
-        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
+        const resolvedNextState: AgentState = validation.ok
+          ? validation.next_state
+          : "IDLE_CHAT";
         if (!validation.ok) {
-          console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
+          console.warn("[StateMachine] soft fallback on action transition", {
+            actionId,
+            fromState,
+            reason: validation.reason,
+          });
         }
         if (resolvedNextState !== fromState) {
           emitAgentStateEntered(
             { ...ctx, state: resolvedNextState },
-            { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+            {
+              state_name: resolvedNextState,
+              from_state: fromState,
+              trigger_source: "action",
+              trigger_id: actionId,
+            },
           );
           setAgentStateSafe(resolvedNextState);
         }
-        if (resolvedNextState === 'RECO_GATE') {
-          emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
+        if (resolvedNextState === "RECO_GATE") {
+          emitUiRecosRequested(
+            { ...ctx, state: resolvedNextState },
+            { entry_point: "action", prior_value_moment: "analysis_summary" },
+          );
         }
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: t('s5.btn.continue', language) },
-        ]);
-        await sendChat(undefined, {
-          action_id: 'chip.action.reco_routine',
-          kind: 'chip',
-          data: {
-            reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
-            include_alternatives: true,
+          {
+            id: nextId(),
+            role: "user",
+            kind: "text",
+            content: t("s5.btn.continue", language),
           },
-        }, {
-          client_state: fromState,
-          requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
-        });
+        ]);
+        await sendChat(
+          undefined,
+          {
+            action_id: "chip.action.reco_routine",
+            kind: "chip",
+            data: {
+              reply_text:
+                language === "CN"
+                  ? "生成一套早晚护肤 routine"
+                  : "Build an AM/PM skincare routine",
+              include_alternatives: true,
+            },
+          },
+          {
+            client_state: fromState,
+            requested_transition: {
+              trigger_source: "action",
+              trigger_id: actionId,
+              requested_next_state: resolvedNextState,
+            },
+          },
+        );
         return;
       }
 
       if (msg) {
-        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: "user", kind: "text", content: msg },
+        ]);
         // Make gentler / simpler are explicit *preference* messages (not silent actions).
         // We still send them as chips to keep the recommendation gate explicit.
-        if (actionId === 'analysis_gentler' || actionId === 'analysis_simple') {
+        if (actionId === "analysis_gentler" || actionId === "analysis_simple") {
           const fromState = agentState;
           const ctx: AnalyticsContext = {
             brief_id: headers.brief_id,
@@ -8853,40 +11935,62 @@ export default function BffChat() {
           };
           const validation = validateRequestedTransition({
             from_state: fromState,
-            trigger_source: 'action',
+            trigger_source: "action",
             trigger_id: actionId,
-            requested_next_state: 'RECO_GATE',
+            requested_next_state: "RECO_GATE",
           });
-          const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
+          const resolvedNextState: AgentState = validation.ok
+            ? validation.next_state
+            : "IDLE_CHAT";
           if (!validation.ok) {
-            console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
+            console.warn("[StateMachine] soft fallback on action transition", {
+              actionId,
+              fromState,
+              reason: validation.reason,
+            });
           }
           if (resolvedNextState !== fromState) {
             emitAgentStateEntered(
               { ...ctx, state: resolvedNextState },
-              { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+              {
+                state_name: resolvedNextState,
+                from_state: fromState,
+                trigger_source: "action",
+                trigger_id: actionId,
+              },
             );
             setAgentStateSafe(resolvedNextState);
           }
-          if (resolvedNextState === 'RECO_GATE') {
-            emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
+          if (resolvedNextState === "RECO_GATE") {
+            emitUiRecosRequested(
+              { ...ctx, state: resolvedNextState },
+              { entry_point: "action", prior_value_moment: "analysis_summary" },
+            );
           }
           const replyText =
-            actionId === 'analysis_gentler'
-              ? language === 'CN'
-                ? '生成一套更温和的早晚护肤 routine（减少刺激，优先修护）。'
-                : 'Build a gentler AM/PM routine (minimize irritation, barrier-first).'
-              : language === 'CN'
-                ? '生成一套更简单的早晚护肤 routine（步骤更少）。'
-                : 'Build the simplest AM/PM routine (fewer steps).';
-          await sendChat(undefined, {
-            action_id: 'chip.action.reco_routine',
-            kind: 'chip',
-            data: { reply_text: replyText, include_alternatives: true },
-          }, {
-            client_state: fromState,
-            requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
-          });
+            actionId === "analysis_gentler"
+              ? language === "CN"
+                ? "生成一套更温和的早晚护肤 routine（减少刺激，优先修护）。"
+                : "Build a gentler AM/PM routine (minimize irritation, barrier-first)."
+              : language === "CN"
+                ? "生成一套更简单的早晚护肤 routine（步骤更少）。"
+                : "Build the simplest AM/PM routine (fewer steps).";
+          await sendChat(
+            undefined,
+            {
+              action_id: "chip.action.reco_routine",
+              kind: "chip",
+              data: { reply_text: replyText, include_alternatives: true },
+            },
+            {
+              client_state: fromState,
+              requested_transition: {
+                trigger_source: "action",
+                trigger_id: actionId,
+                requested_next_state: resolvedNextState,
+              },
+            },
+          );
           return;
         }
 
@@ -8894,15 +11998,25 @@ export default function BffChat() {
         return;
       }
 
-      await sendChat(undefined, { action_id: actionId, kind: 'action', data });
+      await sendChat(undefined, { action_id: actionId, kind: "action", data });
     },
-    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyEnvelope,
+      headers,
+      language,
+      sendChat,
+      setAgentStateSafe,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
 
   const onProductPicksPrimary = useCallback(async () => {
     if (isLoading) return;
     const fromState = agentState;
-    const actionId = 'product_picks_primary';
+    const actionId = "product_picks_primary";
     const ctx: AnalyticsContext = {
       brief_id: headers.brief_id,
       trace_id: headers.trace_id,
@@ -8913,50 +12027,71 @@ export default function BffChat() {
 
     const validation = validateRequestedTransition({
       from_state: fromState,
-      trigger_source: 'action',
+      trigger_source: "action",
       trigger_id: actionId,
-      requested_next_state: 'RECO_GATE',
+      requested_next_state: "RECO_GATE",
     });
-    const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
+    const resolvedNextState: AgentState = validation.ok
+      ? validation.next_state
+      : "IDLE_CHAT";
     if (!validation.ok) {
-      console.warn('[StateMachine] soft fallback on action transition', { actionId, fromState, reason: validation.reason });
+      console.warn("[StateMachine] soft fallback on action transition", {
+        actionId,
+        fromState,
+        reason: validation.reason,
+      });
     }
 
     if (resolvedNextState !== fromState) {
       emitAgentStateEntered(
         { ...ctx, state: resolvedNextState },
-        { state_name: resolvedNextState, from_state: fromState, trigger_source: 'action', trigger_id: actionId },
+        {
+          state_name: resolvedNextState,
+          from_state: fromState,
+          trigger_source: "action",
+          trigger_id: actionId,
+        },
       );
       setAgentStateSafe(resolvedNextState);
     }
 
-    if (resolvedNextState === 'RECO_GATE') {
-      emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'product_picks' });
+    if (resolvedNextState === "RECO_GATE") {
+      emitUiRecosRequested(
+        { ...ctx, state: resolvedNextState },
+        { entry_point: "action", prior_value_moment: "product_picks" },
+      );
     }
 
     setItems((prev) => [
       ...prev,
       {
         id: nextId(),
-        role: 'user',
-        kind: 'text',
-        content: language === 'CN' ? '查看产品推荐' : 'See product recommendations',
+        role: "user",
+        kind: "text",
+        content:
+          language === "CN" ? "查看产品推荐" : "See product recommendations",
       },
     ]);
 
     const replyText =
-      language === 'CN' ? '推荐一些产品（并给出可购买的链接/入口）。' : 'Recommend a few products (with purchasable links/CTAs).';
+      language === "CN"
+        ? "推荐一些产品（并给出可购买的链接/入口）。"
+        : "Recommend a few products (with purchasable links/CTAs).";
 
     await sendChat(
       undefined,
       {
-        action_id: 'chip.start.reco_products',
-        kind: 'chip',
+        action_id: "chip.start.reco_products",
+        kind: "chip",
         data: { reply_text: replyText, include_alternatives: true },
       },
       {
         client_state: fromState,
-        requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
+        requested_transition: {
+          trigger_source: "action",
+          trigger_id: actionId,
+          requested_next_state: resolvedNextState,
+        },
       },
     );
   }, [agentState, headers, isLoading, language, sendChat, setAgentStateSafe]);
@@ -8964,42 +12099,58 @@ export default function BffChat() {
   const getSanitizedAnalysisPhotos = useCallback(() => {
     return analysisPhotoRefs
       .map((p) => ({
-        slot_id: String(p?.slot_id || '').trim(),
-        photo_id: String(p?.photo_id || '').trim(),
+        slot_id: String(p?.slot_id || "").trim(),
+        photo_id: String(p?.photo_id || "").trim(),
         qc_status: normalizePhotoQcStatus(p?.qc_status),
       }))
       .filter((p) => p.slot_id && p.photo_id)
       .slice(0, 4);
   }, [analysisPhotoRefs]);
 
-  const runLowConfidenceSkinAnalysis = useCallback(async (opts?: { fromRoutineForm?: boolean }) => {
-    const fromRoutineForm = opts?.fromRoutineForm === true;
-    if (fromRoutineForm) setRoutineFormBusy(true);
-    setAnalysisBusy(true);
-    setThinkingSteps([{
-      step: 'sim_0',
-      message: language === 'CN' ? '正在快速分析肤质...' : 'Running quick skin analysis...',
-      completed: false,
-    }]);
-    setError(null);
-    const stopQuickSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
-    try {
-      setSessionState('S4_ANALYSIS_LOADING');
-      const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({ use_photo: false }),
-      });
-      applyEnvelope(env);
-    } catch (err) {
-      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      stopQuickSim();
-      setAnalysisBusy(false);
-      setThinkingSteps([]);
-      if (fromRoutineForm) setRoutineFormBusy(false);
-    }
-  }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
+  const runLowConfidenceSkinAnalysis = useCallback(
+    async (opts?: { fromRoutineForm?: boolean }) => {
+      const fromRoutineForm = opts?.fromRoutineForm === true;
+      if (fromRoutineForm) setRoutineFormBusy(true);
+      setAnalysisBusy(true);
+      setThinkingSteps([
+        {
+          step: "sim_0",
+          message:
+            language === "CN"
+              ? "正在快速分析肤质..."
+              : "Running quick skin analysis...",
+          completed: false,
+        },
+      ]);
+      setError(null);
+      const stopQuickSim = startSimulatedThinking(
+        ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN,
+        setThinkingSteps,
+      );
+      try {
+        setSessionState("S4_ANALYSIS_LOADING");
+        const requestHeaders = { ...headers, lang: language };
+        const env = await bffJson<V1Envelope>(
+          "/v1/analysis/skin",
+          requestHeaders,
+          {
+            method: "POST",
+            body: JSON.stringify({ use_photo: false }),
+          },
+        );
+        applyEnvelope(env);
+      } catch (err) {
+        if (!tryApplyEnvelopeFromBffError(err))
+          setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        stopQuickSim();
+        setAnalysisBusy(false);
+        setThinkingSteps([]);
+        if (fromRoutineForm) setRoutineFormBusy(false);
+      }
+    },
+    [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
+  );
 
   const runRoutineSkinAnalysis = useCallback(
     async (
@@ -9008,40 +12159,56 @@ export default function BffChat() {
       opts?: { fromRoutineForm?: boolean },
     ) => {
       const routine =
-        typeof routineInput === 'string'
-          ? String(routineInput || '').trim()
-          : routineInput && typeof routineInput === 'object'
+        typeof routineInput === "string"
+          ? String(routineInput || "").trim()
+          : routineInput && typeof routineInput === "object"
             ? routineInput
             : null;
-      if (!routine || (typeof routine === 'string' && !routine.trim())) return;
+      if (!routine || (typeof routine === "string" && !routine.trim())) return;
       const fromRoutineForm = opts?.fromRoutineForm === true;
       if (fromRoutineForm) setRoutineFormBusy(true);
       setAnalysisBusy(true);
-      setThinkingSteps([{
-        step: 'sim_0',
-        message: language === 'CN' ? '正在结合你的护肤步骤分析...' : 'Analyzing with your routine...',
-        completed: false,
-      }]);
+      setThinkingSteps([
+        {
+          step: "sim_0",
+          message:
+            language === "CN"
+              ? "正在结合你的护肤步骤分析..."
+              : "Analyzing with your routine...",
+          completed: false,
+        },
+      ]);
       setError(null);
       const requestHeaders = { ...headers, lang: language };
-      const stopRoutineSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
+      const stopRoutineSim = startSimulatedThinking(
+        ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN,
+        setThinkingSteps,
+      );
 
       try {
-        setSessionState('S4_ANALYSIS_LOADING');
-        const photos = mergeAnalysisPhotoRefs(getSanitizedAnalysisPhotos(), Array.isArray(photoRefsOverride) ? photoRefsOverride : []);
+        setSessionState("S4_ANALYSIS_LOADING");
+        const photos = mergeAnalysisPhotoRefs(
+          getSanitizedAnalysisPhotos(),
+          Array.isArray(photoRefsOverride) ? photoRefsOverride : [],
+        );
         const usePhoto = photos.length > 0;
         const body: Record<string, unknown> = {
           use_photo: usePhoto,
           currentRoutine: routine,
           ...(usePhoto ? { photos } : {}),
         };
-        const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
+        const envAnalysis = await bffJson<V1Envelope>(
+          "/v1/analysis/skin",
+          requestHeaders,
+          {
+            method: "POST",
+            body: JSON.stringify(body),
+          },
+        );
         applyEnvelope(envAnalysis);
       } catch (err) {
-        if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+        if (!tryApplyEnvelopeFromBffError(err))
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         stopRoutineSim();
         setAnalysisBusy(false);
@@ -9049,54 +12216,45 @@ export default function BffChat() {
         if (fromRoutineForm) setRoutineFormBusy(false);
       }
     },
-    [applyEnvelope, getSanitizedAnalysisPhotos, headers, language, tryApplyEnvelopeFromBffError],
+    [
+      applyEnvelope,
+      getSanitizedAnalysisPhotos,
+      headers,
+      language,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
 
   const submitText = useCallback(
     async (raw: string) => {
-      const msg = String(raw || '').trim();
+      const msg = String(raw || "").trim();
       if (!msg) return;
-    const isTextExplicitQuickProfile = (() => {
-      const t = msg.trim().toLowerCase();
-      if (!t) return false;
-      if (t.includes('quick profile') || t.includes('30-sec quick profile') || t.includes('30 sec quick profile')) return true;
-      if (t.includes('快速画像')) return true;
-      if (t.includes('30秒') && t.includes('画像')) return true;
-      if (t.includes('30秒快速画像') || t.includes('30 秒快速画像')) return true;
-      return false;
-    })();
+      const directUrl = parseMaybeUrl(msg);
+      if (directUrl) {
+        setInput("");
+        await runProductDeepScan(directUrl);
+        return;
+      }
 
-    if (isTextExplicitQuickProfile) {
-      const fromState = agentState;
-      const toState: AgentState = 'QUICK_PROFILE';
-      const ctx: AnalyticsContext = {
-        brief_id: headers.brief_id,
-        trace_id: headers.trace_id,
-        aurora_uid: headers.aurora_uid,
-        lang: toLangPref(language),
-        state: fromState,
-      };
-      emitAgentStateEntered({ ...ctx, state: toState }, { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: msg.slice(0, 120) });
-      setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
-      setQuickProfileStep('skin_feel');
-      setQuickProfileDraft({});
-      setAgentStateSafe(toState);
-      setInput('');
-      return;
-    }
+      const isTextExplicitQuickProfile = (() => {
+        const t = msg.trim().toLowerCase();
+        if (!t) return false;
+        if (
+          t.includes("quick profile") ||
+          t.includes("30-sec quick profile") ||
+          t.includes("30 sec quick profile")
+        )
+          return true;
+        if (t.includes("快速画像")) return true;
+        if (t.includes("30秒") && t.includes("画像")) return true;
+        if (t.includes("30秒快速画像") || t.includes("30 秒快速画像"))
+          return true;
+        return false;
+      })();
 
-    const inferred = inferTextExplicitTransition(msg, language);
-    if (inferred) {
-      const fromState = agentState;
-      const validation = validateRequestedTransition({
-        from_state: fromState,
-        trigger_source: 'text_explicit',
-        trigger_id: inferred.trigger_id,
-        requested_next_state: inferred.requested_next_state,
-      });
-
-      if (validation.ok && validation.next_state !== fromState) {
-        const toState = validation.next_state;
+      if (isTextExplicitQuickProfile) {
+        const fromState = agentState;
+        const toState: AgentState = "QUICK_PROFILE";
         const ctx: AnalyticsContext = {
           brief_id: headers.brief_id,
           trace_id: headers.trace_id,
@@ -9106,36 +12264,96 @@ export default function BffChat() {
         };
         emitAgentStateEntered(
           { ...ctx, state: toState },
-          { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: inferred.trigger_id },
-        );
-        if (toState === 'RECO_GATE') {
-          emitUiRecosRequested({ ...ctx, state: toState }, { entry_point: 'text_explicit', prior_value_moment: null });
-        }
-        setAgentStateSafe(toState);
-        setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
-        setInput('');
-        await sendChat(msg, undefined, {
-          client_state: fromState,
-          requested_transition: {
-            trigger_source: 'text_explicit',
-            trigger_id: inferred.trigger_id,
-            requested_next_state: toState,
+          {
+            state_name: toState,
+            from_state: fromState,
+            trigger_source: "text_explicit",
+            trigger_id: msg.slice(0, 120),
           },
-        });
+        );
+        setItems((prev) => [
+          ...prev.filter((it) => it.kind !== "return_welcome"),
+          { id: nextId(), role: "user", kind: "text", content: msg },
+        ]);
+        setQuickProfileStep("skin_feel");
+        setQuickProfileDraft({});
+        setAgentStateSafe(toState);
+        setInput("");
         return;
       }
-    }
 
-    if (agentState === 'QUICK_PROFILE') {
-      setAgentStateSafe('IDLE_CHAT');
-    }
+      const inferred = inferTextExplicitTransition(msg, language);
+      if (inferred) {
+        const fromState = agentState;
+        const validation = validateRequestedTransition({
+          from_state: fromState,
+          trigger_source: "text_explicit",
+          trigger_id: inferred.trigger_id,
+          requested_next_state: inferred.requested_next_state,
+        });
 
-    setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
-    setInput('');
+        if (validation.ok && validation.next_state !== fromState) {
+          const toState = validation.next_state;
+          const ctx: AnalyticsContext = {
+            brief_id: headers.brief_id,
+            trace_id: headers.trace_id,
+            aurora_uid: headers.aurora_uid,
+            lang: toLangPref(language),
+            state: fromState,
+          };
+          emitAgentStateEntered(
+            { ...ctx, state: toState },
+            {
+              state_name: toState,
+              from_state: fromState,
+              trigger_source: "text_explicit",
+              trigger_id: inferred.trigger_id,
+            },
+          );
+          if (toState === "RECO_GATE") {
+            emitUiRecosRequested(
+              { ...ctx, state: toState },
+              { entry_point: "text_explicit", prior_value_moment: null },
+            );
+          }
+          setAgentStateSafe(toState);
+          setItems((prev) => [
+            ...prev.filter((it) => it.kind !== "return_welcome"),
+            { id: nextId(), role: "user", kind: "text", content: msg },
+          ]);
+          setInput("");
+          await sendChat(msg, undefined, {
+            client_state: fromState,
+            requested_transition: {
+              trigger_source: "text_explicit",
+              trigger_id: inferred.trigger_id,
+              requested_next_state: toState,
+            },
+          });
+          return;
+        }
+      }
 
-    await sendChat(msg);
+      if (agentState === "QUICK_PROFILE") {
+        setAgentStateSafe("IDLE_CHAT");
+      }
+
+      setItems((prev) => [
+        ...prev.filter((it) => it.kind !== "return_welcome"),
+        { id: nextId(), role: "user", kind: "text", content: msg },
+      ]);
+      setInput("");
+
+      await sendChat(msg);
     },
-    [agentState, headers, language, sendChat, setAgentStateSafe],
+    [
+      agentState,
+      headers,
+      language,
+      runProductDeepScan,
+      sendChat,
+      setAgentStateSafe,
+    ],
   );
 
   const onSubmit = useCallback(async () => {
@@ -9144,21 +12362,30 @@ export default function BffChat() {
 
   const onChip = useCallback(
     async (chip: SuggestedChip) => {
-      const id = String(chip.chip_id || '').trim();
+      const id = String(chip.chip_id || "").trim();
       const chipData = asObject(chip.data) || {};
       const actionIdOverride = asString((chipData as any).action_id);
-      const clientAction = (asString((chipData as any).client_action) || '').toLowerCase();
+      const clientAction = (
+        asString((chipData as any).client_action) || ""
+      ).toLowerCase();
       const effectiveActionId = actionIdOverride || id;
       const qpRaw = (chip.data as any)?.quick_profile;
-      const qpQuestionId = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.question_id || '').trim() : '';
-      const qpAnswer = qpRaw && typeof qpRaw === 'object' ? String(qpRaw.answer || '').trim() : '';
+      const qpQuestionId =
+        qpRaw && typeof qpRaw === "object"
+          ? String(qpRaw.question_id || "").trim()
+          : "";
+      const qpAnswer =
+        qpRaw && typeof qpRaw === "object"
+          ? String(qpRaw.answer || "").trim()
+          : "";
 
       const fromState = agentState;
       const langPref = toLangPref(language);
       const requestedToState: AgentState = (() => {
-        if (qpQuestionId === 'skip') return 'IDLE_CHAT';
-        if (qpQuestionId === 'opt_in_more' && qpAnswer === 'no') return 'IDLE_CHAT';
-        if (qpQuestionId === 'rx_flag') return 'IDLE_CHAT';
+        if (qpQuestionId === "skip") return "IDLE_CHAT";
+        if (qpQuestionId === "opt_in_more" && qpAnswer === "no")
+          return "IDLE_CHAT";
+        if (qpQuestionId === "rx_flag") return "IDLE_CHAT";
         return nextAgentStateForChip(id) ?? fromState;
       })();
       const toState = requestedToState;
@@ -9171,54 +12398,87 @@ export default function BffChat() {
         state: fromState,
       };
 
-      emitUiChipClicked(ctx, { chip_id: id, from_state: fromState, to_state: toState });
-      if (id === 'chip.start.ingredients.entry' || id === 'chip.start.ingredients') {
+      emitUiChipClicked(ctx, {
+        chip_id: id,
+        from_state: fromState,
+        to_state: toState,
+      });
+      if (
+        id === "chip.start.ingredients.entry" ||
+        id === "chip.start.ingredients"
+      ) {
         emitIngredientsEntryOpened(ctx, {
-          entry_source: ((chip.data as any)?.trigger_source === 'deeplink' ? 'deeplink' : 'chip'),
+          entry_source:
+            (chip.data as any)?.trigger_source === "deeplink"
+              ? "deeplink"
+              : "chip",
           action_id: id,
         });
       }
 
-      const stripReturnWelcome = (prev: ChatItem[]) => prev.filter((it) => it.kind !== 'return_welcome');
+      const stripReturnWelcome = (prev: ChatItem[]) =>
+        prev.filter((it) => it.kind !== "return_welcome");
 
       if (qpQuestionId && qpAnswer) {
-        emitAgentProfileQuestionAnswered(ctx, { question_id: qpQuestionId, answer_type: qpAnswer });
+        emitAgentProfileQuestionAnswered(ctx, {
+          question_id: qpQuestionId,
+          answer_type: qpAnswer,
+        });
 
-        const finishQuickProfile = (args: { didSkip: boolean; draft: QuickProfileProfilePatch }) => {
+        const finishQuickProfile = (args: {
+          didSkip: boolean;
+          draft: QuickProfileProfilePatch;
+        }) => {
           const shouldShowBindPrompt = !args.didSkip && !authSession;
-          const bindNotice = language === 'CN'
-            ? '已临时保存到当前设备；登录后可绑定并跨设备同步。'
-            : 'Saved on this device; sign in to bind and sync across devices.';
+          const bindNotice =
+            language === "CN"
+              ? "已临时保存到当前设备；登录后可绑定并跨设备同步。"
+              : "Saved on this device; sign in to bind and sync across devices.";
 
-          setAgentStateSafe('IDLE_CHAT');
-          setQuickProfileStep('skin_feel');
+          setAgentStateSafe("IDLE_CHAT");
+          setQuickProfileStep("skin_feel");
           setQuickProfileDraft(args.draft);
           const content = args.didSkip
-            ? (language === 'CN'
-                ? '好的，先不做快速画像。你想先做什么？'
-                : "No problem — we can do the quick profile later. What would you like to do?")
+            ? language === "CN"
+              ? "好的，先不做快速画像。你想先做什么？"
+              : "No problem — we can do the quick profile later. What would you like to do?"
             : buildQuickProfileAdvice(language, args.draft);
           setItems((prev) => {
             const nextItems: ChatItem[] = [
               ...stripReturnWelcome(prev),
-              { id: nextId(), role: 'assistant', kind: 'text', content },
+              { id: nextId(), role: "assistant", kind: "text", content },
             ];
             if (shouldShowBindPrompt) {
-              nextItems.push({ id: nextId(), role: 'assistant', kind: 'text', content: bindNotice });
-              nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: [buildQuickProfileBindChip(language)] });
+              nextItems.push({
+                id: nextId(),
+                role: "assistant",
+                kind: "text",
+                content: bindNotice,
+              });
+              nextItems.push({
+                id: nextId(),
+                role: "assistant",
+                kind: "chips",
+                chips: [buildQuickProfileBindChip(language)],
+              });
             }
-            nextItems.push({ id: nextId(), role: 'assistant', kind: 'chips', chips: buildQuickProfileExitChips(language) });
+            nextItems.push({
+              id: nextId(),
+              role: "assistant",
+              kind: "chips",
+              chips: buildQuickProfileExitChips(language),
+            });
             return nextItems;
           });
         };
 
-        if (qpQuestionId === 'skip') {
+        if (qpQuestionId === "skip") {
           finishQuickProfile({ didSkip: true, draft: quickProfileDraft });
           return;
         }
 
-        if (qpQuestionId === 'opt_in_more') {
-          if (qpAnswer === 'yes') setQuickProfileStep('routine_complexity');
+        if (qpQuestionId === "opt_in_more") {
+          if (qpAnswer === "yes") setQuickProfileStep("routine_complexity");
           else finishQuickProfile({ didSkip: false, draft: quickProfileDraft });
           return;
         }
@@ -9226,15 +12486,37 @@ export default function BffChat() {
         if (quickProfileBusy) return;
 
         let profilePatch: QuickProfileProfilePatch | null = null;
-        if (qpQuestionId === 'skin_feel' && ['oily', 'dry', 'combination', 'unsure'].includes(qpAnswer)) {
+        if (
+          qpQuestionId === "skin_feel" &&
+          ["oily", "dry", "combination", "unsure"].includes(qpAnswer)
+        ) {
           profilePatch = { skin_feel: qpAnswer as any };
-        } else if (qpQuestionId === 'goal_primary' && ['breakouts', 'brightening', 'antiaging', 'barrier', 'spf', 'other'].includes(qpAnswer)) {
+        } else if (
+          qpQuestionId === "goal_primary" &&
+          [
+            "breakouts",
+            "brightening",
+            "antiaging",
+            "barrier",
+            "spf",
+            "other",
+          ].includes(qpAnswer)
+        ) {
           profilePatch = { goal_primary: qpAnswer as any };
-        } else if (qpQuestionId === 'sensitivity_flag' && ['yes', 'no', 'unsure'].includes(qpAnswer)) {
+        } else if (
+          qpQuestionId === "sensitivity_flag" &&
+          ["yes", "no", "unsure"].includes(qpAnswer)
+        ) {
           profilePatch = { sensitivity_flag: qpAnswer as any };
-        } else if (qpQuestionId === 'routine_complexity' && ['0-2', '3-5', '6+'].includes(qpAnswer)) {
+        } else if (
+          qpQuestionId === "routine_complexity" &&
+          ["0-2", "3-5", "6+"].includes(qpAnswer)
+        ) {
           profilePatch = { routine_complexity: qpAnswer as any };
-        } else if (qpQuestionId === 'rx_flag' && ['yes', 'no', 'unsure'].includes(qpAnswer)) {
+        } else if (
+          qpQuestionId === "rx_flag" &&
+          ["yes", "no", "unsure"].includes(qpAnswer)
+        ) {
           profilePatch = { rx_flag: qpAnswer as any };
         }
 
@@ -9242,16 +12524,26 @@ export default function BffChat() {
 
         setQuickProfileBusy(true);
         try {
-          const nextDraft: QuickProfileProfilePatch = { ...quickProfileDraft, ...profilePatch };
+          const nextDraft: QuickProfileProfilePatch = {
+            ...quickProfileDraft,
+            ...profilePatch,
+          };
           setQuickProfileDraft(nextDraft);
 
-          const auroraProfilePatch = mapQuickProfileToAuroraProfilePatch(profilePatch);
+          const auroraProfilePatch =
+            mapQuickProfileToAuroraProfilePatch(profilePatch);
           if (auroraProfilePatch) {
             // Always update local snapshot so subsequent /v1/chat calls don't re-ask for already-known fields.
             setBootstrapInfo((prev) => {
               const merged: BootstrapInfo = prev
                 ? { ...prev }
-                : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+                : {
+                    profile: null,
+                    recent_logs: [],
+                    checkin_due: null,
+                    is_returning: null,
+                    db_ready: null,
+                  };
               const baseProfile = asObject(merged.profile) ?? {};
               merged.profile = { ...baseProfile, ...auroraProfilePatch };
               return merged;
@@ -9259,11 +12551,15 @@ export default function BffChat() {
           }
           await persistQuickProfilePatch(profilePatch, auroraProfilePatch);
 
-          if (qpQuestionId === 'skin_feel') setQuickProfileStep('goal_primary');
-          else if (qpQuestionId === 'goal_primary') setQuickProfileStep('sensitivity_flag');
-          else if (qpQuestionId === 'sensitivity_flag') setQuickProfileStep('opt_in_more');
-          else if (qpQuestionId === 'routine_complexity') setQuickProfileStep('rx_flag');
-          else if (qpQuestionId === 'rx_flag') finishQuickProfile({ didSkip: false, draft: nextDraft });
+          if (qpQuestionId === "skin_feel") setQuickProfileStep("goal_primary");
+          else if (qpQuestionId === "goal_primary")
+            setQuickProfileStep("sensitivity_flag");
+          else if (qpQuestionId === "sensitivity_flag")
+            setQuickProfileStep("opt_in_more");
+          else if (qpQuestionId === "routine_complexity")
+            setQuickProfileStep("rx_flag");
+          else if (qpQuestionId === "rx_flag")
+            finishQuickProfile({ didSkip: false, draft: nextDraft });
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -9277,44 +12573,73 @@ export default function BffChat() {
       if (toState !== fromState) {
         const validation = validateRequestedTransition({
           from_state: fromState,
-          trigger_source: 'chip',
+          trigger_source: "chip",
           trigger_id: id,
           requested_next_state: toState,
         });
-        const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
+        const resolvedNextState: AgentState = validation.ok
+          ? validation.next_state
+          : "IDLE_CHAT";
         if (!validation.ok) {
-          console.warn('[StateMachine] soft fallback on chip transition', { chipId: id, fromState, reason: validation.reason });
+          console.warn("[StateMachine] soft fallback on chip transition", {
+            chipId: id,
+            fromState,
+            reason: validation.reason,
+          });
         }
-        requestedTransition = { trigger_source: 'chip', trigger_id: id, requested_next_state: resolvedNextState };
+        requestedTransition = {
+          trigger_source: "chip",
+          trigger_id: id,
+          requested_next_state: resolvedNextState,
+        };
         emitAgentStateEntered(
           { ...ctx, state: resolvedNextState },
-          { state_name: resolvedNextState, from_state: fromState, trigger_source: 'chip', trigger_id: id },
+          {
+            state_name: resolvedNextState,
+            from_state: fromState,
+            trigger_source: "chip",
+            trigger_id: id,
+          },
         );
-        if (resolvedNextState === 'RECO_GATE') {
-          emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'chip', prior_value_moment: null });
+        if (resolvedNextState === "RECO_GATE") {
+          emitUiRecosRequested(
+            { ...ctx, state: resolvedNextState },
+            { entry_point: "chip", prior_value_moment: null },
+          );
         }
         setAgentStateSafe(resolvedNextState);
       }
 
-      const userItem: ChatItem = { id: nextId(), role: 'user', kind: 'text', content: chip.label };
+      const userItem: ChatItem = {
+        id: nextId(),
+        role: "user",
+        kind: "text",
+        content: chip.label,
+      };
 
-      if (id === 'chip.lang.keep_ui' || id === 'chip.lang.switch_ui' || id === 'chip.lang.auto_follow') {
-        const targetUiLang = parseUiLanguageToken((chip.data as any)?.target_ui_lang);
+      if (
+        id === "chip.lang.keep_ui" ||
+        id === "chip.lang.switch_ui" ||
+        id === "chip.lang.auto_follow"
+      ) {
+        const targetUiLang = parseUiLanguageToken(
+          (chip.data as any)?.target_ui_lang,
+        );
         const muteUntil = Date.now() + LANGUAGE_MISMATCH_HINT_SNOOZE_MS;
         langMismatchHintMutedUntilRef.current = muteUntil;
         setLangMismatchHintMutedUntil(muteUntil);
 
         let assistantAck =
-          language === 'CN'
-            ? `已保持${toUiLanguageName(language, 'CN')}回复。`
-            : `Staying with ${toUiLanguageName(language, 'EN')} replies.`;
+          language === "CN"
+            ? `已保持${toUiLanguageName(language, "CN")}回复。`
+            : `Staying with ${toUiLanguageName(language, "EN")} replies.`;
 
-        if (id === 'chip.lang.keep_ui') {
-          setLangReplyMode('ui_lock');
-          setLangReplyModeState('ui_lock');
-        } else if (id === 'chip.lang.switch_ui') {
-          setLangReplyMode('ui_lock');
-          setLangReplyModeState('ui_lock');
+        if (id === "chip.lang.keep_ui") {
+          setLangReplyMode("ui_lock");
+          setLangReplyModeState("ui_lock");
+        } else if (id === "chip.lang.switch_ui") {
+          setLangReplyMode("ui_lock");
+          setLangReplyModeState("ui_lock");
           if (targetUiLang && targetUiLang !== language) {
             emitUiLanguageSwitched(ctx, {
               from_lang: toLangPref(language),
@@ -9324,13 +12649,13 @@ export default function BffChat() {
           }
           if (targetUiLang) {
             assistantAck =
-              language === 'CN'
-                ? `已切换为${toUiLanguageName(targetUiLang, 'CN')}回复。`
-                : `Switched to ${toUiLanguageName(targetUiLang, 'EN')} replies.`;
+              language === "CN"
+                ? `已切换为${toUiLanguageName(targetUiLang, "CN")}回复。`
+                : `Switched to ${toUiLanguageName(targetUiLang, "EN")} replies.`;
           }
         } else {
-          setLangReplyMode('auto_follow_input');
-          setLangReplyModeState('auto_follow_input');
+          setLangReplyMode("auto_follow_input");
+          setLangReplyModeState("auto_follow_input");
           if (targetUiLang && targetUiLang !== language) {
             emitUiLanguageSwitched(ctx, {
               from_lang: toLangPref(language),
@@ -9339,51 +12664,68 @@ export default function BffChat() {
             setLanguage(targetUiLang);
           }
           assistantAck =
-            language === 'CN'
-              ? '已开启自动跟随输入语言。后续会按你每轮输入自动切换回复语言。'
-              : 'Auto-follow is enabled. Reply language will follow your input each turn.';
+            language === "CN"
+              ? "已开启自动跟随输入语言。后续会按你每轮输入自动切换回复语言。"
+              : "Auto-follow is enabled. Reply language will follow your input each turn.";
         }
 
         setItems((prev) => [
           ...stripReturnWelcome(prev),
           userItem,
-          { id: nextId(), role: 'assistant', kind: 'text', content: assistantAck },
+          {
+            id: nextId(),
+            role: "assistant",
+            kind: "text",
+            content: assistantAck,
+          },
         ]);
         return;
       }
 
-      if (id === 'chip_keep_chatting') {
+      if (id === "chip_keep_chatting") {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
         return;
       }
 
-      if (id === 'chip_login_sync_profile') {
+      if (id === "chip_login_sync_profile") {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
         setAuthError(null);
         setAuthNotice(null);
-        setAuthStage('email');
-        setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
+        setAuthStage("email");
+        setAuthDraft((prev) => ({
+          ...prev,
+          code: "",
+          password: "",
+          newPassword: "",
+          newPasswordConfirm: "",
+        }));
         setAuthSheetOpen(true);
         return;
       }
 
-      if (id === 'chip_quick_profile') {
-        setQuickProfileStep('skin_feel');
+      if (id === "chip_quick_profile") {
+        setQuickProfileStep("skin_feel");
         setQuickProfileDraft({});
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
         return;
       }
 
-      if (id === 'chip_start_diagnosis' || id === 'chip.start.diagnosis') {
-        setSessionState('S2_DIAGNOSIS');
+      if (id === "chip_start_diagnosis" || id === "chip.start.diagnosis") {
+        setSessionState("S2_DIAGNOSIS");
         setItems((prev) => [
           ...stripReturnWelcome(prev),
           userItem,
           {
             id: nextId(),
-            role: 'assistant',
-            kind: 'cards',
-            cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
+            role: "assistant",
+            kind: "cards",
+            cards: [
+              {
+                card_id: `local_diagnosis_${Date.now()}`,
+                type: "diagnosis_gate",
+                payload: {},
+              },
+            ],
           },
         ]);
         return;
@@ -9394,12 +12736,14 @@ export default function BffChat() {
       // If the user explicitly requests product recommendations but lacks a minimal profile,
       // the backend will gate. Remember this intent so we can resume recommendations
       // immediately after the user completes the diagnosis card.
-      if (id === 'chip.start.reco_products' || id === 'chip_get_recos') {
-        const { score } = profileRecoCompleteness(profileSnapshot ?? bootstrapInfo?.profile ?? null);
+      if (id === "chip.start.reco_products" || id === "chip_get_recos") {
+        const { score } = profileRecoCompleteness(
+          profileSnapshot ?? bootstrapInfo?.profile ?? null,
+        );
         if (score < 3) {
           pendingActionAfterDiagnosisRef.current = {
             action_id: chip.chip_id,
-            kind: 'chip',
+            kind: "chip",
             data: chip.data,
           };
         } else {
@@ -9407,61 +12751,61 @@ export default function BffChat() {
         }
       }
 
-      if (id === 'chip_update_products') {
+      if (id === "chip_update_products") {
         setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
+        setRoutineTab("am");
         setRoutineSheetOpen(true);
         return;
       }
 
-      if (id === 'chip_eval_routine') {
+      if (id === "chip_eval_routine") {
         setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
+        setRoutineTab("am");
         setRoutineSheetOpen(true);
         return;
       }
 
-      if (id === 'chip_checkin_now') {
+      if (id === "chip_checkin_now") {
         setCheckinSheetOpen(true);
         return;
       }
 
-      if (id === 'chip_eval_single_product') {
-        setProductDraft('');
+      if (id === "chip_eval_single_product") {
+        setProductDraft("");
         setProductSheetOpen(true);
         return;
       }
 
       const isCameraClientAction =
-        clientAction === 'open_camera' ||
-        effectiveActionId === 'diag.upload_photo' ||
-        effectiveActionId === 'chip.intake.upload_photos' ||
-        id === 'chip.intake.upload_photos';
+        clientAction === "open_camera" ||
+        effectiveActionId === "diag.upload_photo" ||
+        effectiveActionId === "chip.intake.upload_photos" ||
+        id === "chip.intake.upload_photos";
       if (isCameraClientAction) {
         setPromptRoutineAfterPhoto(true);
-        setPhotoSheetAutoOpenSlot('daylight');
+        setPhotoSheetAutoOpenSlot("daylight");
         setPhotoSheetAutoOpenNonce((prev) => prev + 1);
         setPhotoSheetOpen(true);
         return;
       }
-      if (id === 'chip.intake.paste_routine') {
+      if (id === "chip.intake.paste_routine") {
         setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
+        setRoutineTab("am");
         setRoutineSheetOpen(true);
         return;
       }
-      if (id === 'chip.intake.skip_analysis') {
+      if (id === "chip.intake.skip_analysis") {
         setRoutineSheetOpen(false);
         await runLowConfidenceSkinAnalysis();
         return;
       }
-      if (id === 'chip.start.evaluate') {
-        setProductDraft('');
+      if (id === "chip.start.evaluate") {
+        setProductDraft("");
         setProductSheetOpen(true);
         return;
       }
-      if (id === 'chip.start.dupes') {
-        setDupeDraft({ original: '' });
+      if (id === "chip.start.dupes") {
+        setDupeDraft({ original: "" });
         setDupeSheetOpen(true);
         return;
       }
@@ -9475,7 +12819,7 @@ export default function BffChat() {
         undefined,
         {
           action_id: actionIdOverride || chip.chip_id,
-          kind: 'chip',
+          kind: "chip",
           data: actionPayloadData,
         },
         { client_state: fromState, requested_transition: requestedTransition },
@@ -9494,61 +12838,89 @@ export default function BffChat() {
       authSession,
       persistQuickProfilePatch,
       setAgentStateSafe,
-    ]
+    ],
   );
 
   const deepLinkChip = useCallback(
     (chipId: string): SuggestedChip => {
-      const id = String(chipId || '').trim();
-      const isCN = language === 'CN';
+      const id = String(chipId || "").trim();
+      const isCN = language === "CN";
       const labelMap: Record<string, { EN: string; CN: string }> = {
-        chip_quick_profile: { EN: '30-sec quick profile', CN: '30秒快速画像' },
-        chip_checkin_now: { EN: 'Check-in', CN: '打卡' },
-        'chip.start.diagnosis': { EN: 'Start skin diagnosis', CN: '开始皮肤诊断' },
-        chip_start_diagnosis: { EN: 'Start skin diagnosis', CN: '开始皮肤诊断' },
-        'chip.start.evaluate': { EN: 'Evaluate a product', CN: '评估某个产品' },
-        chip_eval_single_product: { EN: 'Evaluate a product', CN: '评估某个产品' },
-        'chip.start.reco_products': { EN: 'Recommend products', CN: '产品推荐' },
-        chip_get_recos: { EN: 'Recommend products', CN: '产品推荐' },
-        'chip.start.routine': { EN: 'Build an AM/PM routine', CN: '生成早晚护肤 routine' },
-        'chip.start.dupes': { EN: 'Find dupes / alternatives', CN: '找平替/替代品' },
-        'chip.start.ingredients.entry': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
-        'chip.start.ingredients': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
+        chip_quick_profile: { EN: "30-sec quick profile", CN: "30秒快速画像" },
+        chip_checkin_now: { EN: "Check-in", CN: "打卡" },
+        "chip.start.diagnosis": {
+          EN: "Start skin diagnosis",
+          CN: "开始皮肤诊断",
+        },
+        chip_start_diagnosis: {
+          EN: "Start skin diagnosis",
+          CN: "开始皮肤诊断",
+        },
+        "chip.start.evaluate": { EN: "Evaluate a product", CN: "评估某个产品" },
+        chip_eval_single_product: {
+          EN: "Evaluate a product",
+          CN: "评估某个产品",
+        },
+        "chip.start.reco_products": {
+          EN: "Recommend products",
+          CN: "产品推荐",
+        },
+        chip_get_recos: { EN: "Recommend products", CN: "产品推荐" },
+        "chip.start.routine": {
+          EN: "Build an AM/PM routine",
+          CN: "生成早晚护肤 routine",
+        },
+        "chip.start.dupes": {
+          EN: "Find dupes / alternatives",
+          CN: "找平替/替代品",
+        },
+        "chip.start.ingredients.entry": {
+          EN: "Ingredient science (evidence)",
+          CN: "成分机理/证据链",
+        },
+        "chip.start.ingredients": {
+          EN: "Ingredient science (evidence)",
+          CN: "成分机理/证据链",
+        },
       };
 
-      const label = (labelMap[id]?.[isCN ? 'CN' : 'EN'] ?? id).slice(0, 80);
+      const label = (labelMap[id]?.[isCN ? "CN" : "EN"] ?? id).slice(0, 80);
       const replyTextMap: Record<string, { EN: string; CN: string }> = {
-        'chip.start.ingredients.entry': {
-          EN: 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
-          CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
+        "chip.start.ingredients.entry": {
+          EN: "I want ingredient science (evidence/mechanism), not product recommendations yet.",
+          CN: "我想聊成分科学（证据/机制），先不做产品推荐。",
         },
-        'chip.start.ingredients': {
-          EN: 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
-          CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
+        "chip.start.ingredients": {
+          EN: "I want ingredient science (evidence/mechanism), not product recommendations yet.",
+          CN: "我想聊成分科学（证据/机制），先不做产品推荐。",
         },
       };
-      const reply_text = (replyTextMap[id]?.[isCN ? 'CN' : 'EN'] ?? label).slice(0, 160);
+      const reply_text = (
+        replyTextMap[id]?.[isCN ? "CN" : "EN"] ?? label
+      ).slice(0, 160);
       return {
         chip_id: id,
         label,
-        kind: 'quick_reply',
-        data: { reply_text, trigger_source: 'deeplink' },
+        kind: "quick_reply",
+        data: { reply_text, trigger_source: "deeplink" },
       };
     },
     [language],
   );
 
   useEffect(() => {
-    const nextBriefId = String(searchParams.brief_id || '').trim();
+    const nextBriefId = String(searchParams.brief_id || "").trim();
     if (!nextBriefId) return;
     if (nextBriefId === headers.brief_id) return;
 
-    const nextTraceId = String(searchParams.trace_id || '').trim() || makeDefaultHeaders(language).trace_id;
+    const nextTraceId =
+      String(searchParams.trace_id || "").trim() ||
+      makeDefaultHeaders(language).trace_id;
 
     setError(null);
-    setSessionState('idle');
-    setAgentStateSafe('IDLE_CHAT');
-    setQuickProfileStep('skin_feel');
+    setSessionState("idle");
+    setAgentStateSafe("IDLE_CHAT");
+    setQuickProfileStep("skin_feel");
     setQuickProfileDraft({});
     setQuickProfileBusy(false);
     setChatBusy(false);
@@ -9580,63 +12952,90 @@ export default function BffChat() {
       brief_id: nextBriefId.slice(0, 128),
       trace_id: nextTraceId.slice(0, 128),
     }));
-  }, [headers.brief_id, language, searchParams.brief_id, searchParams.trace_id, setAgentStateSafe]);
+  }, [
+    headers.brief_id,
+    language,
+    searchParams.brief_id,
+    searchParams.trace_id,
+    setAgentStateSafe,
+  ]);
 
   useEffect(() => {
-    if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id) return;
+    if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id)
+      return;
     if (!searchParams.open) {
       openIntentConsumedRef.current = null;
       return;
     }
 
-    const sig = [searchParams.brief_id, searchParams.trace_id, searchParams.open].map((v) => String(v || '')).join('|');
+    const sig = [
+      searchParams.brief_id,
+      searchParams.trace_id,
+      searchParams.open,
+    ]
+      .map((v) => String(v || ""))
+      .join("|");
     if (openIntentConsumedRef.current === sig) return;
     openIntentConsumedRef.current = sig;
 
-    if (searchParams.open === 'photo') {
+    if (searchParams.open === "photo") {
       setPromptRoutineAfterPhoto(false);
       setPhotoSheetAutoOpenSlot(null);
       setPhotoSheetOpen(true);
     }
-    if (searchParams.open === 'routine') {
+    if (searchParams.open === "routine") {
       setRoutineDraft(makeEmptyRoutineDraft());
-      setRoutineTab('am');
+      setRoutineTab("am");
       setRoutineSheetOpen(true);
     }
-    if (searchParams.open === 'checkin') {
+    if (searchParams.open === "checkin") {
       setCheckinSheetOpen(true);
     }
-    if (searchParams.open === 'auth') {
+    if (searchParams.open === "auth") {
       setAuthError(null);
       setAuthNotice(null);
-      setAuthStage('email');
-      setAuthDraft((prev) => ({ ...prev, code: '', password: '', newPassword: '', newPasswordConfirm: '' }));
+      setAuthStage("email");
+      setAuthDraft((prev) => ({
+        ...prev,
+        code: "",
+        password: "",
+        newPassword: "",
+        newPasswordConfirm: "",
+      }));
       setAuthSheetOpen(true);
     }
-    const suppressRoutineAutoChip = searchParams.open === 'routine' && searchParams.chip_id === 'chip.start.routine';
+    const suppressRoutineAutoChip =
+      searchParams.open === "routine" &&
+      searchParams.chip_id === "chip.start.routine";
 
     try {
       const sp = new URLSearchParams(window.location.search);
       let changed = false;
-      if (sp.has('open')) {
-        sp.delete('open');
+      if (sp.has("open")) {
+        sp.delete("open");
         changed = true;
       }
-      if (suppressRoutineAutoChip && sp.get('chip_id') === 'chip.start.routine') {
-        sp.delete('chip_id');
+      if (
+        suppressRoutineAutoChip &&
+        sp.get("chip_id") === "chip.start.routine"
+      ) {
+        sp.delete("chip_id");
         changed = true;
       }
-      if (!sp.get('brief_id') && headers.brief_id) {
-        sp.set('brief_id', headers.brief_id);
+      if (!sp.get("brief_id") && headers.brief_id) {
+        sp.set("brief_id", headers.brief_id);
         changed = true;
       }
-      if (!sp.get('trace_id') && headers.trace_id) {
-        sp.set('trace_id', headers.trace_id);
+      if (!sp.get("trace_id") && headers.trace_id) {
+        sp.set("trace_id", headers.trace_id);
         changed = true;
       }
       if (changed) {
         const next = sp.toString();
-        navigate({ pathname: '/chat', search: next ? `?${next}` : '' }, { replace: true });
+        navigate(
+          { pathname: "/chat", search: next ? `?${next}` : "" },
+          { replace: true },
+        );
       }
     } catch {
       // ignore
@@ -9645,17 +13044,27 @@ export default function BffChat() {
 
   useEffect(() => {
     if (!hasBootstrapped) return;
-    if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id) return;
-    const suppressRoutineAutoChip = searchParams.open === 'routine' && searchParams.chip_id === 'chip.start.routine';
-    const hasActionIntent = Boolean(searchParams.q || searchParams.chip_id) && !suppressRoutineAutoChip;
+    if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id)
+      return;
+    const suppressRoutineAutoChip =
+      searchParams.open === "routine" &&
+      searchParams.chip_id === "chip.start.routine";
+    const hasActionIntent =
+      Boolean(searchParams.q || searchParams.chip_id) &&
+      !suppressRoutineAutoChip;
     if (!hasActionIntent) {
       actionIntentConsumedRef.current = null;
       return;
     }
 
-    const sig = [searchParams.brief_id, searchParams.trace_id, searchParams.q, searchParams.chip_id]
-      .map((v) => String(v || ''))
-      .join('|');
+    const sig = [
+      searchParams.brief_id,
+      searchParams.trace_id,
+      searchParams.q,
+      searchParams.chip_id,
+    ]
+      .map((v) => String(v || ""))
+      .join("|");
     if (actionIntentConsumedRef.current === sig) return;
     actionIntentConsumedRef.current = sig;
 
@@ -9663,22 +13072,25 @@ export default function BffChat() {
       try {
         const sp = new URLSearchParams(window.location.search);
         let changed = false;
-        for (const k of ['q', 'chip_id']) {
+        for (const k of ["q", "chip_id"]) {
           if (!sp.has(k)) continue;
           sp.delete(k);
           changed = true;
         }
-        if (!sp.get('brief_id') && headers.brief_id) {
-          sp.set('brief_id', headers.brief_id);
+        if (!sp.get("brief_id") && headers.brief_id) {
+          sp.set("brief_id", headers.brief_id);
           changed = true;
         }
-        if (!sp.get('trace_id') && headers.trace_id) {
-          sp.set('trace_id', headers.trace_id);
+        if (!sp.get("trace_id") && headers.trace_id) {
+          sp.set("trace_id", headers.trace_id);
           changed = true;
         }
         if (changed) {
           const next = sp.toString();
-          navigate({ pathname: '/chat', search: next ? `?${next}` : '' }, { replace: true });
+          navigate(
+            { pathname: "/chat", search: next ? `?${next}` : "" },
+            { replace: true },
+          );
         }
       } catch {
         // ignore
@@ -9698,7 +13110,16 @@ export default function BffChat() {
       }
     };
     void run().finally(() => clearActionIntentParams());
-  }, [deepLinkChip, hasBootstrapped, headers.brief_id, headers.trace_id, navigate, onChip, searchParams, submitText]);
+  }, [
+    deepLinkChip,
+    hasBootstrapped,
+    headers.brief_id,
+    headers.trace_id,
+    navigate,
+    onChip,
+    searchParams,
+    submitText,
+  ]);
 
   const switchLanguage = useCallback(
     (next: UiLanguage) => {
@@ -9710,22 +13131,28 @@ export default function BffChat() {
         lang: toLangPref(language),
         state: agentState,
       };
-      emitUiLanguageSwitched(ctx, { from_lang: toLangPref(language), to_lang: toLangPref(next) });
+      emitUiLanguageSwitched(ctx, {
+        from_lang: toLangPref(language),
+        to_lang: toLangPref(next),
+      });
       setLanguage(next);
     },
     [agentState, headers, language],
   );
 
-  const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
+  const canSend = useMemo(
+    () => !isLoading && input.trim().length > 0,
+    [isLoading, input],
+  );
   const flowState = useMemo(() => {
-    const s = String(sessionState || '').trim();
-    return ((s && s.startsWith('S')) ? s : 'S0_LANDING') as FlowState;
+    const s = String(sessionState || "").trim();
+    return (s && s.startsWith("S") ? s : "S0_LANDING") as FlowState;
   }, [sessionState]);
   const sessionForCards = useMemo<Session>(() => {
     return {
       brief_id: headers.brief_id,
       trace_id: headers.trace_id,
-      mode: 'live',
+      mode: "live",
       state: flowState,
       clarification_count: 0,
       photos: sessionPhotos,
@@ -9734,29 +13161,36 @@ export default function BffChat() {
   }, [headers.brief_id, headers.trace_id, flowState, sessionPhotos]);
 
   const resolveOffers = useCallback(
-    async (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => {
-      const skuId = String(args.sku_id || '').trim();
-      const productId = String(args.product_id || '').trim();
-      const merchantId = String(args.merchant_id || '').trim();
+    async (args: {
+      sku_id?: string | null;
+      product_id?: string | null;
+      merchant_id?: string | null;
+    }) => {
+      const skuId = String(args.sku_id || "").trim();
+      const productId = String(args.product_id || "").trim();
+      const merchantId = String(args.merchant_id || "").trim();
       const product: Record<string, string> = {
         ...(skuId ? { sku_id: skuId } : {}),
         ...(productId ? { product_id: productId } : {}),
         ...(merchantId ? { merchant_id: merchantId } : {}),
       };
       if (!Object.keys(product).length) {
-        throw new Error('offers.resolve requires sku_id or product_id');
+        throw new Error("offers.resolve requires sku_id or product_id");
       }
       const requestHeaders = { ...headers, lang: language };
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      const timer = window.setTimeout(
+        () => controller.abort(),
+        VIEW_DETAILS_REQUEST_TIMEOUT_MS,
+      );
       try {
-        return await bffJson<any>('/agent/shop/v1/invoke', requestHeaders, {
-          method: 'POST',
+        return await bffJson<any>("/agent/shop/v1/invoke", requestHeaders, {
+          method: "POST",
           signal: controller.signal,
           body: JSON.stringify({
-            operation: 'offers.resolve',
-            payload: { offers: { product, market: 'US', tool: '*', limit: 5 } },
-            metadata: { source: 'chatbox' },
+            operation: "offers.resolve",
+            payload: { offers: { product, market: "US", tool: "*", limit: 5 } },
+            metadata: { source: "chatbox" },
           }),
         });
       } finally {
@@ -9774,9 +13208,12 @@ export default function BffChat() {
       signal,
     }: {
       query: string;
-      lang: 'en' | 'cn';
+      lang: "en" | "cn";
       hints?: {
-        product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+        product_ref?: {
+          product_id?: string | null;
+          merchant_id?: string | null;
+        } | null;
         product_id?: string | null;
         sku_id?: string | null;
         aliases?: Array<string | null | undefined>;
@@ -9785,17 +13222,17 @@ export default function BffChat() {
       };
       signal?: AbortSignal;
     }) => {
-      const q = String(query || '').trim();
-      if (!q) throw new Error('products.resolve requires query');
+      const q = String(query || "").trim();
+      if (!q) throw new Error("products.resolve requires query");
       const requestHeaders = { ...headers, lang: language };
-      const hintObject = hints && typeof hints === 'object' ? hints : undefined;
-      return await bffJson<any>('/agent/v1/products/resolve', requestHeaders, {
-        method: 'POST',
+      const hintObject = hints && typeof hints === "object" ? hints : undefined;
+      return await bffJson<any>("/agent/v1/products/resolve", requestHeaders, {
+        method: "POST",
         ...(signal ? { signal } : {}),
         body: JSON.stringify({
           query: q,
           lang,
-          caller: 'aurora_chatbox',
+          caller: "aurora_chatbox",
           session_id: headers.brief_id,
           ...(hintObject ? { hints: hintObject } : {}),
           options: {
@@ -9821,32 +13258,45 @@ export default function BffChat() {
       limit?: number;
       preferBrand?: string | null;
     }) => {
-      const q = String(query || '').trim();
-      if (!q) throw new Error('products.search requires query');
-      const brand = String(preferBrand || '').trim();
+      const q = String(query || "").trim();
+      if (!q) throw new Error("products.search requires query");
+      const brand = String(preferBrand || "").trim();
       const requestHeaders = { ...headers, lang: language };
-      const requestedLimit = Math.max(1, Math.min(12, Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 8));
+      const requestedLimit = Math.max(
+        1,
+        Math.min(
+          12,
+          Number.isFinite(Number(limit)) ? Math.trunc(Number(limit)) : 8,
+        ),
+      );
       const queryWithHint =
         brand && !q.toLowerCase().includes(brand.toLowerCase())
           ? `${brand} ${q}`.trim()
           : q;
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      const timer = window.setTimeout(
+        () => controller.abort(),
+        VIEW_DETAILS_REQUEST_TIMEOUT_MS,
+      );
       const params = new URLSearchParams({
         query: queryWithHint,
         limit: String(requestedLimit),
-        offset: '0',
-        search_all_merchants: 'true',
-        in_stock_only: 'false',
-        lang: language === 'CN' ? 'cn' : 'en',
-        source: 'aurora_chatbox',
-        catalog_surface: 'beauty',
+        offset: "0",
+        search_all_merchants: "true",
+        in_stock_only: "false",
+        lang: language === "CN" ? "cn" : "en",
+        source: "aurora_chatbox",
+        catalog_surface: "beauty",
       });
       try {
-        return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
-          method: 'GET',
-          signal: controller.signal,
-        });
+        return await bffJson<any>(
+          `/agent/v1/products/search?${params.toString()}`,
+          requestHeaders,
+          {
+            method: "GET",
+            signal: controller.signal,
+          },
+        );
       } finally {
         window.clearTimeout(timer);
       }
@@ -9857,16 +13307,29 @@ export default function BffChat() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <button type="button" className="ios-nav-button ml-1" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+        <button
+          type="button"
+          className="ios-nav-button ml-1"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Open menu"
+        >
           <Menu className="h-[18px] w-[18px]" />
         </button>
 
         <div className="flex-1 text-center leading-tight">
-          <div className="font-semibold tracking-[-0.02em] text-foreground" style={{ fontSize: 'calc(var(--aurora-chat-text-size) + 1px)' }}>
+          <div
+            className="font-semibold tracking-[-0.02em] text-foreground"
+            style={{ fontSize: "calc(var(--aurora-chat-text-size) + 1px)" }}
+          >
             Aurora
           </div>
-          <div className="text-muted-foreground" style={{ fontSize: 'calc(var(--aurora-chat-text-size) - 3px)' }}>
-            {language === 'CN' ? '你的 AI 护肤助手' : 'Your AI skincare assistant'}
+          <div
+            className="text-muted-foreground"
+            style={{ fontSize: "calc(var(--aurora-chat-text-size) - 3px)" }}
+          >
+            {language === "CN"
+              ? "你的 AI 护肤助手"
+              : "Your AI skincare assistant"}
           </div>
         </div>
 
@@ -9877,7 +13340,7 @@ export default function BffChat() {
         <div className="mx-auto max-w-lg space-y-[var(--aurora-chat-stack-gap)]">
           <Sheet
             open={authSheetOpen}
-            title={language === 'CN' ? '登录 / 账户' : 'Sign in / Account'}
+            title={language === "CN" ? "登录 / 账户" : "Sign in / Account"}
             onClose={() => setAuthSheetOpen(false)}
             onOpenMenu={() => {
               setAuthSheetOpen(false);
@@ -9888,41 +13351,66 @@ export default function BffChat() {
               {authSession ? (
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">
-                    <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '已登录' : 'Signed in'}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{authSession.email}</div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {language === "CN" ? "已登录" : "Signed in"}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {authSession.email}
+                    </div>
                     {authSession.expires_at ? (
                       <div className="mt-1 text-[11px] text-muted-foreground">
-                        {language === 'CN' ? '有效期至：' : 'Expires:'} {authSession.expires_at}
+                        {language === "CN" ? "有效期至：" : "Expires:"}{" "}
+                        {authSession.expires_at}
                       </div>
                     ) : null}
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-background/40 p-3">
-                    <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '密码登录' : 'Password sign-in'}</div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {language === "CN" ? "密码登录" : "Password sign-in"}
+                    </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {language === 'CN'
-                        ? '可选：设置/更新密码，下次可直接用邮箱 + 密码登录（验证码仍可用）。'
-                        : 'Optional: set/update a password so you can sign in with email + password next time (OTP still works).'}
+                      {language === "CN"
+                        ? "可选：设置/更新密码，下次可直接用邮箱 + 密码登录（验证码仍可用）。"
+                        : "Optional: set/update a password so you can sign in with email + password next time (OTP still works)."}
                     </div>
                     <div className="mt-3 space-y-3">
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '新密码（至少 8 位）' : 'New password (min 8 chars)'}
+                        {language === "CN"
+                          ? "新密码（至少 8 位）"
+                          : "New password (min 8 chars)"}
                         <input
                           className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={authDraft.newPassword}
-                          onChange={(e) => setAuthDraft((p) => ({ ...p, newPassword: e.target.value }))}
-                          placeholder={language === 'CN' ? '输入新密码' : 'Enter new password'}
+                          onChange={(e) =>
+                            setAuthDraft((p) => ({
+                              ...p,
+                              newPassword: e.target.value,
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "输入新密码"
+                              : "Enter new password"
+                          }
                           disabled={authLoading}
                           type="password"
                           autoComplete="new-password"
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '确认密码' : 'Confirm password'}
+                        {language === "CN" ? "确认密码" : "Confirm password"}
                         <input
                           className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={authDraft.newPasswordConfirm}
-                          onChange={(e) => setAuthDraft((p) => ({ ...p, newPasswordConfirm: e.target.value }))}
-                          placeholder={language === 'CN' ? '再次输入' : 'Re-enter'}
+                          onChange={(e) =>
+                            setAuthDraft((p) => ({
+                              ...p,
+                              newPasswordConfirm: e.target.value,
+                            }))
+                          }
+                          placeholder={
+                            language === "CN" ? "再次输入" : "Re-enter"
+                          }
                           disabled={authLoading}
                           type="password"
                           autoComplete="new-password"
@@ -9932,9 +13420,19 @@ export default function BffChat() {
                         type="button"
                         className="chip-button chip-button-primary"
                         onClick={() => void savePassword()}
-                        disabled={authLoading || !authDraft.newPassword || !authDraft.newPasswordConfirm}
+                        disabled={
+                          authLoading ||
+                          !authDraft.newPassword ||
+                          !authDraft.newPasswordConfirm
+                        }
                       >
-                        {authLoading ? (language === 'CN' ? '保存中…' : 'Saving…') : language === 'CN' ? '保存密码' : 'Save password'}
+                        {authLoading
+                          ? language === "CN"
+                            ? "保存中…"
+                            : "Saving…"
+                          : language === "CN"
+                            ? "保存密码"
+                            : "Save password"}
                       </button>
                       {authNotice ? (
                         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
@@ -9943,61 +13441,75 @@ export default function BffChat() {
                       ) : null}
                     </div>
                   </div>
-                  <button type="button" className="chip-button chip-button-primary" onClick={() => void refreshBootstrapInfo()} disabled={authLoading}>
-                    {language === 'CN' ? '刷新资料' : 'Refresh profile'}
+                  <button
+                    type="button"
+                    className="chip-button chip-button-primary"
+                    onClick={() => void refreshBootstrapInfo()}
+                    disabled={authLoading}
+                  >
+                    {language === "CN" ? "刷新资料" : "Refresh profile"}
                   </button>
-                  <button type="button" className="chip-button" onClick={() => void signOut()} disabled={authLoading}>
-                    {language === 'CN' ? '退出登录' : 'Sign out'}
+                  <button
+                    type="button"
+                    className="chip-button"
+                    onClick={() => void signOut()}
+                    disabled={authLoading}
+                  >
+                    {language === "CN" ? "退出登录" : "Sign out"}
                   </button>
-                  {authError ? <div className="text-xs text-red-600">{authError}</div> : null}
+                  {authError ? (
+                    <div className="text-xs text-red-600">{authError}</div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className={`chip-button ${authMode === 'code' ? 'chip-button-primary' : ''}`}
+                      className={`chip-button ${authMode === "code" ? "chip-button-primary" : ""}`}
                       onClick={() => {
-                        setAuthMode('code');
-                        setAuthStage('email');
+                        setAuthMode("code");
+                        setAuthStage("email");
                         setAuthError(null);
                         setAuthNotice(null);
-                        setAuthDraft((p) => ({ ...p, code: '', password: '' }));
+                        setAuthDraft((p) => ({ ...p, code: "", password: "" }));
                       }}
                       disabled={authLoading}
                     >
-                      {language === 'CN' ? '验证码' : 'Email code'}
+                      {language === "CN" ? "验证码" : "Email code"}
                     </button>
                     <button
                       type="button"
-                      className={`chip-button ${authMode === 'password' ? 'chip-button-primary' : ''}`}
+                      className={`chip-button ${authMode === "password" ? "chip-button-primary" : ""}`}
                       onClick={() => {
-                        setAuthMode('password');
+                        setAuthMode("password");
                         setAuthError(null);
                         setAuthNotice(null);
-                        setAuthDraft((p) => ({ ...p, code: '' }));
+                        setAuthDraft((p) => ({ ...p, code: "" }));
                       }}
                       disabled={authLoading}
                     >
-                      {language === 'CN' ? '密码' : 'Password'}
+                      {language === "CN" ? "密码" : "Password"}
                     </button>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {authMode === 'password'
-                      ? language === 'CN'
-                        ? '用邮箱 + 密码登录。如果还没设置密码，请先用验证码登录后在账户里设置。'
+                    {authMode === "password"
+                      ? language === "CN"
+                        ? "用邮箱 + 密码登录。如果还没设置密码，请先用验证码登录后在账户里设置。"
                         : "Sign in with email + password. If you haven't set a password, use email code first, then set one in Account."
-                      : language === 'CN'
-                        ? '输入邮箱获取验证码（用于跨设备保存你的皮肤档案）。'
-                        : 'Enter your email to get a sign-in code (for cross-device profile).'}
+                      : language === "CN"
+                        ? "输入邮箱获取验证码（用于跨设备保存你的皮肤档案）。"
+                        : "Enter your email to get a sign-in code (for cross-device profile)."}
                   </div>
 
                   <label className="space-y-1 text-xs text-muted-foreground">
-                    {language === 'CN' ? '邮箱' : 'Email'}
+                    {language === "CN" ? "邮箱" : "Email"}
                     <input
                       className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                       value={authDraft.email}
-                      onChange={(e) => setAuthDraft((p) => ({ ...p, email: e.target.value }))}
+                      onChange={(e) =>
+                        setAuthDraft((p) => ({ ...p, email: e.target.value }))
+                      }
                       placeholder="name@email.com"
                       disabled={authLoading}
                       inputMode="email"
@@ -10005,15 +13517,22 @@ export default function BffChat() {
                     />
                   </label>
 
-                  {authMode === 'password' ? (
+                  {authMode === "password" ? (
                     <div className="space-y-3">
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '密码' : 'Password'}
+                        {language === "CN" ? "密码" : "Password"}
                         <input
                           className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={authDraft.password}
-                          onChange={(e) => setAuthDraft((p) => ({ ...p, password: e.target.value }))}
-                          placeholder={language === 'CN' ? '输入密码' : 'Enter password'}
+                          onChange={(e) =>
+                            setAuthDraft((p) => ({
+                              ...p,
+                              password: e.target.value,
+                            }))
+                          }
+                          placeholder={
+                            language === "CN" ? "输入密码" : "Enter password"
+                          }
                           disabled={authLoading}
                           type="password"
                           autoComplete="current-password"
@@ -10023,36 +13542,69 @@ export default function BffChat() {
                         type="button"
                         className="chip-button chip-button-primary"
                         onClick={() => void passwordLogin()}
-                        disabled={authLoading || !authDraft.email.trim() || !authDraft.password}
+                        disabled={
+                          authLoading ||
+                          !authDraft.email.trim() ||
+                          !authDraft.password
+                        }
                       >
-                        {authLoading ? (language === 'CN' ? '登录中…' : 'Signing in…') : language === 'CN' ? '密码登录' : 'Sign in'}
+                        {authLoading
+                          ? language === "CN"
+                            ? "登录中…"
+                            : "Signing in…"
+                          : language === "CN"
+                            ? "密码登录"
+                            : "Sign in"}
                       </button>
                     </div>
                   ) : (
                     <>
-                      {authStage === 'email' ? (
-                        <button type="button" className="chip-button chip-button-primary" onClick={() => void startAuth()} disabled={authLoading}>
-                          {authLoading ? (language === 'CN' ? '发送中…' : 'Sending…') : language === 'CN' ? '发送验证码' : 'Send code'}
+                      {authStage === "email" ? (
+                        <button
+                          type="button"
+                          className="chip-button chip-button-primary"
+                          onClick={() => void startAuth()}
+                          disabled={authLoading}
+                        >
+                          {authLoading
+                            ? language === "CN"
+                              ? "发送中…"
+                              : "Sending…"
+                            : language === "CN"
+                              ? "发送验证码"
+                              : "Send code"}
                         </button>
                       ) : null}
 
-                      {authStage === 'code' ? (
+                      {authStage === "code" ? (
                         <div className="space-y-3">
                           <label className="space-y-1 text-xs text-muted-foreground">
-                            {language === 'CN' ? '验证码' : 'Code'}
+                            {language === "CN" ? "验证码" : "Code"}
                             <input
                               className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                               value={authDraft.code}
-                              onChange={(e) => setAuthDraft((p) => ({ ...p, code: e.target.value }))}
-                              placeholder={language === 'CN' ? '6 位数字' : '6-digit code'}
+                              onChange={(e) =>
+                                setAuthDraft((p) => ({
+                                  ...p,
+                                  code: e.target.value,
+                                }))
+                              }
+                              placeholder={
+                                language === "CN" ? "6 位数字" : "6-digit code"
+                              }
                               disabled={authLoading}
                               inputMode="numeric"
                               autoComplete="one-time-code"
                             />
                           </label>
                           <div className="dialog-choice-row">
-                            <button type="button" className="chip-button" onClick={() => setAuthStage('email')} disabled={authLoading}>
-                              {language === 'CN' ? '返回' : 'Back'}
+                            <button
+                              type="button"
+                              className="chip-button"
+                              onClick={() => setAuthStage("email")}
+                              disabled={authLoading}
+                            >
+                              {language === "CN" ? "返回" : "Back"}
                             </button>
                             <button
                               type="button"
@@ -10060,7 +13612,13 @@ export default function BffChat() {
                               onClick={() => void verifyAuth()}
                               disabled={authLoading || !authDraft.code.trim()}
                             >
-                              {authLoading ? (language === 'CN' ? '验证中…' : 'Verifying…') : language === 'CN' ? '验证登录' : 'Verify'}
+                              {authLoading
+                                ? language === "CN"
+                                  ? "验证中…"
+                                  : "Verifying…"
+                                : language === "CN"
+                                  ? "验证登录"
+                                  : "Verify"}
                             </button>
                           </div>
                         </div>
@@ -10068,15 +13626,23 @@ export default function BffChat() {
                     </>
                   )}
 
-                  {authError ? <div className="text-xs text-red-600">{authError}</div> : null}
-                  {authNotice ? <div className="text-xs text-emerald-700">{authNotice}</div> : null}
+                  {authError ? (
+                    <div className="text-xs text-red-600">{authError}</div>
+                  ) : null}
+                  {authNotice ? (
+                    <div className="text-xs text-emerald-700">{authNotice}</div>
+                  ) : null}
                 </div>
               )}
             </div>
           </Sheet>
           <Sheet
             open={photoSheetOpen}
-            title={language === 'CN' ? '上传照片（推荐）' : 'Upload photo (recommended)'}
+            title={
+              language === "CN"
+                ? "上传照片（推荐）"
+                : "Upload photo (recommended)"
+            }
             onClose={() => {
               if (isLoading || photoUploading) return;
               setPhotoSheetOpen(false);
@@ -10101,7 +13667,11 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={routineSheetOpen}
-            title={language === 'CN' ? '填写你在用的 AM/PM 产品（更准）' : 'Add your AM/PM products (more accurate)'}
+            title={
+              language === "CN"
+                ? "填写你在用的 AM/PM 产品（更准）"
+                : "Add your AM/PM products (more accurate)"
+            }
             onClose={() => setRoutineSheetOpen(false)}
             onOpenMenu={() => {
               setRoutineSheetOpen(false);
@@ -10110,83 +13680,129 @@ export default function BffChat() {
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
-                {language === 'CN'
-                  ? '如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先给低置信度 7 天安全基线（不评分/不推推荐）。'
-                  : 'If you want, add your current AM/PM products for higher accuracy. You can also skip and I will give a low-confidence 7-day safe baseline first (no scoring, no recommendations).'}
+                {language === "CN"
+                  ? "如果你愿意，补充最近在用的 AM/PM 产品/步骤会更准；也可以直接跳过，我会先给低置信度 7 天安全基线（不评分/不推推荐）。"
+                  : "If you want, add your current AM/PM products for higher accuracy. You can also skip and I will give a low-confidence 7-day safe baseline first (no scoring, no recommendations)."}
               </div>
 
               <div
                 className="inline-flex w-full items-center justify-between gap-2 rounded-2xl border border-border/50 bg-background/40 p-1"
                 role="tablist"
-                aria-label={language === 'CN' ? '选择早晚' : 'Choose AM/PM'}
+                aria-label={language === "CN" ? "选择早晚" : "Choose AM/PM"}
               >
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={routineTab === 'am'}
+                  aria-selected={routineTab === "am"}
                   className={`flex-1 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors ${
-                    routineTab === 'am' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/60'
+                    routineTab === "am"
+                      ? "bg-white text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60"
                   }`}
-                  onClick={() => setRoutineTab('am')}
+                  onClick={() => setRoutineTab("am")}
                   disabled={routineFormBusy}
                 >
-                  {language === 'CN' ? '早上（AM）' : 'Morning (AM)'}
+                  {language === "CN" ? "早上（AM）" : "Morning (AM)"}
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={routineTab === 'pm'}
+                  aria-selected={routineTab === "pm"}
                   className={`flex-1 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors ${
-                    routineTab === 'pm' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/60'
+                    routineTab === "pm"
+                      ? "bg-white text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60"
                   }`}
-                  onClick={() => setRoutineTab('pm')}
+                  onClick={() => setRoutineTab("pm")}
                   disabled={routineFormBusy}
                 >
-                  {language === 'CN' ? '晚上（PM）' : 'Evening (PM)'}
+                  {language === "CN" ? "晚上（PM）" : "Evening (PM)"}
                 </button>
               </div>
 
               <div className="space-y-3 pb-20">
-                {routineTab === 'am' ? (
+                {routineTab === "am" ? (
                   <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '洁面' : 'Cleanser'}
+                        {language === "CN" ? "洁面" : "Cleanser"}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.cleanser}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
+                          onChange={(e) =>
+                            setRoutineDraft((prev) => ({
+                              ...prev,
+                              am: { ...prev.am, cleanser: e.target.value },
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "例如：CeraVe Foaming Cleanser / 链接"
+                              : "e.g., CeraVe Foaming Cleanser / link"
+                          }
                           disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                        {language === "CN"
+                          ? "活性/精华（可选）"
+                          : "Treatment/active (optional)"}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.treatment}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
+                          onChange={(e) =>
+                            setRoutineDraft((prev) => ({
+                              ...prev,
+                              am: { ...prev.am, treatment: e.target.value },
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "例如：烟酰胺 / VC / 无"
+                              : "e.g., niacinamide / vitamin C / none"
+                          }
                           disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                        {language === "CN"
+                          ? "保湿（可选）"
+                          : "Moisturizer (optional)"}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.moisturizer}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                          onChange={(e) =>
+                            setRoutineDraft((prev) => ({
+                              ...prev,
+                              am: { ...prev.am, moisturizer: e.target.value },
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "例如：CeraVe PM / 无"
+                              : "e.g., CeraVe PM / none"
+                          }
                           disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
+                        {language === "CN"
+                          ? "防晒 SPF（可选但推荐）"
+                          : "SPF (optional but recommended)"}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.am.spf}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
+                          onChange={(e) =>
+                            setRoutineDraft((prev) => ({
+                              ...prev,
+                              am: { ...prev.am, spf: e.target.value },
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "例如：EltaMD UV Clear / 无"
+                              : "e.g., EltaMD UV Clear / none"
+                          }
                           disabled={routineFormBusy}
                         />
                       </label>
@@ -10196,45 +13812,82 @@ export default function BffChat() {
                   <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <div className="text-[11px] text-muted-foreground">
-                        {language === 'CN' ? '如果晚上用法和早上一样，可一键复制。' : 'If PM is the same as AM, copy in one tap.'}
+                        {language === "CN"
+                          ? "如果晚上用法和早上一样，可一键复制。"
+                          : "If PM is the same as AM, copy in one tap."}
                       </div>
                       <button
                         type="button"
                         className="chip-button !px-3 !py-1.5 text-[11px] whitespace-nowrap"
-                        onClick={() => setRoutineDraft((prev) => copyRoutineAmToPm(prev))}
-                        disabled={routineFormBusy || !hasAnyRoutineAmInput(routineDraft)}
+                        onClick={() =>
+                          setRoutineDraft((prev) => copyRoutineAmToPm(prev))
+                        }
+                        disabled={
+                          routineFormBusy || !hasAnyRoutineAmInput(routineDraft)
+                        }
                       >
-                        {language === 'CN' ? '同 AM' : 'Same as AM'}
+                        {language === "CN" ? "同 AM" : "Same as AM"}
                       </button>
                     </div>
                     <div className="grid gap-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '洁面' : 'Cleanser'}
+                        {language === "CN" ? "洁面" : "Cleanser"}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.pm.cleanser}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
+                          onChange={(e) =>
+                            setRoutineDraft((prev) => ({
+                              ...prev,
+                              pm: { ...prev.pm, cleanser: e.target.value },
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "例如：同 AM / 或不同产品"
+                              : "e.g., same as AM / or different"
+                          }
                           disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                        {language === "CN"
+                          ? "活性/精华（可选）"
+                          : "Treatment/active (optional)"}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.pm.treatment}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
+                          onChange={(e) =>
+                            setRoutineDraft((prev) => ({
+                              ...prev,
+                              pm: { ...prev.pm, treatment: e.target.value },
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "例如：Retinol / AHA/BHA / 无"
+                              : "e.g., retinol / AHA/BHA / none"
+                          }
                           disabled={routineFormBusy}
                         />
                       </label>
                       <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                        {language === "CN"
+                          ? "保湿（可选）"
+                          : "Moisturizer (optional)"}
                         <input
                           className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                           value={routineDraft.pm.moisturizer}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                          onChange={(e) =>
+                            setRoutineDraft((prev) => ({
+                              ...prev,
+                              pm: { ...prev.pm, moisturizer: e.target.value },
+                            }))
+                          }
+                          placeholder={
+                            language === "CN"
+                              ? "例如：CeraVe PM / 无"
+                              : "e.g., CeraVe PM / none"
+                          }
                           disabled={routineFormBusy}
                         />
                       </label>
@@ -10244,17 +13897,22 @@ export default function BffChat() {
 
                 <details className="rounded-2xl border border-border/50 bg-background/40 p-3">
                   <summary className="cursor-pointer text-xs font-semibold text-foreground">
-                    {language === 'CN' ? '备注（可选）' : 'Notes (optional)'}
+                    {language === "CN" ? "备注（可选）" : "Notes (optional)"}
                   </summary>
                   <div className="mt-2">
                     <textarea
                       className="min-h-[68px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
                       value={routineDraft.notes}
-                      onChange={(e) => setRoutineDraft((prev) => ({ ...prev, notes: e.target.value }))}
+                      onChange={(e) =>
+                        setRoutineDraft((prev) => ({
+                          ...prev,
+                          notes: e.target.value,
+                        }))
+                      }
                       placeholder={
-                        language === 'CN'
-                          ? '例如：用了 retinol 会刺痛；最近泛红…'
-                          : 'e.g., stings after retinol; recent redness…'
+                        language === "CN"
+                          ? "例如：用了 retinol 会刺痛；最近泛红…"
+                          : "e.g., stings after retinol; recent redness…"
                       }
                       disabled={routineFormBusy}
                     />
@@ -10264,8 +13922,13 @@ export default function BffChat() {
 
               <div className="sticky bottom-0 -mx-[var(--aurora-page-x)] border-t border-border/40 bg-card/95 px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 backdrop-blur">
                 <div className="flex gap-2">
-                  <button type="button" className="chip-button" onClick={() => setRoutineSheetOpen(false)} disabled={routineFormBusy}>
-                    {language === 'CN' ? '取消' : 'Cancel'}
+                  <button
+                    type="button"
+                    className="chip-button"
+                    onClick={() => setRoutineSheetOpen(false)}
+                    disabled={routineFormBusy}
+                  >
+                    {language === "CN" ? "取消" : "Cancel"}
                   </button>
                   <button
                     type="button"
@@ -10277,31 +13940,52 @@ export default function BffChat() {
                         ...prev,
                         {
                           id: nextId(),
-                          role: 'user',
-                          kind: 'text',
-                          content: language === 'CN' ? '直接分析（低置信度）' : 'Skip and analyze (low confidence)',
+                          role: "user",
+                          kind: "text",
+                          content:
+                            language === "CN"
+                              ? "直接分析（低置信度）"
+                              : "Skip and analyze (low confidence)",
                         },
                       ]);
-                      void runLowConfidenceSkinAnalysis({ fromRoutineForm: true });
+                      void runLowConfidenceSkinAnalysis({
+                        fromRoutineForm: true,
+                      });
                     }}
                     disabled={routineFormBusy}
                   >
-                    {language === 'CN' ? '先给基线' : 'Baseline only'}
+                    {language === "CN" ? "先给基线" : "Baseline only"}
                   </button>
                   <button
                     type="button"
                     className="chip-button chip-button-primary flex-1"
-                    disabled={routineFormBusy || !hasAnyRoutineDraftInput(routineDraft)}
+                    disabled={
+                      routineFormBusy || !hasAnyRoutineDraftInput(routineDraft)
+                    }
                     onClick={() => {
-                      const payload = buildCurrentRoutinePayloadFromDraft(routineDraft);
-                      const text = routineDraftToDisplayText(routineDraft, language);
+                      const payload =
+                        buildCurrentRoutinePayloadFromDraft(routineDraft);
+                      const text = routineDraftToDisplayText(
+                        routineDraft,
+                        language,
+                      );
                       setRoutineSheetOpen(false);
                       setRoutineDraft(makeEmptyRoutineDraft());
-                      setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: text }]);
-                      void runRoutineSkinAnalysis(payload, undefined, { fromRoutineForm: true });
+                      setItems((prev) => [
+                        ...prev,
+                        {
+                          id: nextId(),
+                          role: "user",
+                          kind: "text",
+                          content: text,
+                        },
+                      ]);
+                      void runRoutineSkinAnalysis(payload, undefined, {
+                        fromRoutineForm: true,
+                      });
                     }}
                   >
-                    {language === 'CN' ? '保存并分析' : 'Save & analyze'}
+                    {language === "CN" ? "保存并分析" : "Save & analyze"}
                   </button>
                 </div>
               </div>
@@ -10309,7 +13993,9 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={productSheetOpen}
-            title={language === 'CN' ? '单品评估（Deep Scan）' : 'Product deep scan'}
+            title={
+              language === "CN" ? "单品评估（Deep Scan）" : "Product deep scan"
+            }
             onClose={() => setProductSheetOpen(false)}
             onOpenMenu={() => {
               setProductSheetOpen(false);
@@ -10318,20 +14004,29 @@ export default function BffChat() {
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
-                {language === 'CN'
-                  ? '把产品名或链接发我，我会先帮你解析，再做单品评估。'
-                  : 'Share a product name or link, and I will parse it first, then run a product deep scan.'}
+                {language === "CN"
+                  ? "把产品名或链接发我，我会先帮你解析，再做单品评估。"
+                  : "Share a product name or link, and I will parse it first, then run a product deep scan."}
               </div>
               <input
                 className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                 value={productDraft}
                 onChange={(e) => setProductDraft(e.target.value)}
-                placeholder={language === 'CN' ? '例如：Nivea Creme / https://…' : 'e.g., Nivea Creme / https://…'}
+                placeholder={
+                  language === "CN"
+                    ? "例如：Nivea Creme / https://…"
+                    : "e.g., Nivea Creme / https://…"
+                }
                 disabled={isLoading}
               />
               <div className="dialog-choice-row">
-                <button type="button" className="chip-button" onClick={() => setProductSheetOpen(false)} disabled={isLoading}>
-                  {language === 'CN' ? '取消' : 'Cancel'}
+                <button
+                  type="button"
+                  className="chip-button"
+                  onClick={() => setProductSheetOpen(false)}
+                  disabled={isLoading}
+                >
+                  {language === "CN" ? "取消" : "Cancel"}
                 </button>
                 <button
                   type="button"
@@ -10340,11 +14035,11 @@ export default function BffChat() {
                   onClick={() => {
                     const text = productDraft.trim();
                     setProductSheetOpen(false);
-                    setProductDraft('');
+                    setProductDraft("");
                     void runProductDeepScan(text);
                   }}
                 >
-                  {language === 'CN' ? '开始评估' : 'Analyze'}
+                  {language === "CN" ? "开始评估" : "Analyze"}
                 </button>
               </div>
             </div>
@@ -10352,7 +14047,7 @@ export default function BffChat() {
 
           <Sheet
             open={dupeSheetOpen}
-            title={language === 'CN' ? '找平替 / 同类对标' : 'Find dupes'}
+            title={language === "CN" ? "找平替 / 同类对标" : "Find dupes"}
             onClose={() => setDupeSheetOpen(false)}
             onOpenMenu={() => {
               setDupeSheetOpen(false);
@@ -10361,25 +14056,36 @@ export default function BffChat() {
           >
             <div className="space-y-3">
               <div className="text-xs text-muted-foreground">
-                {language === 'CN'
-                  ? '把目标商品名或链接发我，我会自动匹配平替和同类对标，并给你清晰的 tradeoffs。'
-                  : 'Share the target product name or link, and I will match dupes/comparables and summarize clear tradeoffs.'}
+                {language === "CN"
+                  ? "把目标商品名或链接发我，我会自动匹配平替和同类对标，并给你清晰的 tradeoffs。"
+                  : "Share the target product name or link, and I will match dupes/comparables and summarize clear tradeoffs."}
               </div>
 
               <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '目标商品' : 'Target product'}
+                {language === "CN" ? "目标商品" : "Target product"}
                 <input
                   className="h-11 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
                   value={dupeDraft.original}
-                  onChange={(e) => setDupeDraft((p) => ({ ...p, original: e.target.value }))}
-                  placeholder={language === 'CN' ? '例如：Nivea Creme / https://…' : 'e.g., Nivea Creme / https://…'}
+                  onChange={(e) =>
+                    setDupeDraft((p) => ({ ...p, original: e.target.value }))
+                  }
+                  placeholder={
+                    language === "CN"
+                      ? "例如：Nivea Creme / https://…"
+                      : "e.g., Nivea Creme / https://…"
+                  }
                   disabled={isLoading}
                 />
               </label>
 
               <div className="dialog-choice-row">
-                <button type="button" className="chip-button" onClick={() => setDupeSheetOpen(false)} disabled={isLoading}>
-                  {language === 'CN' ? '取消' : 'Cancel'}
+                <button
+                  type="button"
+                  className="chip-button"
+                  onClick={() => setDupeSheetOpen(false)}
+                  disabled={isLoading}
+                >
+                  {language === "CN" ? "取消" : "Cancel"}
                 </button>
                 <button
                   type="button"
@@ -10388,22 +14094,26 @@ export default function BffChat() {
                   onClick={() => {
                     const original = dupeDraft.original.trim();
                     if (!original) {
-                      setError(language === 'CN' ? '请先填写「目标商品」。' : 'Please provide a target product.');
+                      setError(
+                        language === "CN"
+                          ? "请先填写「目标商品」。"
+                          : "Please provide a target product.",
+                      );
                       return;
                     }
                     setDupeSheetOpen(false);
-                    setDupeDraft({ original: '' });
+                    setDupeDraft({ original: "" });
                     void runDupeSearch(original);
                   }}
                 >
-                  {language === 'CN' ? '开始匹配' : 'Find'}
+                  {language === "CN" ? "开始匹配" : "Find"}
                 </button>
               </div>
             </div>
           </Sheet>
           <Sheet
             open={profileSheetOpen}
-            title={language === 'CN' ? '编辑肤况资料' : 'Edit profile'}
+            title={language === "CN" ? "编辑肤况资料" : "Edit profile"}
             onClose={() => setProfileSheetOpen(false)}
             onOpenMenu={() => {
               setProfileSheetOpen(false);
@@ -10413,76 +14123,135 @@ export default function BffChat() {
             <div className="profile-sheet-compact space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '肤质' : 'Skin type'}
+                  {language === "CN" ? "肤质" : "Skin type"}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.skinType}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, skinType: e.target.value }))}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        skinType: e.target.value,
+                      }))
+                    }
                   >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="oily">{language === 'CN' ? '油性' : 'oily'}</option>
-                    <option value="dry">{language === 'CN' ? '干性' : 'dry'}</option>
-                    <option value="combination">{language === 'CN' ? '混合' : 'combination'}</option>
-                    <option value="normal">{language === 'CN' ? '中性' : 'normal'}</option>
-                    <option value="sensitive">{language === 'CN' ? '敏感' : 'sensitive'}</option>
+                    <option value="">
+                      {language === "CN" ? "未选择" : "—"}
+                    </option>
+                    <option value="oily">
+                      {language === "CN" ? "油性" : "oily"}
+                    </option>
+                    <option value="dry">
+                      {language === "CN" ? "干性" : "dry"}
+                    </option>
+                    <option value="combination">
+                      {language === "CN" ? "混合" : "combination"}
+                    </option>
+                    <option value="normal">
+                      {language === "CN" ? "中性" : "normal"}
+                    </option>
+                    <option value="sensitive">
+                      {language === "CN" ? "敏感" : "sensitive"}
+                    </option>
                   </select>
                 </label>
 
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '敏感程度' : 'Sensitivity'}
+                  {language === "CN" ? "敏感程度" : "Sensitivity"}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.sensitivity}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, sensitivity: e.target.value }))}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        sensitivity: e.target.value,
+                      }))
+                    }
                   >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="low">{language === 'CN' ? '低' : 'low'}</option>
-                    <option value="medium">{language === 'CN' ? '中' : 'medium'}</option>
-                    <option value="high">{language === 'CN' ? '高' : 'high'}</option>
+                    <option value="">
+                      {language === "CN" ? "未选择" : "—"}
+                    </option>
+                    <option value="low">
+                      {language === "CN" ? "低" : "low"}
+                    </option>
+                    <option value="medium">
+                      {language === "CN" ? "中" : "medium"}
+                    </option>
+                    <option value="high">
+                      {language === "CN" ? "高" : "high"}
+                    </option>
                   </select>
                 </label>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '屏障状态' : 'Barrier status'}
+                  {language === "CN" ? "屏障状态" : "Barrier status"}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.barrierStatus}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, barrierStatus: e.target.value }))}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        barrierStatus: e.target.value,
+                      }))
+                    }
                   >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="healthy">{language === 'CN' ? '稳定' : 'healthy'}</option>
-                    <option value="impaired">{language === 'CN' ? '不稳定/刺痛' : 'impaired'}</option>
-                    <option value="unknown">{language === 'CN' ? '不确定' : 'unknown'}</option>
+                    <option value="">
+                      {language === "CN" ? "未选择" : "—"}
+                    </option>
+                    <option value="healthy">
+                      {language === "CN" ? "稳定" : "healthy"}
+                    </option>
+                    <option value="impaired">
+                      {language === "CN" ? "不稳定/刺痛" : "impaired"}
+                    </option>
+                    <option value="unknown">
+                      {language === "CN" ? "不确定" : "unknown"}
+                    </option>
                   </select>
                 </label>
 
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '预算' : 'Budget'}
+                  {language === "CN" ? "预算" : "Budget"}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.budgetTier}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, budgetTier: e.target.value }))}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        budgetTier: e.target.value,
+                      }))
+                    }
                   >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                    <option value="">
+                      {language === "CN" ? "未选择" : "—"}
+                    </option>
                     <option value="¥200">¥200</option>
                     <option value="¥500">¥500</option>
                     <option value="¥1000+">¥1000+</option>
-                    <option value="不确定">{language === 'CN' ? '不确定' : 'Not sure'}</option>
+                    <option value="不确定">
+                      {language === "CN" ? "不确定" : "Not sure"}
+                    </option>
                   </select>
                 </label>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '年龄段' : 'Age band'}
+                  {language === "CN" ? "年龄段" : "Age band"}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.age_band}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, age_band: e.target.value }))}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        age_band: e.target.value,
+                      }))
+                    }
                   >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
+                    <option value="unknown">
+                      {language === "CN" ? "未知/不填" : "Unknown"}
+                    </option>
                     <option value="under_13">&lt;13</option>
                     <option value="13_17">13-17</option>
                     <option value="18_24">18-24</option>
@@ -10494,75 +14263,121 @@ export default function BffChat() {
                 </label>
 
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '孕期状态' : 'Pregnancy status'}
+                  {language === "CN" ? "孕期状态" : "Pregnancy status"}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.pregnancy_status}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        pregnancy_status: e.target.value,
+                      }))
+                    }
                   >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
-                    <option value="not_pregnant">{language === 'CN' ? '未怀孕' : 'Not pregnant'}</option>
-                    <option value="pregnant">{language === 'CN' ? '怀孕中' : 'Pregnant'}</option>
-                    <option value="trying">{language === 'CN' ? '备孕中' : 'Trying'}</option>
+                    <option value="unknown">
+                      {language === "CN" ? "未知/不填" : "Unknown"}
+                    </option>
+                    <option value="not_pregnant">
+                      {language === "CN" ? "未怀孕" : "Not pregnant"}
+                    </option>
+                    <option value="pregnant">
+                      {language === "CN" ? "怀孕中" : "Pregnant"}
+                    </option>
+                    <option value="trying">
+                      {language === "CN" ? "备孕中" : "Trying"}
+                    </option>
                   </select>
                 </label>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '哺乳状态' : 'Lactation status'}
+                  {language === "CN" ? "哺乳状态" : "Lactation status"}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
                     value={profileDraft.lactation_status}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, lactation_status: e.target.value }))}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        lactation_status: e.target.value,
+                      }))
+                    }
                   >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
-                    <option value="not_lactating">{language === 'CN' ? '不哺乳' : 'Not lactating'}</option>
-                    <option value="lactating">{language === 'CN' ? '哺乳中' : 'Lactating'}</option>
+                    <option value="unknown">
+                      {language === "CN" ? "未知/不填" : "Unknown"}
+                    </option>
+                    <option value="not_lactating">
+                      {language === "CN" ? "不哺乳" : "Not lactating"}
+                    </option>
+                    <option value="lactating">
+                      {language === "CN" ? "哺乳中" : "Lactating"}
+                    </option>
                   </select>
                 </label>
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '高风险用药（可选）' : 'High-risk meds (optional)'}
+                  {language === "CN"
+                    ? "高风险用药（可选）"
+                    : "High-risk meds (optional)"}
                   <input
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
                     value={profileDraft.high_risk_medications_text}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
-                    placeholder={language === 'CN' ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
+                    onChange={(e) =>
+                      setProfileDraft((p) => ({
+                        ...p,
+                        high_risk_medications_text: e.target.value,
+                      }))
+                    }
+                    placeholder={
+                      language === "CN"
+                        ? "如 isotretinoin，逗号分隔"
+                        : "e.g., isotretinoin, comma-separated"
+                    }
                   />
                 </label>
               </div>
 
               <label className="space-y-1 text-[11px] text-muted-foreground">
-                {language === 'CN' ? '常驻地/地区' : 'Home region'}
+                {language === "CN" ? "常驻地/地区" : "Home region"}
                 <input
                   className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
                   value={profileDraft.region}
-                  onChange={(e) => setProfileDraft((p) => ({ ...p, region: e.target.value }))}
-                  placeholder={language === 'CN' ? '例如 San Francisco, CA' : 'e.g., San Francisco, CA'}
+                  onChange={(e) =>
+                    setProfileDraft((p) => ({ ...p, region: e.target.value }))
+                  }
+                  placeholder={
+                    language === "CN"
+                      ? "例如 San Francisco, CA"
+                      : "e.g., San Francisco, CA"
+                  }
                 />
               </label>
 
               <label className="space-y-1 text-[11px] text-muted-foreground">
-                {language === 'CN' ? '目标（可多选）' : 'Goals (multi-select)'}
+                {language === "CN" ? "目标（可多选）" : "Goals (multi-select)"}
                 <div className="flex flex-wrap gap-2">
                   {[
-                    ['acne', language === 'CN' ? '控痘' : 'Acne'],
-                    ['redness', language === 'CN' ? '泛红/敏感' : 'Redness'],
-                    ['dark_spots', language === 'CN' ? '淡斑/痘印' : 'Dark spots'],
-                    ['dehydration', language === 'CN' ? '补水' : 'Hydration'],
-                    ['pores', language === 'CN' ? '毛孔' : 'Pores'],
-                    ['wrinkles', language === 'CN' ? '抗老' : 'Anti-aging'],
+                    ["acne", language === "CN" ? "控痘" : "Acne"],
+                    ["redness", language === "CN" ? "泛红/敏感" : "Redness"],
+                    [
+                      "dark_spots",
+                      language === "CN" ? "淡斑/痘印" : "Dark spots",
+                    ],
+                    ["dehydration", language === "CN" ? "补水" : "Hydration"],
+                    ["pores", language === "CN" ? "毛孔" : "Pores"],
+                    ["wrinkles", language === "CN" ? "抗老" : "Anti-aging"],
                   ].map(([key, label]) => {
                     const selected = profileDraft.goals.includes(key);
                     return (
                       <button
                         key={key}
                         type="button"
-                        className={`chip-button profile-chip ${selected ? 'chip-button-primary' : ''}`}
+                        className={`chip-button profile-chip ${selected ? "chip-button-primary" : ""}`}
                         onClick={() =>
                           setProfileDraft((p) => ({
                             ...p,
-                            goals: selected ? p.goals.filter((g) => g !== key) : [...p.goals, key],
+                            goals: selected
+                              ? p.goals.filter((g) => g !== key)
+                              : [...p.goals, key],
                           }))
                         }
                       >
@@ -10580,10 +14395,15 @@ export default function BffChat() {
                   onClick={() => setProfileSheetOpen(false)}
                   disabled={isLoading}
                 >
-                  {language === 'CN' ? '取消' : 'Cancel'}
+                  {language === "CN" ? "取消" : "Cancel"}
                 </button>
-                <button type="button" className="chip-button chip-button-primary" onClick={saveProfile} disabled={isLoading}>
-                  {language === 'CN' ? '保存' : 'Save'}
+                <button
+                  type="button"
+                  className="chip-button chip-button-primary"
+                  onClick={saveProfile}
+                  disabled={isLoading}
+                >
+                  {language === "CN" ? "保存" : "Save"}
                 </button>
               </div>
             </div>
@@ -10591,7 +14411,7 @@ export default function BffChat() {
 
           <Sheet
             open={checkinSheetOpen}
-            title={language === 'CN' ? '今日打卡' : 'Daily check-in'}
+            title={language === "CN" ? "今日打卡" : "Daily check-in"}
             onClose={() => setCheckinSheetOpen(false)}
             onOpenMenu={() => {
               setCheckinSheetOpen(false);
@@ -10601,15 +14421,17 @@ export default function BffChat() {
             <div className="space-y-4">
               {(
                 [
-                  ['redness', language === 'CN' ? '泛红' : 'Redness'],
-                  ['acne', language === 'CN' ? '痘痘' : 'Acne'],
-                  ['hydration', language === 'CN' ? '干燥/紧绷' : 'Dryness'],
+                  ["redness", language === "CN" ? "泛红" : "Redness"],
+                  ["acne", language === "CN" ? "痘痘" : "Acne"],
+                  ["hydration", language === "CN" ? "干燥/紧绷" : "Dryness"],
                 ] as const
               ).map(([key, label]) => (
                 <div key={key} className="space-y-1">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span>{label}</span>
-                    <span className="font-medium text-foreground">{(checkinDraft as any)[key]}/5</span>
+                    <span className="font-medium text-foreground">
+                      {(checkinDraft as any)[key]}/5
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -10619,7 +14441,13 @@ export default function BffChat() {
                     value={(checkinDraft as any)[key]}
                     onChange={(e) => {
                       const n = asNumber(e.target.value) ?? 0;
-                      setCheckinDraft((p) => ({ ...p, [key]: Math.max(0, Math.min(5, Math.trunc(n))) } as any));
+                      setCheckinDraft(
+                        (p) =>
+                          ({
+                            ...p,
+                            [key]: Math.max(0, Math.min(5, Math.trunc(n))),
+                          }) as any,
+                      );
                     }}
                     className="w-full accent-[hsl(var(--primary))]"
                   />
@@ -10627,21 +14455,37 @@ export default function BffChat() {
               ))}
 
               <label className="space-y-1 text-xs text-muted-foreground">
-                {language === 'CN' ? '备注（可选）' : 'Notes (optional)'}
+                {language === "CN" ? "备注（可选）" : "Notes (optional)"}
                 <textarea
                   className="min-h-[84px] w-full resize-none rounded-2xl border border-border/60 bg-background/60 px-3 py-2 text-sm text-foreground"
                   value={checkinDraft.notes}
-                  onChange={(e) => setCheckinDraft((p) => ({ ...p, notes: e.target.value }))}
-                  placeholder={language === 'CN' ? '例如：今天有点刺痛/爆痘…' : 'e.g., stinging / breakout today…'}
+                  onChange={(e) =>
+                    setCheckinDraft((p) => ({ ...p, notes: e.target.value }))
+                  }
+                  placeholder={
+                    language === "CN"
+                      ? "例如：今天有点刺痛/爆痘…"
+                      : "e.g., stinging / breakout today…"
+                  }
                 />
               </label>
 
               <div className="dialog-choice-row">
-                <button type="button" className="chip-button" onClick={() => setCheckinSheetOpen(false)} disabled={isLoading}>
-                  {language === 'CN' ? '取消' : 'Cancel'}
+                <button
+                  type="button"
+                  className="chip-button"
+                  onClick={() => setCheckinSheetOpen(false)}
+                  disabled={isLoading}
+                >
+                  {language === "CN" ? "取消" : "Cancel"}
                 </button>
-                <button type="button" className="chip-button chip-button-primary" onClick={saveCheckin} disabled={isLoading}>
-                  {language === 'CN' ? '保存' : 'Save'}
+                <button
+                  type="button"
+                  className="chip-button chip-button-primary"
+                  onClick={saveCheckin}
+                  disabled={isLoading}
+                >
+                  {language === "CN" ? "保存" : "Save"}
                 </button>
               </div>
             </div>
@@ -10649,7 +14493,11 @@ export default function BffChat() {
 
           <Sheet
             open={alternativesSheetOpen}
-            title={language === 'CN' ? '更多替代与搭配建议' : 'More alternatives & pairing ideas'}
+            title={
+              language === "CN"
+                ? "更多替代与搭配建议"
+                : "More alternatives & pairing ideas"
+            }
             onClose={() => setAlternativesSheetOpen(false)}
             onOpenMenu={() => {
               setAlternativesSheetOpen(false);
@@ -10658,34 +14506,84 @@ export default function BffChat() {
           >
             <div className="space-y-3">
               {alternativesSheetTracks.map((track) => (
-                <div key={`sheet_${track.key}`} className="rounded-xl border border-border/60 bg-background/60 p-3">
-                  <div className="text-sm font-semibold text-foreground">{track.title}</div>
-                  <div className="text-xs text-muted-foreground">{track.subtitle}</div>
+                <div
+                  key={`sheet_${track.key}`}
+                  className="rounded-xl border border-border/60 bg-background/60 p-3"
+                >
+                  <div className="text-sm font-semibold text-foreground">
+                    {track.title}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {track.subtitle}
+                  </div>
                   <div className="mt-2 space-y-2">
                     {track.items.slice(0, 8).map((entry, idx) => {
                       const candidate = entry.candidate;
-                      const brand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+                      const brand =
+                        asString(candidate.brand) ||
+                        (language === "CN" ? "未知品牌" : "Unknown brand");
                       const name =
                         asString(candidate.name) ||
                         asString((candidate as any).display_name) ||
                         asString((candidate as any).displayName) ||
-                        (language === 'CN' ? '未知产品' : 'Unknown product');
+                        (language === "CN" ? "未知产品" : "Unknown product");
                       const why = uniqueStrings([
                         asString((candidate as any)?.why_candidate?.summary),
-                        ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
-                        ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
+                        ...asArray(
+                          (candidate as any)?.why_candidate
+                            ?.reasons_user_visible,
+                        ).map((x) => asString(x)),
+                        ...uniqueStrings(
+                          (candidate as any).why_candidate ||
+                            (candidate as any).whyCandidate,
+                        ),
                       ])[0];
-                      const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
+                      const bestUse = asString(
+                        (candidate as any).best_use ||
+                          (candidate as any).bestUse ||
+                          (candidate as any).expected_outcome ||
+                          (candidate as any).expectedOutcome,
+                      );
                       const tradeoff = uniqueStrings([
-                        ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
-                        ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
+                        ...uniqueStrings(
+                          (candidate as any).tradeoff_notes ||
+                            (candidate as any).tradeoffNotes,
+                        ),
+                        ...uniqueStrings(
+                          (candidate as any).compare_highlights ||
+                            (candidate as any).compareHighlights,
+                        ),
                       ])[0];
                       return (
-                        <div key={`${track.key}_${brand}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
+                        <div
+                          key={`${track.key}_${brand}_${name}_${idx}`}
+                          className="rounded-lg border border-border/50 bg-muted/30 p-2"
+                        >
                           <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand} - ${name}`}</div>
-                          {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
-                          {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
-                          {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}
+                          {why ? (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground">
+                                Why this:{" "}
+                              </span>
+                              {why}
+                            </div>
+                          ) : null}
+                          {bestUse ? (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground">
+                                Best use:{" "}
+                              </span>
+                              {bestUse}
+                            </div>
+                          ) : null}
+                          {tradeoff ? (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground">
+                                Tradeoff:{" "}
+                              </span>
+                              {tradeoff}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}
@@ -10702,37 +14600,72 @@ export default function BffChat() {
           ) : null}
 
           {items.map((item) => {
-            if (item.kind === 'text') {
-              const isUser = item.role === 'user';
-              const isProductPicks = !isUser && looksLikeProductPicksRawText(item.content);
+            if (item.kind === "text") {
+              const isUser = item.role === "user";
+              const isProductPicks =
+                !isUser && looksLikeProductPicksRawText(item.content);
               if (isProductPicks) {
                 return (
                   <div key={item.id} className="chat-card">
                     <ProductPicksCard
                       rawContent={item.content}
                       onPrimaryClick={() => void onProductPicksPrimary()}
-                      onMakeGentler={() => void onCardAction('analysis_gentler')}
-                      onKeepSimple={() => void onCardAction('analysis_simple')}
+                      onMakeGentler={() =>
+                        void onCardAction("analysis_gentler")
+                      }
+                      onKeepSimple={() => void onCardAction("analysis_simple")}
                     />
                   </div>
                 );
               }
 
               return (
-                <div key={item.id} className={cn('chat-message-row', isUser ? 'chat-message-row-user' : 'chat-message-row-assistant')}>
-                  <div className={cn('chat-message-stack', isUser ? 'chat-message-stack-user' : 'chat-message-stack-assistant')}>
-                    <div className={cn('chat-message-meta', isUser ? 'chat-message-meta-user' : 'chat-message-meta-assistant')}>
-                      {isUser ? (language === 'CN' ? '你' : 'You') : 'Aurora'}
+                <div
+                  key={item.id}
+                  className={cn(
+                    "chat-message-row",
+                    isUser
+                      ? "chat-message-row-user"
+                      : "chat-message-row-assistant",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "chat-message-stack",
+                      isUser
+                        ? "chat-message-stack-user"
+                        : "chat-message-stack-assistant",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "chat-message-meta",
+                        isUser
+                          ? "chat-message-meta-user"
+                          : "chat-message-meta-assistant",
+                      )}
+                    >
+                      {isUser ? (language === "CN" ? "你" : "You") : "Aurora"}
                     </div>
-                    <div className={cn('message-bubble', isUser ? 'message-bubble-user' : 'message-bubble-assistant')}>
-                      <ChatRichText text={item.content} role={isUser ? 'user' : 'assistant'} />
+                    <div
+                      className={cn(
+                        "message-bubble",
+                        isUser
+                          ? "message-bubble-user"
+                          : "message-bubble-assistant",
+                      )}
+                    >
+                      <ChatRichText
+                        text={item.content}
+                        role={isUser ? "user" : "assistant"}
+                      />
                     </div>
                   </div>
                 </div>
               );
             }
 
-            if (item.kind === 'return_welcome') {
+            if (item.kind === "return_welcome") {
               return (
                 <div key={item.id} className="chat-card">
                   <ReturnWelcomeCard
@@ -10746,21 +14679,25 @@ export default function BffChat() {
               );
             }
 
-            if (item.kind === 'chips') {
+            if (item.kind === "chips") {
               const chipRoles = getChipVisualRoles(item.chips);
               return (
                 <div key={item.id} className="chat-card">
                   <div className="flex flex-wrap gap-2">
                     {item.chips.map((chip, chipIndex) => {
                       const Icon = iconForChip(chip.chip_id);
-                      const visualRole = chipRoles[chipIndex] ?? 'default';
+                      const visualRole = chipRoles[chipIndex] ?? "default";
                       return (
                         <button
                           key={`${item.id}_${chip.chip_id}_${chipIndex}`}
                           className={cn(
-                            'chip-button',
-                            visualRole === 'primary' ? 'chip-button-primary' : '',
-                            visualRole === 'skip' ? 'chip-button-outline chip-button-skip' : '',
+                            "chip-button",
+                            visualRole === "primary"
+                              ? "chip-button-primary"
+                              : "",
+                            visualRole === "skip"
+                              ? "chip-button-outline chip-button-skip"
+                              : "",
                           )}
                           onClick={() => onChip(chip)}
                           disabled={isLoading}
@@ -10775,71 +14712,38 @@ export default function BffChat() {
               );
             }
 
-              if (item.kind === 'cards') {
-                const cards = Array.isArray(item.cards) ? item.cards : [];
-                const simIndex = cards.findIndex((c) => isRoutineSimulationCard(c));
-                const heatmapIndex = cards.findIndex((c) => isConflictHeatmapCard(c));
-                const hasPair = simIndex >= 0 && heatmapIndex >= 0;
-                const insertAt = hasPair ? Math.min(simIndex, heatmapIndex) : -1;
+            if (item.kind === "cards") {
+              const cards = Array.isArray(item.cards) ? item.cards : [];
+              const simIndex = cards.findIndex((c) =>
+                isRoutineSimulationCard(c),
+              );
+              const heatmapIndex = cards.findIndex((c) =>
+                isConflictHeatmapCard(c),
+              );
+              const hasPair = simIndex >= 0 && heatmapIndex >= 0;
+              const insertAt = hasPair ? Math.min(simIndex, heatmapIndex) : -1;
 
-                return (
-                  <div key={item.id} className="space-y-[var(--aurora-chat-stack-gap)]">
-                    {cards.flatMap((card, idx) => {
-                      if (hasPair && (idx === simIndex || idx === heatmapIndex)) {
-                        if (idx !== insertAt) return [];
-                        const simCard = cards[simIndex];
-                        const heatmapCard = cards[heatmapIndex];
-                        return [
-                          <div key={`compat_${simCard.card_id}_${heatmapCard.card_id}`} className="chat-card">
-                            <CompatibilityInsightsCard
-                              routineSimulationPayload={simCard.payload}
-                              conflictHeatmapPayload={heatmapCard.payload}
-                              language={language}
-                              debug={debug}
-                              meta={item.meta}
-                              analyticsCtx={{
-                                brief_id: headers.brief_id,
-                                trace_id: headers.trace_id,
-                                aurora_uid: headers.aurora_uid,
-                                lang: toLangPref(language),
-                                state: agentState,
-                              }}
-                            />
-                          </div>,
-                        ];
-                      }
-
+              return (
+                <div
+                  key={item.id}
+                  className="space-y-[var(--aurora-chat-stack-gap)]"
+                >
+                  {cards.flatMap((card, idx) => {
+                    if (hasPair && (idx === simIndex || idx === heatmapIndex)) {
+                      if (idx !== insertAt) return [];
+                      const simCard = cards[simIndex];
+                      const heatmapCard = cards[heatmapIndex];
                       return [
-                        <CardRenderBoundary
-                          key={card.card_id}
-                          language={language}
-                          cardType={String(card.type || '')}
-                          cardId={card.card_id}
+                        <div
+                          key={`compat_${simCard.card_id}_${heatmapCard.card_id}`}
+                          className="chat-card"
                         >
-                          <BffCardView
-                            card={card}
+                          <CompatibilityInsightsCard
+                            routineSimulationPayload={simCard.payload}
+                            conflictHeatmapPayload={heatmapCard.payload}
                             language={language}
                             debug={debug}
                             meta={item.meta}
-                            requestHeaders={headers}
-                            session={sessionForCards}
-                            onAction={onCardAction}
-                            resolveOffers={resolveOffers}
-                            resolveProductRef={resolveProductRef}
-                            resolveProductsSearch={resolveProductsSearch}
-                            onDeepScanProduct={runProductDeepScan}
-                            bootstrapInfo={bootstrapInfo}
-                            profileSnapshot={profileSnapshot}
-                            onOpenCheckin={() => setCheckinSheetOpen(true)}
-                            onOpenProfile={() => setProfileSheetOpen(true)}
-                            onIngredientQuestionSelect={onIngredientQuestionSelect}
-                            ingredientQuestionBusy={ingredientQuestionBusy}
-                            onOpenPdp={openPdpDrawer}
-                            onOpenRecommendationAlternatives={(tracks) =>
-                              openRecommendationAlternativesSheet(tracks, { source: 'card_button' })}
-                            loadRecommendationAlternatives={loadRecommendationAlternatives}
-                            analysisPhotoRefs={analysisPhotoRefs}
-                            sessionPhotos={sessionPhotos}
                             analyticsCtx={{
                               brief_id: headers.brief_id,
                               trace_id: headers.trace_id,
@@ -10848,38 +14752,95 @@ export default function BffChat() {
                               state: agentState,
                             }}
                           />
-                        </CardRenderBoundary>,
+                        </div>,
                       ];
-                    })}
-                  </div>
-                );
-              }
+                    }
 
-              return null;
-	          })}
+                    return [
+                      <CardRenderBoundary
+                        key={card.card_id}
+                        language={language}
+                        cardType={String(card.type || "")}
+                        cardId={card.card_id}
+                      >
+                        <BffCardView
+                          card={card}
+                          language={language}
+                          debug={debug}
+                          meta={item.meta}
+                          requestHeaders={headers}
+                          session={sessionForCards}
+                          onAction={onCardAction}
+                          resolveOffers={resolveOffers}
+                          resolveProductRef={resolveProductRef}
+                          resolveProductsSearch={resolveProductsSearch}
+                          onDeepScanProduct={runProductDeepScan}
+                          bootstrapInfo={bootstrapInfo}
+                          profileSnapshot={profileSnapshot}
+                          onOpenCheckin={() => setCheckinSheetOpen(true)}
+                          onOpenProfile={() => setProfileSheetOpen(true)}
+                          onIngredientQuestionSelect={
+                            onIngredientQuestionSelect
+                          }
+                          ingredientQuestionBusy={ingredientQuestionBusy}
+                          onOpenPdp={openPdpDrawer}
+                          onOpenRecommendationAlternatives={(tracks) =>
+                            openRecommendationAlternativesSheet(tracks, {
+                              source: "card_button",
+                            })
+                          }
+                          loadRecommendationAlternatives={
+                            loadRecommendationAlternatives
+                          }
+                          analysisPhotoRefs={analysisPhotoRefs}
+                          sessionPhotos={sessionPhotos}
+                          analyticsCtx={{
+                            brief_id: headers.brief_id,
+                            trace_id: headers.trace_id,
+                            aurora_uid: headers.aurora_uid,
+                            lang: toLangPref(language),
+                            state: agentState,
+                          }}
+                        />
+                      </CardRenderBoundary>,
+                    ];
+                  })}
+                </div>
+              );
+            }
 
-	          {agentState === 'QUICK_PROFILE' ? (
-	            <div className="chat-card">
-	              <QuickProfileFlow
-	                language={language}
-	                step={quickProfileStep}
-	                disabled={isLoading || quickProfileBusy}
-	                onChip={(chip) => onChip(chip)}
-	              />
-	            </div>
-	          ) : null}
+            return null;
+          })}
 
-	          {isLoading ? <AuroraLoadingCard language={language} intent={loadingIntent} thinkingSteps={thinkingSteps} streamedText={streamedText || undefined} /> : null}
-	          <div ref={bottomRef} />
-	        </div>
-	      </main>
+          {agentState === "QUICK_PROFILE" ? (
+            <div className="chat-card">
+              <QuickProfileFlow
+                language={language}
+                step={quickProfileStep}
+                disabled={isLoading || quickProfileBusy}
+                onChip={(chip) => onChip(chip)}
+              />
+            </div>
+          ) : null}
+
+          {isLoading ? (
+            <AuroraLoadingCard
+              language={language}
+              intent={loadingIntent}
+              thinkingSteps={thinkingSteps}
+              streamedText={streamedText || undefined}
+            />
+          ) : null}
+          <div ref={bottomRef} />
+        </div>
+      </main>
 
       <footer className="chat-input-container">
         <form
           className="mx-auto flex max-w-lg items-center gap-2 border border-border/60 bg-card/90 shadow-card"
           style={{
-            borderRadius: 'var(--aurora-chat-composer-radius)',
-            padding: 'var(--aurora-chat-composer-pad)',
+            borderRadius: "var(--aurora-chat-composer-radius)",
+            padding: "var(--aurora-chat-composer-pad)",
           }}
           onSubmit={(e) => {
             e.preventDefault();
@@ -10889,28 +14850,43 @@ export default function BffChat() {
           <button
             type="button"
             className="inline-flex items-center justify-center rounded-2xl border border-border/60 bg-muted/75 text-foreground/80"
-            style={{ height: 'var(--aurora-chat-control-size)', width: 'var(--aurora-chat-control-size)' }}
+            style={{
+              height: "var(--aurora-chat-control-size)",
+              width: "var(--aurora-chat-control-size)",
+            }}
             onClick={handlePickPhoto}
             disabled={isLoading}
-            title={language === 'CN' ? '上传照片' : 'Upload photo'}
+            title={language === "CN" ? "上传照片" : "Upload photo"}
           >
             <Camera className="h-[var(--aurora-chat-control-icon-size)] w-[var(--aurora-chat-control-icon-size)]" />
           </button>
           <input
             className="flex-1 bg-transparent px-2 text-foreground outline-none placeholder:text-muted-foreground/70"
-            style={{ height: 'var(--aurora-chat-control-size)', fontSize: 'var(--aurora-chat-input-font-size)' }}
+            style={{
+              height: "var(--aurora-chat-control-size)",
+              fontSize: "var(--aurora-chat-input-font-size)",
+            }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={language === 'EN' ? 'Ask a question… (or paste a product link)' : '输入问题…（或粘贴产品链接）'}
+            placeholder={
+              language === "EN"
+                ? "Ask a question… (or paste a product link)"
+                : "输入问题…（或粘贴产品链接）"
+            }
             disabled={isLoading}
           />
           <button
             type="submit"
             className={cn(
-              'inline-flex items-center justify-center rounded-full transition active:scale-[0.97]',
-              canSend ? 'bg-primary text-primary-foreground shadow-card' : 'bg-muted text-muted-foreground',
+              "inline-flex items-center justify-center rounded-full transition active:scale-[0.97]",
+              canSend
+                ? "bg-primary text-primary-foreground shadow-card"
+                : "bg-muted text-muted-foreground",
             )}
-            style={{ height: 'var(--aurora-chat-control-size)', width: 'var(--aurora-chat-control-size)' }}
+            style={{
+              height: "var(--aurora-chat-control-size)",
+              width: "var(--aurora-chat-control-size)",
+            }}
             disabled={!canSend}
           >
             <ArrowRight className="h-[var(--aurora-chat-send-icon-size)] w-[var(--aurora-chat-send-icon-size)]" />
@@ -10918,7 +14894,12 @@ export default function BffChat() {
         </form>
       </footer>
 
-      <AuroraSidebar open={sidebarOpen} onOpenChange={setSidebarOpen} history={history} onOpenChat={openChatByBriefId} />
+      <AuroraSidebar
+        open={sidebarOpen}
+        onOpenChange={setSidebarOpen}
+        history={history}
+        onOpenChat={openChatByBriefId}
+      />
     </div>
   );
 }
