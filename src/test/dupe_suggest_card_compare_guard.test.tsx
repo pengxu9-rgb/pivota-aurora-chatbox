@@ -52,6 +52,32 @@ describe("DupeSuggestCard compare guard", () => {
     expect(screen.getByText("This is the same product")).toBeInTheDocument();
   });
 
+  it("disables compare when the candidate title already contains the full anchor name", () => {
+    render(
+      <DupeSuggestCard
+        original={{
+          brand: "The Ordinary",
+          name: "Niacinamide 10% + Zinc 1%",
+        }}
+        dupes={[]}
+        comparables={[
+          {
+            kind: "similar",
+            product: {
+              product_id: "9886499864904",
+              name: "The Ordinary Niacinamide 10% + Zinc 1%",
+            },
+          },
+        ]}
+        language="EN"
+        onCompare={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Compare" })).toBeDisabled();
+    expect(screen.getByText("This is the same product")).toBeInTheDocument();
+  });
+
   it("keeps compare enabled for distinct candidates", () => {
     const onCompare = vi.fn();
     render(

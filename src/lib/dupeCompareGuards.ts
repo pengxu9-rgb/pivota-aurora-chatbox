@@ -50,6 +50,16 @@ function normalizeName(name: string): string {
     .trim();
 }
 
+function combineBrandAndName(brand: string, name: string): string {
+  const cleanBrand = asString(brand);
+  const cleanName = asString(name);
+  if (!cleanBrand) return cleanName;
+  if (!cleanName) return cleanBrand;
+  return cleanName.toLowerCase().startsWith(cleanBrand.toLowerCase())
+    ? cleanName
+    : `${cleanBrand} ${cleanName}`;
+}
+
 function normalizeUrl(url: string): string {
   if (!url) return "";
   try {
@@ -154,9 +164,14 @@ export function looksLikeSelfRef(anchor: ProductLike, candidate: ProductLike): b
   const rightBrand = normalizeBrand(right.brand);
   const leftName = normalizeName(left.name);
   const rightName = normalizeName(right.name);
+  const leftCompositeName = normalizeName(combineBrandAndName(left.brand, left.name));
+  const rightCompositeName = normalizeName(combineBrandAndName(right.brand, right.name));
   if (!leftName || !rightName) return false;
   const candidateHasIdentityEvidence = Boolean(right.productId || rightUrl);
   if (leftBrand && rightBrand && leftBrand === rightBrand && leftName === rightName) return true;
+  if (leftCompositeName && rightName && leftCompositeName === rightName) return true;
+  if (rightCompositeName && leftName && rightCompositeName === leftName) return true;
+  if (leftCompositeName && rightCompositeName && leftCompositeName === rightCompositeName) return true;
   if (!rightBrand && !candidateHasIdentityEvidence && leftName === rightName) return true;
   if (leftBrand && rightBrand && leftBrand === rightBrand && nameSimilarity(left.name, right.name) >= 0.92) {
     return true;
@@ -166,5 +181,5 @@ export function looksLikeSelfRef(anchor: ProductLike, candidate: ProductLike): b
 
 export function getComparableDisplayName(input: ProductLike): string {
   const identity = readComparableIdentity(input);
-  return [identity.brand, identity.name].filter(Boolean).join(" ").trim() || identity.name;
+  return combineBrandAndName(identity.brand, identity.name) || identity.name;
 }
