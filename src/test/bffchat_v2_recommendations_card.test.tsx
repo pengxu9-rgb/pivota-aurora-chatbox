@@ -78,7 +78,7 @@ describe('BffChat V2 recommendations cards', () => {
               card_type: 'recommendations',
               metadata: {
                 recommendation_meta: {
-                  source_mode: 'catalog_grounded',
+                  source_mode: 'llm_catalog_hybrid',
                   trigger_source: 'text',
                 },
                 recommendations: [
@@ -89,6 +89,18 @@ describe('BffChat V2 recommendations cards', () => {
                     name: 'Hydrating Repair Mask',
                     category: 'mask',
                     reasons: ['Supports hydration and barrier comfort.'],
+                  },
+                  {
+                    brand: 'Bioderma',
+                    name: 'Sensibio Comfort Mask',
+                    category: 'mask',
+                    reasons: ['Suggested for reactive skin when comfort matters.'],
+                    pdp_open: {
+                      path: 'external',
+                      external: {
+                        query: 'Bioderma Sensibio Comfort Mask',
+                      },
+                    },
                   },
                 ],
               },
@@ -107,7 +119,11 @@ describe('BffChat V2 recommendations cards', () => {
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
     expect(await screen.findByText(/Hydrating Repair Mask/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sensibio Comfort Mask/i)).toBeInTheDocument();
+    expect(screen.getByText(/External/i)).toBeInTheDocument();
+    expect(screen.getByText(/LLM \+ catalog match/i)).toBeInTheDocument();
     expect(screen.getByText(/Why this fits/i)).toBeInTheDocument();
+    expect(screen.queryByText(/rules-only/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/unknown\.response/i)).not.toBeInTheDocument();
   });
 
