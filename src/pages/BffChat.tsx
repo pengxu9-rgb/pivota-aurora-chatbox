@@ -1158,6 +1158,11 @@ const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
   /^internal_/i,
   /^skin_fit\.profile\./i,
   /^raw\./i,
+  /^anchor_filtered_/i,
+  /^competitor_recall_/i,
+  /^catalog_ann_/i,
+  /^catalog_source_/i,
+  /^resolver_/i,
 ];
 
 const USER_VISIBLE_MISSING_INFO_CODES = new Set([
@@ -1170,6 +1175,10 @@ const USER_VISIBLE_MISSING_INFO_CODES = new Set([
   'incidecoder_fetch_failed',
   'incidecoder_unverified_not_persisted',
   'version_verification_needed',
+  'llm_verification_used',
+  'retail_source_no_match',
+  'retail_source_used',
+  'ingredient_concentration_unknown',
 ]);
 
 const isInternalMissingInfoCode = (code: string): boolean => {
@@ -1798,13 +1807,19 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
       EN: 'INCIDecoder result was not cross-validated and was blocked from KB persistence',
     },
     version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
+    retail_source_no_match: { CN: '零售平台未匹配到对应产品', EN: 'Retail cross-check did not find a matching product' },
+    retail_source_used: { CN: '已使用零售平台补充成分证据', EN: 'Retail source was used for ingredient evidence' },
+    ingredient_concentration_unknown: { CN: '成分浓度未披露', EN: 'Ingredient concentrations are not disclosed' },
+    llm_verification_used: { CN: '已使用 AI 知识库交叉验证成分', EN: 'AI knowledge was used to cross-verify ingredients' },
     'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
     'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
     'skin_fit.profile.barrierStatus': { CN: '未提供屏障状态', EN: 'Barrier status was not provided' },
   };
   if (map[c]?.[language]) return map[c][language];
   if (isInternalMissingInfoCode(c)) return '';
-  return c;
+  return c
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
 const NON_SKINCARE_ALTERNATIVE_RE = /\b(brush|applicator|blender|tool|comb|razor|shaver|makeup\s*brush)\b/i;
@@ -4770,7 +4785,7 @@ function BffCardView({
             if (!issue) return null;
             return {
               issue,
-              status: ['confirmed', 'possible', 'unknown'].includes(status) ? status : 'unknown',
+              status: ['confirmed', 'possible'].includes(status) ? status : 'possible',
               what_to_do: whatToDo,
             };
           })
@@ -5554,7 +5569,7 @@ function BffCardView({
               </div>
             ) : null}
 
-            {/* V4: structured watchouts with confirmed/possible/unknown status icons */}
+            {/* V4: structured watchouts with confirmed/possible status icons */}
             {isV4Payload && v4Watchouts.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
                 <div className="text-xs font-semibold text-muted-foreground">
@@ -5564,7 +5579,7 @@ function BffCardView({
                   {v4Watchouts.map((w, i) => (
                     <div key={`watchout_${i}_${w.issue}`} className="rounded-xl border border-border/40 bg-background/70 p-2">
                       <div className="flex items-start gap-2">
-                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : w.status === 'possible' ? 'text-orange-500' : 'text-slate-400'}`}>
+                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : 'text-orange-500'}`}>
                           {watchoutStatusIcon(w.status)}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -5575,14 +5590,11 @@ function BffCardView({
                         </div>
                         <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                           w.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
-                          w.status === 'possible' ? 'bg-orange-100 text-orange-600' :
-                          'bg-slate-100 text-slate-500'
+                          'bg-orange-100 text-orange-600'
                         }`}>
                           {w.status === 'confirmed'
                             ? (language === 'CN' ? '已确认' : 'Confirmed')
-                            : w.status === 'possible'
-                              ? (language === 'CN' ? '可能' : 'Possible')
-                              : (language === 'CN' ? '未知' : 'Unknown')}
+                            : (language === 'CN' ? '可能' : 'Possible')}
                         </span>
                       </div>
                     </div>
