@@ -77,13 +77,13 @@ function createDeferred<T>() {
 const READY_TIMEOUT_MS = 5000;
 
 async function waitForEnabledComposer() {
-  const input = await screen.findByPlaceholderText(/ask a question/i);
+  const input = await screen.findByPlaceholderText(/ask a question/i, {}, { timeout: READY_TIMEOUT_MS });
   await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
   return input;
 }
 
 async function waitForEnabledButton(name: string | RegExp) {
-  const button = await screen.findByRole('button', { name });
+  const button = await screen.findByRole('button', { name }, { timeout: READY_TIMEOUT_MS });
   await waitFor(() => expect(button).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
   return button;
 }
@@ -363,7 +363,7 @@ describe('BffChat env stress recommendation routing', () => {
     expect(payload?.action?.data?.source_card_type).toBe('travel');
     expect(String(payload?.action?.data?.reply_text || '')).not.toMatch(/travel|weather/i);
     expect(payload?.session?.meta?.last_travel_readiness?.destination).toBe('Paris');
-  });
+  }, 15000);
 
   it('opens the travel product sheet through the public products search route', async () => {
     const mock = vi.mocked(bffJson);

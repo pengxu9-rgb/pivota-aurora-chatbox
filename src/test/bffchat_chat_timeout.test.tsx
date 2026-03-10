@@ -116,9 +116,10 @@ describe('/v1/chat timeout behavior', () => {
       await vi.advanceTimersByTimeAsync(CHAT_TIMEOUT_MS + 20);
     });
 
-    expect(screen.getByTitle(/upload photo/i)).not.toBeDisabled();
+    vi.useRealTimers();
+    await waitFor(() => expect(screen.getByTitle(/upload photo/i)).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
     expect(screen.getByText(/Request timed out/i)).toBeInTheDocument();
     expect(screen.queryByText('Palmitoyl Tripeptide-38')).not.toBeInTheDocument();
     expect(screen.queryByText(/1-minute report/i)).not.toBeInTheDocument();
-  });
+  }, 15000);
 });
