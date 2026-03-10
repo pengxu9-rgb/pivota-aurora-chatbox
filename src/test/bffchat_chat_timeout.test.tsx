@@ -20,11 +20,11 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 
 import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
-import { bffJson } from '@/lib/pivotaAgentBff';
+import { bffChatStream, bffJson } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 import { TimeoutError } from '@/utils/requestWithTimeout';
 
-const CHAT_TIMEOUT_MS = 15000;
+const CHAT_TIMEOUT_MS = 30000;
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -109,6 +109,17 @@ describe('/v1/chat timeout behavior', () => {
     const form = input.closest('form');
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
+    const streamCalls = vi.mocked(bffChatStream).mock.calls;
+    expect(streamCalls.length).toBe(1);
+    expect((streamCalls[0]?.[3] as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(CHAT_TIMEOUT_MS);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+    expect(chatCalls.length).toBe(1);
+    expect((chatCalls[0]?.[2] as RequestInit & { timeoutMs?: number })?.timeoutMs).toBe(CHAT_TIMEOUT_MS);
 
     const uploadPhotoButton = screen.getByTitle(/upload photo/i);
     expect(uploadPhotoButton).toBeDisabled();
@@ -122,5 +133,5 @@ describe('/v1/chat timeout behavior', () => {
     expect(screen.getByText(/Request timed out/i)).toBeInTheDocument();
     expect(screen.queryByText('Palmitoyl Tripeptide-38')).not.toBeInTheDocument();
     expect(screen.queryByText(/1-minute report/i)).not.toBeInTheDocument();
-  }, 15000);
+  }, 45000);
 });

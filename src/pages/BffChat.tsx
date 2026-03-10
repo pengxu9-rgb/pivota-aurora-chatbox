@@ -156,6 +156,24 @@ type ChatItem =
   | { id: string; role: 'assistant'; kind: 'chips'; chips: SuggestedChip[] }
   | { id: string; role: 'assistant'; kind: 'return_welcome'; summary: ReturnWelcomeSummary | null };
 
+type ChatRequestMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+const CHAT_CONTEXT_MESSAGE_LIMIT = 10;
+
+function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
+  const messages: ChatRequestMessage[] = [];
+  for (const item of items) {
+    if (!item || item.kind !== 'text') continue;
+    const content = String(item.content || '').trim();
+    if (!content) continue;
+    messages.push({ role: item.role, content });
+  }
+  return messages.slice(-CHAT_CONTEXT_MESSAGE_LIMIT);
+}
+
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
   block: RecoBlockType;
@@ -1274,7 +1292,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
-const CHAT_TIMEOUT_MS = 15000;
+const CHAT_TIMEOUT_MS = 30000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
 const RECO_ALTERNATIVES_LAZY_TIMEOUT_MS = 8000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
@@ -6563,6 +6581,7 @@ export default function BffChat() {
   });
   const [input, setInput] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
+  const itemsRef = useRef<ChatItem[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [routineFormBusy, setRoutineFormBusy] = useState(false);
@@ -6583,6 +6602,10 @@ export default function BffChat() {
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
@@ -8052,12 +8075,14 @@ export default function BffChat() {
           sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
           sessionMeta,
         });
+        const priorMessages = buildChatRequestMessages(itemsRef.current);
         const body: Record<string, unknown> = {
           session,
           ...(message ? { message } : {}),
           ...(action ? { action } : {}),
           language,
           client_state: normalizeAgentState(opts?.client_state ?? agentState),
+          ...(priorMessages.length ? { messages: priorMessages } : {}),
           ...(opts?.requested_transition ? { requested_transition: opts.requested_transition } : {}),
           ...(debug ? { debug: true } : {}),
           ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
