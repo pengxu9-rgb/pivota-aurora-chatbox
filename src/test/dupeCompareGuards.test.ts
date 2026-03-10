@@ -48,6 +48,22 @@ describe("dupeCompareGuards", () => {
     ).toBe(true);
   });
 
+  it("detects self reference when the candidate brand is missing but the suffix-stripped name matches", () => {
+    expect(
+      looksLikeSelfRef(
+        {
+          name: "The Ordinary Niacinamide 10% + Zinc 1%",
+        },
+        {
+          name: "The Ordinary Niacinamide 10% + Zinc 1% (budget dupe)",
+          brand: null,
+          product_id: null,
+          url: null,
+        },
+      ),
+    ).toBe(true);
+  });
+
   it("keeps same-brand but different-line products comparable", () => {
     expect(
       looksLikeSelfRef(

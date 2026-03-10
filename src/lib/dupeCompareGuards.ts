@@ -155,7 +155,9 @@ export function looksLikeSelfRef(anchor: ProductLike, candidate: ProductLike): b
   const leftName = normalizeName(left.name);
   const rightName = normalizeName(right.name);
   if (!leftName || !rightName) return false;
+  const candidateHasIdentityEvidence = Boolean(right.productId || rightUrl);
   if (leftBrand && rightBrand && leftBrand === rightBrand && leftName === rightName) return true;
+  if (!rightBrand && !candidateHasIdentityEvidence && leftName === rightName) return true;
   if (leftBrand && rightBrand && leftBrand === rightBrand && nameSimilarity(left.name, right.name) >= 0.92) {
     return true;
   }
