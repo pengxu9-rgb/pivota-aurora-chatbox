@@ -1252,6 +1252,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
+const PRODUCTS_SEARCH_REQUEST_TIMEOUT_MS = 7000;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 15000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
@@ -9820,7 +9821,7 @@ export default function BffChat() {
           : q;
       const runSearch = async (searchQuery: string) => {
         const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+        const timer = window.setTimeout(() => controller.abort(), PRODUCTS_SEARCH_REQUEST_TIMEOUT_MS);
         const params = new URLSearchParams({
           query: searchQuery,
           limit: String(requestedLimit),
