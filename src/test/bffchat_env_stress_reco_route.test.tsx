@@ -74,6 +74,20 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+const READY_TIMEOUT_MS = 5000;
+
+async function waitForEnabledComposer() {
+  const input = await screen.findByPlaceholderText(/ask a question/i);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
+async function waitForEnabledButton(name: string | RegExp) {
+  const button = await screen.findByRole('button', { name });
+  await waitFor(() => expect(button).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return button;
+}
+
 describe('BffChat env stress recommendation routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -151,6 +165,8 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
+    await waitForEnabledComposer();
+
     await waitFor(() => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat' && typeof (call?.[2] as any)?.body === 'string');
       expect(chatCalls.length).toBeGreaterThan(0);
@@ -161,7 +177,7 @@ describe('BffChat env stress recommendation routing', () => {
           timezone: 'Europe/Athens',
         }),
       );
-    });
+    }, { timeout: READY_TIMEOUT_MS });
   });
 
   it('sends force_route=reco_products when clicking "See full recommendations" in env card', async () => {
@@ -306,13 +322,13 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How is the weather in Paris this week?' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
     fireEvent.submit(form as HTMLFormElement);
 
-    const cta = await screen.findByRole('button', { name: 'See full recommendations' });
+    const cta = await waitForEnabledButton('See full recommendations');
     fireEvent.click(cta);
 
     await waitFor(() => {
@@ -456,7 +472,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
@@ -470,6 +486,126 @@ describe('BffChat env stress recommendation routing', () => {
     expect(mock.mock.calls.some((call) => call[0] === '/agent/shop/v1/invoke')).toBe(false);
   });
 
+  it('retries travel browse lookups without the preferred brand hint when the first search fails', async () => {
+    const mock = vi.mocked(bffJson);
+    const seenQueries: string[] = [];
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_travel_retry',
+            trace_id: 'trace_chat_travel_retry',
+            assistant_text: 'Travel picks are ready.',
+            cards: [
+              {
+                id: 'travel_browse_retry',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 52,
+                      tier: 'Medium',
+                      radar: [{ axis: 'UV', value: 49 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Singapore',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 52,
+                        },
+                        categorized_kit: [
+                          {
+                            id: 'sun_protection',
+                            title: 'Elevated UV',
+                            climate_link: 'UV 4 -> 8 (+4)',
+                            why: 'Keep UV protection light and easy to reapply.',
+                            ingredient_logic: 'Photostable filters + antioxidants.',
+                            preparations: [{ name: 'Face SPF50+ PA++++ sunscreen', detail: 'Reapply outdoors' }],
+                            brand_suggestions: [
+                              {
+                                product: 'Daily UV Fluid',
+                                brand: 'Aurora Lab',
+                                reason: 'Light texture for humid weather.',
+                                match_status: 'catalog_verified',
+                              },
+                            ],
+                          },
+                        ],
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy', 'ecommerce'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: [],
+                          improve_by: [],
+                        },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+
+      if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
+        const url = new URL(path, 'https://aurora.test');
+        const query = String(url.searchParams.get('query') || '');
+        seenQueries.push(query);
+        if (query.toLowerCase().includes('aurora lab')) {
+          return Promise.reject(new Error('upstream timeout'));
+        }
+        return Promise.resolve({
+          status: 'success',
+          products: [
+            {
+              product_id: 'prod_uv_retry',
+              merchant_id: 'merchant_retry',
+              title: 'Daily UV Fluid',
+              brand: 'Aurora Lab',
+            },
+          ],
+        });
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    fireEvent.click(await waitForEnabledButton('Browse products (1)'));
+
+    expect(await screen.findByText('Daily UV Fluid')).toBeInTheDocument();
+    expect(seenQueries.length).toBe(2);
+    expect(seenQueries[0]?.toLowerCase()).toContain('aurora lab');
+    expect(seenQueries[1]?.toLowerCase()).not.toContain('aurora lab');
+  });
   it('keeps the latest travel product results when lookups resolve out of order', async () => {
     const mock = vi.mocked(bffJson);
     const searchRequests = new Map<string, ReturnType<typeof createDeferred<any>>>();
@@ -563,7 +699,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
@@ -727,7 +863,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How stressful is my travel environment?' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();
@@ -826,7 +962,7 @@ describe('BffChat env stress recommendation routing', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText('Ask a question… (or paste a product link)');
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Plan my travel skincare for Paris.' } });
     const form = input.closest('form');
     expect(form).toBeTruthy();

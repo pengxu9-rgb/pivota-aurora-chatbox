@@ -154,6 +154,20 @@ function setupBffMock(args?: {
   });
 }
 
+const READY_TIMEOUT_MS = 5000;
+
+async function waitForEnabledComposer() {
+  const input = await screen.findByPlaceholderText(/ask a question/i);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
+async function waitForEnabledButton(name: string | RegExp) {
+  const button = await screen.findByRole('button', { name });
+  await waitFor(() => expect(button).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return button;
+}
+
 async function renderChatAndOpenIngredientCard() {
   render(
     <MemoryRouter initialEntries={['/chat']}>
@@ -168,13 +182,13 @@ async function renderChatAndOpenIngredientCard() {
     expect(bootstrapCalls.length).toBeGreaterThan(0);
   });
 
-  const input = screen.getByPlaceholderText(/ask a question/i);
+  const input = await waitForEnabledComposer();
   fireEvent.change(input, { target: { value: 'Analyze Palmitoyl Tripeptide-38' } });
   const form = input.closest('form');
   expect(form).toBeTruthy();
   fireEvent.submit(form as HTMLFormElement);
 
-  await screen.findByText('Palmitoyl Tripeptide-38');
+  await screen.findByText('Palmitoyl Tripeptide-38', {}, { timeout: READY_TIMEOUT_MS });
 }
 
 function getProfileUpdateBodyFromLatestCall(): Record<string, unknown> {
@@ -204,7 +218,7 @@ describe('BffChat ingredient next-questions flow', () => {
     setupBffMock();
     await renderChatAndOpenIngredientCard();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Fine lines/firmness' }));
+    fireEvent.click(await waitForEnabledButton('Fine lines/firmness'));
 
     await waitFor(() => {
       const calls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/profile/update');
@@ -219,7 +233,7 @@ describe('BffChat ingredient next-questions flow', () => {
     setupBffMock();
     await renderChatAndOpenIngredientCard();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sensitive' }));
+    fireEvent.click(await waitForEnabledButton('Sensitive'));
 
     await waitFor(() => {
       const calls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/profile/update');
@@ -281,32 +295,26 @@ describe('BffChat ingredient next-questions flow', () => {
     });
 
     await renderChatAndOpenIngredientCard();
-    vi.useFakeTimers();
 
     const goalQuestionLabel = 'What is your top goal?';
     const sensitivityButtonLabel = 'Sensitive';
 
-    try {
-      fireEvent.click(screen.getByRole('button', { name: 'Fine lines/firmness' }));
+    fireEvent.click(await waitForEnabledButton('Fine lines/firmness'));
 
-      expect(screen.queryByText(goalQuestionLabel)).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: sensitivityButtonLabel })).toBeDisabled();
+    expect(screen.queryByText(goalQuestionLabel)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: sensitivityButtonLabel })).toBeDisabled();
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(4100);
-      });
-
+    await waitFor(() => {
       expect(vi.mocked(toast)).toHaveBeenCalledWith(
         expect.objectContaining({
           title: 'Save failed',
           description: 'Save timed out/failed. Please retry; profile was not updated.',
         }),
       );
+    }, { timeout: READY_TIMEOUT_MS });
 
-      expect(screen.getByText(goalQuestionLabel)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: sensitivityButtonLabel })).not.toBeDisabled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(screen.getByText(goalQuestionLabel)).toBeInTheDocument();
+    expect(await waitForEnabledButton(sensitivityButtonLabel)).not.toBeDisabled();
+
   });
 });

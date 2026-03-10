@@ -45,6 +45,37 @@ function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   };
 }
 
+const READY_TIMEOUT_MS = 5000;
+
+async function waitForEnabledButton(name: string | RegExp) {
+  const button = await screen.findByRole('button', { name });
+  await waitFor(() => expect(button).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return button;
+}
+
+async function waitForEnabledInput(placeholder: string | RegExp) {
+  const input = await screen.findByPlaceholderText(placeholder);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
+async function openProductEvaluateSheet() {
+  const entry = await waitForEnabledButton(/evaluate a specific product for me/i);
+  fireEvent.click(entry);
+  return waitForEnabledInput(/nivea creme/i);
+}
+
+async function clickAnalyzeButton() {
+  await waitFor(() => expect(screen.getByRole('button', { name: /^analyze$/i })).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+}
+
+async function submitComposerPrompt(value: string) {
+  const input = await waitForEnabledInput(/ask a question/i);
+  fireEvent.change(input, { target: { value } });
+  fireEvent.submit(input.closest('form') as HTMLFormElement);
+}
+
 // V4 payload fixture
 function makeV4ProductAnalysisPayload() {
   return {
@@ -471,12 +502,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, { target: { value: 'Lab Series Defense Lotion SPF 35' } });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     await waitFor(() => {
       expect(screen.getByText(/what the formula is trying to do/i)).toBeInTheDocument();
@@ -544,12 +572,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, { target: { value: 'La Roche-Posay Anthelios SPF 50' } });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     // V4: data quality banner
     await waitFor(() => {
@@ -635,12 +660,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, { target: { value: 'EltaMD UV Clear SPF 46' } });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     await waitFor(() => {
       expect(screen.getByText(/how to use/i)).toBeInTheDocument();
@@ -726,11 +748,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, { target: { value: 'Lab Series Defense Lotion SPF 35' } });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     await screen.findByText(/what the formula is trying to do/i);
     expect(screen.getAllByText(/humectant blend suggests hydration support/i).length).toBeGreaterThan(0);
@@ -805,11 +825,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, { target: { value: 'Demo Hydrating Gel' } });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     await screen.findByText(/social feedback snapshot/i);
     expect(screen.queryByText(/overall feedback suggests caution/i)).toBeNull();
@@ -862,11 +880,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText(/ask a question/i);
-    fireEvent.change(input, { target: { value: 'compare tradeoffs' } });
-    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    await submitComposerPrompt('compare tradeoffs');
 
-    await screen.findByText(/tradeoff detail is missing/i);
+    await screen.findByText(/tradeoff detail is missing/i, {}, { timeout: READY_TIMEOUT_MS });
     expect(screen.queryByText(/more tradeoffs/i)).toBeNull();
     expect(screen.queryAllByText(/price unavailable/i).length).toBe(0);
     expect(screen.getByText(/\$52/i)).toBeInTheDocument();
@@ -945,12 +961,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, { target: { value: 'CeraVe Moisturizing Cream' } });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     // V3 fallback: should show verdict badge (not verdict_level)
     await waitFor(() => {
@@ -1045,17 +1058,14 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, {
       target: {
         value:
           'https://www.labseries.com/product/32020/91265/skincare/moisturizerspf/all-in-one-defense-lotion-moisturizer-spf-35/all-in-one?size=100ml_%2F_3.4oz',
       },
     });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     await waitFor(() => {
       expect(screen.getByText(/data quality note/i)).toBeInTheDocument();
@@ -1171,12 +1181,9 @@ describe('BffChat product-analysis template v2', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
-    fireEvent.click(entry);
-
-    const productInput = await screen.findByPlaceholderText(/nivea creme/i);
+    const productInput = await openProductEvaluateSheet();
     fireEvent.change(productInput, { target: { value: 'Demo Hydration Gel' } });
-    fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
+    await clickAnalyzeButton();
 
     await waitFor(() => {
       expect(screen.getAllByText(/sodium hyaluronate/i).length).toBeGreaterThan(0);

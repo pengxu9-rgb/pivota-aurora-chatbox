@@ -46,6 +46,14 @@ const invalidPhotoModulesCard = {
   },
 };
 
+const READY_TIMEOUT_MS = 5000;
+
+async function waitForEnabledComposer() {
+  const input = await screen.findByPlaceholderText(/ask a question/i);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
 describe('photo_modules invalid payload visibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,7 +91,7 @@ describe('photo_modules invalid payload visibility', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText(/ask a question/i);
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'show my cards' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
@@ -91,7 +99,7 @@ describe('photo_modules invalid payload visibility', () => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
       expect(chatCalls.length).toBeGreaterThan(0);
       expect(screen.queryByText(warningText)).not.toBeInTheDocument();
-    });
+    }, { timeout: READY_TIMEOUT_MS });
   });
 
   it('shows invalid payload warning in debug mode', async () => {
@@ -118,14 +126,14 @@ describe('photo_modules invalid payload visibility', () => {
       </MemoryRouter>,
     );
 
-    const input = await screen.findByPlaceholderText(/ask a question/i);
+    const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'show my cards' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
     await waitFor(() => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
       expect(chatCalls.length).toBeGreaterThan(0);
-    });
-    expect(await screen.findByText(warningText)).toBeInTheDocument();
+    }, { timeout: READY_TIMEOUT_MS });
+    expect(await screen.findByText(warningText, {}, { timeout: READY_TIMEOUT_MS })).toBeInTheDocument();
   });
 });

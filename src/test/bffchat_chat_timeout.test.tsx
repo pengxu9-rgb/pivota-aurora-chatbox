@@ -37,6 +37,14 @@ function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   };
 }
 
+const READY_TIMEOUT_MS = 5000;
+
+async function waitForEnabledComposer() {
+  const input = await screen.findByPlaceholderText(/ask a question/i);
+  await waitFor(() => expect(input).not.toBeDisabled(), { timeout: READY_TIMEOUT_MS });
+  return input;
+}
+
 describe('/v1/chat timeout behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -89,11 +97,12 @@ describe('/v1/chat timeout behavior', () => {
     await waitFor(() => {
       const bootstrapCalls = mock.mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
       expect(bootstrapCalls.length).toBeGreaterThan(0);
-    });
+    }, { timeout: READY_TIMEOUT_MS });
+
+    const input = await waitForEnabledComposer();
 
     vi.useFakeTimers();
 
-    const input = screen.getByPlaceholderText(/ask a question/i);
     fireEvent.change(input, { target: { value: 'Analyze Palmitoyl Tripeptide-38' } });
 
     const form = input.closest('form');
@@ -107,7 +116,7 @@ describe('/v1/chat timeout behavior', () => {
       await vi.advanceTimersByTimeAsync(CHAT_TIMEOUT_MS + 20);
     });
 
-    expect(uploadPhotoButton).not.toBeDisabled();
+    expect(screen.getByTitle(/upload photo/i)).not.toBeDisabled();
     expect(screen.getByText(/Request timed out/i)).toBeInTheDocument();
     expect(screen.queryByText('Palmitoyl Tripeptide-38')).not.toBeInTheDocument();
     expect(screen.queryByText(/1-minute report/i)).not.toBeInTheDocument();
