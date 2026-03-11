@@ -161,6 +161,13 @@ const productSchema = z
       })
       .passthrough()
       .optional(),
+    evidence: z
+      .object({
+        evidence_grade: z.union([z.string(), z.number()]).optional(),
+      })
+      .passthrough()
+      .optional(),
+    evidence_grade: z.union([z.string(), z.number()]).optional(),
     why_match: z.string().trim().optional(),
     how_to_use: z.string().trim().optional(),
     cautions: z.array(z.string().trim().min(1).max(180)).optional(),
@@ -345,6 +352,9 @@ export type PhotoModulesProduct = {
     rating: number | null;
     review_count: number | null;
     summary: string;
+  } | null;
+  evidence: {
+    evidence_grade: string | null;
   } | null;
   why_match: string;
   how_to_use: string;
@@ -853,6 +863,22 @@ const normalizeProduct = (product: RawProduct): PhotoModulesProduct => ({
             summary: String((product as any).socialProof.summary || '').trim(),
           }
         : null,
+  evidence: (() => {
+    const rawEvidence =
+      (product as any).evidence && typeof (product as any).evidence === 'object' && !Array.isArray((product as any).evidence)
+        ? (product as any).evidence
+        : null;
+    const evidenceGrade = firstNonEmpty(
+      rawEvidence?.evidence_grade,
+      rawEvidence?.evidenceGrade,
+      (product as any).evidence_grade,
+      (product as any).evidenceGrade,
+    );
+    if (!evidenceGrade) return null;
+    return {
+      evidence_grade: String(evidenceGrade).trim().toUpperCase() || null,
+    };
+  })(),
   why_match: String(product.why_match || '').trim(),
   how_to_use: String(product.how_to_use || '').trim(),
   cautions: toUniqueList(product.cautions ?? [], 6),

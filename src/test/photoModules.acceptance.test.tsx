@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
@@ -79,6 +79,8 @@ const buildValidPayload = () => ({
           why: 'Supports tone and oil balance for highlighted regions.',
           how_to_use: { time: 'AM_PM', frequency: 'daily', notes: 'Start low and increase gradually.' },
           cautions: ['Patch test first'],
+          action_rank_score: 0.66,
+          group: 'top',
           evidence_issue_types: ['redness', 'shine'],
           timeline: 'AM/PM',
           do_not_mix: ['Strong acids in same routine'],
@@ -94,6 +96,8 @@ const buildValidPayload = () => ({
               retrieval_reason: 'catalog_evidence_match',
               price: 19.9,
               currency: 'USD',
+              suitability_score: 0.92,
+              evidence: { evidence_grade: 'A' },
             },
             {
               product_id: 'prod_niacinamide_2',
@@ -104,6 +108,27 @@ const buildValidPayload = () => ({
               retrieval_source: 'external_seed',
               retrieval_reason: 'external_seed_supplement',
               pdp_url: 'https://example.com/p/niacinamide-barrier-gel',
+              suitability_score: 0.84,
+            },
+            {
+              product_id: 'prod_niacinamide_3',
+              merchant_id: 'merchant_3',
+              name: 'Daily Balance Lotion',
+              brand: 'Brand C',
+              why_match: 'Balances oil through the day.',
+              retrieval_source: 'catalog',
+              retrieval_reason: 'catalog_evidence_match',
+              suitability_score: 0.72,
+            },
+            {
+              product_id: 'prod_niacinamide_4',
+              merchant_id: 'merchant_4',
+              name: 'Night Recovery Essence',
+              brand: 'Brand D',
+              why_match: 'Adds nighttime barrier support.',
+              retrieval_source: 'catalog',
+              retrieval_reason: 'catalog_evidence_match',
+              suitability_score: 0.58,
             },
           ],
           products_empty_reason: null,
@@ -268,9 +293,10 @@ describe('photo_modules_v1 acceptance', () => {
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-visible-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
-    expect(screen.getByText('Top match')).toBeInTheDocument();
+    expect(screen.getByText('Best match')).toBeInTheDocument();
+    expect(screen.getByText('Well-supported')).toBeInTheDocument();
     expect(screen.getByText('Niacinamide 5% Serum')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /more/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /see more/i })).toBeInTheDocument();
   });
 
   it('keeps module summary/actions visible in no-image mode without big placeholder canvas', () => {
@@ -290,10 +316,10 @@ describe('photo_modules_v1 acceptance', () => {
     expect(screen.queryByTestId('photo-modules-base-canvas')).not.toBeInTheDocument();
     expect(screen.queryByTestId('photo-modules-highlight-canvas')).not.toBeInTheDocument();
     expect(screen.getByTestId('photo-modules-module-left_cheek')).toBeInTheDocument();
-    expect(screen.getByText('Ingredient actions')).toBeInTheDocument();
+    expect(screen.getByText('Ingredient & product recommendations')).toBeInTheDocument();
   });
 
-  it('opens More panel and shows extended action products list', () => {
+  it('expands inline and shows additional action products', () => {
     const normalized = normalizePhotoModulesUiModelV1(buildValidPayload());
     expect(normalized.errors).toHaveLength(0);
     expect(normalized.model).not.toBeNull();
@@ -301,10 +327,10 @@ describe('photo_modules_v1 acceptance', () => {
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);
 
     fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
-    fireEvent.click(screen.getByRole('button', { name: /more/i }));
+    expect(screen.queryByText('Night Recovery Essence')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /see more/i }));
 
-    expect(screen.getByText('More products')).toBeInTheDocument();
-    expect(screen.getByText('Niacinamide Barrier Gel')).toBeInTheDocument();
+    expect(screen.getByText('Night Recovery Essence')).toBeInTheDocument();
   });
 
   it('opens internal PDP when canonical product ref is available', async () => {
@@ -315,7 +341,9 @@ describe('photo_modules_v1 acceptance', () => {
     render(<PhotoModulesCard model={normalized.model!} language="EN" onOpenPdp={onOpenPdp} />);
 
     fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
-    fireEvent.click(screen.getByText('Niacinamide 5% Serum'));
+    fireEvent.click(
+      within(screen.getByTestId('reco-product-card-prod_niacinamide_1')).getByRole('button', { name: /view product/i }),
+    );
 
     await Promise.resolve();
     expect(onOpenPdp).toHaveBeenCalledTimes(1);

@@ -25,6 +25,8 @@ import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/li
 import { buildPdpUrl, extractPdpTargetFromProductGroupId, extractStablePdpTargetFromProductsResolveResponse } from '@/lib/pivotaShop';
 import type { Language } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { applyRecommendationDisplayOptions, mapModuleToRecommendationVm, getSeverityLabel, humanizeRegionId } from '@/lib/recommendationViewModel';
+import { RecommendationSection } from '@/components/aurora/cards/RecommendationSection';
 
 const HEATMAP_GRID = 64;
 
@@ -356,14 +358,18 @@ const getModuleLabel = (moduleId: string, language: Language): string => {
 const toPercent = (value: number) => `${Math.round(clamp01(value) * 100)}%`;
 
 const scoreIssue = (issue: PhotoModulesModule['issues'][number]): number => {
-  const rank = Number(issue.issue_rank_score);
-  if (Number.isFinite(rank)) return rank;
+  if (issue.issue_rank_score != null) {
+    const rank = Number(issue.issue_rank_score);
+    if (Number.isFinite(rank)) return rank;
+  }
   return issue.severity_0_4 * 0.7 + issue.confidence_0_1 * 0.3;
 };
 
 const scoreModule = (module: PhotoModulesModule): number => {
-  const rank = Number(module.module_rank_score);
-  if (Number.isFinite(rank)) return rank;
+  if (module.module_rank_score != null) {
+    const rank = Number(module.module_rank_score);
+    if (Number.isFinite(rank)) return rank;
+  }
   const topIssue = [...(module.issues || [])].sort((left, right) => scoreIssue(right) - scoreIssue(left))[0];
   return topIssue ? scoreIssue(topIssue) : 0;
 };
@@ -961,14 +967,7 @@ export function PhotoModulesCard({
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-sm font-semibold text-foreground">{product.title}</div>
-                      {product.retrieval_source ? (
-                        <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                          {sourceBadgeLabel(product.retrieval_source, language)}
-                        </span>
-                      ) : null}
-                    </div>
+                    <div className="truncate text-sm font-semibold text-foreground">{product.title}</div>
                     {product.brand ? <div className="mt-0.5 text-xs text-muted-foreground">{product.brand}</div> : null}
                     {product.benefit_tags.length ? (
                       <div className="mt-1 flex flex-wrap gap-1">
@@ -1136,7 +1135,7 @@ export function PhotoModulesCard({
                     isActive ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 bg-muted/40 text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  {getModuleLabel(module.module_id, language)} · S{maxSeverity}
+                  {getModuleLabel(module.module_id, language)} · {getSeverityLabel(maxSeverity, language)}
                 </button>
               );
             })}
@@ -1185,7 +1184,7 @@ export function PhotoModulesCard({
                           </div>
                           <div className="flex items-center gap-1.5">
                             <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] font-semibold text-foreground">
-                              S{issue.severity_0_4}
+                              {getSeverityLabel(issue.severity_0_4, language)}
                             </span>
                             <span className="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground">
                               {hideConfidenceNumeric
@@ -1206,7 +1205,7 @@ export function PhotoModulesCard({
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {issue.evidence_region_ids.slice(0, 3).map((regionId) => (
                               <span key={regionId} className="rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] text-muted-foreground">
-                                {regionId}
+                                {humanizeRegionId(regionId, language)}
                               </span>
                             ))}
                           </div>
@@ -1222,252 +1221,17 @@ export function PhotoModulesCard({
               )}
             </div>
 
-            <div className="space-y-2">
-              <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '成分行动建议' : 'Ingredient actions'}</div>
-              {selectedModule.actions.length ? (
-                <div className="space-y-2">
-                  {selectedModule.actions.map((action) => {
-                    const actionProducts = PRODUCT_REC_ENABLED
-                      ? (Array.isArray(action.products) ? action.products : []).filter((product) => Boolean(product.title)).slice(0, 6)
-                      : [];
-                    const primaryProduct = actionProducts[0] ?? null;
-                    const externalSearchCtas = PRODUCT_REC_ENABLED
-                      ? (Array.isArray(action.external_search_ctas) ? action.external_search_ctas : []).slice(0, 2)
-                      : [];
-                    const showActionFallback = PRODUCT_REC_ENABLED && !actionProducts.length && (Boolean(action.products_empty_reason) || externalSearchCtas.length > 0);
-                    return (
-                      <div
-                        key={`${selectedModule.module_id}_${action.ingredient_id}`}
-                        className="rounded-xl border border-border/60 bg-muted/20 p-3"
-                      >
-                        <button
-                          type="button"
-                          className="w-full text-left"
-                          onClick={() => {
-                            if (!analyticsCtx) return;
-                            emitAuroraPhotoModulesActionTap(analyticsCtx, {
-                              card_id: cardId ?? null,
-                              module_id: selectedModule.module_id,
-                              action_type: action.action_type,
-                              ingredient_id: action.ingredient_id,
-                              issue_types: action.evidence_issue_types,
-                            });
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-semibold text-foreground">{action.ingredient_name}</div>
-                            <div className="text-[11px] text-muted-foreground">{action.timeline || 'AM/PM'}</div>
-                          </div>
-                          <div className="mt-1 rounded-lg border border-border/50 bg-background/70 px-2 py-1.5 text-xs font-medium text-foreground/90">
-                            {language === 'CN' ? '为什么推荐：' : 'Why it matters: '}
-                            {action.why}
-                          </div>
-                          <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                            <div className="rounded-lg border border-border/60 bg-background/80 px-2 py-1.5">
-                              {language === 'CN' ? '使用方式' : 'How to use'}: {action.how_to_use.time} · {action.how_to_use.frequency}
-                              {action.how_to_use.notes ? ` · ${action.how_to_use.notes}` : ''}
-                            </div>
-                            <div className="rounded-lg border border-border/60 bg-background/80 px-2 py-1.5">
-                              {language === 'CN' ? '避免同用' : 'Do not mix'}: {action.do_not_mix.join(' / ')}
-                            </div>
-                          </div>
-                          {action.cautions.length ? (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {action.cautions.slice(0, 4).map((caution) => (
-                                <span key={caution} className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700">
-                                  {caution}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </button>
-
-                        {PRODUCT_REC_ENABLED && primaryProduct ? (
-                          <div className="mt-2 space-y-2" data-testid={`photo-modules-action-products-${action.ingredient_id}`}>
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-[11px] font-semibold text-muted-foreground">
-                                {language === 'CN' ? '主推商品' : 'Top match'}
-                              </div>
-                              {MORE_PANEL_ENABLED && actionProducts.length > 1 ? (
-                                <button
-                                  type="button"
-                                  className="rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] font-semibold text-foreground hover:bg-background"
-                                  onClick={() => openMorePanel(selectedModule, action)}
-                                >
-                                  {language === 'CN' ? '更多' : 'More'}
-                                </button>
-                              ) : null}
-                            </div>
-                            <button
-                              type="button"
-                              className="w-full rounded-lg border border-border/60 bg-background/80 p-2 text-left hover:bg-background disabled:cursor-not-allowed disabled:opacity-70"
-                              disabled={openingProductKey === `${selectedModule.module_id}::${action.ingredient_id}::${primaryProduct.product_id || primaryProduct.title || 0}`}
-                              onClick={() =>
-                                void openProduct({
-                                  moduleId: selectedModule.module_id,
-                                  action,
-                                  product: primaryProduct,
-                                  productIndex: 0,
-                                })
-                              }
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-xs font-semibold text-foreground">{primaryProduct.title}</div>
-                                  {primaryProduct.brand ? <div className="mt-0.5 text-[11px] text-muted-foreground">{primaryProduct.brand}</div> : null}
-                                </div>
-                                {primaryProduct.retrieval_source ? (
-                                  <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                                    {sourceBadgeLabel(primaryProduct.retrieval_source, language)}
-                                  </span>
-                                ) : null}
-                              </div>
-                              {primaryProduct.why_match ? <div className="mt-1 text-[11px] text-muted-foreground">{primaryProduct.why_match}</div> : null}
-                              {primaryProduct.benefit_tags.length ? (
-                                <div className="mt-1.5 flex flex-wrap gap-1">
-                                  {primaryProduct.benefit_tags.slice(0, 3).map((tag) => (
-                                    <span key={tag} className="rounded-full border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : null}
-                              {(formatPriceText(primaryProduct) || formatSocialProofText(primaryProduct, language)) ? (
-                                <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                                  {formatPriceText(primaryProduct) ? <span>{formatPriceText(primaryProduct)}</span> : null}
-                                  {formatSocialProofText(primaryProduct, language) ? <span>{formatSocialProofText(primaryProduct, language)}</span> : null}
-                                </div>
-                              ) : null}
-                            </button>
-                          </div>
-                        ) : null}
-
-                        {showActionFallback ? (
-                          <div className="mt-2 space-y-2 text-xs text-muted-foreground" data-testid={`photo-modules-action-empty-${action.ingredient_id}`}>
-                            <div className="rounded-lg border border-border/60 bg-background/70 px-2 py-1.5">
-                              {explainProductsEmptyReason(action.products_empty_reason, language)}
-                            </div>
-                            {externalSearchCtas.length ? (
-                              <div className="flex flex-wrap gap-1.5">
-                                {externalSearchCtas.map((cta, index) => (
-                                  <a
-                                    key={`${action.ingredient_id}_cta_${index}`}
-                                    href={cta.url || '#'}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="rounded-full border border-border/60 bg-background/80 px-2 py-1 text-[10px] text-foreground hover:bg-background"
-                                  >
-                                    {cta.title || (language === 'CN' ? '外部搜索' : 'External search')}
-                                  </a>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                  {language === 'CN'
-                    ? '该分区暂无成分建议，建议继续跟踪并复拍。'
-                    : 'No ingredient action yet for this module. Track progress and retake later.'}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-xs font-semibold text-muted-foreground">
-                {language === 'CN' ? '模块汇总商品（次级）' : 'Module-level product summary'}
-              </div>
-              {PRODUCT_REC_ENABLED && moduleSummaryProducts.length ? (
-                <div className="space-y-2">
-                  {moduleSummaryProducts.map((product) => (
-                    <button
-                      key={`${selectedModule.module_id}_${product.product_id || product.title}`}
-                      type="button"
-                      className="w-full rounded-xl border border-border/60 bg-muted/20 p-3 text-left hover:bg-muted/30"
-                      onClick={() =>
-                        void openProduct({
-                          moduleId: selectedModule.module_id,
-                          action: {
-                            action_type: 'ingredient',
-                            ingredient_id: 'module_summary',
-                            ingredient_canonical_id: null,
-                            ingredient_name: language === 'CN' ? '模块汇总' : 'Module summary',
-                            why: '',
-                            how_to_use: { time: 'AM_PM', frequency: '2-3x_week', notes: '' },
-                            cautions: [],
-                            action_rank_score: null,
-                            group: null,
-                            evidence_issue_types: [],
-                            timeline: '',
-                            do_not_mix: [],
-                            products: [],
-                            products_empty_reason: null,
-                            external_search_ctas: [],
-                            rec_debug: null,
-                          },
-                          product,
-                          productIndex: 0,
-                        })
-                      }
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-sm font-semibold text-foreground">{product.title}</div>
-                          {product.brand ? <div className="text-xs text-muted-foreground">{product.brand}</div> : null}
-                        </div>
-                        {product.image_url ? (
-                          <img src={product.image_url} alt={product.title} className="h-12 w-12 rounded-lg border border-border/50 object-cover" />
-                        ) : (
-                          <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border/50 bg-muted/40">
-                            <Sparkles className="h-4 w-4 text-muted-foreground" />
-                          </div>
-                        )}
-                      </div>
-                      {product.why_match ? <div className="mt-2 text-xs text-muted-foreground">{product.why_match}</div> : null}
-                      {product.retrieval_source ? (
-                        <div className="mt-2 text-[11px] text-muted-foreground">
-                          {language === 'CN' ? '来源：' : 'Source: '}
-                          {sourceBadgeLabel(product.retrieval_source, language)}
-                          {product.retrieval_reason ? ` · ${product.retrieval_reason}` : ''}
-                        </div>
-                      ) : null}
-                      {product.how_to_use ? (
-                        <div className="mt-2 rounded-lg border border-border/60 bg-background/80 px-2 py-1.5 text-xs text-muted-foreground">
-                          {product.how_to_use}
-                        </div>
-                      ) : null}
-                      {product.cautions.length ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {product.cautions.slice(0, 3).map((caution) => (
-                            <span key={caution} className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700">
-                              {caution}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                  {!PRODUCT_REC_ENABLED
-                    ? (language === 'CN'
-                      ? '商品推荐已通过开关关闭。'
-                      : 'Product recommendations are disabled by feature flag.')
-                    : hasActionProducts
-                      ? (language === 'CN'
-                        ? '优先查看上方每个成分下的商品推荐。'
-                        : 'Primary recommendations are shown under each ingredient action above.')
-                      : (language === 'CN'
-                        ? '当前模块暂无可汇总商品，请先参考成分行动建议。'
-                        : 'No module-level products are available right now. Follow ingredient actions first.')}
-                </div>
-              )}
-            </div>
+            <RecommendationSection
+              vm={applyRecommendationDisplayOptions(mapModuleToRecommendationVm(selectedModule, language), {
+                productsEnabled: PRODUCT_REC_ENABLED,
+                expandedProductsEnabled: MORE_PANEL_ENABLED,
+              })}
+              language={language}
+              onOpenProduct={openProduct}
+              productsEnabled={PRODUCT_REC_ENABLED}
+              expandedProductsEnabled={MORE_PANEL_ENABLED}
+              openingProductKey={openingProductKey}
+            />
           </div>
         ) : (
           <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
