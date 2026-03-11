@@ -80,7 +80,7 @@ const translations = {
 
     // S3 Photo Option
     's3.intro': "Upload a photo for personalized skin analysis.",
-    's3.tip': "One clear photo is enough to get started. A second under different lighting can improve accuracy.",
+    's3.tip': "Second under different lighting can improve accuracy.",
     's3.warning': "Please avoid filters/beauty mode.",
     's3.one_photo_hint': "One clear photo is all you need to start",
     's3.slot.daylight': "Natural daylight (near a window)",
@@ -308,7 +308,7 @@ const translations = {
 
     // S3 Photo Option
     's3.intro': "上传一张照片，获取个性化肤质分析。",
-    's3.tip': "一张清晰照片即可开始分析。补拍不同光线下的第二张可以提升准确度。",
+    's3.tip': "不同光线下再补一张可提升准确度。",
     's3.warning': "请避免滤镜/美颜。",
     's3.one_photo_hint': "一张清晰照片即可开始",
     's3.slot.daylight': "自然光（靠窗）",
