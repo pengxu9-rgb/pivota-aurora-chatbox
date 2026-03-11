@@ -34,7 +34,16 @@ export type AnalysisMeta = {
 };
 
 export type RecommendationMeta = {
-  source_mode: 'llm_primary' | 'artifact_matcher' | 'upstream_fallback' | 'rules_only';
+  source_mode:
+    | 'llm_primary'
+    | 'llm_catalog_hybrid'
+    | 'catalog_grounded'
+    | 'catalog_transient_fallback'
+    | 'bridge_error'
+    | 'artifact_matcher'
+    | 'upstream_fallback'
+    | 'travel_handoff'
+    | 'rules_only';
   used_recent_logs: boolean;
   used_itinerary: boolean;
   used_safety_flags: boolean;
@@ -435,6 +444,34 @@ export const fetchRecoAlternatives = async (
   options: { timeoutMs?: number } = {},
 ): Promise<RecoAlternativesResponse> => {
   return bffJson('/v1/reco/alternatives', headers, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    ...(Number.isFinite(Number(options.timeoutMs)) ? { timeoutMs: Number(options.timeoutMs) } : {}),
+  });
+};
+
+export type RoutineSimulateRequest = {
+  routine?: {
+    am?: Array<Record<string, unknown>>;
+    pm?:
+      | Array<Record<string, unknown>>
+      | 'same_as_am'
+      | {
+          pm_same_as_am?: boolean;
+          pmSameAsAm?: boolean;
+          same_as_am?: boolean;
+          sameAsAm?: boolean;
+        };
+  };
+  test_product?: Record<string, unknown>;
+};
+
+export const fetchRoutineSimulation = async (
+  headers: BffHeaders,
+  body: RoutineSimulateRequest,
+  options: { timeoutMs?: number } = {},
+): Promise<V1Envelope> => {
+  return bffJson('/v1/routine/simulate', headers, {
     method: 'POST',
     body: JSON.stringify(body),
     ...(Number.isFinite(Number(options.timeoutMs)) ? { timeoutMs: Number(options.timeoutMs) } : {}),

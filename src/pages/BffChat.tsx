@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
-import { bffJson, bffChatStream, fetchRecoAlternatives, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
+import { bffJson, bffChatStream, fetchRecoAlternatives, fetchRoutineSimulation, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
 import type { SSEResultEvent } from '@/lib/pivotaAgentBff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
@@ -28,7 +28,7 @@ import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
-import { AuroraRoutineCard } from '@/components/aurora/cards/AuroraRoutineCard';
+import { AuroraRoutineCard, type RoutineStep } from '@/components/aurora/cards/AuroraRoutineCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import { IngredientReportCard, type IngredientReportQuestionSelection } from '@/components/aurora/cards/IngredientReportCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
@@ -1301,6 +1301,7 @@ const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 30000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
 const RECO_ALTERNATIVES_LAZY_TIMEOUT_MS = 8000;
+const RECO_COMPATIBILITY_LAZY_TIMEOUT_MS = 6000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
 const PDP_EXTERNAL_FALLBACK_REASON_CODES = new Set(['NO_CANDIDATES', 'DB_ERROR', 'UPSTREAM_TIMEOUT']);
 const PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES = new Set(['NO_CANDIDATES']);
@@ -1889,6 +1890,7 @@ export function RecommendationsCard({
   analyticsCtx,
   onOpenAlternativesSheet,
   loadAlternativesForItem,
+  loadRecommendationCompatibility,
 }: {
   card: Card;
   language: 'EN' | 'CN';
@@ -1917,6 +1919,10 @@ export function RecommendationsCard({
     productInput?: string | null;
     product?: Record<string, unknown> | null;
   }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
+  loadRecommendationCompatibility?: (routine: {
+    am: Array<Record<string, unknown>>;
+    pm: Array<Record<string, unknown>>;
+  }) => Promise<{ analysisReady: boolean; safe: boolean; summary: string | null; conflicts: string[] } | null>;
 }) {
   type PdpOpenState = 'idle' | 'resolving' | 'opening_internal' | 'opening_external' | 'done' | 'error';
   type PdpOpenPath = 'group' | 'ref' | 'resolve' | 'external';
@@ -1943,8 +1949,29 @@ export function RecommendationsCard({
       external?: { query?: string | null; url?: string | null } | null;
     } | null;
   };
+  type RecoRoutineStep = RoutineStep & {
+    slot: 'am' | 'pm';
+    position: number;
+    rawItem: RecoItem;
+    anchor_key: string | null;
+    subject_product_group_id?: string | null;
+    canonical_product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
+    resolve_query?: string | null;
+    hints?: ProductResolverHints;
+    pdp_open?: ProductPdpCardInput['pdp_open'];
+    anchor_product_id?: string | null;
+    product_input?: string | null;
+    details_tracks: ProductAlternativeTrack[];
+    can_load_alternatives: boolean;
+  };
+  type RecoCompatibilityState = {
+    compatibility: 'known';
+    conflicts: string[];
+    summary: string | null;
+  } | null;
   const [detailsFlow, setDetailsFlow] = useState<{ key: string | null; state: PdpOpenState }>({ key: null, state: 'idle' });
   const [lazyAlternativesBusyKey, setLazyAlternativesBusyKey] = useState<string | null>(null);
+  const [compatibilityState, setCompatibilityState] = useState<RecoCompatibilityState>(null);
   const inflightByKeyRef = useRef<Map<string, { controller: AbortController; promise: Promise<void> }>>(new Map());
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
@@ -2457,6 +2484,165 @@ export function RecommendationsCard({
     [],
   );
 
+  const buildStepAlternativesSheetTracks = useCallback(
+    (
+      alternativesSource: Array<Record<string, unknown>>,
+      pairingSource: string[],
+      comparisonSource: string[],
+    ): ProductAlternativeTrack[] => {
+      const replaceItems: ProductAlternativeTrackItem[] = alternativesSource
+        .map((alt, rank) => {
+          const kind = asString((alt as any).kind).toLowerCase();
+          const block: RecoBlockType =
+            kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
+          return {
+            candidate: alt,
+            block,
+            rank: rank + 1,
+            intent: 'replace',
+          };
+        })
+        .slice(0, 8);
+
+      const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
+      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
+        candidate: {
+          name: text,
+          display_name: text,
+          why_candidate: { summary: text },
+          tradeoff_notes: [text],
+        },
+        block: 'related_products',
+        rank: rank + 1,
+        intent: 'pair',
+      }));
+
+      const tracks: ProductAlternativeTrack[] = [];
+      if (replaceItems.length) {
+        tracks.push({
+          key: 'replace',
+          title: language === 'CN' ? '更多对比候选' : 'More comparison candidates',
+          subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
+          items: replaceItems,
+          filteredCount: 0,
+        });
+      }
+      if (pairItems.length) {
+        tracks.push({
+          key: 'pair',
+          title: language === 'CN' ? '搭配与组合建议' : 'Pairing suggestions',
+          subtitle: language === 'CN' ? '可叠加或互补使用的建议' : 'Items/steps that pair or complement this choice',
+          items: pairItems,
+          filteredCount: 0,
+        });
+      }
+      return tracks;
+    },
+    [language],
+  );
+
+  const openRecommendationAlternativesForStep = useCallback(
+    async (step: RecoRoutineStep) => {
+      if (!onOpenAlternativesSheet) return;
+
+      if (step.details_tracks.length > 0) {
+        onOpenAlternativesSheet(step.details_tracks);
+        return;
+      }
+
+      if (!loadAlternativesForItem || !step.can_load_alternatives) return;
+
+      const busyKey = step.anchor_key || `q:${String(step.product_input || '').slice(0, 180)}`;
+      if (!busyKey) return;
+
+      setLazyAlternativesBusyKey(busyKey);
+      try {
+        const resp = await loadAlternativesForItem({
+          anchorProductId: step.anchor_product_id,
+          productInput: step.product_input || null,
+          product: asObject(step.rawItem),
+        });
+        const remoteAlternatives = asArray(resp && resp.alternatives)
+          .map((row) => asObject(row))
+          .filter(Boolean) as Array<Record<string, unknown>>;
+        const evidencePack = asObject((step.rawItem as any).evidence_pack) || asObject((step.rawItem as any).evidencePack) || null;
+        const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
+          .map((v) => asString(v))
+          .filter(Boolean) as string[];
+        const comparisonNotes = asArray(evidencePack?.comparisonNotes ?? evidencePack?.comparison_notes)
+          .map((v) => asString(v))
+          .filter(Boolean) as string[];
+        const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
+        if (tracks.length) {
+          onOpenAlternativesSheet(tracks);
+        } else {
+          toast({
+            title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
+            description:
+              language === 'CN'
+                ? '已保留当前推荐结果，稍后可重试查看更多对比和搭配建议。'
+                : 'Current recommendations are kept. Retry later for more alternatives and pairing ideas.',
+          });
+        }
+      } catch {
+        toast({
+          title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
+          description:
+            language === 'CN'
+              ? '请稍后重试，当前推荐卡已可继续使用。'
+              : 'Please retry shortly. Current recommendation cards are still usable.',
+        });
+      } finally {
+        setLazyAlternativesBusyKey((prev) => (prev === busyKey ? null : prev));
+      }
+    },
+    [buildStepAlternativesSheetTracks, language, loadAlternativesForItem, onOpenAlternativesSheet],
+  );
+
+  const openRecommendationPdpForStep = useCallback(
+    async (step: RecoRoutineStep) => {
+      if (!step.anchor_key) return;
+      await openPdpFromCard({
+        anchor_key: step.anchor_key,
+        position: step.position,
+        brand: step.product.brand,
+        name: step.product.name,
+        subject_product_group_id: step.subject_product_group_id,
+        canonical_product_ref: step.canonical_product_ref,
+        resolve_query: step.resolve_query || null,
+        hints: step.hints,
+        pdp_open: step.pdp_open,
+      });
+    },
+    [openPdpFromCard],
+  );
+
+  const toCompatibilityStepInput = useCallback(
+    (item: RecoItem) => {
+      const display = extractRecoDisplayData(item);
+      const brand = String(display.brand || '').trim();
+      const name = String(display.name || '').trim();
+      const step = asString((item as any).step) || display.category || '';
+      const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
+      const ingredients = asObject((item as any).ingredients) || null;
+      const keyActives = uniqueStrings([
+        ...asArray((item as any).key_actives).map((value) => asString(value)),
+        ...asArray((item as any).keyActives).map((value) => asString(value)),
+        ...asArray(evidencePack?.keyActives ?? evidencePack?.key_actives).map((value) => asString(value)),
+      ]).slice(0, 8);
+      return {
+        ...(brand ? { brand } : {}),
+        ...(name ? { name, title: name } : {}),
+        ...(step ? { step, category: step } : {}),
+        ...(brand || name ? { product: [brand, name].filter(Boolean).join(' ').trim() } : {}),
+        ...(keyActives.length ? { key_actives: keyActives } : {}),
+        ...(evidencePack ? { evidence_pack: evidencePack } : {}),
+        ...(ingredients ? { ingredients } : {}),
+      };
+    },
+    [extractRecoDisplayData],
+  );
+
   const renderStep = (item: RecoItem, idx: number) => {
     const display = extractRecoDisplayData(item);
     const sku = display.sku;
@@ -2622,60 +2808,6 @@ export function RecommendationsCard({
       return language === 'CN' ? '相似' : 'Similar';
     };
 
-    const buildStepAlternativesSheetTracks = (
-      alternativesSource: Array<Record<string, unknown>>,
-      pairingSource: string[],
-      comparisonSource: string[],
-    ): ProductAlternativeTrack[] => {
-      const replaceItems: ProductAlternativeTrackItem[] = alternativesSource
-        .map((alt, rank) => {
-          const kind = asString((alt as any).kind).toLowerCase();
-          const block: RecoBlockType =
-            kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
-          return {
-            candidate: alt,
-            block,
-            rank: rank + 1,
-            intent: 'replace',
-          };
-        })
-        .slice(0, 8);
-
-      const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
-      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
-        candidate: {
-          name: text,
-          display_name: text,
-          why_candidate: { summary: text },
-          tradeoff_notes: [text],
-        },
-        block: 'related_products',
-        rank: rank + 1,
-        intent: 'pair',
-      }));
-
-      const tracks: ProductAlternativeTrack[] = [];
-      if (replaceItems.length) {
-        tracks.push({
-          key: 'replace',
-          title: language === 'CN' ? '更多对比候选' : 'More comparison candidates',
-          subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
-          items: replaceItems,
-          filteredCount: 0,
-        });
-      }
-      if (pairItems.length) {
-        tracks.push({
-          key: 'pair',
-          title: language === 'CN' ? '搭配与组合建议' : 'Pairing suggestions',
-          subtitle: language === 'CN' ? '可叠加或互补使用的建议' : 'Items/steps that pair or complement this choice',
-          items: pairItems,
-          filteredCount: 0,
-        });
-      }
-      return tracks;
-    };
-
     const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
     const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
     const alternativesBusyKey = anchorId || `q:${(resolveQuery || q || '').slice(0, 180)}`;
@@ -2707,59 +2839,33 @@ export function RecommendationsCard({
               className="chip-button text-[11px]"
               disabled={isResolving || isLazyAlternativesBusy || !canOpenDetails}
               onClick={() => {
-                if (canOpenSheet && onOpenAlternativesSheet) {
-                  if (detailsTracks.length > 0) {
-                    onOpenAlternativesSheet(detailsTracks);
-                  } else if (loadAlternativesForItem && canLoadAlternatives) {
-                    setLazyAlternativesBusyKey(alternativesBusyKey);
-                    void loadAlternativesForItem({
-                      anchorProductId: anchorProductIdForAlternatives,
-                      productInput: resolveQuery || q || null,
-                      product: asObject(item),
-                    })
-                      .then((resp) => {
-                        const remoteAlternatives = asArray(resp && resp.alternatives)
-                          .map((row) => asObject(row))
-                          .filter(Boolean) as Array<Record<string, unknown>>;
-                        const tracks = buildStepAlternativesSheetTracks(remoteAlternatives, pairingRules, comparisonNotes);
-                        if (tracks.length) {
-                          onOpenAlternativesSheet(tracks);
-                        } else {
-                          toast({
-                            title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
-                            description:
-                              language === 'CN'
-                                ? '已保留当前推荐结果，稍后可重试查看更多对比和搭配建议。'
-                                : 'Current recommendations are kept. Retry later for more alternatives and pairing ideas.',
-                          });
-                        }
-                      })
-                      .catch(() => {
-                        toast({
-                          title: language === 'CN' ? '加载更多对比失败' : 'Failed to load more alternatives',
-                          description:
-                            language === 'CN'
-                              ? '请稍后重试，当前推荐卡已可继续使用。'
-                              : 'Please retry shortly. Current recommendation cards are still usable.',
-                        });
-                      })
-                      .finally(() => {
-                        setLazyAlternativesBusyKey((prev) => (prev === alternativesBusyKey ? null : prev));
-                      });
-                  }
+                const summaryStep: RecoRoutineStep = {
+                  category: normalizeCategory(step || ''),
+                  product: {
+                    brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown'),
+                    name: name || (language === 'CN' ? '未知产品' : 'Unknown'),
+                  },
+                  type,
+                  external: isExternalItem,
+                  slot: String(item.slot || '').trim().toLowerCase() === 'am' ? 'am' : 'pm',
+                  position: idx + 1,
+                  rawItem: item,
+                  anchor_key: anchorId,
+                  subject_product_group_id: subjectProductGroupId,
+                  canonical_product_ref: canonicalRefTarget,
+                  resolve_query: resolveQuery || null,
+                  hints: Object.keys(resolverHints).length ? resolverHints : undefined,
+                  pdp_open: pdpOpenHint,
+                  anchor_product_id: anchorProductIdForAlternatives,
+                  product_input: resolveQuery || q || null,
+                  details_tracks: detailsTracks,
+                  can_load_alternatives: canLoadAlternatives,
+                };
+                if (canOpenSheet) {
+                  void openRecommendationAlternativesForStep(summaryStep);
                 }
-                if (canOpenPdp && anchorId) {
-                  void openPdpFromCard({
-                    anchor_key: anchorId,
-                    position: idx + 1,
-                    brand,
-                    name,
-                    subject_product_group_id: subjectProductGroupId,
-                    canonical_product_ref: canonicalRefTarget,
-                    resolve_query: resolveQuery || null,
-                    hints: Object.keys(resolverHints).length ? resolverHints : undefined,
-                    pdp_open: pdpOpenHint,
-                  });
+                if (canOpenPdp) {
+                  void openRecommendationPdpForStep(summaryStep);
                 }
               }}
             >
@@ -3300,33 +3406,219 @@ export function RecommendationsCard({
     return raw;
   };
 
-  const toRoutineSteps = (list: RecoItem[]) =>
+  const toRoutineSteps = (list: RecoItem[], slot: 'am' | 'pm') =>
     list
       .map((item, idx) => {
         const display = extractRecoDisplayData(item);
+        const sku = display.sku;
         const brand = display.brand || '';
         const name = display.name || '';
         const step = asString(item.step) || display.category || '';
         const typeRaw =
           String(asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
         const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
+        const itemRef = asObject((item as any).product_ref) || asObject((item as any).productRef) || null;
+        const skuRef = asObject((sku as any)?.product_ref) || asObject((sku as any)?.productRef) || null;
+        const itemCanonicalTop = display.canonicalProductRef;
+        const skuCanonicalTop =
+          asObject((sku as any)?.canonical_product_ref) ||
+          asObject((sku as any)?.canonicalProductRef) ||
+          null;
+        const itemCanonicalRef =
+          itemCanonicalTop ||
+          asObject((itemRef as any)?.canonical_product_ref) ||
+          asObject((itemRef as any)?.canonicalProductRef) ||
+          skuCanonicalTop ||
+          asObject((skuRef as any)?.canonical_product_ref) ||
+          asObject((skuRef as any)?.canonicalProductRef) ||
+          null;
+        const subjectProductGroupId =
+          asString((item as any)?.subject?.product_group_id) ||
+          asString((item as any)?.subject?.productGroupId) ||
+          asString((sku as any)?.subject?.product_group_id) ||
+          asString((sku as any)?.subject?.productGroupId) ||
+          asString((item as any)?.product_group_id) ||
+          asString((item as any)?.productGroupId) ||
+          asString((sku as any)?.product_group_id) ||
+          asString((sku as any)?.productGroupId) ||
+          null;
+        const skuId = asString((sku as any)?.sku_id) || asString((sku as any)?.skuId) || null;
+        const canonicalProductId =
+          asString((itemCanonicalRef as any)?.product_id) ||
+          asString((itemCanonicalRef as any)?.productId) ||
+          null;
+        const refProductId =
+          asString((itemRef as any)?.product_id) ||
+          asString((itemRef as any)?.productId) ||
+          asString((skuRef as any)?.product_id) ||
+          asString((skuRef as any)?.productId) ||
+          null;
+        const rawProductId = display.rawProductId || asString((sku as any)?.product_id) || asString((sku as any)?.productId) || null;
+        const productId = pickPreferredId([canonicalProductId, refProductId, rawProductId], looksLikeOpaqueId);
+        const canonicalMerchantId =
+          asString((itemCanonicalRef as any)?.merchant_id) ||
+          asString((itemCanonicalRef as any)?.merchantId) ||
+          null;
+        const refMerchantId =
+          asString((itemRef as any)?.merchant_id) ||
+          asString((itemRef as any)?.merchantId) ||
+          asString((skuRef as any)?.merchant_id) ||
+          asString((skuRef as any)?.merchantId) ||
+          null;
+        const rawMerchantId =
+          asString((item as any)?.merchant_id) ||
+          asString((item as any)?.merchantId) ||
+          asString((sku as any)?.merchant_id) ||
+          asString((sku as any)?.merchantId) ||
+          asString((sku as any)?.merchant?.id) ||
+          asString((sku as any)?.merchant?.merchant_id) ||
+          asString((sku as any)?.merchant?.merchantId) ||
+          null;
+        const merchantId = pickPreferredId([canonicalMerchantId, refMerchantId, rawMerchantId], looksLikeOpaqueId);
+        const q = [brand, name].map((v) => String(v || '').trim()).filter(Boolean).join(' ').trim();
+        const canonicalRefTarget = canonicalProductId
+          && !looksLikeOpaqueId(canonicalProductId)
+          ? {
+              product_id: canonicalProductId,
+              ...(canonicalMerchantId ? { merchant_id: canonicalMerchantId } : {}),
+            }
+          : null;
+        const pdpOpen = asObject((item as any).pdp_open) || asObject((item as any).pdpOpen) || null;
+        const pdpOpenExternal = asObject((pdpOpen as any)?.external) || null;
+        const itemResolveReasonCode =
+          asString((item as any)?.metadata?.resolve_reason_code) ||
+          asString((item as any)?.metadata?.resolveReasonCode) ||
+          asString((item as any)?.metadata?.pdp_open_fail_reason) ||
+          asString((item as any)?.metadata?.resolve_fail_reason) ||
+          null;
+        const pdpOpenHint = pdpOpen
+          ? {
+              path: asString((pdpOpen as any)?.path) || null,
+              resolve_reason_code: asString((pdpOpen as any)?.resolve_reason_code) || itemResolveReasonCode || null,
+              external: pdpOpenExternal
+                ? {
+                    query: asString((pdpOpenExternal as any)?.query) || null,
+                    url: asString((pdpOpenExternal as any)?.url) || null,
+                  }
+                : null,
+            }
+          : null;
+        const isExternalItem =
+          String((pdpOpenHint as any)?.path || '').trim().toLowerCase() === 'external' ||
+          String((item as any)?.metadata?.pdp_open_path || '').trim().toLowerCase() === 'external';
+        const resolveQuery =
+          [brand, name]
+            .map((v) => String(v || '').trim())
+            .filter(Boolean)
+            .filter((v) => !looksLikeOpaqueId(v))
+            .join(' ')
+            .trim() ||
+          (!looksLikeOpaqueId(productId) ? String(productId || '').trim() : '') ||
+          '';
+        const resolverHints: ProductResolverHints = {
+          ...(productId ? { product_id: productId } : {}),
+          ...(skuId ? { sku_id: skuId } : {}),
+          ...(brand ? { brand } : {}),
+          ...(name ? { title: name } : {}),
+          ...(productId || merchantId
+            ? {
+                product_ref: {
+                  ...(productId ? { product_id: productId } : {}),
+                  ...(merchantId ? { merchant_id: merchantId } : {}),
+                },
+              }
+            : {}),
+          ...(q ? { aliases: [q, name, brand].filter(Boolean) } : {}),
+        };
+        const externalAnchorSeed =
+          asString((pdpOpenHint as any)?.external?.url) ||
+          asString((pdpOpenHint as any)?.external?.query) ||
+          null;
+        const anchorId =
+          subjectProductGroupId ||
+          canonicalProductId ||
+          productId ||
+          skuId ||
+          (q ? `q:${q}` : null) ||
+          (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
+        const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
+        const reasons = uniqueStrings((item as any).reasons).slice(0, 3);
+        const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
+        const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
+        const comparisonNotes = asArray(evidencePack?.comparisonNotes ?? evidencePack?.comparison_notes)
+          .map((v) => asString(v))
+          .filter(Boolean) as string[];
+        const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
+          .map((v) => asString(v))
+          .filter(Boolean) as string[];
+        const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
+        const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
+        const canLoadAlternatives = Boolean(loadAlternativesForItem) && Boolean(anchorId || resolveQuery || q);
+        const canOpenPdp = Boolean(anchorId);
+        const canOpenSecondaryAction = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
+        const summary = reasons[0] || notes[0] || null;
 
         if (!brand && !name) return null;
         return {
           category: normalizeCategory(step || ''),
           product: { brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown'), name: name || (language === 'CN' ? '未知产品' : 'Unknown') },
           type,
-          _idx: idx,
+          external: isExternalItem,
+          disabled: !canOpenPdp && !canOpenSecondaryAction,
+          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '查看更多对比' : 'More comparison candidates') : null,
+          summary,
+          slot,
+          position: idx + 1,
+          rawItem: item,
+          anchor_key: anchorId,
+          subject_product_group_id: subjectProductGroupId,
+          canonical_product_ref: canonicalRefTarget,
+          resolve_query: resolveQuery || null,
+          hints: Object.keys(resolverHints).length ? resolverHints : undefined,
+          pdp_open: pdpOpenHint,
+          anchor_product_id: anchorProductIdForAlternatives,
+          product_input: resolveQuery || q || null,
+          details_tracks: detailsTracks,
+          can_load_alternatives: canLoadAlternatives,
         };
       })
       .filter(Boolean)
-      .slice(0, 12) as Array<{ category: string; product: { brand: string; name: string }; type: 'premium' | 'dupe'; _idx: number }>;
+      .slice(0, 12) as RecoRoutineStep[];
 
-  const amSteps = toRoutineSteps(groups.am);
-  const pmSteps = toRoutineSteps(groups.pm);
+  const amSteps = toRoutineSteps(groups.am, 'am');
+  const pmSteps = toRoutineSteps(groups.pm, 'pm');
+  const compatibilityRoutine = {
+    am: amSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
+    pm: pmSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
+  };
+  const compatibilityRequestKey = JSON.stringify(compatibilityRoutine);
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
   const unexpectedEmptyRecommendations = items.length === 0 && ingredientRenderMode === 'show_products';
   const emptyRecommendationsViolationRef = useRef(false);
+
+  useEffect(() => {
+    setCompatibilityState(null);
+    if (!loadRecommendationCompatibility) return;
+    if (compatibilityRoutine.am.length === 0 && compatibilityRoutine.pm.length === 0) return;
+
+    let cancelled = false;
+    void loadRecommendationCompatibility(compatibilityRoutine)
+      .then((result) => {
+        if (cancelled || !result || result.analysisReady !== true) return;
+        setCompatibilityState({
+          compatibility: 'known',
+          conflicts: Array.isArray(result.conflicts) ? result.conflicts : [],
+          summary: result.summary || null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setCompatibilityState(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [compatibilityRequestKey, loadRecommendationCompatibility]);
 
   useEffect(() => {
     if (!unexpectedEmptyRecommendations || !analyticsCtx || emptyRecommendationsViolationRef.current) return;
@@ -3438,8 +3730,16 @@ export function RecommendationsCard({
         <AuroraRoutineCard
           amSteps={amSteps}
           pmSteps={pmSteps}
-          compatibility="unknown"
+          compatibility={compatibilityState?.compatibility}
+          conflicts={compatibilityState?.conflicts || null}
+          compatibilitySummary={compatibilityState?.summary || null}
           language={language}
+          onStepClick={(step) => {
+            void openRecommendationPdpForStep(step as RecoRoutineStep);
+          }}
+          onStepSecondaryAction={(step) => {
+            void openRecommendationAlternativesForStep(step as RecoRoutineStep);
+          }}
         />
       ) : null}
 
@@ -3451,13 +3751,7 @@ export function RecommendationsCard({
         >
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
             <span>
-              {hasAnyAlternatives
-                ? language === 'CN'
-                  ? '查看详细步骤（含相似/平替/升级选择）'
-                  : 'View detailed steps (incl. alternatives)'
-                : language === 'CN'
-                  ? '查看详细步骤与证据'
-                  : 'View detailed steps & evidence'}
+              {language === 'CN' ? '查看证据与完整说明' : 'View evidence & full notes'}
             </span>
             <ChevronDown className="h-4 w-4" />
           </summary>
@@ -3519,6 +3813,7 @@ function BffCardView({
   onOpenPdp,
   onOpenRecommendationAlternatives,
   loadRecommendationAlternatives,
+  loadRecommendationCompatibility,
   analyticsCtx,
   analysisPhotoRefs,
   sessionPhotos,
@@ -3559,6 +3854,10 @@ function BffCardView({
     productInput?: string | null;
     product?: Record<string, unknown> | null;
   }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
+  loadRecommendationCompatibility?: (routine: {
+    am: Array<Record<string, unknown>>;
+    pm: Array<Record<string, unknown>>;
+  }) => Promise<{ analysisReady: boolean; safe: boolean; summary: string | null; conflicts: string[] } | null>;
   analyticsCtx?: AnalyticsContext;
   analysisPhotoRefs?: AnalysisPhotoRef[];
   sessionPhotos?: Session['photos'];
@@ -4604,6 +4903,7 @@ function BffCardView({
           onOpenPdp={onOpenPdp}
           onOpenAlternativesSheet={onOpenRecommendationAlternatives}
           loadAlternativesForItem={loadRecommendationAlternatives}
+          loadRecommendationCompatibility={loadRecommendationCompatibility}
           analyticsCtx={analyticsCtx}
         />
       ) : null}
@@ -6810,6 +7110,49 @@ export default function BffChat() {
       } catch (err) {
         if (debug) {
           console.warn('[RecoAlternatives] lazy load failed', err);
+        }
+        return null;
+      }
+    },
+    [debug, headers, language],
+  );
+
+  const loadRecommendationCompatibility = useCallback(
+    async (
+      routine: {
+        am: Array<Record<string, unknown>>;
+        pm: Array<Record<string, unknown>>;
+      },
+    ): Promise<{ analysisReady: boolean; safe: boolean; summary: string | null; conflicts: string[] } | null> => {
+      if (!Array.isArray(routine.am) && !Array.isArray(routine.pm)) return null;
+      const requestHeaders = { ...headers, lang: language };
+      try {
+        const env = await fetchRoutineSimulation(
+          requestHeaders,
+          {
+            routine: {
+              am: Array.isArray(routine.am) ? routine.am : [],
+              pm: Array.isArray(routine.pm) ? routine.pm : [],
+            },
+          },
+          { timeoutMs: RECO_COMPATIBILITY_LAZY_TIMEOUT_MS },
+        );
+        const cards = Array.isArray(env?.cards) ? env.cards : [];
+        const simCard = cards.find((entry) => String((entry as any)?.type || '').trim().toLowerCase() === 'routine_simulation');
+        const payload = asObject((simCard as any)?.payload) || null;
+        if (!payload || payload.analysis_ready !== true) return null;
+        const conflicts = asArray(payload.conflicts)
+          .map((row) => (asObject(row) ? asString((row as any).message) || asString((row as any).title) || asString((row as any).summary) : asString(row)))
+          .filter(Boolean) as string[];
+        return {
+          analysisReady: true,
+          safe: payload.safe === true,
+          summary: asString(payload.summary) || null,
+          conflicts,
+        };
+      } catch (err) {
+        if (debug) {
+          console.warn('[RecoCompatibility] lazy simulate failed', err);
         }
         return null;
       }
@@ -11255,6 +11598,7 @@ export default function BffChat() {
                             onOpenRecommendationAlternatives={(tracks) =>
                               openRecommendationAlternativesSheet(tracks, { source: 'card_button' })}
                             loadRecommendationAlternatives={loadRecommendationAlternatives}
+                            loadRecommendationCompatibility={loadRecommendationCompatibility}
                             analysisPhotoRefs={analysisPhotoRefs}
                             sessionPhotos={sessionPhotos}
                             analyticsCtx={{

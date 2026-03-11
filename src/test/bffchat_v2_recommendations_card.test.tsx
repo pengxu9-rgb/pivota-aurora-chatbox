@@ -13,15 +13,17 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
   return {
     ...actual,
     bffJson: vi.fn(),
+    fetchRecoAlternatives: vi.fn(),
+    fetchRoutineSimulation: vi.fn(),
     bffChatStream: vi.fn().mockRejectedValue(new Error('stream unavailable in test')),
     sendRecoEmployeeFeedback: vi.fn(),
   };
 });
 
-import BffChat from '@/pages/BffChat';
+import BffChat, { RecommendationsCard } from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
-import { bffJson } from '@/lib/pivotaAgentBff';
-import type { V1Envelope } from '@/lib/pivotaAgentBff';
+import { bffJson, fetchRecoAlternatives, fetchRoutineSimulation } from '@/lib/pivotaAgentBff';
+import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -53,6 +55,32 @@ function renderChat() {
   );
 }
 
+function renderRecommendationsCard(card: Card, args?: {
+  onOpenPdp?: (args: { url: string; title?: string }) => void;
+  onOpenAlternativesSheet?: (tracks: Array<Record<string, unknown>>) => void;
+  loadAlternativesForItem?: (args: {
+    anchorProductId?: string | null;
+    productInput?: string | null;
+    product?: Record<string, unknown> | null;
+  }) => Promise<{ alternatives: Array<Record<string, unknown>>; llmTrace?: Record<string, unknown> | null } | null>;
+  loadRecommendationCompatibility?: (routine: {
+    am: Array<Record<string, unknown>>;
+    pm: Array<Record<string, unknown>>;
+  }) => Promise<{ analysisReady: boolean; safe: boolean; summary: string | null; conflicts: string[] } | null>;
+}) {
+  render(
+    <RecommendationsCard
+      card={card}
+      language="EN"
+      debug={false}
+      onOpenPdp={args?.onOpenPdp}
+      onOpenAlternativesSheet={args?.onOpenAlternativesSheet as any}
+      loadAlternativesForItem={args?.loadAlternativesForItem}
+      loadRecommendationCompatibility={args?.loadRecommendationCompatibility}
+    />,
+  );
+}
+
 describe('BffChat V2 recommendations cards', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,6 +91,99 @@ describe('BffChat V2 recommendations cards', () => {
         writable: true,
       });
     }
+  });
+
+  it('opens internal PDP from the summary routine rows and surfaces compare actions without expanding details', async () => {
+    const onOpenPdp = vi.fn();
+    const onOpenAlternativesSheet = vi.fn();
+    const loadAlternativesForItem = vi.fn().mockResolvedValue({
+      alternatives: [
+        {
+          kind: 'similar',
+          product: {
+            brand: 'Fresh',
+            name: 'Rose Face Mask',
+          },
+          reasons: ['Hydrating alternative'],
+        },
+      ],
+    });
+
+    renderRecommendationsCard({
+      card_id: 'card_summary_actions',
+      type: 'recommendations',
+      payload: {
+        recommendations: [
+          {
+            slot: 'pm',
+            step: 'mask',
+            brand: 'Laneige',
+            name: 'Water Sleeping Mask',
+            canonical_product_ref: {
+              product_id: 'prod_mask_1',
+              merchant_id: 'merchant_mask_1',
+            },
+            reasons: ['Hydrates overnight and supports barrier comfort.'],
+          },
+        ],
+      },
+    }, {
+      onOpenPdp,
+      onOpenAlternativesSheet,
+      loadAlternativesForItem,
+    });
+
+    const summaryName = (await screen.findAllByText(/Water Sleeping Mask/i))[0];
+    const summaryRow = summaryName.closest('[role="button"]');
+    expect(summaryRow).toBeTruthy();
+    fireEvent.click(summaryRow as HTMLElement);
+
+    expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    expect(onOpenPdp.mock.calls[0]?.[0]?.url).toContain('/products/prod_mask_1');
+
+    const compareButton = screen.getAllByRole('button', { name: /More comparison candidates/i })
+      .find((element) => element.tagName === 'BUTTON');
+    expect(compareButton).toBeTruthy();
+    fireEvent.click(compareButton as HTMLElement);
+
+    await waitFor(() => expect(loadAlternativesForItem).toHaveBeenCalledTimes(1), { timeout: READY_TIMEOUT_MS });
+    expect(onOpenAlternativesSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens external/search fallback from summary routine rows for llm_seed items', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+
+    renderRecommendationsCard({
+      card_id: 'card_summary_external',
+      type: 'recommendations',
+      payload: {
+        recommendations: [
+          {
+            slot: 'pm',
+            step: 'mask',
+            brand: 'Bioderma',
+            name: 'Sensibio Comfort Mask',
+            reasons: ['Comfort-focused external seed.'],
+            pdp_open: {
+              path: 'external',
+              resolve_reason_code: 'NO_CANDIDATES',
+              external: {
+                url: 'https://example.com/bioderma-mask',
+                query: 'Bioderma Sensibio Comfort Mask',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const summaryName = (await screen.findAllByText(/Sensibio Comfort Mask/i))[0];
+    const summaryRow = summaryName.closest('[role="button"]');
+    expect(summaryRow).toBeTruthy();
+    fireEvent.click(summaryRow as HTMLElement);
+
+    expect(openSpy).toHaveBeenCalledWith('https://example.com/bioderma-mask', '_blank', 'noopener,noreferrer');
+    openSpy.mockRestore();
   });
 
   it('renders V2 recommendations cards from metadata.recommendations via the legacy card renderer', async () => {
@@ -125,6 +246,140 @@ describe('BffChat V2 recommendations cards', () => {
     expect(screen.getByText(/Why this fits/i)).toBeInTheDocument();
     expect(screen.queryByText(/rules-only/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/unknown\.response/i)).not.toBeInTheDocument();
+  });
+
+  it('shows compatibility only when lazy routine simulation returns analysis_ready', async () => {
+    const mock = vi.mocked(bffJson);
+    const simMock = vi.mocked(fetchRoutineSimulation);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve({
+          cards: [
+            {
+              card_type: 'recommendations',
+              metadata: {
+                recommendation_meta: {
+                  source_mode: 'llm_catalog_hybrid',
+                },
+                recommendations: [
+                  {
+                    slot: 'pm',
+                    step: 'serum',
+                    brand: 'Geek & Gorgeous',
+                    name: 'B-Bomb',
+                    reasons: ['Niacinamide support for oil control.'],
+                    key_actives: ['niacinamide'],
+                    canonical_product_ref: {
+                      product_id: 'prod_serum_1',
+                      merchant_id: 'merchant_serum_1',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          ops: {},
+          next_actions: [],
+        });
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    simMock.mockResolvedValue(makeEnvelope({
+      cards: [
+        {
+          card_id: 'sim_1',
+          type: 'routine_simulation',
+          payload: {
+            safe: true,
+            conflicts: [],
+            summary: 'No major active-stacking risk detected.',
+            analysis_ready: true,
+          },
+        },
+      ],
+    }));
+
+    renderChat();
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Recommend an acne serum.' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    expect(await screen.findByText(/All products are compatible/i)).toBeInTheDocument();
+    expect(screen.getByText(/No major active-stacking risk detected/i)).toBeInTheDocument();
+  });
+
+  it('hides compatibility when lazy routine simulation has no analysis-ready signal', async () => {
+    const mock = vi.mocked(bffJson);
+    const simMock = vi.mocked(fetchRoutineSimulation);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve({
+          cards: [
+            {
+              card_type: 'recommendations',
+              metadata: {
+                recommendation_meta: {
+                  source_mode: 'llm_catalog_hybrid',
+                },
+                recommendations: [
+                  {
+                    slot: 'pm',
+                    step: 'mask',
+                    brand: 'Laneige',
+                    name: 'Water Sleeping Mask',
+                    reasons: ['Hydrates overnight.'],
+                    pdp_open: {
+                      path: 'external',
+                      resolve_reason_code: 'NO_CANDIDATES',
+                      external: {
+                        query: 'Laneige Water Sleeping Mask',
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+          ops: {},
+          next_actions: [],
+        });
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    simMock.mockResolvedValue(makeEnvelope({
+      cards: [
+        {
+          card_id: 'sim_2',
+          type: 'routine_simulation',
+          payload: {
+            safe: true,
+            conflicts: [],
+            summary: 'No active signal found.',
+            analysis_ready: false,
+          },
+        },
+      ],
+    }));
+
+    renderChat();
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Recommend a facial mask that suits me.' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(simMock).toHaveBeenCalled(), { timeout: READY_TIMEOUT_MS });
+    expect(screen.queryByText(/Compatibility not tested yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/All products are compatible/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No active signal found/i)).not.toBeInTheDocument();
   });
 
   it('renders V2 no-result text_response messages as plain assistant text', async () => {
