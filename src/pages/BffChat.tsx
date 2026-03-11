@@ -7087,7 +7087,7 @@ export default function BffChat() {
     [navigate],
   );
 
-  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'checkin';
+  type DeepLinkOpen = 'photo' | 'routine' | 'auth' | 'checkin' | 'profile';
   const searchParams = useMemo(() => {
     try {
       const sp = new URLSearchParams(location.search);
@@ -7098,7 +7098,7 @@ export default function BffChat() {
         q: String(sp.get('q') || '').trim(),
         chip_id: String(sp.get('chip_id') || '').trim(),
         open: (
-          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'checkin'
+          openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'checkin' || openRaw === 'profile'
             ? openRaw
             : null
         ) as DeepLinkOpen | null,
