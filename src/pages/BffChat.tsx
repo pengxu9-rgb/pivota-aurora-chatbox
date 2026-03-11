@@ -8,16 +8,15 @@ import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
 import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
+import { DiagnosisV2IntroCard } from '@/components/chat/cards/DiagnosisV2IntroCard';
 import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
 import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
-import { IngredientPlanCardV1 } from '@/components/chat/cards/IngredientPlanCardV1';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { ProductAnalysisCard } from '@/components/chat/cards/ProductAnalysisCard';
 import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
 import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompatibilityFooter';
 import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
 import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
-import { DiagnosisV2IntroCard } from '@/components/chat/cards/DiagnosisV2IntroCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard, type AuroraLoadingIntent, type ThinkingStep } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
@@ -85,7 +84,7 @@ import {
   emitMemoryWritten,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
-import { buildChatSession, type ChatSessionAnalysisContext } from '@/lib/chatSession';
+import { buildChatSession } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
@@ -168,8 +167,6 @@ type ChatRequestMessage = {
   role: 'user' | 'assistant';
   content: string;
 };
-
-type DiagnosisSubmitSource = 'diagnosis_explicit' | 'resume_pending_action';
 
 const CHAT_CONTEXT_MESSAGE_LIMIT = 10;
 const DIAGNOSIS_THREAD_STATE_KEYS = [
@@ -561,7 +558,7 @@ const buildReturnWelcomeChips = (language: UiLanguage): SuggestedChip[] => {
       data: { trigger_source: 'chip' },
     },
     {
-      chip_id: 'chip_start_diagnosis',
+      chip_id: 'chip.start.diagnosis',
       label: isCN ? '开始皮肤诊断' : 'Start skin diagnosis',
       kind: 'quick_reply',
       data: { trigger_source: 'chip' },
@@ -585,7 +582,7 @@ const buildQuickProfileExitChips = (language: UiLanguage): SuggestedChip[] => {
       data: { trigger_source: 'chip' },
     },
     {
-      chip_id: 'chip_start_diagnosis',
+      chip_id: 'chip.start.diagnosis',
       label: isCN ? '开始皮肤诊断' : 'Start skin diagnosis',
       kind: 'quick_reply',
       data: { trigger_source: 'chip' },
@@ -2019,7 +2016,6 @@ export function RecommendationsCard({
     position: number;
     brand: string | null;
     name: string | null;
-    match_state?: string | null;
     subject_product_group_id?: string | null;
     canonical_product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
     resolve_query?: string | null;
@@ -2125,36 +2121,20 @@ export function RecommendationsCard({
     };
   }, []);
 
-  const openExternalUrl = useCallback(
-    (
-      rawUrl: string,
-      opts?: { allowNullHandleSuccess?: boolean },
-    ): { opened: boolean; url: string | null } => {
-      const safeUrl = normalizeOutboundFallbackUrl(String(rawUrl || '').trim());
-      if (!safeUrl) return { opened: false, url: null };
-      try {
-        const opened = window.open(safeUrl, '_blank', 'noopener,noreferrer');
-        return {
-          opened: Boolean(opened) || opts?.allowNullHandleSuccess === true,
-          url: safeUrl,
-        };
-      } catch {
-        return { opened: false, url: safeUrl };
-      }
-    },
-    [],
-  );
-
   const openExternalGoogle = useCallback(
-    (
-      query: string,
-      opts?: { allowNullHandleSuccess?: boolean },
-    ): { opened: boolean; url: string | null } => {
+    (query: string): { opened: boolean; url: string | null } => {
       const googleUrl = buildGoogleSearchFallbackUrl(query, language);
       if (!googleUrl) return { opened: false, url: null };
-      return openExternalUrl(googleUrl, opts);
+      try {
+        return {
+          opened: Boolean(window.open(googleUrl, '_blank', 'noopener,noreferrer')),
+          url: googleUrl,
+        };
+      } catch {
+        return { opened: false, url: googleUrl };
+      }
     },
-    [language, openExternalUrl],
+    [language],
   );
 
   const openPdpFromCard = useCallback(
@@ -2185,7 +2165,6 @@ export function RecommendationsCard({
       const position = Math.max(0, Number(card.position) || 0);
       const safeBrand = String(card.brand || '').trim();
       const safeName = String(card.name || '').trim();
-      const matchState = String(card.match_state || '').trim().toLowerCase();
       const title = [safeBrand, safeName].filter(Boolean).join(' ').trim();
       const skuType = card.hints?.sku_id
         ? 'sku_id'
@@ -2289,6 +2268,11 @@ export function RecommendationsCard({
             preferredPdpPath === 'external' &&
             hintedReasonCode === 'NO_CANDIDATES' &&
             hasStrongNoCandidatesHint;
+          const shouldDirectExternalFromHint =
+            preferredPdpPath === 'external' &&
+            PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
+            !shouldRetryNoCandidatesBeforeExternal;
+
           const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
           if (card.subject_product_group_id && !groupTarget) {
             failReason = failReason || 'invalid_product_group_id';
@@ -2317,23 +2301,16 @@ export function RecommendationsCard({
             return;
           }
 
-          const shouldDirectExternalFromSeed =
-            preferredPdpPath === 'external' &&
-            matchState === 'llm_seed' &&
-            !PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES.has(hintedReasonCode) &&
-            Boolean(hintedExternalUrl || hintedExternalQuery);
-          const shouldDirectExternalFromHint =
-            preferredPdpPath === 'external' &&
-            PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
-            !shouldRetryNoCandidatesBeforeExternal;
-
-          if (shouldDirectExternalFromSeed || shouldDirectExternalFromHint) {
+          if (shouldDirectExternalFromHint) {
             openPath = 'external';
             setDetailsFlow({ key: anchorKey, state: 'opening_external' });
             const external =
               hintedExternalUrl
-                ? openExternalUrl(hintedExternalUrl, { allowNullHandleSuccess: shouldDirectExternalFromSeed })
-                : openExternalGoogle(hintedExternalQuery, { allowNullHandleSuccess: shouldDirectExternalFromSeed });
+                ? {
+                    opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
+                    url: hintedExternalUrl,
+                  }
+                : openExternalGoogle(hintedExternalQuery);
             if (analyticsCtx) {
               emitPdpOpenPath(analyticsCtx, {
                 card_position: position,
@@ -2443,7 +2420,10 @@ export function RecommendationsCard({
               .trim();
           const external =
             hintedExternalUrl
-              ? openExternalUrl(hintedExternalUrl)
+              ? {
+                  opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
+                  url: hintedExternalUrl,
+                }
               : openExternalGoogle(externalQuery);
           if (analyticsCtx) {
             emitPdpOpenPath(analyticsCtx, {
@@ -2765,7 +2745,6 @@ export function RecommendationsCard({
         position: step.position,
         brand: step.product.brand,
         name: step.product.name,
-        match_state: (step.rawItem as any)?.match_state || (step.rawItem as any)?.metadata?.match_state || null,
         subject_product_group_id: step.subject_product_group_id,
         canonical_product_ref: step.canonical_product_ref,
         resolve_query: step.resolve_query || null,
@@ -2939,9 +2918,6 @@ export function RecommendationsCard({
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
     const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
     const step = asString(item.step) || display.category || (language === 'CN' ? '步骤' : 'Step');
-    const typeRaw =
-      String(asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
-    const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
@@ -3743,7 +3719,7 @@ export function RecommendationsCard({
           type,
           external: isExternalItem,
           disabled: !canOpenPdp && !canOpenSecondaryAction,
-          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '对比' : 'Alts') : null,
+          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '查看更多对比' : 'More comparison candidates') : null,
           summary,
           slot,
           position: idx + 1,
@@ -4788,11 +4764,62 @@ function BffCardView({
   }
 
   if (cardType === 'ingredient_plan') {
+    const planObj = asObject((payload as any).plan) ?? asObject(payload) ?? {};
+    const intensity = asString((planObj as any).intensity) || asString((payload as any).intensity) || 'balanced';
+    const targets = asArray((planObj as any).targets ?? (payload as any).targets)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const avoid = asArray((planObj as any).avoid ?? (payload as any).avoid)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    const conflicts = asArray((planObj as any).conflicts ?? (payload as any).conflicts)
+      .map((item) => asObject(item))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+
     return (
-      <IngredientPlanCardV1
-        payload={payload as Record<string, unknown>}
-        language={language}
-      />
+      <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+        <div className="text-xs font-semibold text-foreground">
+          {language === 'CN' ? `强度：${intensity}` : `Intensity: ${intensity}`}
+        </div>
+        {targets.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '推荐成分' : 'Target ingredients'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {targets.slice(0, 6).map((item, idx) => (
+                <li key={`target_${idx}`}>
+                  {asString((item as any).ingredient_id) || asString((item as any).ingredientId) || 'ingredient'}
+                  {Number.isFinite(Number((item as any).priority)) ? ` · P${Math.round(Number((item as any).priority))}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {avoid.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '需规避/谨慎' : 'Avoid / caution'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {avoid.slice(0, 6).map((item, idx) => (
+                <li key={`avoid_${idx}`}>
+                  {asString((item as any).ingredient_id) || 'ingredient'}
+                  {asString((item as any).severity) ? ` · ${asString((item as any).severity)}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {conflicts.length ? (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '冲突说明' : 'Conflicts'}</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {conflicts.slice(0, 4).map((item, idx) => (
+                <li key={`conflict_${idx}`}>
+                  {asString((item as any).description) || asString((item as any).message) || ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -7083,12 +7110,7 @@ export default function BffChat() {
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
-  const diagnosisSubmitSourceRef = useRef<DiagnosisSubmitSource>('diagnosis_explicit');
   const threadStateRef = useRef<Record<string, unknown>>({});
-
-  useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
 
   const clearDiagnosisThreadState = useCallback(() => {
     const next = { ...(threadStateRef.current || {}) };
@@ -7105,22 +7127,20 @@ export default function BffChat() {
     for (const rawOp of ops) {
       if (!rawOp || typeof rawOp !== 'object' || Array.isArray(rawOp)) continue;
       const op = rawOp as Record<string, unknown>;
-      const kind = String(op.op || '').trim().toLowerCase();
-      const key = typeof op.key === 'string' ? op.key.trim() : '';
-      if (kind === 'set' && key) {
-        next[key] = op.value;
-        continue;
-      }
-      if ((kind === 'unset' || kind === 'delete' || kind === 'remove') && key) {
-        delete next[key];
-        continue;
-      }
-      if (kind === 'clear') {
-        Object.keys(next).forEach((entryKey) => delete next[entryKey]);
+      if (op.op === 'set' && typeof op.key === 'string') {
+        next[op.key] = op.value;
+      } else if (op.op === 'delete' && typeof op.key === 'string') {
+        delete next[op.key];
+      } else if (op.op === 'clear') {
+        Object.keys(next).forEach((k) => delete next[k]);
       }
     }
     threadStateRef.current = next;
   }, []);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
@@ -7511,7 +7531,6 @@ export default function BffChat() {
       }
 
       setError(null);
-      applyThreadOps(response.ops.thread_ops);
 
       const profilePatch = asObject(response.ops.profile_patch[0]) || null;
       const routinePatch = asObject(response.ops.routine_patch[0]) || null;
@@ -7754,42 +7773,17 @@ export default function BffChat() {
         });
       }
     },
-    [applyThreadOps, debug, headers.aurora_uid, headers.brief_id, headers.trace_id, langReplyMode, language],
+    [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, langReplyMode, language],
   );
 
   const applyV2Response = useCallback(
     (response: { cards: Array<Record<string, unknown>>; ops?: Record<string, unknown>; next_actions?: unknown[] }) => {
       setError(null);
       const lang = language;
-      const nextItems: ChatItem[] = [];
-      const ops = asObject(response.ops) || {};
-      const threadOps = Array.isArray(ops.thread_ops) ? ops.thread_ops : [];
-      const profilePatchRaw = Array.isArray(ops.profile_patch)
-        ? asObject(ops.profile_patch[0])
-        : asObject(ops.profile_patch);
-      const routinePatchRaw = Array.isArray(ops.routine_patch)
-        ? asObject(ops.routine_patch[0])
-        : asObject(ops.routine_patch);
-
-      applyThreadOps(threadOps);
-      if (profilePatchRaw || routinePatchRaw) {
-        setProfileSnapshot((prev) => ({
-          ...(asObject(prev) || {}),
-          ...(profilePatchRaw || {}),
-          ...(routinePatchRaw || {}),
-        }));
-        setBootstrapInfo((prev) => {
-          const merged: BootstrapInfo = prev
-            ? { ...prev }
-            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
-          merged.profile = {
-            ...(asObject(merged.profile) || {}),
-            ...(profilePatchRaw || {}),
-            ...(routinePatchRaw || {}),
-          };
-          return merged;
-        });
+      if (response.ops && Array.isArray((response.ops as any).thread_ops)) {
+        applyThreadOps((response.ops as any).thread_ops);
       }
+      const nextItems: ChatItem[] = [];
 
       const resolveLocalizedString = (value: unknown): string => {
         if (typeof value === 'string') return value.trim();
@@ -8251,8 +8245,6 @@ export default function BffChat() {
     setBootstrapInfo(null);
     setIngredientQuestionBusy(false);
     pendingActionAfterDiagnosisRef.current = null;
-    diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
-    threadStateRef.current = {};
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;
@@ -8952,7 +8944,6 @@ export default function BffChat() {
     }
     return null;
   }, []);
-
   const sendChat = useCallback(
     async (
       message?: string,
@@ -8960,7 +8951,6 @@ export default function BffChat() {
       opts?: {
         client_state?: AgentState;
         requested_transition?: RequestedTransition | null;
-        analysisContext?: ChatSessionAnalysisContext | null;
         thread_state?: Record<string, unknown> | null;
       },
     ) => {
@@ -8981,7 +8971,6 @@ export default function BffChat() {
           bootstrapProfile: bootstrapInfo?.profile ?? null,
           sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
           sessionMeta,
-          analysisContext: opts?.analysisContext ?? null,
         });
         const priorMessages = buildChatRequestMessages(itemsRef.current);
         const body: Record<string, unknown> = {
@@ -8990,27 +8979,17 @@ export default function BffChat() {
           ...(action ? { action } : {}),
           language,
           client_state: normalizeAgentState(opts?.client_state ?? agentState),
+          ...(priorMessages.length ? { messages: priorMessages } : {}),
+          ...(opts?.requested_transition ? { requested_transition: opts.requested_transition } : {}),
           ...(opts?.thread_state && Object.keys(opts.thread_state).length > 0
             ? { thread_state: opts.thread_state }
             : Object.keys(threadStateRef.current).length > 0
               ? { thread_state: threadStateRef.current }
               : {}),
-          ...(priorMessages.length ? { messages: priorMessages } : {}),
-          ...(opts?.requested_transition ? { requested_transition: opts.requested_transition } : {}),
           ...(debug ? { debug: true } : {}),
           ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
-        const outgoingAction =
-          action && typeof action === 'object' && !Array.isArray(action)
-            ? action
-            : null;
-        if (debug && outgoingAction?.action_id === 'chip.aurora.next_action.deep_dive_skin') {
-          console.debug('[DeepDiveSkin] outbound payload', {
-            action: outgoingAction,
-            session_meta: session.meta ?? null,
-          });
-        }
 
         let parsedStreamResponse: ChatResponseV1 | null = null;
         let parsedStreamV2: { cards: Array<Record<string, unknown>>; ops: Record<string, unknown>; next_actions: unknown[] } | null = null;
@@ -9309,7 +9288,6 @@ export default function BffChat() {
     async (actionId: string, data?: Record<string, any>) => {
       if (actionId === 'diagnosis_skip') {
         pendingActionAfterDiagnosisRef.current = null;
-        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
         clearDiagnosisThreadState();
         setItems((prev) => [
           ...prev,
@@ -9321,7 +9299,6 @@ export default function BffChat() {
 
       if (actionId === 'diagnosis_v2_skip') {
         pendingActionAfterDiagnosisRef.current = null;
-        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
         clearDiagnosisThreadState();
         setItems((prev) => [
           ...prev,
@@ -9332,21 +9309,17 @@ export default function BffChat() {
       }
 
       if (actionId === 'diagnosis_v2_submit') {
-        const goals = Array.isArray(data?.goals)
-          ? (data.goals as unknown[]).map((goal) => String(goal || '').trim()).filter(Boolean)
-          : [];
+        const goals = Array.isArray(data?.goals) ? (data.goals as string[]).filter(Boolean) : [];
         const customInput = typeof data?.customInput === 'string' ? data.customInput.trim() : '';
-        const followupAnswers = data?.followupAnswers && typeof data.followupAnswers === 'object' && !Array.isArray(data.followupAnswers)
-          ? Object.fromEntries(
-              Object.entries(data.followupAnswers as Record<string, unknown>)
-                .map(([key, value]) => [key, String(value || '').trim()])
-                .filter(([key, value]) => Boolean(key) && Boolean(value)),
-            )
+        const followupAnswers = (data?.followupAnswers && typeof data.followupAnswers === 'object')
+          ? data.followupAnswers as Record<string, string>
           : {};
+
         if (goals.length === 0) {
-          setError(language === 'CN' ? '请先选择至少一个目标。' : 'Please choose at least one skin goal.');
+          setError(language === 'CN' ? '请至少选择一个护肤目标。' : 'Please select at least one skincare goal.');
           return;
         }
+
         const nextThreadState: Record<string, unknown> = {
           ...(threadStateRef.current || {}),
           diagnosis_goals: goals,
@@ -9355,13 +9328,14 @@ export default function BffChat() {
           ...(customInput ? { diagnosis_custom_input: customInput } : {}),
         };
         threadStateRef.current = nextThreadState;
+
         setItems((prev) => [
           ...prev,
           {
             id: nextId(),
             role: 'user',
             kind: 'text',
-            content: language === 'CN' ? '开始分析' : 'Start analysis',
+            content: language === 'CN' ? '开始皮肤分析' : 'Start skin analysis',
           },
         ]);
         await sendChat(
@@ -9390,9 +9364,7 @@ export default function BffChat() {
         }
 
         const pending = pendingActionAfterDiagnosisRef.current;
-        const diagnosisSource: DiagnosisSubmitSource = pending ? 'resume_pending_action' : diagnosisSubmitSourceRef.current;
         pendingActionAfterDiagnosisRef.current = null;
-        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
 
         setItems((prev) => [
           ...prev,
@@ -9423,10 +9395,8 @@ export default function BffChat() {
           },
         });
 
-        if (diagnosisSource === 'resume_pending_action' && pending) {
+        if (pending) {
           await sendChat(undefined, pending);
-        } else {
-          await runLowConfidenceSkinAnalysis();
         }
         return;
       }
@@ -9878,7 +9848,6 @@ export default function BffChat() {
         );
         return;
       }
-
       const msg =
         actionId === 'analysis_continue'
           ? null
@@ -10489,9 +10458,18 @@ export default function BffChat() {
 
       if (id === 'chip_start_diagnosis' || id === 'chip.start.diagnosis') {
         pendingActionAfterDiagnosisRef.current = null;
-        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
         clearDiagnosisThreadState();
         setSessionState('S2_DIAGNOSIS');
+        setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+        await sendChat(
+          undefined,
+          {
+            action_id: 'chip.start.diagnosis',
+            kind: 'chip',
+            data: { reply_text: language === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis' },
+          },
+        );
+        return;
       }
 
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
@@ -10507,10 +10485,8 @@ export default function BffChat() {
             kind: 'chip',
             data: chip.data,
           };
-          diagnosisSubmitSourceRef.current = 'resume_pending_action';
         } else {
           pendingActionAfterDiagnosisRef.current = null;
-          diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
         }
       }
 
@@ -10599,7 +10575,6 @@ export default function BffChat() {
     [
       agentState,
       bootstrapInfo?.profile,
-      clearDiagnosisThreadState,
       headers,
       language,
       profileSnapshot,
@@ -10676,8 +10651,6 @@ export default function BffChat() {
     setSessionPhotos({});
     setBootstrapInfo(null);
     pendingActionAfterDiagnosisRef.current = null;
-    diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
-    threadStateRef.current = {};
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;

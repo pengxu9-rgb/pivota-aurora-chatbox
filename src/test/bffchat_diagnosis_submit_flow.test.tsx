@@ -175,6 +175,54 @@ describe('BffChat diagnosis submit flow', () => {
     expect(analysisCalls).toHaveLength(0);
   });
 
+  it('first diagnosis click sends to backend and never shows empty_state or legacy card', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope());
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve({
+          cards: [
+            {
+              card_type: 'diagnosis_gate',
+              sections: [
+                {
+                  type: 'goal_selection',
+                  options: [
+                    { id: 'hydration', label_en: 'Deep hydration', label_zh: '深层补水' },
+                  ],
+                },
+              ],
+            },
+          ],
+          ops: {
+            thread_ops: [{ op: 'set', key: 'diagnosis_state', value: 'goal_selection' }],
+            profile_patch: {},
+            routine_patch: {},
+            experiment_events: [],
+          },
+          next_actions: [],
+        });
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat('/chat?chip_id=chip.start.diagnosis');
+
+    await screen.findByRole('button', { name: 'Deep hydration' });
+
+    const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
+    expect(chatCalls.length).toBeGreaterThanOrEqual(1);
+    expect(chatCalls[0]?.[0]).toBe('/v1/chat');
+
+    expect(screen.queryByText('empty_state')).not.toBeInTheDocument();
+    expect(screen.queryByText('Start diagnosis')).not.toBeInTheDocument();
+    expect(screen.queryByText('Analyze a product')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ask about an ingredient')).not.toBeInTheDocument();
+  });
+
   it('persists V2 thread_state so diagnosis follow-up chips carry blueprint_id', async () => {
     const mock = vi.mocked(bffJson);
     let chatTurn = 0;

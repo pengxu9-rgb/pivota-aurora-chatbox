@@ -39,13 +39,42 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
     : Array.isArray(goalSelectionSection?.options)
       ? goalSelectionSection.options
       : [];
-  const followupQuestions = (
+  const rawFollowupQuestions = (
     Array.isArray(payload?.followup_questions) && payload.followup_questions.length > 0
       ? payload.followup_questions
       : Array.isArray(followUpSection?.questions)
         ? followUpSection.questions
         : []
-  ).slice(0, 3) as DiagnosisV2FollowupQuestion[];
+  ).slice(0, 3);
+
+  const followupQuestions = rawFollowupQuestions.map((q: any, qi: number) => {
+    const rawOpts = Array.isArray(q?.options) ? q.options : [];
+    const options = rawOpts.map((opt: any, oi: number) => {
+      if (typeof opt === 'string') {
+        return { id: `opt_${qi}_${oi}`, label: opt };
+      }
+      if (opt && typeof opt === 'object') {
+        const localizedLabel =
+          language === 'CN'
+            ? (opt.label_zh || opt.label || opt.label_en)
+            : (opt.label_en || opt.label || opt.label_zh);
+        return {
+          id: opt.id || `opt_${qi}_${oi}`,
+          label: (typeof localizedLabel === 'string' && localizedLabel.trim()) ? localizedLabel.trim() : String(opt.id || opt.value || `Option ${oi + 1}`),
+        };
+      }
+      return { id: `opt_${qi}_${oi}`, label: String(opt ?? '') };
+    });
+    const questionText =
+      q?.question
+      || (language === 'CN' ? (q?.question_zh || q?.question_en) : (q?.question_en || q?.question_zh))
+      || '';
+    return {
+      id: q?.id || `fq_${qi}`,
+      question: typeof questionText === 'string' ? questionText : String(questionText),
+      options,
+    };
+  }) as DiagnosisV2FollowupQuestion[];
   const availableGoals = dynamicGoalOptions.length
     ? dynamicGoalOptions
         .map((option) => String(option?.id || '').trim())
