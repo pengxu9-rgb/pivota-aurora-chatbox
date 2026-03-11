@@ -14,6 +14,7 @@ import { RecommendationsCard } from '@/pages/BffChat';
 const buildRecoCard = (args: {
   brand?: string;
   name?: string;
+  matchState?: string | null;
   subjectProductGroupId?: string | null;
   canonicalProductRef?: { product_id: string; merchant_id?: string } | null;
   pdpOpen?: { path?: string; resolve_reason_code?: string; external?: { query?: string; url?: string } } | null;
@@ -38,6 +39,11 @@ const buildRecoCard = (args: {
         ...(args.pdpOpen
           ? {
               pdp_open: args.pdpOpen,
+            }
+          : {}),
+        ...(args.matchState
+          ? {
+              metadata: { match_state: args.matchState },
             }
           : {}),
         sku: {
@@ -210,6 +216,46 @@ describe('RecommendationsCard View details routing', () => {
     expect(onOpenPdp).not.toHaveBeenCalled();
     expect(openSpy).toHaveBeenCalledWith(
       buildGoogleSearchFallbackUrl('serum', 'EN'),
+      '_blank',
+      'noopener,noreferrer',
+    );
+    openSpy.mockRestore();
+  });
+
+  it('3c2) external llm_seed opens directly and does not toast when window.open returns null', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null as any);
+    const onOpenPdp = vi.fn();
+    const resolveProductRef = vi.fn();
+    const { toast } = await import('@/components/ui/use-toast');
+
+    render(
+      <RecommendationsCard
+        card={buildRecoCard({
+          brand: 'Laneige',
+          name: 'Water Sleeping Mask',
+          matchState: 'llm_seed',
+          pdpOpen: {
+            path: 'external',
+            external: { query: 'Laneige Water Sleeping Mask' },
+          },
+        })}
+        language="EN"
+        debug={false}
+        onOpenPdp={onOpenPdp}
+        resolveProductRef={resolveProductRef}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(resolveProductRef).not.toHaveBeenCalled();
+    expect(onOpenPdp).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+    expect(openSpy).toHaveBeenCalledWith(
+      buildGoogleSearchFallbackUrl('Laneige Water Sleeping Mask', 'EN'),
       '_blank',
       'noopener,noreferrer',
     );

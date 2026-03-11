@@ -152,7 +152,7 @@ describe('BffChat V2 recommendations cards', () => {
   });
 
   it('opens external/search fallback from summary routine rows for llm_seed items', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null as any);
 
     renderRecommendationsCard({
       card_id: 'card_summary_external',
@@ -164,10 +164,10 @@ describe('BffChat V2 recommendations cards', () => {
             step: 'mask',
             brand: 'Bioderma',
             name: 'Sensibio Comfort Mask',
+            metadata: { match_state: 'llm_seed' },
             reasons: ['Comfort-focused external seed.'],
             pdp_open: {
               path: 'external',
-              resolve_reason_code: 'NO_CANDIDATES',
               external: {
                 url: 'https://example.com/bioderma-mask',
                 query: 'Bioderma Sensibio Comfort Mask',
@@ -184,6 +184,7 @@ describe('BffChat V2 recommendations cards', () => {
     fireEvent.click(summaryRow as HTMLElement);
 
     expect(openSpy).toHaveBeenCalledWith('https://example.com/bioderma-mask', '_blank', 'noopener,noreferrer');
+    expect(toast).not.toHaveBeenCalled();
     openSpy.mockRestore();
   });
 

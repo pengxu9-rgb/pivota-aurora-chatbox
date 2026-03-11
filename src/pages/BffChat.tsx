@@ -2007,6 +2007,7 @@ export function RecommendationsCard({
     position: number;
     brand: string | null;
     name: string | null;
+    match_state?: string | null;
     subject_product_group_id?: string | null;
     canonical_product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
     resolve_query?: string | null;
@@ -2112,20 +2113,36 @@ export function RecommendationsCard({
     };
   }, []);
 
-  const openExternalGoogle = useCallback(
-    (query: string): { opened: boolean; url: string | null } => {
-      const googleUrl = buildGoogleSearchFallbackUrl(query, language);
-      if (!googleUrl) return { opened: false, url: null };
+  const openExternalUrl = useCallback(
+    (
+      rawUrl: string,
+      opts?: { allowNullHandleSuccess?: boolean },
+    ): { opened: boolean; url: string | null } => {
+      const safeUrl = normalizeOutboundFallbackUrl(String(rawUrl || '').trim());
+      if (!safeUrl) return { opened: false, url: null };
       try {
+        const opened = window.open(safeUrl, '_blank', 'noopener,noreferrer');
         return {
-          opened: Boolean(window.open(googleUrl, '_blank', 'noopener,noreferrer')),
-          url: googleUrl,
+          opened: Boolean(opened) || opts?.allowNullHandleSuccess === true,
+          url: safeUrl,
         };
       } catch {
-        return { opened: false, url: googleUrl };
+        return { opened: false, url: safeUrl };
       }
     },
-    [language],
+    [],
+  );
+
+  const openExternalGoogle = useCallback(
+    (
+      query: string,
+      opts?: { allowNullHandleSuccess?: boolean },
+    ): { opened: boolean; url: string | null } => {
+      const googleUrl = buildGoogleSearchFallbackUrl(query, language);
+      if (!googleUrl) return { opened: false, url: null };
+      return openExternalUrl(googleUrl, opts);
+    },
+    [language, openExternalUrl],
   );
 
   const openPdpFromCard = useCallback(
@@ -2156,6 +2173,7 @@ export function RecommendationsCard({
       const position = Math.max(0, Number(card.position) || 0);
       const safeBrand = String(card.brand || '').trim();
       const safeName = String(card.name || '').trim();
+      const matchState = String(card.match_state || '').trim().toLowerCase();
       const title = [safeBrand, safeName].filter(Boolean).join(' ').trim();
       const skuType = card.hints?.sku_id
         ? 'sku_id'
@@ -2259,11 +2277,6 @@ export function RecommendationsCard({
             preferredPdpPath === 'external' &&
             hintedReasonCode === 'NO_CANDIDATES' &&
             hasStrongNoCandidatesHint;
-          const shouldDirectExternalFromHint =
-            preferredPdpPath === 'external' &&
-            PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
-            !shouldRetryNoCandidatesBeforeExternal;
-
           const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
           if (card.subject_product_group_id && !groupTarget) {
             failReason = failReason || 'invalid_product_group_id';
@@ -2292,16 +2305,23 @@ export function RecommendationsCard({
             return;
           }
 
-          if (shouldDirectExternalFromHint) {
+          const shouldDirectExternalFromSeed =
+            preferredPdpPath === 'external' &&
+            matchState === 'llm_seed' &&
+            !PDP_EXTERNAL_RETRY_INTERNAL_REASON_CODES.has(hintedReasonCode) &&
+            Boolean(hintedExternalUrl || hintedExternalQuery);
+          const shouldDirectExternalFromHint =
+            preferredPdpPath === 'external' &&
+            PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
+            !shouldRetryNoCandidatesBeforeExternal;
+
+          if (shouldDirectExternalFromSeed || shouldDirectExternalFromHint) {
             openPath = 'external';
             setDetailsFlow({ key: anchorKey, state: 'opening_external' });
             const external =
               hintedExternalUrl
-                ? {
-                    opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
-                    url: hintedExternalUrl,
-                  }
-                : openExternalGoogle(hintedExternalQuery);
+                ? openExternalUrl(hintedExternalUrl, { allowNullHandleSuccess: shouldDirectExternalFromSeed })
+                : openExternalGoogle(hintedExternalQuery, { allowNullHandleSuccess: shouldDirectExternalFromSeed });
             if (analyticsCtx) {
               emitPdpOpenPath(analyticsCtx, {
                 card_position: position,
@@ -2411,10 +2431,7 @@ export function RecommendationsCard({
               .trim();
           const external =
             hintedExternalUrl
-              ? {
-                  opened: Boolean(window.open(hintedExternalUrl, '_blank', 'noopener,noreferrer')),
-                  url: hintedExternalUrl,
-                }
+              ? openExternalUrl(hintedExternalUrl)
               : openExternalGoogle(externalQuery);
           if (analyticsCtx) {
             emitPdpOpenPath(analyticsCtx, {
@@ -2736,6 +2753,7 @@ export function RecommendationsCard({
         position: step.position,
         brand: step.product.brand,
         name: step.product.name,
+        match_state: (step.rawItem as any)?.match_state || (step.rawItem as any)?.metadata?.match_state || null,
         subject_product_group_id: step.subject_product_group_id,
         canonical_product_ref: step.canonical_product_ref,
         resolve_query: step.resolve_query || null,
@@ -2909,6 +2927,9 @@ export function RecommendationsCard({
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
     const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
     const step = asString(item.step) || display.category || (language === 'CN' ? '步骤' : 'Step');
+    const typeRaw =
+      String(asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
+    const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
