@@ -17,6 +17,7 @@ import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
 import { RoutineCompatibilityFooter } from '@/components/chat/cards/RoutineCompatibilityFooter';
 import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
 import { ProductPicksCard } from '@/components/chat/cards/ProductPicksCard';
+import { DiagnosisV2IntroCard } from '@/components/chat/cards/DiagnosisV2IntroCard';
 import { AuroraAnchorCard } from '@/components/aurora/cards/AuroraAnchorCard';
 import { AuroraLoadingCard, type AuroraLoadingIntent, type ThinkingStep } from '@/components/aurora/cards/AuroraLoadingCard';
 import { AuroraReferencesCard } from '@/components/aurora/cards/AuroraReferencesCard';
@@ -168,7 +169,17 @@ type ChatRequestMessage = {
   content: string;
 };
 
+type DiagnosisSubmitSource = 'diagnosis_explicit' | 'resume_pending_action';
+
 const CHAT_CONTEXT_MESSAGE_LIMIT = 10;
+const DIAGNOSIS_THREAD_STATE_KEYS = [
+  'diagnosis_goals',
+  'diagnosis_state',
+  'diagnosis_followup_answers',
+  'diagnosis_custom_input',
+  'active_diagnosis_id',
+  'blueprint_id',
+] as const;
 
 function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
   const messages: ChatRequestMessage[] = [];
@@ -4680,6 +4691,24 @@ function BffCardView({
   }
 
   if (cardType === 'diagnosis_gate') {
+    const payloadObj = asObject(payload) || {};
+    const sections = asArray((payloadObj as any).sections).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+    const isDiagnosisV2Gate = sections.some((section) => String(section?.type || '').trim() === 'goal_selection');
+    if (isDiagnosisV2Gate) {
+      const goalSelection = sections.find((section) => String(section?.type || '').trim() === 'goal_selection');
+      return (
+        <DiagnosisV2IntroCard
+          payload={{
+            ...payloadObj,
+            goal_profile: asObject((payloadObj as any).goal_profile) || { selected_goals: [], constraints: [] },
+            goal_options: Array.isArray((goalSelection as any)?.options) ? ((goalSelection as any).options as Array<Record<string, unknown>>) : [],
+            sections,
+          } as any}
+          language={language}
+          onAction={(id, data) => onAction(id, data)}
+        />
+      );
+    }
     return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
   }
 
@@ -7054,10 +7083,44 @@ export default function BffChat() {
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
+  const diagnosisSubmitSourceRef = useRef<DiagnosisSubmitSource>('diagnosis_explicit');
+  const threadStateRef = useRef<Record<string, unknown>>({});
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  const clearDiagnosisThreadState = useCallback(() => {
+    const next = { ...(threadStateRef.current || {}) };
+    DIAGNOSIS_THREAD_STATE_KEYS.forEach((key) => {
+      delete next[key];
+    });
+    threadStateRef.current = next;
+  }, []);
+
+  const applyThreadOps = useCallback((opsRaw: unknown) => {
+    const ops = Array.isArray(opsRaw) ? opsRaw : [];
+    if (ops.length === 0) return;
+    const next = { ...(threadStateRef.current || {}) };
+    for (const rawOp of ops) {
+      if (!rawOp || typeof rawOp !== 'object' || Array.isArray(rawOp)) continue;
+      const op = rawOp as Record<string, unknown>;
+      const kind = String(op.op || '').trim().toLowerCase();
+      const key = typeof op.key === 'string' ? op.key.trim() : '';
+      if (kind === 'set' && key) {
+        next[key] = op.value;
+        continue;
+      }
+      if ((kind === 'unset' || kind === 'delete' || kind === 'remove') && key) {
+        delete next[key];
+        continue;
+      }
+      if (kind === 'clear') {
+        Object.keys(next).forEach((entryKey) => delete next[entryKey]);
+      }
+    }
+    threadStateRef.current = next;
+  }, []);
 
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
@@ -7448,6 +7511,7 @@ export default function BffChat() {
       }
 
       setError(null);
+      applyThreadOps(response.ops.thread_ops);
 
       const profilePatch = asObject(response.ops.profile_patch[0]) || null;
       const routinePatch = asObject(response.ops.routine_patch[0]) || null;
@@ -7690,7 +7754,7 @@ export default function BffChat() {
         });
       }
     },
-    [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, langReplyMode, language],
+    [applyThreadOps, debug, headers.aurora_uid, headers.brief_id, headers.trace_id, langReplyMode, language],
   );
 
   const applyV2Response = useCallback(
@@ -7698,6 +7762,34 @@ export default function BffChat() {
       setError(null);
       const lang = language;
       const nextItems: ChatItem[] = [];
+      const ops = asObject(response.ops) || {};
+      const threadOps = Array.isArray(ops.thread_ops) ? ops.thread_ops : [];
+      const profilePatchRaw = Array.isArray(ops.profile_patch)
+        ? asObject(ops.profile_patch[0])
+        : asObject(ops.profile_patch);
+      const routinePatchRaw = Array.isArray(ops.routine_patch)
+        ? asObject(ops.routine_patch[0])
+        : asObject(ops.routine_patch);
+
+      applyThreadOps(threadOps);
+      if (profilePatchRaw || routinePatchRaw) {
+        setProfileSnapshot((prev) => ({
+          ...(asObject(prev) || {}),
+          ...(profilePatchRaw || {}),
+          ...(routinePatchRaw || {}),
+        }));
+        setBootstrapInfo((prev) => {
+          const merged: BootstrapInfo = prev
+            ? { ...prev }
+            : { profile: null, recent_logs: [], checkin_due: null, is_returning: null, db_ready: null };
+          merged.profile = {
+            ...(asObject(merged.profile) || {}),
+            ...(profilePatchRaw || {}),
+            ...(routinePatchRaw || {}),
+          };
+          return merged;
+        });
+      }
 
       const resolveLocalizedString = (value: unknown): string => {
         if (typeof value === 'string') return value.trim();
@@ -7978,7 +8070,7 @@ export default function BffChat() {
         setItems((prev) => [...prev, ...nextItems]);
       }
     },
-    [language],
+    [applyThreadOps, language],
   );
 
   const tryApplyEnvelopeFromBffError = useCallback(
@@ -8159,6 +8251,8 @@ export default function BffChat() {
     setBootstrapInfo(null);
     setIngredientQuestionBusy(false);
     pendingActionAfterDiagnosisRef.current = null;
+    diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
+    threadStateRef.current = {};
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;
@@ -8850,6 +8944,7 @@ export default function BffChat() {
         client_state?: AgentState;
         requested_transition?: RequestedTransition | null;
         analysisContext?: ChatSessionAnalysisContext | null;
+        thread_state?: Record<string, unknown> | null;
       },
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
@@ -8878,6 +8973,11 @@ export default function BffChat() {
           ...(action ? { action } : {}),
           language,
           client_state: normalizeAgentState(opts?.client_state ?? agentState),
+          ...(opts?.thread_state && Object.keys(opts.thread_state).length > 0
+            ? { thread_state: opts.thread_state }
+            : Object.keys(threadStateRef.current).length > 0
+              ? { thread_state: threadStateRef.current }
+              : {}),
           ...(priorMessages.length ? { messages: priorMessages } : {}),
           ...(opts?.requested_transition ? { requested_transition: opts.requested_transition } : {}),
           ...(debug ? { debug: true } : {}),
@@ -9192,11 +9292,72 @@ export default function BffChat() {
     async (actionId: string, data?: Record<string, any>) => {
       if (actionId === 'diagnosis_skip') {
         pendingActionAfterDiagnosisRef.current = null;
+        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
+        clearDiagnosisThreadState();
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
         ]);
         setSessionState('idle');
+        return;
+      }
+
+      if (actionId === 'diagnosis_v2_skip') {
+        pendingActionAfterDiagnosisRef.current = null;
+        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
+        clearDiagnosisThreadState();
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
+        ]);
+        setSessionState('idle');
+        return;
+      }
+
+      if (actionId === 'diagnosis_v2_submit') {
+        const goals = Array.isArray(data?.goals)
+          ? (data.goals as unknown[]).map((goal) => String(goal || '').trim()).filter(Boolean)
+          : [];
+        const customInput = typeof data?.customInput === 'string' ? data.customInput.trim() : '';
+        const followupAnswers = data?.followupAnswers && typeof data.followupAnswers === 'object' && !Array.isArray(data.followupAnswers)
+          ? Object.fromEntries(
+              Object.entries(data.followupAnswers as Record<string, unknown>)
+                .map(([key, value]) => [key, String(value || '').trim()])
+                .filter(([key, value]) => Boolean(key) && Boolean(value)),
+            )
+          : {};
+        if (goals.length === 0) {
+          setError(language === 'CN' ? '请先选择至少一个目标。' : 'Please choose at least one skin goal.');
+          return;
+        }
+        const nextThreadState: Record<string, unknown> = {
+          ...(threadStateRef.current || {}),
+          diagnosis_goals: goals,
+          diagnosis_state: 'goals_selected',
+          ...(Object.keys(followupAnswers).length ? { diagnosis_followup_answers: followupAnswers } : {}),
+          ...(customInput ? { diagnosis_custom_input: customInput } : {}),
+        };
+        threadStateRef.current = nextThreadState;
+        setItems((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? '开始分析' : 'Start analysis',
+          },
+        ]);
+        await sendChat(
+          undefined,
+          {
+            action_id: 'chip.start.diagnosis',
+            kind: 'chip',
+            data: {
+              reply_text: language === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis',
+            },
+          },
+          { thread_state: nextThreadState },
+        );
         return;
       }
 
@@ -9212,7 +9373,9 @@ export default function BffChat() {
         }
 
         const pending = pendingActionAfterDiagnosisRef.current;
+        const diagnosisSource: DiagnosisSubmitSource = pending ? 'resume_pending_action' : diagnosisSubmitSourceRef.current;
         pendingActionAfterDiagnosisRef.current = null;
+        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
 
         setItems((prev) => [
           ...prev,
@@ -9243,8 +9406,10 @@ export default function BffChat() {
           },
         });
 
-        if (pending) {
+        if (diagnosisSource === 'resume_pending_action' && pending) {
           await sendChat(undefined, pending);
+        } else {
+          await runLowConfidenceSkinAnalysis();
         }
         return;
       }
@@ -9819,6 +9984,7 @@ export default function BffChat() {
       anchorProductId,
       anchorProductUrl,
       applyEnvelope,
+      clearDiagnosisThreadState,
       getSanitizedAnalysisPhotos,
       headers,
       language,
@@ -10301,18 +10467,10 @@ export default function BffChat() {
       }
 
       if (id === 'chip_start_diagnosis' || id === 'chip.start.diagnosis') {
+        pendingActionAfterDiagnosisRef.current = null;
+        diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
+        clearDiagnosisThreadState();
         setSessionState('S2_DIAGNOSIS');
-        setItems((prev) => [
-          ...stripReturnWelcome(prev),
-          userItem,
-          {
-            id: nextId(),
-            role: 'assistant',
-            kind: 'cards',
-            cards: [{ card_id: `local_diagnosis_${Date.now()}`, type: 'diagnosis_gate', payload: {} }],
-          },
-        ]);
-        return;
       }
 
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
@@ -10328,8 +10486,10 @@ export default function BffChat() {
             kind: 'chip',
             data: chip.data,
           };
+          diagnosisSubmitSourceRef.current = 'resume_pending_action';
         } else {
           pendingActionAfterDiagnosisRef.current = null;
+          diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
         }
       }
 
@@ -10418,6 +10578,7 @@ export default function BffChat() {
     [
       agentState,
       bootstrapInfo?.profile,
+      clearDiagnosisThreadState,
       headers,
       language,
       profileSnapshot,
@@ -10494,6 +10655,8 @@ export default function BffChat() {
     setSessionPhotos({});
     setBootstrapInfo(null);
     pendingActionAfterDiagnosisRef.current = null;
+    diagnosisSubmitSourceRef.current = 'diagnosis_explicit';
+    threadStateRef.current = {};
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
     openIntentConsumedRef.current = null;

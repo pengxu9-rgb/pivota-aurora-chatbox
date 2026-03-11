@@ -22,20 +22,41 @@ const GOAL_PRESETS: DiagnosisV2GoalPreset[] = [
 ];
 
 interface DiagnosisV2IntroCardProps {
-  payload: DiagnosisV2IntroPayload;
+  payload: DiagnosisV2IntroPayload & {
+    goal_options?: Array<Record<string, unknown>>;
+    sections?: Array<Record<string, unknown>>;
+  };
   language: Language;
   onAction: (actionId: string, data?: Record<string, any>) => void;
 }
 
 export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV2IntroCardProps) {
+  const sections = Array.isArray(payload?.sections) ? payload.sections : [];
+  const goalSelectionSection = sections.find((section) => String(section?.type || '').trim() === 'goal_selection');
+  const followUpSection = sections.find((section) => String(section?.type || '').trim() === 'follow_up_questions');
+  const dynamicGoalOptions = Array.isArray(payload?.goal_options)
+    ? payload.goal_options
+    : Array.isArray(goalSelectionSection?.options)
+      ? goalSelectionSection.options
+      : [];
+  const followupQuestions = (
+    Array.isArray(payload?.followup_questions) && payload.followup_questions.length > 0
+      ? payload.followup_questions
+      : Array.isArray(followUpSection?.questions)
+        ? followUpSection.questions
+        : []
+  ).slice(0, 3) as DiagnosisV2FollowupQuestion[];
+  const availableGoals = dynamicGoalOptions.length
+    ? dynamicGoalOptions
+        .map((option) => String(option?.id || '').trim())
+        .filter(Boolean)
+    : GOAL_PRESETS;
   const [goals, setGoals] = useState<string[]>(payload?.goal_profile?.selected_goals ?? []);
   const [customInput, setCustomInput] = useState<string>(payload?.goal_profile?.custom_input ?? '');
   const [followupAnswers, setFollowupAnswers] = useState<Record<string, string>>({});
   const goalsRef = useRef(goals);
   const customInputRef = useRef(customInput);
   const followupAnswersRef = useRef(followupAnswers);
-
-  const followupQuestions = (payload?.followup_questions ?? []).slice(0, 3);
 
   const toggleGoal = (goalId: string) => {
     flushSync(() => {
@@ -69,6 +90,16 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
   };
 
   const getGoalLabel = (goalId: string) => {
+    if (dynamicGoalOptions.length > 0) {
+      const matched = dynamicGoalOptions.find((option) => String(option?.id || '').trim() === goalId);
+      if (matched) {
+        const localized =
+          language === 'CN'
+            ? matched.label_zh || matched.label || matched.label_en
+            : matched.label_en || matched.label || matched.label_zh;
+        if (typeof localized === 'string' && localized.trim()) return localized.trim();
+      }
+    }
     const key = `diagnosis_v2.goal.${goalId}` as const;
     return t(key, language);
   };
@@ -80,7 +111,7 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
 
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            {GOAL_PRESETS.map((goalId) => (
+            {availableGoals.map((goalId) => (
               <button
                 key={goalId}
                 type="button"
