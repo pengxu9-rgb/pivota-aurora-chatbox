@@ -49,7 +49,7 @@ describe('ingredient_plan_v2 open link behavior', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /open product: spf fluid/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view product: spf fluid/i }));
 
     expect(window.open).toHaveBeenCalled();
     expect(analytics.emit).toHaveBeenCalledWith(
@@ -122,7 +122,7 @@ describe('ingredient_plan_v2 open link behavior', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /open product: ref-only spf/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view product: ref-only spf/i }));
     expect(window.open).toHaveBeenCalled();
     expect(analytics.emit).toHaveBeenCalledWith(
       'ingredient_product_open_attempt',

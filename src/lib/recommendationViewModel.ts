@@ -5,6 +5,7 @@ import type {
   PhotoModulesExternalSearchCta,
   PhotoModulesIssue,
 } from '@/lib/photoModulesContract';
+import { buildPdpUrl, extractPdpTargetFromProductGroupId } from '@/lib/pivotaShop';
 import type { Language } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,7 @@ export type IngredientActionVm = {
   topProducts: ProductCardVm[];
   moreProducts: ProductCardVm[];
   productsEmptyMessage: string | null;
+  productsFilteredNote?: string | null;
   externalSearchCtas: { title: string; url: string }[];
   rawAction: PhotoModulesAction;
 };
@@ -393,6 +395,14 @@ function deriveProductTags(product: PhotoModulesProduct, language: Language): st
 function productOpenUrl(product: PhotoModulesProduct): string | null {
   const url = (product.product_url || '').trim();
   if (url && /^https?:\/\//i.test(url)) return url;
+  if (product.canonical_product_ref?.product_id) {
+    return buildPdpUrl({
+      product_id: product.canonical_product_ref.product_id,
+      merchant_id: product.canonical_product_ref.merchant_id || undefined,
+    });
+  }
+  const targetFromGroup = extractPdpTargetFromProductGroupId(product.product_group_id);
+  if (targetFromGroup?.product_id) return buildPdpUrl(targetFromGroup);
   return null;
 }
 
@@ -477,6 +487,7 @@ export function mapIngredientAction(
     topProducts,
     moreProducts,
     productsEmptyMessage: emptyMessage,
+    productsFilteredNote: null,
     externalSearchCtas: externalCtas,
     rawAction: action,
   };
@@ -523,6 +534,7 @@ export function applyRecommendationDisplayOptions(
       topProducts: productsEnabled ? action.topProducts : [],
       moreProducts: productsEnabled && expandedProductsEnabled ? action.moreProducts : [],
       productsEmptyMessage: productsEnabled ? action.productsEmptyMessage : null,
+      productsFilteredNote: productsEnabled ? action.productsFilteredNote : null,
       externalSearchCtas: productsEnabled ? action.externalSearchCtas : [],
     })),
   };

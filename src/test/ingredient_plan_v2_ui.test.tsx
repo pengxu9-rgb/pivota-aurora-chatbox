@@ -64,12 +64,13 @@ describe('ingredient_plan_v2 rich product UI', () => {
     );
 
     expect(screen.getByText('Niacinamide Serum')).toBeInTheDocument();
-    expect(screen.getByText('Brand A · amazon')).toBeInTheDocument();
+    expect(screen.getByText('Brand A')).toBeInTheDocument();
+    expect(screen.getByText('$39.00')).toBeInTheDocument();
     expect(screen.getByText('Plan strength: Balanced')).toBeInTheDocument();
     expect(screen.getAllByText('Best match').length).toBeGreaterThan(0);
     expect(screen.queryByText('https://example.com/pdp')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /open product: niacinamide serum/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view product: niacinamide serum/i }));
     expect(openSpy).toHaveBeenCalledWith('https://example.com/pdp', '_blank', 'noopener,noreferrer');
 
     openSpy.mockRestore();
@@ -170,5 +171,90 @@ describe('ingredient_plan_v2 rich product UI', () => {
     expect(
       screen.getByText('Obvious non-skincare candidates were hidden to keep these picks skincare-relevant.'),
     ).toBeInTheDocument();
+  });
+
+  it('filters real backend external-seed makeup rows while keeping valid skincare PDP CTAs', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as unknown as Window));
+
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_backendish"
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'uv_filters',
+              ingredient_name: 'UV filters',
+              priority_score_0_100: 82,
+              priority_level: 'high',
+              why: ['Rule signal: low_confidence_gentle_only'],
+              usage_guidance: ['Daily AM final step'],
+              products: {
+                competitors: [
+                  {
+                    product_id: 'ext_bbe1ff8884f06d874bbccbd8',
+                    merchant_id: 'external_seed',
+                    brand: 'the ordinary',
+                    name: 'UV Filters SPF 45 Serum',
+                    display_name: 'UV Filters SPF 45 Serum',
+                    image_url: 'https://theordinary.com/example.png',
+                    category: 'external',
+                    source: 'external_seed',
+                    retrieval_source: 'external_seed',
+                    retrieval_reason: 'external_seed_supplement',
+                    price: { amount: 19.9, currency: 'USD', unknown: false },
+                    canonical_product_ref: { product_id: 'ext_bbe1ff8884f06d874bbccbd8', merchant_id: 'external_seed' },
+                    url: 'https://agent.pivota.cc/products/ext_bbe1ff8884f06d874bbccbd8?merchant_id=external_seed&entry=aurora_chatbox',
+                    pdp_url: 'https://agent.pivota.cc/products/ext_bbe1ff8884f06d874bbccbd8?merchant_id=external_seed&entry=aurora_chatbox',
+                    product_url: 'https://agent.pivota.cc/products/ext_bbe1ff8884f06d874bbccbd8?merchant_id=external_seed&entry=aurora_chatbox',
+                  },
+                  {
+                    product_id: 'ext_7b785d428200237b45d2a3e0',
+                    merchant_id: 'external_seed',
+                    brand: 'Fenty Beauty',
+                    name: 'Gloss Bomb Cream Color Drip Lip Cream — Mauve Wive$',
+                    display_name: 'Gloss Bomb Cream Color Drip Lip Cream — Mauve Wive$',
+                    category: 'external',
+                    source: 'external_seed',
+                    pdp_url: 'https://agent.pivota.cc/products/ext_7b785d428200237b45d2a3e0?merchant_id=external_seed&entry=aurora_chatbox',
+                  },
+                  {
+                    product_id: 'ext_f4c5fce9fe8b50130878fb76',
+                    merchant_id: 'external_seed',
+                    brand: 'Fenty Beauty',
+                    name: "Diamond Bomb All-Over Diamond Veil — Lavender Luv'r",
+                    display_name: "Diamond Bomb All-Over Diamond Veil — Lavender Luv'r",
+                    category: 'external',
+                    source: 'external_seed',
+                    pdp_url: 'https://agent.pivota.cc/products/ext_f4c5fce9fe8b50130878fb76?merchant_id=external_seed&entry=aurora_chatbox',
+                  },
+                ],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('UV Filters SPF 45 Serum')).toBeInTheDocument();
+    expect(screen.getByText('$19.90')).toBeInTheDocument();
+    expect(screen.queryByText(/Gloss Bomb Cream/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Diamond Bomb All-Over Diamond Veil/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /view product: uv filters spf 45 serum/i }));
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://agent.pivota.cc/products/ext_bbe1ff8884f06d874bbccbd8?merchant_id=external_seed&entry=aurora_chatbox',
+      '_blank',
+      'noopener,noreferrer',
+    );
+
+    openSpy.mockRestore();
   });
 });

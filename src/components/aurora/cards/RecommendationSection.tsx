@@ -26,13 +26,24 @@ type OpenProductFn = (opts: {
   productIndex: number;
 }) => void;
 
+type OpenExternalSearchFn = (opts: {
+  moduleId: string;
+  action: PhotoModulesAction | null;
+  cta: { title: string; url: string };
+  ctaIndex: number;
+}) => void;
+
 export type RecommendationSectionProps = {
   vm: ModuleRecommendationVm;
   language: Language;
   onOpenProduct?: OpenProductFn;
+  onOpenExternalSearch?: OpenExternalSearchFn;
   productsEnabled?: boolean;
   expandedProductsEnabled?: boolean;
   openingProductKey?: string | null;
+  showConcernSummary?: boolean;
+  alwaysShowExternalSearchCtas?: boolean;
+  footerExternalSearchCtas?: { title: string; url: string }[];
 };
 
 function buildOpeningProductKey(
@@ -123,16 +134,22 @@ function EvidenceBadgeChip({ evidence, language }: { evidence: IngredientActionV
 // UsageRow
 // ---------------------------------------------------------------------------
 
-function UsageRow({ usage, language }: { usage: IngredientActionVm['usage']; language: Language }) {
+function UsageRow({ usage }: { usage: IngredientActionVm['usage'] }) {
+  if (!usage.time && !usage.frequency && !usage.note) return null;
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] text-foreground">
-        <Clock className="h-3 w-3 text-muted-foreground" />
-        {usage.time}
-      </span>
-      <span className="rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] text-foreground">
-        {usage.frequency}
-      </span>
+      {usage.time ? (
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] text-foreground">
+          <Clock className="h-3 w-3 text-muted-foreground" />
+          {usage.time}
+        </span>
+      ) : null}
+      {usage.frequency ? (
+        <span className="rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] text-foreground">
+          {usage.frequency}
+        </span>
+      ) : null}
       {usage.note && (
         <span className="text-[11px] text-muted-foreground">{usage.note}</span>
       )}
@@ -156,6 +173,8 @@ function ProductCard({
   isLoading?: boolean;
 }) {
   const ctaLabel = language === 'CN' ? '查看商品' : 'View product';
+  const unavailableLabel = language === 'CN' ? '链接暂不可用' : 'Link unavailable';
+  const canOpen = Boolean(onOpen) && Boolean(vm.openUrl);
 
   return (
     <div
@@ -243,21 +262,26 @@ function ProductCard({
         </div>
       </div>
 
-      <button
-        type="button"
-        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-foreground px-3 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-60"
-        disabled={isLoading || !onOpen}
-        onClick={onOpen}
-      >
-        {isLoading ? (
-          <span className="animate-pulse">{language === 'CN' ? '正在打开…' : 'Opening…'}</span>
-        ) : (
-          <>
-            <ExternalLink className="h-3.5 w-3.5" />
-            {ctaLabel}
-          </>
-        )}
-      </button>
+      {canOpen ? (
+        <button
+          type="button"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-foreground px-3 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-60"
+          aria-label={`${ctaLabel}: ${vm.name}`}
+          disabled={isLoading}
+          onClick={onOpen}
+        >
+          {isLoading ? (
+            <span className="animate-pulse">{language === 'CN' ? '正在打开…' : 'Opening…'}</span>
+          ) : (
+            <>
+              <ExternalLink className="h-3.5 w-3.5" />
+              {ctaLabel}
+            </>
+          )}
+        </button>
+      ) : (
+        <div className="mt-3 text-xs text-muted-foreground">{unavailableLabel}</div>
+      )}
     </div>
   );
 }
@@ -278,6 +302,8 @@ function ProductMatchList({
   productsEnabled,
   expandedProductsEnabled,
   openingProductKey,
+  alwaysShowExternalSearchCtas,
+  onOpenExternalSearch,
 }: {
   topProducts: ProductCardVm[];
   moreProducts: ProductCardVm[];
@@ -290,14 +316,17 @@ function ProductMatchList({
   productsEnabled: boolean;
   expandedProductsEnabled: boolean;
   openingProductKey?: string | null;
+  alwaysShowExternalSearchCtas?: boolean;
+  onOpenExternalSearch?: OpenExternalSearchFn;
 }) {
   const [showMore, setShowMore] = useState(false);
   if (!productsEnabled) return null;
 
   const hasProducts = topProducts.length > 0;
   const visibleMoreProducts = expandedProductsEnabled ? moreProducts : [];
+  const hasExternalSearch = externalSearchCtas.length > 0;
 
-  if (!hasProducts && !emptyMessage) return null;
+  if (!hasProducts && !emptyMessage && !hasExternalSearch) return null;
 
   return (
     <div className="mt-3 space-y-2" data-testid="reco-product-match-list">
@@ -318,7 +347,7 @@ function ProductMatchList({
                 language={language}
                 isLoading={openingProductKey === productKey}
                 onOpen={
-                  onOpenProduct
+                  onOpenProduct && product.openUrl
                     ? () =>
                         onOpenProduct({
                           moduleId,
@@ -363,7 +392,7 @@ function ProductMatchList({
                     language={language}
                     isLoading={openingProductKey === productKey}
                     onOpen={
-                      onOpenProduct
+                      onOpenProduct && product.openUrl
                         ? () =>
                             onOpenProduct({
                               moduleId,
@@ -381,20 +410,52 @@ function ProductMatchList({
         </>
       )}
 
-      {!hasProducts && externalSearchCtas.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {externalSearchCtas.map((cta, idx) => (
-            <a
-              key={`cta_${idx}`}
-              href={cta.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
-            >
-              <ExternalLink className="h-3 w-3" />
-              {cta.title || (language === 'CN' ? '外部搜索' : 'Search online')}
-            </a>
-          ))}
+      {hasExternalSearch && (!hasProducts || alwaysShowExternalSearchCtas) && (
+        <div className="space-y-2">
+          {hasProducts && (
+            <div className="text-[11px] font-semibold text-muted-foreground">
+              {language === 'CN' ? '更多探索' : 'Explore more'}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {externalSearchCtas.map((cta, idx) => {
+              const title = cta.title || (language === 'CN' ? '外部搜索' : 'Search online');
+              if (!onOpenExternalSearch) {
+                return (
+                  <a
+                    key={`cta_${idx}`}
+                    href={cta.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {title}
+                  </a>
+                );
+              }
+
+              return (
+                <button
+                  key={`cta_${idx}`}
+                  type="button"
+                  aria-label={`${language === 'CN' ? '打开搜索' : 'Open search'}: ${title}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
+                  onClick={() =>
+                    onOpenExternalSearch({
+                      moduleId,
+                      action: rawAction,
+                      cta,
+                      ctaIndex: idx,
+                    })
+                  }
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {title}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -413,6 +474,8 @@ function IngredientActionCard({
   productsEnabled,
   expandedProductsEnabled,
   openingProductKey,
+  alwaysShowExternalSearchCtas,
+  onOpenExternalSearch,
 }: {
   vm: IngredientActionVm;
   language: Language;
@@ -421,6 +484,8 @@ function IngredientActionCard({
   productsEnabled: boolean;
   expandedProductsEnabled: boolean;
   openingProductKey?: string | null;
+  alwaysShowExternalSearchCtas?: boolean;
+  onOpenExternalSearch?: OpenExternalSearchFn;
 }) {
   return (
     <div
@@ -441,22 +506,24 @@ function IngredientActionCard({
       )}
 
       {/* Concern chips + target area */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {vm.concernChips.map((chip) => (
-          <span
-            key={chip}
-            className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary"
-          >
-            {chip}
-          </span>
-        ))}
-        {vm.targetArea && (
-          <span className="text-[11px] text-muted-foreground">{vm.targetArea}</span>
-        )}
-      </div>
+      {(vm.concernChips.length > 0 || vm.targetArea) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {vm.concernChips.map((chip) => (
+            <span
+              key={chip}
+              className="rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary"
+            >
+              {chip}
+            </span>
+          ))}
+          {vm.targetArea && (
+            <span className="text-[11px] text-muted-foreground">{vm.targetArea}</span>
+          )}
+        </div>
+      )}
 
       {/* Usage row */}
-      <UsageRow usage={vm.usage} language={language} />
+      <UsageRow usage={vm.usage} />
 
       {/* Cautions */}
       {vm.cautions.length > 0 && (
@@ -489,7 +556,15 @@ function IngredientActionCard({
         productsEnabled={productsEnabled}
         expandedProductsEnabled={expandedProductsEnabled}
         openingProductKey={openingProductKey}
+        alwaysShowExternalSearchCtas={alwaysShowExternalSearchCtas}
+        onOpenExternalSearch={onOpenExternalSearch}
       />
+
+      {vm.productsFilteredNote ? (
+        <div className="rounded-lg border border-border/50 bg-background/70 px-2.5 py-2 text-[11px] text-muted-foreground">
+          {vm.productsFilteredNote}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -502,9 +577,13 @@ export function RecommendationSection({
   vm,
   language,
   onOpenProduct,
+  onOpenExternalSearch,
   productsEnabled = true,
   expandedProductsEnabled = true,
   openingProductKey,
+  showConcernSummary = true,
+  alwaysShowExternalSearchCtas = false,
+  footerExternalSearchCtas = [],
 }: RecommendationSectionProps) {
   if (vm.actions.length === 0) {
     return (
@@ -517,6 +596,52 @@ export function RecommendationSection({
             ? '该分区暂无成分建议，建议继续跟踪并复拍。'
             : 'No ingredient action yet for this module. Track progress and retake later.'}
         </div>
+        {footerExternalSearchCtas.length > 0 ? (
+          <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+            <div className="text-[11px] font-semibold text-muted-foreground">
+              {language === 'CN' ? '更多探索' : 'Explore more'}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {footerExternalSearchCtas.map((cta, idx) => {
+                const title = cta.title || (language === 'CN' ? '外部搜索' : 'Search online');
+                if (!onOpenExternalSearch) {
+                  return (
+                    <a
+                      key={`empty_footer_cta_${idx}`}
+                      href={cta.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {title}
+                    </a>
+                  );
+                }
+
+                return (
+                  <button
+                    key={`empty_footer_cta_${idx}`}
+                    type="button"
+                    aria-label={`${language === 'CN' ? '打开搜索' : 'Open search'}: ${title}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
+                    onClick={() =>
+                      onOpenExternalSearch({
+                        moduleId: vm.moduleId,
+                        action: null,
+                        cta,
+                        ctaIndex: idx,
+                      })
+                    }
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {title}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -527,7 +652,7 @@ export function RecommendationSection({
         {language === 'CN' ? '成分与产品推荐' : 'Ingredient & product recommendations'}
       </div>
 
-      <ConcernSummaryBanner summary={vm.concernSummary} language={language} />
+      {showConcernSummary ? <ConcernSummaryBanner summary={vm.concernSummary} language={language} /> : null}
 
       <div className="space-y-3">
         {vm.actions.map((action) => (
@@ -540,9 +665,58 @@ export function RecommendationSection({
             productsEnabled={productsEnabled}
             expandedProductsEnabled={expandedProductsEnabled}
             openingProductKey={openingProductKey}
+            alwaysShowExternalSearchCtas={alwaysShowExternalSearchCtas}
+            onOpenExternalSearch={onOpenExternalSearch}
           />
         ))}
       </div>
+
+      {footerExternalSearchCtas.length > 0 ? (
+        <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+          <div className="text-[11px] font-semibold text-muted-foreground">
+            {language === 'CN' ? '更多探索' : 'Explore more'}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {footerExternalSearchCtas.map((cta, idx) => {
+              const title = cta.title || (language === 'CN' ? '外部搜索' : 'Search online');
+              if (!onOpenExternalSearch) {
+                return (
+                  <a
+                    key={`footer_cta_${idx}`}
+                    href={cta.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    {title}
+                  </a>
+                );
+              }
+
+              return (
+                <button
+                  key={`footer_cta_${idx}`}
+                  type="button"
+                  aria-label={`${language === 'CN' ? '打开搜索' : 'Open search'}: ${title}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
+                  onClick={() =>
+                    onOpenExternalSearch({
+                      moduleId: vm.moduleId,
+                      action: null,
+                      cta,
+                      ctaIndex: idx,
+                    })
+                  }
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {title}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1379,6 +1379,7 @@ const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 30000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
+const ANALYSIS_REQUEST_TIMEOUT_MS = 45000;
 const RECO_ALTERNATIVES_LAZY_TIMEOUT_MS = 8000;
 const RECO_COMPATIBILITY_LAZY_TIMEOUT_MS = 6000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
@@ -8872,7 +8873,7 @@ export default function BffChat() {
             () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
               method: 'POST',
               body: JSON.stringify(body),
-              timeoutMs: 20000,
+              timeoutMs: ANALYSIS_REQUEST_TIMEOUT_MS,
             }),
             { maxRetries: 1, baseDelayMs: 1500 },
           );
@@ -10108,7 +10109,7 @@ export default function BffChat() {
         () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
           method: 'POST',
           body: JSON.stringify({ use_photo: false }),
-          timeoutMs: 20000,
+          timeoutMs: ANALYSIS_REQUEST_TIMEOUT_MS,
         }),
         { maxRetries: 1, baseDelayMs: 1500 },
       );
@@ -10161,7 +10162,7 @@ export default function BffChat() {
           () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
             method: 'POST',
             body: JSON.stringify(body),
-            timeoutMs: 20000,
+            timeoutMs: ANALYSIS_REQUEST_TIMEOUT_MS,
           }),
           { maxRetries: 1, baseDelayMs: 1500 },
         );

@@ -232,6 +232,9 @@ describe('BffChat diagnosis submit flow', () => {
       expect(analysisCalls).toHaveLength(1);
     });
 
+    const analysisCall = mock.mock.calls.find(([path]) => path === '/v1/analysis/skin');
+    expect(analysisCall?.[2]).toMatchObject({ timeoutMs: 45000 });
+
     const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
     expect(chatCalls).toHaveLength(1);
   });

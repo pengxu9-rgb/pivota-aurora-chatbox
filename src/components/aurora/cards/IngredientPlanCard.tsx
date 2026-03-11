@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 
+import { RecommendationSection } from '@/components/aurora/cards/RecommendationSection';
 import {
   emitDiscoveryLinkOpenAttempt,
   emitDiscoveryLinkOpenResult,
@@ -7,6 +8,17 @@ import {
   emitIngredientProductOpenResult,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
+import type {
+  PhotoModulesAction,
+  PhotoModulesExternalSearchCta,
+  PhotoModulesProduct,
+} from '@/lib/photoModulesContract';
+import {
+  filterAndRankProducts,
+  mapProductCard,
+  type ModuleRecommendationVm,
+  type PriorityLabel,
+} from '@/lib/recommendationViewModel';
 import { buildPdpUrl, extractPdpTargetFromProductGroupId } from '@/lib/pivotaShop';
 import type { Language } from '@/lib/types';
 
@@ -26,6 +38,19 @@ type ProductLike = {
   url?: string;
   product_url?: string;
   purchase_path?: string;
+  image_url?: string;
+  thumb_url?: string;
+  benefit_tags?: unknown;
+  cautions?: unknown;
+  how_to_use?: unknown;
+  price_label?: unknown;
+  rating_value?: unknown;
+  rating_count?: unknown;
+  social_proof?: {
+    rating?: unknown;
+    review_count?: unknown;
+    summary?: unknown;
+  };
   product_ref?: { product_id?: string; merchant_id?: string };
   canonical_product_ref?: { product_id?: string; merchant_id?: string };
   subject_product_group_id?: string;
@@ -56,7 +81,9 @@ type IngredientTargetLike = {
 type PlanVariant = 'v1' | 'v2';
 type ProductBucket = 'competitors' | 'dupes' | 'external_search_ctas';
 type OpenResult = 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
-type PriorityBadgeTone = 'best_match' | 'strong_match' | 'support_option';
+type SyntheticPlanProduct = PhotoModulesProduct & { category?: string; __planBucket?: ProductBucket };
+
+const PLAN_MODULE_ID = 'ingredient_plan_v2';
 
 const asObject = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -227,30 +254,6 @@ function filterAndSortProductRows(rows: ProductLike[]): ProductLike[] {
   );
 }
 
-function mapPriorityTone(levelToken: string, score: number | null): PriorityBadgeTone {
-  const normalized = normalizePriorityLevel(levelToken, score);
-  if (normalized === 'high') return 'best_match';
-  if (normalized === 'medium') return 'strong_match';
-  return 'support_option';
-}
-
-function priorityToneLabel(tone: PriorityBadgeTone, language: Language): string {
-  if (language === 'CN') {
-    if (tone === 'best_match') return '最佳匹配';
-    if (tone === 'strong_match') return '强力匹配';
-    return '辅助选项';
-  }
-  if (tone === 'best_match') return 'Best match';
-  if (tone === 'strong_match') return 'Strong match';
-  return 'Support option';
-}
-
-function priorityToneClassName(tone: PriorityBadgeTone): string {
-  if (tone === 'best_match') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700';
-  if (tone === 'strong_match') return 'border-blue-500/40 bg-blue-500/10 text-blue-700';
-  return 'border-border/60 bg-muted/40 text-muted-foreground';
-}
-
 const readRefTarget = (raw: unknown): { product_id: string; merchant_id?: string } | null => {
   const ref = asObject(raw);
   if (!ref) return null;
@@ -329,95 +332,240 @@ const normalizePriorityLevel = (levelToken: string, score: number | null): 'high
   return 'low';
 };
 
-const priorityLabel = (level: 'high' | 'medium' | 'low', language: Language): string => {
-  if (language === 'CN') {
-    if (level === 'high') return '高优先级';
-    if (level === 'low') return '低优先级';
-    return '中优先级';
-  }
-  if (level === 'high') return 'High priority';
-  if (level === 'low') return 'Low priority';
-  return 'Medium priority';
-};
+function mapPlanPriority(levelToken: string, score: number | null): PriorityLabel {
+  const normalized = normalizePriorityLevel(levelToken, score);
+  if (normalized === 'high') return 'best_match';
+  if (normalized === 'medium') return 'strong_match';
+  return 'support_option';
+}
 
-const renderPrice = (price: number | null, currency: string): string | null => {
-  if (price == null) return null;
-  const code = currency || 'USD';
-  try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: code, maximumFractionDigits: 2 }).format(price);
-  } catch {
-    return `${code} ${price.toFixed(2)}`;
-  }
-};
+function toStableId(prefix: string, value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return normalized ? `${prefix}_${normalized}` : `${prefix}_item`;
+}
 
-function ProductCard({
-  row,
-  bucket,
-  language,
-  labels,
-  onOpenProduct,
-}: {
-  row: ProductLike;
-  bucket: ProductBucket;
-  language: Language;
-  labels: {
-    linkUnavailable: string;
-    openProduct: string;
-    openSearch: string;
-    primaryBadge: string;
-    alternativeBadge: string;
-    searchBadge: string;
+function parseUsageGuidance(guidance: string[], language: Language): { time: string; frequency: string; note: string } {
+  const joined = guidance.filter(Boolean).join(language === 'CN' ? '；' : '; ');
+  if (!joined) return { time: '', frequency: '', note: '' };
+
+  const lower = joined.toLowerCase();
+  const time =
+    /am\/pm|am and pm|morning and evening|day and night|早晚/.test(lower)
+      ? language === 'CN'
+        ? '早晚'
+        : 'AM + PM'
+      : /\bpm\b|night|evening|晚/.test(lower)
+        ? language === 'CN'
+          ? '仅晚间'
+          : 'PM only'
+        : /\bam\b|morning|早/.test(lower)
+          ? language === 'CN'
+            ? '仅早间'
+            : 'AM only'
+          : '';
+
+  const frequency =
+    /2-3x|2-3 x|2 to 3 times|2-3 times|2-3次|每周 ?2-3/.test(lower)
+      ? language === 'CN'
+        ? '每周 2-3 次'
+        : '2-3x per week'
+      : /weekly|once a week|每周一次/.test(lower)
+        ? language === 'CN'
+          ? '每周一次'
+          : 'Weekly'
+        : /daily|every day|daily am|daily pm|每天|每日/.test(lower)
+          ? language === 'CN'
+            ? '每日'
+            : 'Daily'
+          : '';
+
+  return { time, frequency, note: joined };
+}
+
+function getProductsEmptyMessage(hasCandidates: boolean, language: Language): string | null {
+  if (!hasCandidates) {
+    return language === 'CN'
+      ? '暂无匹配度足够高的商品推荐。'
+      : 'No strong product matches available at this time.';
+  }
+
+  return language === 'CN'
+    ? '当前仅保留了更相关的护肤候选，暂未形成可展示商品。'
+    : 'Only skincare-relevant candidates were kept, but none were strong enough to display.';
+}
+
+function toSyntheticProduct(
+  row: ProductLike,
+  bucket: Exclude<ProductBucket, 'external_search_ctas'>,
+  guidanceText: string,
+  language: Language,
+): SyntheticPlanProduct {
+  const title = asString(row.title || row.name) || (language === 'CN' ? '推荐商品' : 'Recommended product');
+  const refTarget = readRefTarget(row.product_ref) || readRefTarget(row.canonical_product_ref);
+  const productId =
+    asString(row.product_id) ||
+    refTarget?.product_id ||
+    extractPdpTargetFromProductGroupId(asString(row.product_group_id) || asString(row.subject_product_group_id))?.product_id ||
+    toStableId('product', title);
+  const merchantId = asString(row.merchant_id) || refTarget?.merchant_id || '';
+  const rating = asNumber(row.social_proof?.rating ?? row.rating_value);
+  const reviewCount = asNumber(row.social_proof?.review_count ?? row.rating_count);
+  const benefitTags = toStringList(row.benefit_tags, 4);
+  const tags = bucket === 'dupes'
+    ? [language === 'CN' ? '辅助选项' : 'Support option', ...benefitTags]
+    : benefitTags;
+
+  return {
+    product_id: productId,
+    merchant_id: merchantId,
+    product_group_id: asString(row.product_group_id),
+    canonical_product_ref: refTarget
+      ? {
+          product_id: refTarget.product_id,
+          merchant_id: refTarget.merchant_id || '',
+        }
+      : null,
+    title,
+    brand: asString(row.brand),
+    image_url: asString(row.image_url || row.thumb_url),
+    benefit_tags: tags.slice(0, 4),
+    price: asNumber(row.price),
+    currency: asString(row.currency || 'USD').toUpperCase(),
+    price_label: asString(row.price_label),
+    social_proof:
+      rating != null || reviewCount != null
+        ? {
+            rating,
+            review_count: reviewCount,
+            summary: asString(row.social_proof?.summary),
+          }
+        : null,
+    evidence: null,
+    why_match: asString(row.why_match),
+    how_to_use: asString(row.how_to_use) || guidanceText,
+    cautions: toStringList(row.cautions, 3),
+    product_url: productOpenUrl(row),
+    retrieval_source: asString(row.source),
+    retrieval_reason: bucket,
+    suitability_score: bucket === 'competitors' ? 0.85 : 0.45,
+    category: productText(row),
+    __planBucket: bucket,
   };
-  onOpenProduct: (row: ProductLike, source: ProductBucket) => void;
-}) {
-  const name = asString(row.title || row.name) || 'product';
-  const brand = asString(row.brand);
-  const source = asString(row.source);
-  const whyMatch = asString(row.why_match);
-  const price = asNumber(row.price);
-  const currency = asString(row.currency) || 'USD';
-  const priceText = renderPrice(price, currency);
-  const url = productOpenUrl(row);
-  const badge =
-    bucket === 'competitors'
-      ? labels.primaryBadge
-      : bucket === 'dupes'
-        ? labels.alternativeBadge
-        : labels.searchBadge;
-  const metaLine = [brand, source].filter(Boolean).join(' · ');
-  const actionLabel = bucket === 'external_search_ctas' ? labels.openSearch : labels.openProduct;
+}
 
-  return (
-    <div className="rounded-2xl border border-border/60 bg-background/90 p-3 shadow-[0_1px_0_rgba(0,0,0,0.02)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-foreground">{name}</div>
-          {metaLine ? <div className="mt-0.5 text-xs text-muted-foreground">{metaLine}</div> : null}
-        </div>
-        <div className="shrink-0 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
-          {badge}
-        </div>
-      </div>
+function buildSyntheticAction(target: IngredientTargetLike): PhotoModulesAction {
+  const ingredientName =
+    asString(target.ingredient_name) ||
+    asString(target.ingredient) ||
+    asString(target.display_name) ||
+    'Ingredient';
+  const ingredientId = asString(target.ingredient_id) || toStableId('ingredient', ingredientName);
+  const whyList = toStringList(target.why, 3);
+  const guidanceList = toStringList(target.usage_guidance, 3);
+  const guidanceText = guidanceList.join('; ');
+  const filteredCompetitors = filterAndSortProductRows(asProductRows(target.products?.competitors));
+  const filteredDupes = filterAndSortProductRows(asProductRows(target.products?.dupes));
+  const products = [
+    ...filteredCompetitors.map((row) => toSyntheticProduct(row, 'competitors', guidanceText, 'EN')),
+    ...filteredDupes.map((row) => toSyntheticProduct(row, 'dupes', guidanceText, 'EN')),
+  ];
 
-      {whyMatch ? <div className="mt-2 text-xs leading-5 text-muted-foreground">{whyMatch}</div> : null}
+  return {
+    action_type: 'ingredient',
+    ingredient_id: ingredientId,
+    ingredient_canonical_id: null,
+    ingredient_name: ingredientName,
+    why: whyList[0] || '',
+    how_to_use: {
+      time: 'AM_PM',
+      frequency: 'daily',
+      notes: guidanceText,
+    },
+    cautions: [],
+    action_rank_score: asNumber(target.priority_score_0_100),
+    group: null,
+    evidence_issue_types: [],
+    timeline: '',
+    do_not_mix: [],
+    products,
+    products_empty_reason: null,
+    external_search_ctas: [],
+    rec_debug: null,
+  };
+}
 
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <div className="text-xs text-foreground/80">{priceText || ''}</div>
-        {url ? (
-          <button
-            type="button"
-            className="inline-flex items-center rounded-full border border-foreground/15 bg-foreground px-3 py-1 text-xs font-medium text-background transition hover:opacity-90"
-            aria-label={`${actionLabel}: ${name}`}
-            onClick={() => onOpenProduct(row, bucket)}
-          >
-            {actionLabel}
-          </button>
-        ) : (
-          <div className="text-xs text-muted-foreground">{labels.linkUnavailable}</div>
-        )}
-      </div>
-    </div>
-  );
+function buildRecommendationVm(
+  payload: Record<string, unknown>,
+  language: Language,
+  filteredProductsLabel: string,
+): ModuleRecommendationVm {
+  const targets = asTargets(payload.targets);
+
+  return {
+    moduleId: PLAN_MODULE_ID,
+    concernSummary: { primaryConcern: '', secondaryConcerns: [] },
+    actions: targets.map((target, index) => {
+      const ingredientName =
+        asString(target.ingredient_name) ||
+        asString(target.ingredient) ||
+        asString(target.display_name) ||
+        `${language === 'CN' ? '成分' : 'Ingredient'} ${index + 1}`;
+      const ingredientId = asString(target.ingredient_id) || toStableId('ingredient', ingredientName);
+      const score = asNumber(target.priority_score_0_100);
+      const why = toStringList(target.why, 3);
+      const guidance = toStringList(target.usage_guidance, 3);
+      const usage = parseUsageGuidance(guidance, language);
+      const rawCompetitors = asProductRows(target.products?.competitors);
+      const rawDupes = asProductRows(target.products?.dupes);
+      const filteredCompetitors = filterAndSortProductRows(rawCompetitors);
+      const filteredDupes = filterAndSortProductRows(rawDupes);
+      const guidanceText = guidance.join(language === 'CN' ? '；' : '; ');
+      const syntheticProducts = [
+        ...filteredCompetitors.map((row) => toSyntheticProduct(row, 'competitors', guidanceText, language)),
+        ...filteredDupes.map((row) => toSyntheticProduct(row, 'dupes', guidanceText, language)),
+      ];
+      const { top, more } = filterAndRankProducts(syntheticProducts);
+      const filteredCount = rawCompetitors.length + rawDupes.length - syntheticProducts.length;
+      const rawAction = buildSyntheticAction(target);
+
+      return {
+        ingredientId,
+        ingredientName,
+        priority: mapPlanPriority(asString(target.priority_level), score),
+        why: why.join(language === 'CN' ? '；' : '; '),
+        concernChips: [],
+        targetArea: null,
+        usage,
+        cautions: [],
+        evidence: {
+          label: '',
+          level: 'limited' as const,
+        },
+        topProducts: top.map((product) => mapProductCard(product, language)),
+        moreProducts: more.map((product) => mapProductCard(product, language)),
+        productsEmptyMessage: syntheticProducts.length > 0 ? null : getProductsEmptyMessage(rawCompetitors.length + rawDupes.length > 0, language),
+        productsFilteredNote: filteredCount > 0 ? filteredProductsLabel : null,
+        externalSearchCtas: [],
+        rawAction,
+      };
+    }),
+  };
+}
+
+function mapFooterExternalSearchCtas(payload: Record<string, unknown>): PhotoModulesExternalSearchCta[] {
+  return asProductRows(payload.external_search_ctas)
+    .map((row) => {
+      const title = asString(row.title || row.name);
+      const url = productOpenUrl(row);
+      if (!title || !url) return null;
+      return {
+        title,
+        url,
+        source: asString(row.source),
+        reason: asString(row.source_block),
+      };
+    })
+    .filter(Boolean) as PhotoModulesExternalSearchCta[];
 }
 
 export function IngredientPlanCard({
@@ -435,8 +583,6 @@ export function IngredientPlanCard({
 }) {
   const previewOnly = payload.preview_only === true;
   const resolvedVariant = variant || 'v2';
-  const targets = asTargets(payload.targets);
-  const externalSearchCtas = asProductRows(payload.external_search_ctas);
   const intensityObj = asObject(payload.intensity) || {};
   const intensityLevel = normalizeIntensityLevel(asString(intensityObj.level));
   const defaultIntensity = getIntensityCopy(intensityLevel, language);
@@ -451,88 +597,44 @@ export function IngredientPlanCard({
   const labels =
     language === 'CN'
       ? {
-          title: '成分与产品推荐',
           preview: '补全 AM/PM routine 后将解锁个性化产品推荐。',
-          competitors: '推荐商品',
-          dupes: '辅助选项',
-          linkUnavailable: '链接暂不可用',
-          search: '更多探索',
           intensity: '方案强度',
           budget: '预算偏好',
           diversifiedUnknown: '（未知时已做价位分散）',
-          usage: '用法',
           avoidTitle: '需规避/谨慎',
           conflictsTitle: '冲突说明',
-          openProduct: '查看商品',
-          openSearch: '打开搜索',
-          primaryBadge: '最佳匹配',
-          alternativeBadge: '辅助选项',
-          searchBadge: '检索',
           filteredProducts: '已隐藏明显非护肤候选，保留更相关的护肤商品。',
         }
       : {
-          title: 'Ingredient & product recommendations',
           preview: 'Complete AM/PM routine to unlock personalized product picks.',
-          competitors: 'Recommended products',
-          dupes: 'Support options',
-          linkUnavailable: 'Link unavailable',
-          search: 'Explore more',
           intensity: 'Plan strength',
           budget: 'Budget context',
           diversifiedUnknown: '(diversified for unknown budget)',
-          usage: 'How to use',
           avoidTitle: 'Avoid / caution',
           conflictsTitle: 'Conflicts',
-          openProduct: 'Open product',
-          openSearch: 'Open search',
-          primaryBadge: 'Best match',
-          alternativeBadge: 'Support option',
-          searchBadge: 'Search',
           filteredProducts: 'Obvious non-skincare candidates were hidden to keep these picks skincare-relevant.',
         };
 
-  const sections = useMemo(
-    () =>
-      targets.map((target, index) => {
-        const ingredient =
-          asString(target.ingredient_name) ||
-          asString(target.ingredient) ||
-          asString(target.display_name) ||
-          `target_${index + 1}`;
-        const score = asNumber(target.priority_score_0_100);
-        const priorityTone = mapPriorityTone(asString(target.priority_level), score);
-        const why = toStringList(target.why, 3);
-        const guidance = toStringList(target.usage_guidance, 3);
-        const rawCompetitors = asProductRows(target.products?.competitors);
-        const rawDupes = asProductRows(target.products?.dupes);
-        const competitors = filterAndSortProductRows(rawCompetitors);
-        const dupes = filterAndSortProductRows(rawDupes);
-        return {
-          ingredient,
-          priorityTone,
-          why,
-          guidance,
-          competitors,
-          dupes,
-          filteredProducts: rawCompetitors.length + rawDupes.length > competitors.length + dupes.length,
-        };
-      }),
-    [targets],
+  const vm = useMemo(
+    () => buildRecommendationVm(payload, language, labels.filteredProducts),
+    [payload, language, labels.filteredProducts],
   );
 
-  const onOpenProduct = (row: ProductLike, source: ProductBucket) => {
-    const url = productOpenUrl(row);
-    const productId = asString(row.product_id) || null;
-    const isDiscovery = source === 'external_search_ctas';
+  const footerExternalSearchCtas = useMemo(() => mapFooterExternalSearchCtas(payload), [payload]);
 
-    if (analyticsCtx && isDiscovery) {
-      emitDiscoveryLinkOpenAttempt(analyticsCtx, {
-        card_id: cardId ?? null,
-        source_card_type: 'ingredient_plan_v2',
-        source_bucket: source,
-        url: url || null,
-      });
-    } else if (analyticsCtx) {
+  const onOpenProduct = ({
+    product,
+  }: {
+    moduleId: string;
+    action: PhotoModulesAction;
+    product: PhotoModulesProduct;
+    productIndex: number;
+  }) => {
+    const url = asString(product.product_url);
+    const productId = asString(product.product_id) || null;
+    const source = ((product as SyntheticPlanProduct).__planBucket || 'competitors') as ProductBucket;
+
+    if (analyticsCtx) {
       emitIngredientProductOpenAttempt(analyticsCtx, {
         card_id: cardId ?? null,
         product_id: productId,
@@ -544,16 +646,7 @@ export function IngredientPlanCard({
 
     const openResult = openWithAnchorFallback(url);
 
-    if (analyticsCtx && isDiscovery) {
-      emitDiscoveryLinkOpenResult(analyticsCtx, {
-        card_id: cardId ?? null,
-        source_card_type: 'ingredient_plan_v2',
-        source_bucket: source,
-        url: url || null,
-        result: openResult.result,
-        blocked_reason: openResult.blockedReason ?? null,
-      });
-    } else if (analyticsCtx) {
+    if (analyticsCtx) {
       emitIngredientProductOpenResult(analyticsCtx, {
         card_id: cardId ?? null,
         product_id: productId,
@@ -566,10 +659,39 @@ export function IngredientPlanCard({
     }
   };
 
+  const onOpenExternalSearch = ({
+    cta,
+  }: {
+    moduleId: string;
+    action: PhotoModulesAction | null;
+    cta: { title: string; url: string };
+    ctaIndex: number;
+  }) => {
+    if (analyticsCtx) {
+      emitDiscoveryLinkOpenAttempt(analyticsCtx, {
+        card_id: cardId ?? null,
+        source_card_type: 'ingredient_plan_v2',
+        source_bucket: 'external_search_ctas',
+        url: cta.url || null,
+      });
+    }
+
+    const openResult = openWithAnchorFallback(cta.url);
+
+    if (analyticsCtx) {
+      emitDiscoveryLinkOpenResult(analyticsCtx, {
+        card_id: cardId ?? null,
+        source_card_type: 'ingredient_plan_v2',
+        source_bucket: 'external_search_ctas',
+        url: cta.url || null,
+        result: openResult.result,
+        blocked_reason: openResult.blockedReason ?? null,
+      });
+    }
+  };
+
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3" data-testid="ingredient-plan-v2-card">
-      <div className="text-sm font-semibold text-foreground">{labels.title}</div>
-
       {resolvedVariant === 'v2' && (intensityLabel || intensityExplanation || effectiveTier) ? (
         <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
           <div className="text-xs font-semibold text-foreground">
@@ -589,85 +711,15 @@ export function IngredientPlanCard({
         <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">{labels.preview}</div>
       ) : null}
 
-      {sections.map((section) => {
-        const hasProducts = section.competitors.length > 0 || section.dupes.length > 0;
-        return (
-          <div key={section.ingredient} className="space-y-3 rounded-2xl border border-border/60 bg-background/85 p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-base font-semibold text-foreground">{section.ingredient}</div>
-                {section.why.length ? (
-                  <div className="mt-1 text-xs leading-5 text-foreground/80">{section.why[0]}</div>
-                ) : null}
-              </div>
-              <div className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${priorityToneClassName(section.priorityTone)}`}>
-                {priorityToneLabel(section.priorityTone, language)}
-              </div>
-            </div>
-
-            {section.why.length > 1 ? (
-              <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
-                {section.why.slice(1).map((item) => (
-                  <li key={`${section.ingredient}_${item}`}>{item}</li>
-                ))}
-              </ul>
-            ) : null}
-
-            {section.guidance.length ? (
-              <div className="rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">{language === 'CN' ? `${labels.usage}：` : `${labels.usage}: `}</span>
-                {section.guidance.join(language === 'CN' ? '；' : '; ')}
-              </div>
-            ) : null}
-
-            {hasProducts ? (
-              <div className="space-y-3">
-                {section.competitors.length ? (
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium text-muted-foreground">{labels.competitors}</div>
-                    <div className="grid grid-cols-1 gap-2">
-                      {section.competitors.slice(0, 3).map((row, index) => (
-                        <ProductCard
-                          key={`${section.ingredient}_competitor_${index}`}
-                          row={row}
-                          bucket="competitors"
-                          language={language}
-                          labels={labels}
-                          onOpenProduct={onOpenProduct}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {section.dupes.length ? (
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium text-muted-foreground">{labels.dupes}</div>
-                    <div className="grid grid-cols-1 gap-2">
-                      {section.dupes.slice(0, 2).map((row, index) => (
-                        <ProductCard
-                          key={`${section.ingredient}_dupe_${index}`}
-                          row={row}
-                          bucket="dupes"
-                          language={language}
-                          labels={labels}
-                          onOpenProduct={onOpenProduct}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {section.filteredProducts ? (
-              <div className="rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-[11px] text-muted-foreground">
-                {labels.filteredProducts}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+      <RecommendationSection
+        vm={vm}
+        language={language}
+        showConcernSummary={false}
+        alwaysShowExternalSearchCtas
+        footerExternalSearchCtas={footerExternalSearchCtas}
+        onOpenProduct={onOpenProduct}
+        onOpenExternalSearch={onOpenExternalSearch}
+      />
 
       {avoid.length ? (
         <div className="space-y-2">
@@ -695,24 +747,6 @@ export function IngredientPlanCard({
               <li key={`conflict_${idx}`}>{asString(item.description) || asString(item.message)}</li>
             ))}
           </ul>
-        </div>
-      ) : null}
-
-      {externalSearchCtas.length ? (
-        <div className="space-y-2 rounded-xl border border-border/60 bg-background/85 p-3">
-          <div className="text-xs font-medium text-muted-foreground">{labels.search}</div>
-          <div className="grid grid-cols-1 gap-2">
-            {externalSearchCtas.slice(0, 6).map((row, index) => (
-              <ProductCard
-                key={`external_search_${index}`}
-                row={row}
-                bucket="external_search_ctas"
-                language={language}
-                labels={labels}
-                onOpenProduct={onOpenProduct}
-              />
-            ))}
-          </div>
         </div>
       ) : null}
     </div>
