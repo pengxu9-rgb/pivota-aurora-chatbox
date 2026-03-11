@@ -1376,6 +1376,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
+const TRAVEL_PRODUCT_LOOKUP_TIMEOUT_MS = 10000;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 30000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
@@ -1469,6 +1470,42 @@ function extractProductsFromSearchResponse(input: unknown): Array<Record<string,
   ) as unknown[];
 
   return rows.map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+}
+
+function extractProductSearchReply(input: unknown): string | null {
+  const root = asObject(input) || {};
+  const candidates = [
+    (root as any).reply,
+    (root as any).message,
+    (root as any).data?.reply,
+    (root as any).data?.message,
+    (root as any).result?.reply,
+    (root as any).result?.message,
+  ];
+  for (const value of candidates) {
+    const text = asString(value);
+    if (text && text.trim()) return text.trim();
+  }
+  return null;
+}
+
+function extractProductSearchClarification(input: unknown): { question: string; options: string[] } | null {
+  const root = asObject(input) || {};
+  const clarification =
+    asObject((root as any).clarification) ||
+    asObject((root as any).data?.clarification) ||
+    asObject((root as any).result?.clarification);
+  if (!clarification) return null;
+  const question = asString((clarification as any).question) || asString((clarification as any).prompt);
+  const options = asArray((clarification as any).options)
+    .map((value) => asString(value))
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .slice(0, 4);
+  if (!question?.trim() && options.length === 0) return null;
+  return {
+    question: question?.trim() || '',
+    options,
+  };
 }
 
 function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Offer[] {
@@ -4036,6 +4073,8 @@ function BffCardView({
     loading: boolean;
     error: string | null;
     results: Product[];
+    reply: string | null;
+    clarification: { question: string; options: string[] } | null;
   } | null>(null);
 
   const submitRecoFeedback = useCallback(
@@ -4124,6 +4163,8 @@ function BffCardView({
         loading: true,
         error: null,
         results: [],
+        reply: null,
+        clarification: null,
       });
 
       try {
@@ -4136,6 +4177,8 @@ function BffCardView({
         const results = extractProductsFromSearchResponse(resp)
           .map((row) => toUiProduct(asObject((row as any).product) || row, language))
           .slice(0, 8);
+        const reply = extractProductSearchReply(resp);
+        const clarification = extractProductSearchClarification(resp);
         setTravelLookupState({
           categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
           query,
@@ -4143,16 +4186,27 @@ function BffCardView({
           loading: false,
           error: null,
           results,
+          reply,
+          clarification,
         });
       } catch (err) {
         if (travelLookupRequestRef.current !== requestId) return;
+        const isAbort =
+          (err instanceof DOMException && err.name === 'AbortError') ||
+          /abort/i.test(err instanceof Error ? err.message : String(err));
         setTravelLookupState({
           categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
           query,
           ingredientHints: asString(lookup.ingredientHints) || null,
           loading: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: isAbort
+            ? (language === 'CN'
+              ? '搜索超时，请重试。'
+              : 'Search timed out. Please retry.')
+            : (err instanceof Error ? err.message : String(err)),
           results: [],
+          reply: null,
+          clarification: null,
         });
       }
     },
@@ -4175,7 +4229,7 @@ function BffCardView({
         <div className="mt-3 text-sm text-muted-foreground">{language === 'CN' ? '正在查找…' : 'Searching…'}</div>
       ) : travelLookupState.error ? (
         <div className="mt-3 text-sm text-destructive">
-          {language === 'CN' ? '查找失败，请稍后重试。' : 'Lookup failed. Please retry shortly.'}
+          {travelLookupState.error}
         </div>
       ) : travelLookupState.results.length ? (
         <div className="mt-3 space-y-2">
@@ -4188,6 +4242,29 @@ function BffCardView({
               </div>
             </div>
           ))}
+        </div>
+      ) : travelLookupState.clarification || travelLookupState.reply ? (
+        <div className="mt-3 space-y-2 rounded-xl border border-border/50 bg-muted/20 p-2.5 text-sm text-muted-foreground">
+          {travelLookupState.clarification?.question ? (
+            <div className="font-medium text-foreground">
+              {travelLookupState.clarification.question}
+            </div>
+          ) : null}
+          {travelLookupState.reply ? (
+            <div>{travelLookupState.reply}</div>
+          ) : null}
+          {travelLookupState.clarification?.options?.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {travelLookupState.clarification.options.map((option) => (
+                <span
+                  key={option}
+                  className="rounded-full border border-border/60 bg-background/60 px-2 py-1 text-[11px] text-foreground/80"
+                >
+                  {option}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mt-3 text-sm text-muted-foreground">
@@ -10750,6 +10827,9 @@ export default function BffChat() {
     if (searchParams.open === 'checkin') {
       setCheckinSheetOpen(true);
     }
+    if (searchParams.open === 'profile') {
+      setProfileSheetOpen(true);
+    }
     if (searchParams.open === 'auth') {
       setAuthError(null);
       setAuthNotice(null);
@@ -10975,7 +11055,7 @@ export default function BffChat() {
           ? `${brand} ${q}`.trim()
           : q;
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), VIEW_DETAILS_REQUEST_TIMEOUT_MS);
+      const timer = window.setTimeout(() => controller.abort(), TRAVEL_PRODUCT_LOOKUP_TIMEOUT_MS);
       const params = new URLSearchParams({
         query: queryWithHint,
         limit: String(requestedLimit),
