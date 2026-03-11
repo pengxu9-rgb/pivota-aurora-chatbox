@@ -65,9 +65,10 @@ describe('ingredient_plan_v2 rich product UI', () => {
 
     expect(screen.getByText('Niacinamide Serum')).toBeInTheDocument();
     expect(screen.getByText('Brand A · amazon')).toBeInTheDocument();
-    expect(screen.getByText('https://example.com/pdp')).toBeInTheDocument();
+    expect(screen.getByText('Intensity: Balanced')).toBeInTheDocument();
+    expect(screen.queryByText('https://example.com/pdp')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('https://example.com/pdp'));
+    fireEvent.click(screen.getByRole('button', { name: /open product: niacinamide serum/i }));
     expect(openSpy).toHaveBeenCalledWith('https://example.com/pdp', '_blank', 'noopener,noreferrer');
 
     openSpy.mockRestore();
@@ -105,8 +106,9 @@ describe('ingredient_plan_v2 rich product UI', () => {
       />,
     );
 
-    expect(screen.queryByText('No structured product yet, open Google results')).not.toBeInTheDocument();
-    expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/^-$/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Primary picks')).not.toBeInTheDocument();
+    expect(screen.queryByText('Alternatives')).not.toBeInTheDocument();
     expect(openSpy).not.toHaveBeenCalled();
 
     openSpy.mockRestore();

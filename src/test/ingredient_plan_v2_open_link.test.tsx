@@ -49,7 +49,7 @@ describe('ingredient_plan_v2 open link behavior', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('https://example.com/pdp/spf-fluid'));
+    fireEvent.click(screen.getByRole('button', { name: /open product: spf fluid/i }));
 
     expect(window.open).toHaveBeenCalled();
     expect(analytics.emit).toHaveBeenCalledWith(
@@ -122,10 +122,7 @@ describe('ingredient_plan_v2 open link behavior', () => {
       />,
     );
 
-    const derivedLink = screen.getByText(
-      'https://agent.pivota.cc/products/prod_ref_3?merchant_id=merch_ref_3&entry=aurora_chatbox',
-    );
-    fireEvent.click(derivedLink);
+    fireEvent.click(screen.getByRole('button', { name: /open product: ref-only spf/i }));
     expect(window.open).toHaveBeenCalled();
     expect(analytics.emit).toHaveBeenCalledWith(
       'ingredient_product_open_attempt',

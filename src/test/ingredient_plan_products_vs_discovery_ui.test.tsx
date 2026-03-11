@@ -38,8 +38,8 @@ describe('ingredient plan products vs discovery UI', () => {
 
     expect(screen.getByText('Primary picks')).toBeInTheDocument();
     expect(screen.getByText('External search')).toBeInTheDocument();
-    expect(screen.getByText('https://example.com/pdp/daily-uv-fluid')).toBeInTheDocument();
-    expect(screen.getByText('https://example.com/discovery/uv-options')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open product: daily uv fluid spf50/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open search: compare external uv options/i })).toBeInTheDocument();
+    expect(screen.queryByText('https://example.com/pdp/daily-uv-fluid')).not.toBeInTheDocument();
   });
 });
-

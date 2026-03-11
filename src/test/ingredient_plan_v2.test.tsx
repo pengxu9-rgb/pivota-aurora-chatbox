@@ -84,7 +84,7 @@ describe('ingredient_plan_v2 card', () => {
     );
 
     expect(screen.getByText('Target ingredients + products')).toBeInTheDocument();
-    expect(screen.queryByText('Intensity: Gentle')).not.toBeInTheDocument();
+    expect(screen.getByText('Intensity: Gentle')).toBeInTheDocument();
     expect(screen.queryByText(/P\d+/)).not.toBeInTheDocument();
 
     expect(screen.getByText('Competitor Serum A')).toBeInTheDocument();

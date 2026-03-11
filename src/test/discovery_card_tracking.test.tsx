@@ -41,7 +41,7 @@ describe('ingredient plan discovery card tracking', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('https://example.com/search?q=uv+filters'));
+    fireEvent.click(screen.getByRole('button', { name: /open search: search uv filters/i }));
 
     expect(analytics.emit).toHaveBeenCalledWith(
       'discovery_link_open_attempt',
@@ -62,4 +62,3 @@ describe('ingredient plan discovery card tracking', () => {
     );
   });
 });
-
