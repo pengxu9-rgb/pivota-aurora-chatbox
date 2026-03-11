@@ -3731,7 +3731,7 @@ export function RecommendationsCard({
           type,
           external: isExternalItem,
           disabled: !canOpenPdp && !canOpenSecondaryAction,
-          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '查看更多对比' : 'More comparison candidates') : null,
+          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '对比' : 'Alts') : null,
           summary,
           slot,
           position: idx + 1,
