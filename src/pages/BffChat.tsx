@@ -83,7 +83,7 @@ import {
   emitMemoryWritten,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
-import { buildChatSession } from '@/lib/chatSession';
+import { buildChatSession, type ChatSessionAnalysisContext } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
@@ -8881,6 +8881,17 @@ export default function BffChat() {
     ],
   );
 
+  const getSanitizedAnalysisPhotos = useCallback(() => {
+    return analysisPhotoRefs
+      .map((p) => ({
+        slot_id: String(p?.slot_id || '').trim(),
+        photo_id: String(p?.photo_id || '').trim(),
+        qc_status: normalizePhotoQcStatus(p?.qc_status),
+      }))
+      .filter((p) => p.slot_id && p.photo_id)
+      .slice(0, 4);
+  }, [analysisPhotoRefs]);
+
   const sendChat = useCallback(
     async (
       message?: string,
@@ -8888,6 +8899,7 @@ export default function BffChat() {
       opts?: {
         client_state?: AgentState;
         requested_transition?: RequestedTransition | null;
+        analysisContext?: ChatSessionAnalysisContext | null;
       },
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
@@ -8907,6 +8919,7 @@ export default function BffChat() {
           bootstrapProfile: bootstrapInfo?.profile ?? null,
           sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
           sessionMeta,
+          analysisContext: opts?.analysisContext ?? null,
         });
         const priorMessages = buildChatRequestMessages(itemsRef.current);
         const body: Record<string, unknown> = {
@@ -8921,6 +8934,16 @@ export default function BffChat() {
           ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
           ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
         };
+        const outgoingAction =
+          action && typeof action === 'object' && !Array.isArray(action)
+            ? action
+            : null;
+        if (debug && outgoingAction?.action_id === 'chip.aurora.next_action.deep_dive_skin') {
+          console.debug('[DeepDiveSkin] outbound payload', {
+            action: outgoingAction,
+            session_meta: session.meta ?? null,
+          });
+        }
 
         let parsedStreamResponse: ChatResponseV1 | null = null;
         let parsedStreamV2: { cards: Array<Record<string, unknown>>; ops: Record<string, unknown>; next_actions: unknown[] } | null = null;
@@ -9686,6 +9709,41 @@ export default function BffChat() {
         return;
       }
 
+      if (actionId === 'chip.aurora.next_action.deep_dive_skin') {
+        const replyText =
+          asString(data?.reply_text) ||
+          (language === 'CN' ? '深入了解我的皮肤状态' : 'Tell me more about my skin');
+        const photoRefs = getSanitizedAnalysisPhotos();
+        const analysisContext: ChatSessionAnalysisContext = {
+          analysis_origin: photoRefs.length > 0 ? 'photo' : 'profile',
+          use_photo: photoRefs.length > 0,
+          ...(photoRefs.length > 0 ? { photo_refs: photoRefs } : {}),
+          source_card_type: 'analysis_story_v2',
+        };
+        const actionData: Record<string, unknown> = {
+          ...(data && typeof data === 'object' ? data : {}),
+          analysis_origin: analysisContext.analysis_origin,
+          use_photo: analysisContext.use_photo === true,
+          ...(Array.isArray(analysisContext.photo_refs) ? { photo_refs: analysisContext.photo_refs } : {}),
+          source_card_type: 'analysis_story_v2',
+          reply_text: replyText,
+        };
+        setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: replyText }]);
+        await sendChat(
+          undefined,
+          {
+            action_id: actionId,
+            kind: 'chip',
+            data: actionData,
+          },
+          {
+            client_state: agentState,
+            analysisContext,
+          },
+        );
+        return;
+      }
+
       const msg =
         actionId === 'analysis_continue'
           ? null
@@ -9806,7 +9864,18 @@ export default function BffChat() {
 
       await sendChat(undefined, { action_id: actionId, kind: 'action', data });
     },
-    [agentState, anchorProductId, anchorProductUrl, applyEnvelope, headers, language, sendChat, setAgentStateSafe, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyEnvelope,
+      getSanitizedAnalysisPhotos,
+      headers,
+      language,
+      sendChat,
+      setAgentStateSafe,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
 
   const onProductPicksPrimary = useCallback(async () => {
@@ -9870,17 +9939,6 @@ export default function BffChat() {
       },
     );
   }, [agentState, headers, isLoading, language, sendChat, setAgentStateSafe]);
-
-  const getSanitizedAnalysisPhotos = useCallback(() => {
-    return analysisPhotoRefs
-      .map((p) => ({
-        slot_id: String(p?.slot_id || '').trim(),
-        photo_id: String(p?.photo_id || '').trim(),
-        qc_status: normalizePhotoQcStatus(p?.qc_status),
-      }))
-      .filter((p) => p.slot_id && p.photo_id)
-      .slice(0, 4);
-  }, [analysisPhotoRefs]);
 
   const runLowConfidenceSkinAnalysis = useCallback(async (opts?: { fromRoutineForm?: boolean }) => {
     const fromRoutineForm = opts?.fromRoutineForm === true;

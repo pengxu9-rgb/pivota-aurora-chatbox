@@ -27,6 +27,35 @@ describe('chatSession', () => {
     expect(session).toEqual({ state: 'idle' });
   });
 
+  it('adds analysis_context into session meta without dropping existing meta fields', () => {
+    const session = buildChatSession({
+      state: 'idle',
+      profileSnapshot: { skinType: 'oily' },
+      bootstrapProfile: null,
+      sessionMeta: { source: 'chat' },
+      analysisContext: {
+        analysis_origin: 'photo',
+        use_photo: true,
+        photo_refs: [{ slot_id: 'daylight', photo_id: 'photo_1', qc_status: 'passed' }],
+        source_card_type: 'analysis_story_v2',
+      },
+    });
+
+    expect(session).toEqual({
+      state: 'idle',
+      profile: { skinType: 'oily' },
+      meta: {
+        source: 'chat',
+        analysis_context: {
+          analysis_origin: 'photo',
+          use_photo: true,
+          photo_refs: [{ slot_id: 'daylight', photo_id: 'photo_1', qc_status: 'passed' }],
+          source_card_type: 'analysis_story_v2',
+        },
+      },
+    });
+  });
+
   it('merges nested travel_plan fields into existing session profile', () => {
     const merged = mergeSessionProfiles(
       { skinType: 'oily', travel_plan: { destination: 'Athens', start_date: '2026-03-12' } },

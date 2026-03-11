@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -62,6 +62,59 @@ function makeV1Response(args?: Partial<ChatResponseV1>): ChatResponseV1 {
       intent_confidence: 0.4,
       entities: [],
     },
+  };
+}
+
+function installPhotoUploadPrimitives() {
+  const originalFaceDetector = (window as any).FaceDetector;
+  const originalImage = (globalThis as any).Image;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+
+  class MockFaceDetector {
+    detect(): Promise<Array<{ boundingBox: { x: number; y: number; width: number; height: number } }>> {
+      return Promise.resolve([
+        {
+          boundingBox: {
+            x: 180,
+            y: 180,
+            width: 720,
+            height: 720,
+          },
+        },
+      ]);
+    }
+  }
+
+  class MockImage {
+    onload: ((this: GlobalEventHandlers, ev: Event) => any) | null = null;
+    onerror: ((this: GlobalEventHandlers, ev: Event | string) => any) | null = null;
+    naturalWidth = 1200;
+    naturalHeight = 1200;
+    width = 1200;
+    height = 1200;
+
+    set src(_value: string) {
+      setTimeout(() => {
+        if (this.onload) this.onload(new Event('load'));
+      }, 0);
+    }
+  }
+
+  (window as any).FaceDetector = MockFaceDetector;
+  (globalThis as any).Image = MockImage;
+  URL.createObjectURL = vi.fn(() => 'blob:bffchat-photo-contract');
+  URL.revokeObjectURL = vi.fn();
+
+  return () => {
+    if (originalFaceDetector === undefined) delete (window as any).FaceDetector;
+    else (window as any).FaceDetector = originalFaceDetector;
+
+    if (originalImage === undefined) delete (globalThis as any).Image;
+    else (globalThis as any).Image = originalImage;
+
+    if (originalCreateObjectURL) URL.createObjectURL = originalCreateObjectURL;
+    if (originalRevokeObjectURL) URL.revokeObjectURL = originalRevokeObjectURL;
   };
 }
 
@@ -1260,9 +1313,133 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     await waitFor(() => {
       const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
       expect(chatCalls).toHaveLength(2);
-      const lastRawBody = String((chatCalls[1]?.[2] as any)?.body || '');
-      expect(lastRawBody).toContain('chip.aurora.next_action.deep_dive_skin');
+      const lastBody = JSON.parse(String((chatCalls[1]?.[2] as any)?.body || '{}'));
+      expect(lastBody.action.action_id).toBe('chip.aurora.next_action.deep_dive_skin');
+      expect(lastBody.action.kind).toBe('chip');
+      expect(lastBody.action.data).toMatchObject({
+        analysis_origin: 'profile',
+        use_photo: false,
+        source_card_type: 'analysis_story_v2',
+      });
+      expect(lastBody.action.data.photo_refs).toBeUndefined();
+      expect(lastBody.session.meta.analysis_context).toMatchObject({
+        analysis_origin: 'profile',
+        use_photo: false,
+        source_card_type: 'analysis_story_v2',
+      });
     });
+  });
+
+  it('keeps photo refs in the deep-dive follow-up after photo analysis', async () => {
+    const restorePhotoPrimitives = installPhotoUploadPrimitives();
+    const mock = vi.mocked(bffJson);
+    let chatTurns = 0;
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope());
+      }
+      if (path === '/v1/photos/upload') {
+        return Promise.resolve(
+          makeEnvelope({
+            cards: [
+              {
+                card_id: 'photo_confirm_daylight',
+                type: 'photo_confirm',
+                payload: {
+                  slot_id: 'daylight',
+                  photo_id: 'photo_daylight_1',
+                  qc_status: 'passed',
+                },
+              } as any,
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/analysis/skin') {
+        return Promise.resolve(
+          makeEnvelope({
+            assistant_message: { role: 'assistant', content: 'Photo analysis ready.' },
+            cards: [
+              {
+                card_id: 'analysis_story_photo',
+                type: 'analysis_story_v2',
+                payload: {
+                  confidence_overall: { level: 'medium', score: 0.72 },
+                  skin_profile: { current_strengths: ['balanced oil control'] },
+                },
+              } as any,
+            ],
+            session_patch: {
+              next_state: 'S5_ANALYSIS_RESULT',
+            },
+          }),
+        );
+      }
+      if (path === '/v1/chat') {
+        chatTurns += 1;
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: chatTurns === 1 ? 'Photo deep dive follow-up received.' : 'unexpected extra call',
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.94, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    try {
+      render(
+        <MemoryRouter initialEntries={['/chat?open=photo']}>
+          <ShopProvider>
+            <BffChat />
+          </ShopProvider>
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => {
+        expect(document.querySelectorAll('input[type="file"]').length).toBeGreaterThan(0);
+      });
+      const fileInputs = Array.from(document.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
+      fireEvent.change(fileInputs[0], {
+        target: { files: [new File(['face'], 'face.jpg', { type: 'image/jpeg' })] },
+      });
+
+      await screen.findByText('Frame good');
+      fireEvent.click(screen.getByRole('checkbox'));
+      const skipButton = screen.getByRole('button', { name: 'Skip photos' });
+      const footerRow = skipButton.parentElement;
+      expect(footerRow).toBeTruthy();
+      fireEvent.click(within(footerRow as HTMLElement).getByRole('button', { name: 'Upload photo' }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Dive deeper into skin' }));
+      await screen.findByText('Photo deep dive follow-up received.');
+
+      await waitFor(() => {
+        const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+        expect(chatCalls).toHaveLength(1);
+        const body = JSON.parse(String((chatCalls[0]?.[2] as any)?.body || '{}'));
+        expect(body.action.action_id).toBe('chip.aurora.next_action.deep_dive_skin');
+        expect(body.action.kind).toBe('chip');
+        expect(body.action.data).toMatchObject({
+          analysis_origin: 'photo',
+          use_photo: true,
+          source_card_type: 'analysis_story_v2',
+          photo_refs: [{ slot_id: 'daylight', photo_id: 'photo_daylight_1', qc_status: 'passed' }],
+        });
+        expect(body.session.meta.analysis_context).toMatchObject({
+          analysis_origin: 'photo',
+          use_photo: true,
+          source_card_type: 'analysis_story_v2',
+          photo_refs: [{ slot_id: 'daylight', photo_id: 'photo_daylight_1', qc_status: 'passed' }],
+        });
+        expect(JSON.stringify(body)).not.toContain('blob:bffchat-photo-contract');
+        expect(JSON.stringify(body)).not.toContain('"preview"');
+        expect(JSON.stringify(body)).not.toContain('"file"');
+      });
+    } finally {
+      restorePhotoPrimitives();
+    }
   });
 
   it('maps analysis_story_v2 ingredient-plan CTA to a follow-up chat action', async () => {

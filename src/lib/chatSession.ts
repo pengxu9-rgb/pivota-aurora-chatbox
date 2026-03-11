@@ -1,4 +1,15 @@
 export type SessionProfile = Record<string, unknown>;
+export type ChatSessionAnalysisPhotoRef = {
+  slot_id: string;
+  photo_id: string;
+  qc_status: string;
+};
+export type ChatSessionAnalysisContext = {
+  analysis_origin?: 'photo' | 'profile';
+  use_photo?: boolean;
+  photo_refs?: ChatSessionAnalysisPhotoRef[];
+  source_card_type?: string;
+};
 
 function isPlainObject(value: unknown): value is SessionProfile {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -45,12 +56,14 @@ export function buildChatSession({
   bootstrapProfile,
   sessionProfilePatch,
   sessionMeta,
+  analysisContext,
 }: {
   state: string;
   profileSnapshot?: SessionProfile | null;
   bootstrapProfile?: SessionProfile | null;
   sessionProfilePatch?: SessionProfile | null;
   sessionMeta?: Record<string, unknown> | null;
+  analysisContext?: ChatSessionAnalysisContext | null;
 }): Record<string, unknown> {
   const session: Record<string, unknown> = { state };
   const profile = mergeSessionProfiles(
@@ -58,8 +71,15 @@ export function buildChatSession({
     sessionProfilePatch,
   );
   if (profile) session.profile = profile;
-  if (sessionMeta && typeof sessionMeta === 'object' && !Array.isArray(sessionMeta)) {
-    session.meta = sessionMeta;
+  const meta =
+    sessionMeta && typeof sessionMeta === 'object' && !Array.isArray(sessionMeta)
+      ? { ...sessionMeta }
+      : {};
+  if (analysisContext && typeof analysisContext === 'object' && !Array.isArray(analysisContext)) {
+    meta.analysis_context = analysisContext;
+  }
+  if (Object.keys(meta).length > 0) {
+    session.meta = meta;
   }
   return session;
 }
