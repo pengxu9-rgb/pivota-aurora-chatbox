@@ -182,9 +182,19 @@ function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
 
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
+  display?: ProductAlternativeDisplayCandidate | null;
   block: RecoBlockType;
   rank: number;
   intent: 'replace' | 'pair';
+};
+
+type ProductAlternativeDisplayCandidate = {
+  brand: string | null;
+  name: string;
+  why: string | null;
+  tradeoff: string | null;
+  bestUse: string | null;
+  raw: Record<string, unknown>;
 };
 
 type ProductAlternativeTrack = {
@@ -194,6 +204,64 @@ type ProductAlternativeTrack = {
   items: ProductAlternativeTrackItem[];
   filteredCount: number;
 };
+
+function buildAlternativeTradeoffSummary(candidate: Record<string, unknown>): string | null {
+  const tradeoffs = asObject((candidate as any).tradeoffs) || asObject((candidate as any).tradeoff) || null;
+  const priceDeltaUsd = asNumber((tradeoffs as any)?.price_delta_usd ?? (tradeoffs as any)?.priceDeltaUsd);
+  const priceDeltaSummary = typeof priceDeltaUsd === 'number'
+    ? `Price delta ${priceDeltaUsd >= 0 ? '+' : ''}$${priceDeltaUsd}`
+    : null;
+  return uniqueStrings([
+    ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
+    ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights).filter((line) => !isLikelyUrl(line)),
+    ...asArray((tradeoffs as any)?.added_benefits).map((x) => asString(x)),
+    ...asArray((tradeoffs as any)?.missing_actives).map((x) => {
+      const token = asString(x);
+      return token ? `Missing ${token}` : '';
+    }),
+    ...asArray((tradeoffs as any)?.texture_finish_differences ?? (tradeoffs as any)?.textureFinishDifferences).map((x) => asString(x)),
+    asString((tradeoffs as any)?.availability_note ?? (tradeoffs as any)?.availabilityNote),
+    priceDeltaSummary,
+  ])[0] || null;
+}
+
+function normalizeAlternativeDisplayCandidate(rawCandidate: Record<string, unknown> | null): ProductAlternativeDisplayCandidate | null {
+  const candidate = rawCandidate && typeof rawCandidate === 'object' && !Array.isArray(rawCandidate) ? rawCandidate : null;
+  if (!candidate) return null;
+  const product = asObject((candidate as any).product) || null;
+  const whyCandidate = asObject((candidate as any).why_candidate || (candidate as any).whyCandidate) || null;
+  const brand = asString((candidate as any).brand) || asString((product as any)?.brand) || null;
+  const name =
+    asString((candidate as any).name) ||
+    asString((candidate as any).display_name) ||
+    asString((candidate as any).displayName) ||
+    asString((product as any)?.name) ||
+    asString((product as any)?.display_name) ||
+    asString((product as any)?.displayName) ||
+    null;
+  if (!name) return null;
+  const why = uniqueStrings([
+    asString((whyCandidate as any)?.summary),
+    ...asArray((whyCandidate as any)?.reasons_user_visible ?? (whyCandidate as any)?.reasonsUserVisible).map((x) => asString(x)),
+    ...asArray((candidate as any).reasons).map((x) => asString(x)),
+  ])[0] || null;
+  const bestUse =
+    asString((candidate as any).best_use) ||
+    asString((candidate as any).bestUse) ||
+    asString((candidate as any).expected_outcome) ||
+    asString((candidate as any).expectedOutcome) ||
+    asString((product as any)?.best_use) ||
+    asString((product as any)?.bestUse) ||
+    null;
+  return {
+    brand,
+    name,
+    why,
+    tradeoff: buildAlternativeTradeoffSummary(candidate),
+    bestUse,
+    raw: candidate,
+  };
+}
 
 export type RoutineDraft = {
   am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
@@ -2490,32 +2558,44 @@ export function RecommendationsCard({
       pairingSource: string[],
       comparisonSource: string[],
     ): ProductAlternativeTrack[] => {
-      const replaceItems: ProductAlternativeTrackItem[] = alternativesSource
+      const replaceItemsWithIndex = alternativesSource
         .map((alt, rank) => {
-          const kind = asString((alt as any).kind).toLowerCase();
+          const display = normalizeAlternativeDisplayCandidate(alt);
+          if (!display) return null;
+          const kind = String(asString((alt as any).kind) || '').toLowerCase();
           const block: RecoBlockType =
             kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
           return {
             candidate: alt,
+            display,
             block,
             rank: rank + 1,
             intent: 'replace',
           };
         })
-        .slice(0, 8);
+        .filter(Boolean) as ProductAlternativeTrackItem[];
+      const replaceItems = replaceItemsWithIndex.slice(0, 8);
 
       const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
-      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
-        candidate: {
-          name: text,
-          display_name: text,
-          why_candidate: { summary: text },
-          tradeoff_notes: [text],
-        },
-        block: 'related_products',
-        rank: rank + 1,
-        intent: 'pair',
-      }));
+      const pairItems: ProductAlternativeTrackItem[] = pairNotes
+        .map((text, rank) => {
+          const candidate = {
+            name: text,
+            display_name: text,
+            why_candidate: { summary: text },
+            tradeoff_notes: [text],
+          };
+          const display = normalizeAlternativeDisplayCandidate(candidate);
+          if (!display) return null;
+          return {
+            candidate,
+            display,
+            block: 'related_products',
+            rank: rank + 1,
+            intent: 'pair',
+          };
+        })
+        .filter(Boolean) as ProductAlternativeTrackItem[];
 
       const tracks: ProductAlternativeTrack[] = [];
       if (replaceItems.length) {
@@ -2524,7 +2604,7 @@ export function RecommendationsCard({
           title: language === 'CN' ? '更多对比候选' : 'More comparison candidates',
           subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
           items: replaceItems,
-          filteredCount: 0,
+          filteredCount: Math.max(0, alternativesSource.length - replaceItemsWithIndex.length),
         });
       }
       if (pairItems.length) {
@@ -2539,6 +2619,45 @@ export function RecommendationsCard({
       return tracks;
     },
     [language],
+  );
+
+  const getRecommendationAlternativeRequest = useCallback(
+    ({
+      item,
+      brand,
+      name,
+      isExternalItem,
+      anchorId,
+      resolveQuery,
+      fallbackQuery,
+    }: {
+      item: RecoItem;
+      brand: string | null;
+      name: string | null;
+      isExternalItem: boolean;
+      anchorId: string | null;
+      resolveQuery: string | null;
+      fallbackQuery: string | null;
+    }) => {
+      const llmSuggestion = asObject((item as any).llm_suggestion || (item as any).llmSuggestion) || null;
+      const searchAliases = uniqueStrings(
+        asArray((llmSuggestion as any)?.search_aliases ?? (llmSuggestion as any)?.searchAliases)
+          .map((value) => asString(value))
+          .filter(Boolean),
+      );
+      const preferredExternalQuery = searchAliases[0] || resolveQuery || fallbackQuery || null;
+      const hasNamedIdentity = Boolean(String(brand || '').trim() && String(name || '').trim());
+      const canLoadAlternatives = Boolean(loadAlternativesForItem) && (
+        isExternalItem
+          ? Boolean(hasNamedIdentity || preferredExternalQuery)
+          : Boolean(anchorId || resolveQuery || fallbackQuery)
+      );
+      return {
+        productInput: isExternalItem ? preferredExternalQuery : (resolveQuery || fallbackQuery || null),
+        canLoadAlternatives,
+      };
+    },
+    [loadAlternativesForItem],
   );
 
   const openRecommendationAlternativesForStep = useCallback(
@@ -2565,6 +2684,16 @@ export function RecommendationsCard({
         const remoteAlternatives = asArray(resp && resp.alternatives)
           .map((row) => asObject(row))
           .filter(Boolean) as Array<Record<string, unknown>>;
+        if (!remoteAlternatives.length) {
+          toast({
+            title: language === 'CN' ? '暂无更多对比候选' : 'No extra comparison candidates yet',
+            description:
+              language === 'CN'
+                ? '当前这条推荐还没有可用的对比候选，稍后可重试。'
+                : 'No usable comparison candidates were found for this recommendation yet. Retry later.',
+          });
+          return;
+        }
         const evidencePack = asObject((step.rawItem as any).evidence_pack) || asObject((step.rawItem as any).evidencePack) || null;
         const pairingRules = asArray(evidencePack?.pairingRules ?? evidencePack?.pairing_rules)
           .map((v) => asString(v))
@@ -2812,7 +2941,15 @@ export function RecommendationsCard({
     const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
     const alternativesBusyKey = anchorId || `q:${(resolveQuery || q || '').slice(0, 180)}`;
     const isLazyAlternativesBusy = lazyAlternativesBusyKey === alternativesBusyKey;
-    const canLoadAlternatives = Boolean(loadAlternativesForItem) && Boolean(anchorId || resolveQuery || q);
+    const { productInput: alternativeProductInput, canLoadAlternatives } = getRecommendationAlternativeRequest({
+      item,
+      brand,
+      name,
+      isExternalItem,
+      anchorId,
+      resolveQuery: resolveQuery || null,
+      fallbackQuery: q || null,
+    });
     const canOpenSheet = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
     const canOpenPdp = Boolean(anchorId);
     const canOpenDetails = canOpenPdp || canOpenSheet;
@@ -2857,7 +2994,7 @@ export function RecommendationsCard({
                   hints: Object.keys(resolverHints).length ? resolverHints : undefined,
                   pdp_open: pdpOpenHint,
                   anchor_product_id: anchorProductIdForAlternatives,
-                  product_input: resolveQuery || q || null,
+                  product_input: alternativeProductInput,
                   details_tracks: detailsTracks,
                   can_load_alternatives: canLoadAlternatives,
                 };
@@ -3553,7 +3690,15 @@ export function RecommendationsCard({
           .filter(Boolean) as string[];
         const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
         const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
-        const canLoadAlternatives = Boolean(loadAlternativesForItem) && Boolean(anchorId || resolveQuery || q);
+        const { productInput: alternativeProductInput, canLoadAlternatives } = getRecommendationAlternativeRequest({
+          item,
+          brand,
+          name,
+          isExternalItem,
+          anchorId,
+          resolveQuery: resolveQuery || null,
+          fallbackQuery: q || null,
+        });
         const canOpenPdp = Boolean(anchorId);
         const canOpenSecondaryAction = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
         const summary = reasons[0] || notes[0] || null;
@@ -3577,7 +3722,7 @@ export function RecommendationsCard({
           hints: Object.keys(resolverHints).length ? resolverHints : undefined,
           pdp_open: pdpOpenHint,
           anchor_product_id: anchorProductIdForAlternatives,
-          product_input: resolveQuery || q || null,
+          product_input: alternativeProductInput,
           details_tracks: detailsTracks,
           can_load_alternatives: canLoadAlternatives,
         };
@@ -11423,29 +11568,15 @@ export default function BffChat() {
                   <div className="text-xs text-muted-foreground">{track.subtitle}</div>
                   <div className="mt-2 space-y-2">
                     {track.items.slice(0, 8).map((entry, idx) => {
-                      const candidate = entry.candidate;
-                      const brand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
-                      const name =
-                        asString(candidate.name) ||
-                        asString((candidate as any).display_name) ||
-                        asString((candidate as any).displayName) ||
-                        (language === 'CN' ? '未知产品' : 'Unknown product');
-                      const why = uniqueStrings([
-                        asString((candidate as any)?.why_candidate?.summary),
-                        ...asArray((candidate as any)?.why_candidate?.reasons_user_visible).map((x) => asString(x)),
-                        ...uniqueStrings((candidate as any).why_candidate || (candidate as any).whyCandidate),
-                      ])[0];
-                      const bestUse = asString((candidate as any).best_use || (candidate as any).bestUse || (candidate as any).expected_outcome || (candidate as any).expectedOutcome);
-                      const tradeoff = uniqueStrings([
-                        ...uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes),
-                        ...uniqueStrings((candidate as any).compare_highlights || (candidate as any).compareHighlights),
-                      ])[0];
+                      const display = entry.display || normalizeAlternativeDisplayCandidate(entry.candidate);
+                      if (!display) return null;
+                      const title = display.brand ? `${idx + 1}. ${display.brand} - ${display.name}` : `${idx + 1}. ${display.name}`;
                       return (
-                        <div key={`${track.key}_${brand}_${name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
-                          <div className="text-sm font-medium text-foreground">{`${idx + 1}. ${brand} - ${name}`}</div>
-                          {why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{why}</div> : null}
-                          {bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{bestUse}</div> : null}
-                          {tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{tradeoff}</div> : null}
+                        <div key={`${track.key}_${display.brand || 'no_brand'}_${display.name}_${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2">
+                          <div className="text-sm font-medium text-foreground">{title}</div>
+                          {display.why ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Why this: </span>{display.why}</div> : null}
+                          {display.bestUse ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Best use: </span>{display.bestUse}</div> : null}
+                          {display.tradeoff ? <div className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">Tradeoff: </span>{display.tradeoff}</div> : null}
                         </div>
                       );
                     })}

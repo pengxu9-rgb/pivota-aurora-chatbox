@@ -23,6 +23,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 import BffChat, { RecommendationsCard } from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
 import { bffJson, fetchRecoAlternatives, fetchRoutineSimulation } from '@/lib/pivotaAgentBff';
+import { toast } from '@/components/ui/use-toast';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
@@ -246,6 +247,131 @@ describe('BffChat V2 recommendations cards', () => {
     expect(screen.getByText(/Why this fits/i)).toBeInTheDocument();
     expect(screen.queryByText(/rules-only/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/unknown\.response/i)).not.toBeInTheDocument();
+  });
+
+  it('renders nested product.brand/name from alternatives responses without unknown placeholders', async () => {
+    const onOpenAlternativesSheet = vi.fn();
+
+    renderRecommendationsCard({
+      card_id: 'card_summary_external_compare',
+      type: 'recommendations',
+      payload: {
+        recommendations: [
+          {
+            slot: 'pm',
+            step: 'mask',
+            brand: 'Laneige',
+            name: 'Water Sleeping Mask',
+            metadata: { match_state: 'llm_seed' },
+            llm_suggestion: {
+              search_aliases: ['Laneige Water Sleeping Mask'],
+            },
+            pdp_open: {
+              path: 'external',
+              external: {
+                query: 'Laneige Water Sleeping Mask',
+              },
+            },
+            reasons: ['Overnight hydration support.'],
+            alternatives: [
+              {
+                product: {
+                  brand: 'Fresh',
+                  name: 'Rose Face Mask',
+                },
+                reasons: ['Hydrating alternative'],
+                tradeoff_notes: ['Lighter clay profile'],
+              },
+              {
+                reasons: ['Missing identity and should be filtered'],
+              },
+            ],
+          },
+        ],
+      },
+    }, {
+      onOpenAlternativesSheet,
+      loadRecommendationCompatibility: vi.fn().mockResolvedValue(null),
+    });
+
+    const compareButton = (await screen.findAllByRole('button', { name: /More comparison candidates/i }))
+      .find((element) => element.tagName === 'BUTTON');
+    expect(compareButton).toBeTruthy();
+    fireEvent.click(compareButton as HTMLElement);
+
+    await waitFor(() => expect(onOpenAlternativesSheet).toHaveBeenCalledTimes(1), { timeout: READY_TIMEOUT_MS });
+    const firstTrack = onOpenAlternativesSheet.mock.calls[0]?.[0]?.[0];
+    const firstCandidate = firstTrack?.items?.[0]?.display;
+    expect(firstCandidate?.brand).toBe('Fresh');
+    expect(firstCandidate?.name).toBe('Rose Face Mask');
+    expect(firstTrack?.items).toHaveLength(1);
+  });
+
+  it('shows toast and skips opening a placeholder sheet when external compare returns empty', async () => {
+    const mock = vi.mocked(bffJson);
+    const alternativesMock = vi.mocked(fetchRecoAlternatives);
+    const simMock = vi.mocked(fetchRoutineSimulation);
+    const toastMock = vi.mocked(toast);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve({
+          cards: [
+            {
+              card_type: 'recommendations',
+              metadata: {
+                recommendation_meta: {
+                  source_mode: 'llm_catalog_hybrid',
+                },
+                recommendations: [
+                  {
+                    slot: 'pm',
+                    step: 'mask',
+                    brand: 'Laneige',
+                    name: 'Water Sleeping Mask',
+                    metadata: { match_state: 'llm_seed' },
+                    llm_suggestion: {
+                      search_aliases: ['Laneige Water Sleeping Mask'],
+                    },
+                    pdp_open: {
+                      path: 'external',
+                      external: {
+                        query: 'Laneige Water Sleeping Mask',
+                      },
+                    },
+                    reasons: ['Overnight hydration support.'],
+                  },
+                ],
+              },
+            },
+          ],
+          ops: {},
+          next_actions: [],
+        });
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+    simMock.mockResolvedValue(null as any);
+    alternativesMock.mockResolvedValue({ alternatives: [] } as any);
+
+    renderChat();
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Recommend a facial mask that suits me.' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    const compareButton = (await screen.findAllByRole('button', { name: /More comparison candidates/i }))
+      .find((element) => element.tagName === 'BUTTON');
+    expect(compareButton).toBeTruthy();
+    fireEvent.click(compareButton as HTMLElement);
+
+    await waitFor(() => expect(alternativesMock).toHaveBeenCalledTimes(1), { timeout: READY_TIMEOUT_MS });
+    await waitFor(() => expect(toastMock).toHaveBeenCalled(), { timeout: READY_TIMEOUT_MS });
+    expect(toastMock.mock.calls.some(([payload]) => String((payload as any)?.title || '').includes('No extra comparison candidates yet'))).toBe(true);
+    expect(screen.queryByText(/More alternatives & pairing ideas/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unknown brand/i)).not.toBeInTheDocument();
   });
 
   it('shows compatibility only when lazy routine simulation returns analysis_ready', async () => {
