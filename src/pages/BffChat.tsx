@@ -131,7 +131,6 @@ import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
 import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
 import { parseCurrentRoutine } from '@/lib/currentRoutineState';
@@ -191,25 +190,6 @@ function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
     messages.push({ role: item.role, content });
   }
   return messages.slice(-CHAT_CONTEXT_MESSAGE_LIMIT);
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mediaQuery = window.matchMedia(query);
-    const onChange = () => setMatches(Boolean(mediaQuery.matches));
-    onChange();
-    if (typeof mediaQuery.addEventListener === 'function') mediaQuery.addEventListener('change', onChange);
-    else mediaQuery.addListener(onChange);
-    return () => {
-      if (typeof mediaQuery.removeEventListener === 'function') mediaQuery.removeEventListener('change', onChange);
-      else mediaQuery.removeListener(onChange);
-    };
-  }, [query]);
-
-  return matches;
 }
 
 type ProductAlternativeTrackItem = {
@@ -4087,7 +4067,6 @@ function BffCardView({
   const alternativesFilterEventKeysRef = useRef<Set<string>>(new Set());
   const howToLayerEventKeysRef = useRef<Set<string>>(new Set());
   const travelLookupRequestRef = useRef(0);
-  const isDesktopViewport = useMediaQuery('(min-width: 900px)');
   const [travelLookupOpen, setTravelLookupOpen] = useState(false);
   const [travelLookupState, setTravelLookupState] = useState<{
     categoryTitle: string;
@@ -4315,34 +4294,18 @@ function BffCardView({
     </div>
   ) : null;
   const travelLookupPanel = travelLookupState ? (
-    isDesktopViewport ? (
-      <Sheet open={travelLookupOpen} onOpenChange={setTravelLookupOpen}>
-        <SheetContent
-          side="right"
-          className="w-[420px] max-w-[92vw] overflow-y-auto"
-          aria-label={travelLookupTitle}
-          aria-describedby={undefined}
-        >
-          <SheetHeader>
-            <SheetTitle>{travelLookupTitle}</SheetTitle>
-          </SheetHeader>
-          <div className="mt-4">{travelLookupBody}</div>
-        </SheetContent>
-      </Sheet>
-    ) : (
-      <Drawer open={travelLookupOpen} onOpenChange={setTravelLookupOpen}>
-        <DrawerContent
-          className="max-h-[85dvh] rounded-t-3xl border border-border/60 bg-background/95"
-          aria-label={travelLookupTitle}
-          aria-describedby={undefined}
-        >
-          <DrawerHeader>
-            <DrawerTitle>{travelLookupTitle}</DrawerTitle>
-          </DrawerHeader>
-          <div className="overflow-y-auto pb-2">{travelLookupBody}</div>
-        </DrawerContent>
-      </Drawer>
-    )
+    <Drawer open={travelLookupOpen} onOpenChange={setTravelLookupOpen}>
+      <DrawerContent
+        className="max-h-[85dvh] rounded-t-3xl border border-border/60 bg-background/95 sm:left-1/2 sm:right-auto sm:w-[420px] sm:max-w-[92vw] sm:-translate-x-1/2"
+        aria-label={travelLookupTitle}
+        aria-describedby={undefined}
+      >
+        <DrawerHeader>
+          <DrawerTitle>{travelLookupTitle}</DrawerTitle>
+        </DrawerHeader>
+        <div className="overflow-y-auto pb-2">{travelLookupBody}</div>
+      </DrawerContent>
+    </Drawer>
   ) : null;
 
   if (!debug && cardType === 'session_bootstrap') return null;
