@@ -506,6 +506,7 @@ export function PhotoUploadCard({
 
   const handleUpload = () => {
     if (uploading) return;
+    if (!hasPhotos) return;
 
     if (severeBadSlots.length > 0 && !guardNeedsConfirm) {
       setGuardNeedsConfirm(true);
@@ -782,22 +783,6 @@ export function PhotoUploadCard({
       </label>
 
       <div className="space-y-2">
-        {hasPhotos && (
-          <button
-            onClick={handleUpload}
-            disabled={!consent || uploading}
-            className="action-button action-button-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploading
-              ? language === 'CN'
-                ? '上传中…'
-                : 'Uploading…'
-              : guardNeedsConfirm
-              ? copy.continueAnyway
-              : t('s3.btn.upload', language)}
-          </button>
-        )}
-
         {guardNeedsConfirm && (
           <button
             onClick={() => {
@@ -823,14 +808,17 @@ export function PhotoUploadCard({
             {t('s3.btn.skip', language)}
           </button>
           <button
-            onClick={() => {
-              closeCamera();
-              onAction('photo_use_sample_sample_set_A');
-            }}
-            className="action-button action-button-primary"
-            disabled={uploading}
+            onClick={handleUpload}
+            disabled={!hasPhotos || !consent || uploading}
+            className="action-button action-button-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t('s3.btn.sample', language)}
+            {uploading
+              ? language === 'CN'
+                ? '上传中…'
+                : 'Uploading…'
+              : guardNeedsConfirm
+              ? copy.continueAnyway
+              : t('s3.btn.upload', language)}
           </button>
         </div>
       </div>

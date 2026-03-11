@@ -171,4 +171,34 @@ describe('PhotoUploadCard smoke', () => {
 
     expect(screen.getByRole('button', { name: 'Review optional photo' })).toBeInTheDocument();
   });
+
+  it('keeps skip and upload on one row and removes sample-photo fallback', async () => {
+    detectImpl = async () => [
+      {
+        boundingBox: {
+          x: 180,
+          y: 180,
+          width: 720,
+          height: 720,
+        },
+      },
+    ];
+
+    const onAction = vi.fn();
+    const { container } = render(<PhotoUploadCard onAction={onAction} language="EN" />);
+
+    const skipButton = screen.getByRole('button', { name: 'Skip photos' });
+    const uploadButton = screen.getByRole('button', { name: 'Upload photo' });
+
+    expect(skipButton.parentElement).toBe(uploadButton.parentElement);
+    expect(uploadButton).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Try sample photos' })).not.toBeInTheDocument();
+    expect(skipButton.parentElement?.lastElementChild).toBe(uploadButton);
+
+    uploadToFirstSlot(container);
+    await screen.findByText('Frame good');
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    expect(uploadButton).toBeEnabled();
+  });
 });
