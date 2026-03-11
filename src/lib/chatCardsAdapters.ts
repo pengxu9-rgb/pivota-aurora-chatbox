@@ -139,7 +139,8 @@ const normalizeCategory = (raw: unknown): string => {
   return token;
 };
 
-const sectionKind = (section: AnyRecord): string => asString(section.kind).toLowerCase();
+const sectionKind = (section: AnyRecord): string =>
+  asString(section.kind || section.type).toLowerCase();
 
 const collectConflictText = (sections: AnyRecord[]): string[] => {
   const out: string[] = [];
