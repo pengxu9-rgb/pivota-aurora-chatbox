@@ -487,6 +487,122 @@ describe('BffChat env stress recommendation routing', () => {
     expect(mock.mock.calls.some((call) => call[0] === '/agent/shop/v1/invoke')).toBe(false);
   });
 
+  it('surfaces travel product search clarification replies instead of appearing inert', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_travel_clarify',
+            trace_id: 'trace_chat_travel_clarify',
+            assistant_text: 'Travel picks are ready.',
+            cards: [
+              {
+                id: 'travel_with_clarification',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 47,
+                      tier: 'Medium',
+                      radar: [{ axis: 'Weather', value: 43 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Singapore',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 52,
+                        },
+                        categorized_kit: [
+                          {
+                            id: 'sun_protection',
+                            title: 'Elevated UV',
+                            climate_link: 'UV 9.5',
+                            why: 'Keep UV protection light and easy to reapply.',
+                            ingredient_logic: 'Lightweight UV filters work best here.',
+                            preparations: [{ name: 'Face SPF50+ PA++++ sunscreen', detail: 'Reapply outdoors' }],
+                            brand_suggestions: [
+                              {
+                                product: 'Face SPF50+ PA++++ sunscreen',
+                                brand: '',
+                                reason: 'Travel baseline suggestion.',
+                                match_status: 'llm_only',
+                              },
+                            ],
+                          },
+                        ],
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy', 'ecommerce'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: [],
+                          improve_by: [],
+                        },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+
+      if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
+        const url = new URL(path, 'https://aurora.test');
+        expect(url.searchParams.get('query')).toBe('Face SPF50+ PA++++ sunscreen');
+        return Promise.resolve({
+          status: 'success',
+          success: true,
+          products: [],
+          reply: 'Do you have a brand preference?',
+          clarification: {
+            question: 'Do you have a brand preference?',
+            options: ['No brand preference', 'Global brands', 'Local brands'],
+          },
+        });
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
+    const form = input.closest('form');
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    const browseTrigger = await waitForEnabledButton('Browse products (1)');
+    fireEvent.click(browseTrigger);
+
+    expect(await screen.findByText('Travel product lookup')).toBeInTheDocument();
+    expect((await screen.findAllByText('Do you have a brand preference?')).length).toBeGreaterThan(0);
+    expect(screen.getByText('No brand preference')).toBeInTheDocument();
+    expect(screen.queryByText('No matching products found.')).not.toBeInTheDocument();
+  });
+
   it('keeps the latest travel product results when lookups resolve out of order', async () => {
     const mock = vi.mocked(bffJson);
     const searchRequests = new Map<string, ReturnType<typeof createDeferred<any>>>();
