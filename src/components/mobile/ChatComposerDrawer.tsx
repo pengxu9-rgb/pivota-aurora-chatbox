@@ -8,7 +8,6 @@ import type { ChatHistoryItem } from '@/lib/chatHistory';
 type QuickAction = {
   id: string;
   title: string;
-  subtitle: string;
   Icon: React.ComponentType<{ className?: string }>;
   intent: { chip_id?: string; open?: 'photo' | 'routine' };
 };
@@ -19,49 +18,42 @@ const QUICK_ACTIONS: QuickAction[] = [
   {
     id: 'skin_diagnosis',
     title: 'Skin Diagnosis',
-    subtitle: 'AI analysis',
     Icon: Sparkles,
     intent: { chip_id: 'chip.start.diagnosis' },
   },
   {
     id: 'photo_analysis',
     title: 'Photo Analysis',
-    subtitle: 'Upload & analyze',
     Icon: Camera,
     intent: { open: 'photo' },
   },
   {
     id: 'product_check',
     title: 'Product Check',
-    subtitle: 'Evaluate a product',
     Icon: Search,
     intent: { chip_id: 'chip.start.evaluate' },
   },
   {
     id: 'routine_builder',
     title: 'Routine Builder',
-    subtitle: 'Build AM/PM',
     Icon: Beaker,
     intent: { chip_id: 'chip.start.routine' },
   },
   {
     id: 'ingredient_science',
     title: 'Ingredient Science',
-    subtitle: 'Evidence & mechanism',
     Icon: FlaskConical,
     intent: { chip_id: 'chip.start.ingredients.entry' },
   },
   {
     id: 'dupes',
     title: 'Find Dupes',
-    subtitle: 'Cheaper alternatives',
     Icon: Copy,
     intent: { chip_id: 'chip.start.dupes' },
   },
   {
     id: 'checkin',
     title: 'Check-in',
-    subtitle: 'Daily check-in',
     Icon: Activity,
     intent: { chip_id: 'chip_checkin_now' },
   },
@@ -192,7 +184,6 @@ export function ChatComposerDrawer({
                   </div>
                   <div className="min-w-0">
                     <div className="text-[14px] font-semibold tracking-[-0.01em] text-slate-900">{a.title}</div>
-                    <div className="mt-0.5 text-[12px] text-slate-500">{a.subtitle}</div>
                   </div>
                 </button>
               ))}
