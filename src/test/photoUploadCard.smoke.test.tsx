@@ -146,7 +146,11 @@ describe('PhotoUploadCard smoke', () => {
     const onAction = vi.fn();
     const { container } = render(<PhotoUploadCard onAction={onAction} language="EN" />);
 
-    expect(screen.queryByText('One clear photo is all you need to start')).not.toBeInTheDocument();
+    expect(screen.getByText('One clear photo is all you need to start')).toBeInTheDocument();
+    expect(
+      screen.getByText('One clear photo is enough to get started. A second under different lighting can improve accuracy.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Add a second photo under different lighting for better accuracy (optional)')).toBeInTheDocument();
 
     const initialFileInputs = Array.from(container.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
     expect(initialFileInputs.length).toBe(2);

@@ -131,6 +131,7 @@ describe('BffChat diagnosis submit flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
 
     await screen.findByRole('button', { name: 'Take a selfie for better analysis' });
+    expect(screen.getByText('One clear photo is all you need to start')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Skip and continue' })).toBeInTheDocument();
 
     const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');

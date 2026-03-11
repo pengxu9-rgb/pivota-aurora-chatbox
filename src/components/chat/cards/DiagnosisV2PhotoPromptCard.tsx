@@ -1,5 +1,6 @@
 import React from 'react';
 import type { DiagnosisV2PhotoPromptPayload, Language } from '@/lib/types';
+import { t } from '@/lib/i18n';
 
 interface Props {
   payload: DiagnosisV2PhotoPromptPayload;
@@ -41,6 +42,10 @@ export function DiagnosisV2PhotoPromptCard({ payload, language, onAction }: Prop
             {language === 'CN' ? '拍照提升准确度' : 'Photo for better accuracy'}
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{payload.prompt_text}</p>
+          <div className="mt-2 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-2 text-[11px] text-foreground">
+            <div className="font-medium">{t('s3.one_photo_hint', language)}</div>
+            <div className="mt-0.5 text-muted-foreground">{t('s3.tip', language)}</div>
+          </div>
         </div>
       </div>
 

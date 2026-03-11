@@ -548,6 +548,9 @@ export function PhotoUploadCard({
           <Icon className="w-3 h-3" />
           {slotLabel(slot)}
         </label>
+        {slot === 'indoor_white' ? (
+          <div className="text-[11px] leading-relaxed text-muted-foreground">{t('s3.slot.secondary_prompt', language)}</div>
+        ) : null}
 
         <div
           className={`photo-slot ${photo ? 'photo-slot-filled' : ''}`}
@@ -701,6 +704,18 @@ export function PhotoUploadCard({
 
   return (
     <div className="chat-card space-y-3">
+      <div
+        className="rounded-xl border p-3 space-y-1.5"
+        style={{
+          borderColor: 'hsl(var(--aurora-home-primary) / 0.25)',
+          backgroundColor: 'hsl(var(--aurora-home-primary) / 0.05)',
+        }}
+      >
+        <div className="text-sm font-semibold text-foreground">{t('s3.one_photo_hint', language)}</div>
+        <div className="text-xs leading-relaxed text-muted-foreground">{t('s3.tip', language)}</div>
+        <div className="text-[11px] text-muted-foreground">{t('s3.warning', language)}</div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         {renderSlot('daylight', Sun, daylightInputRef)}
         {renderSlot('indoor_white', Lightbulb, indoorInputRef)}
