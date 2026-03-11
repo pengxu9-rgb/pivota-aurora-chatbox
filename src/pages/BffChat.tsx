@@ -10,6 +10,7 @@ import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
 import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
+import { IngredientPlanCardV1 } from '@/components/chat/cards/IngredientPlanCardV1';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
 import { ProductAnalysisCard } from '@/components/chat/cards/ProductAnalysisCard';
 import { QuickProfileFlow } from '@/components/chat/cards/QuickProfileFlow';
@@ -4758,62 +4759,11 @@ function BffCardView({
   }
 
   if (cardType === 'ingredient_plan') {
-    const planObj = asObject((payload as any).plan) ?? asObject(payload) ?? {};
-    const intensity = asString((planObj as any).intensity) || asString((payload as any).intensity) || 'balanced';
-    const targets = asArray((planObj as any).targets ?? (payload as any).targets)
-      .map((item) => asObject(item))
-      .filter(Boolean) as Array<Record<string, unknown>>;
-    const avoid = asArray((planObj as any).avoid ?? (payload as any).avoid)
-      .map((item) => asObject(item))
-      .filter(Boolean) as Array<Record<string, unknown>>;
-    const conflicts = asArray((planObj as any).conflicts ?? (payload as any).conflicts)
-      .map((item) => asObject(item))
-      .filter(Boolean) as Array<Record<string, unknown>>;
-
     return (
-      <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
-        <div className="text-xs font-semibold text-foreground">
-          {language === 'CN' ? `强度：${intensity}` : `Intensity: ${intensity}`}
-        </div>
-        {targets.length ? (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '推荐成分' : 'Target ingredients'}</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-              {targets.slice(0, 6).map((item, idx) => (
-                <li key={`target_${idx}`}>
-                  {asString((item as any).ingredient_id) || asString((item as any).ingredientId) || 'ingredient'}
-                  {Number.isFinite(Number((item as any).priority)) ? ` · P${Math.round(Number((item as any).priority))}` : ''}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {avoid.length ? (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '需规避/谨慎' : 'Avoid / caution'}</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-              {avoid.slice(0, 6).map((item, idx) => (
-                <li key={`avoid_${idx}`}>
-                  {asString((item as any).ingredient_id) || 'ingredient'}
-                  {asString((item as any).severity) ? ` · ${asString((item as any).severity)}` : ''}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {conflicts.length ? (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '冲突说明' : 'Conflicts'}</div>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
-              {conflicts.slice(0, 4).map((item, idx) => (
-                <li key={`conflict_${idx}`}>
-                  {asString((item as any).description) || asString((item as any).message) || ''}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
+      <IngredientPlanCardV1
+        payload={payload as Record<string, unknown>}
+        language={language}
+      />
     );
   }
 
