@@ -130,6 +130,8 @@ import { pickProductImageUrl } from '@/lib/productImage';
 import { useShop } from '@/contexts/shop';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
 import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
 import { parseCurrentRoutine } from '@/lib/currentRoutineState';
@@ -189,6 +191,25 @@ function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
     messages.push({ role: item.role, content });
   }
   return messages.slice(-CHAT_CONTEXT_MESSAGE_LIMIT);
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mediaQuery = window.matchMedia(query);
+    const onChange = () => setMatches(Boolean(mediaQuery.matches));
+    onChange();
+    if (typeof mediaQuery.addEventListener === 'function') mediaQuery.addEventListener('change', onChange);
+    else mediaQuery.addListener(onChange);
+    return () => {
+      if (typeof mediaQuery.removeEventListener === 'function') mediaQuery.removeEventListener('change', onChange);
+      else mediaQuery.removeListener(onChange);
+    };
+  }, [query]);
+
+  return matches;
 }
 
 type ProductAlternativeTrackItem = {
@@ -4066,6 +4087,8 @@ function BffCardView({
   const alternativesFilterEventKeysRef = useRef<Set<string>>(new Set());
   const howToLayerEventKeysRef = useRef<Set<string>>(new Set());
   const travelLookupRequestRef = useRef(0);
+  const isDesktopViewport = useMediaQuery('(min-width: 900px)');
+  const [travelLookupOpen, setTravelLookupOpen] = useState(false);
   const [travelLookupState, setTravelLookupState] = useState<{
     categoryTitle: string;
     query: string;
@@ -4156,6 +4179,7 @@ function BffCardView({
       if (!query) return;
       const requestId = travelLookupRequestRef.current + 1;
       travelLookupRequestRef.current = requestId;
+      setTravelLookupOpen(true);
       setTravelLookupState({
         categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
         query,
@@ -4213,52 +4237,69 @@ function BffCardView({
     [language, resolveProductsSearch],
   );
 
-  const travelLookupPanel = travelLookupState ? (
-    <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
-      <div className="text-xs font-semibold text-foreground">
-        {language === 'CN' ? '旅行产品查找' : 'Travel product lookup'}
+  const travelLookupTitle = language === 'CN' ? '旅行产品查找' : 'Travel product lookup';
+  const travelLookupBody = travelLookupState ? (
+    <div className="space-y-3 px-4 pb-4">
+      <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
+        <div className="text-sm font-semibold text-foreground">{travelLookupState.categoryTitle}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {travelLookupState.query ? `${language === 'CN' ? '搜索词' : 'Query'} · ${travelLookupState.query}` : null}
+        </div>
+        {travelLookupState.ingredientHints ? (
+          <div className="mt-1 text-[11px] text-muted-foreground">{travelLookupState.ingredientHints}</div>
+        ) : null}
       </div>
-      <div className="mt-1 text-xs text-muted-foreground">
-        {travelLookupState.categoryTitle}
-        {travelLookupState.query ? ` · ${travelLookupState.query}` : ''}
-      </div>
-      {travelLookupState.ingredientHints ? (
-        <div className="mt-1 text-[11px] text-muted-foreground">{travelLookupState.ingredientHints}</div>
-      ) : null}
       {travelLookupState.loading ? (
-        <div className="mt-3 text-sm text-muted-foreground">{language === 'CN' ? '正在查找…' : 'Searching…'}</div>
+        <div className="rounded-2xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+          {language === 'CN' ? '正在查找…' : 'Searching…'}
+        </div>
       ) : travelLookupState.error ? (
-        <div className="mt-3 text-sm text-destructive">
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           {travelLookupState.error}
         </div>
       ) : travelLookupState.results.length ? (
-        <div className="mt-3 space-y-2">
-          {travelLookupState.results.map((product, idx) => (
-            <div key={`${product.sku_id}_${idx}`} className="rounded-xl border border-border/50 bg-muted/30 p-2.5">
-              <div className="text-sm font-semibold text-foreground">{product.name}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {product.brand}
-                {product.category ? ` · ${product.category}` : ''}
+        <div className="space-y-2">
+          {travelLookupState.results.map((product, idx) => {
+            const imageUrl = pickProductImageUrl(product);
+            return (
+              <div
+                key={`${product.sku_id}_${idx}`}
+                className="flex items-start gap-3 rounded-2xl border border-border/60 bg-background/70 p-3"
+              >
+                <div className="h-14 w-14 overflow-hidden rounded-xl border border-border/50 bg-muted/30">
+                  {imageUrl ? (
+                    <img src={imageUrl} alt={product.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-muted-foreground">
+                      {(product.brand || product.name || 'P').slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold leading-snug text-foreground">{product.name}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    {[product.brand, product.category].filter(Boolean).join(' · ')}
+                  </div>
+                  {product.description ? (
+                    <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{product.description}</div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : travelLookupState.clarification || travelLookupState.reply ? (
-        <div className="mt-3 space-y-2 rounded-xl border border-border/50 bg-muted/20 p-2.5 text-sm text-muted-foreground">
+        <div className="space-y-2 rounded-2xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
           {travelLookupState.clarification?.question ? (
-            <div className="font-medium text-foreground">
-              {travelLookupState.clarification.question}
-            </div>
+            <div className="font-medium text-foreground">{travelLookupState.clarification.question}</div>
           ) : null}
-          {travelLookupState.reply ? (
-            <div>{travelLookupState.reply}</div>
-          ) : null}
+          {travelLookupState.reply ? <div>{travelLookupState.reply}</div> : null}
           {travelLookupState.clarification?.options?.length ? (
             <div className="flex flex-wrap gap-1.5">
               {travelLookupState.clarification.options.map((option) => (
                 <span
                   key={option}
-                  className="rounded-full border border-border/60 bg-background/60 px-2 py-1 text-[11px] text-foreground/80"
+                  className="rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] text-foreground/80"
                 >
                   {option}
                 </span>
@@ -4267,11 +4308,41 @@ function BffCardView({
           ) : null}
         </div>
       ) : (
-        <div className="mt-3 text-sm text-muted-foreground">
+        <div className="rounded-2xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
           {language === 'CN' ? '暂无匹配产品。' : 'No matching products found.'}
         </div>
       )}
     </div>
+  ) : null;
+  const travelLookupPanel = travelLookupState ? (
+    isDesktopViewport ? (
+      <Sheet open={travelLookupOpen} onOpenChange={setTravelLookupOpen}>
+        <SheetContent
+          side="right"
+          className="w-[420px] max-w-[92vw] overflow-y-auto"
+          aria-label={travelLookupTitle}
+          aria-describedby={undefined}
+        >
+          <SheetHeader>
+            <SheetTitle>{travelLookupTitle}</SheetTitle>
+          </SheetHeader>
+          <div className="mt-4">{travelLookupBody}</div>
+        </SheetContent>
+      </Sheet>
+    ) : (
+      <Drawer open={travelLookupOpen} onOpenChange={setTravelLookupOpen}>
+        <DrawerContent
+          className="max-h-[85dvh] rounded-t-3xl border border-border/60 bg-background/95"
+          aria-label={travelLookupTitle}
+          aria-describedby={undefined}
+        >
+          <DrawerHeader>
+            <DrawerTitle>{travelLookupTitle}</DrawerTitle>
+          </DrawerHeader>
+          <div className="overflow-y-auto pb-2">{travelLookupBody}</div>
+        </DrawerContent>
+      </Drawer>
+    )
   ) : null;
 
   if (!debug && cardType === 'session_bootstrap') return null;
