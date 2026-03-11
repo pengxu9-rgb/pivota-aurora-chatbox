@@ -167,7 +167,7 @@ export function ChatComposerDrawer({
                 <button
                   key={a.id}
                   type="button"
-                  className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-card transition hover:bg-slate-50 hover:shadow-card-hover"
+                  className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-card transition hover:bg-slate-50 hover:shadow-card-hover"
                   onClick={() => {
                     const title = a.title;
                     const chipId = a.intent.chip_id;
