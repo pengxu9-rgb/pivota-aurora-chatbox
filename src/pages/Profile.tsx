@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HelpCircle, KeyRound, LogIn, LogOut, Mail, Menu, Shield, User } from 'lucide-react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { AURORA_AUTH_SESSION_CHANGED_EVENT, clearAuroraAuthSession, loadAuroraAuthSession, saveAuroraAuthSession, type AuroraAuthSession } from '@/lib/auth';
@@ -8,8 +8,10 @@ import { bffJson, makeDefaultHeaders, PivotaAgentBffError, type V1Envelope } fro
 import { deriveQuickProfileStatus, formatQuickProfileSummary, type QuickProfileStatus } from '@/lib/profileCompletion';
 import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
 import { loadAuroraUserProfile, saveAuroraUserProfile } from '@/lib/userProfile';
+import { buildFullProfileDraft, buildProfileUpdatePatch, type FullProfileDraft } from '@/lib/auroraProfile';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import { X } from 'lucide-react';
 
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
 const PASSWORD_SET_FLAG_KEY_PREFIX = 'pivota_aurora_password_set_v1:';
@@ -115,7 +117,6 @@ function buildEmptyAuthDraft(email = '') {
 
 export default function Profile() {
   const { openSidebar, startChat, openComposer } = useOutletContext<MobileShellContext>();
-  const navigate = useNavigate();
 
   const [langPref, setLangPrefState] = useState<LangPref>(() => getLangPref());
   const lang = langPref === 'cn' ? 'CN' : 'EN';
@@ -135,6 +136,9 @@ export default function Profile() {
   const [profileNotice, setProfileNotice] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [showSyncHint, setShowSyncHint] = useState(false);
+  const [skinEditorOpen, setSkinEditorOpen] = useState(false);
+  const [skinDraft, setSkinDraft] = useState<FullProfileDraft>(() => buildFullProfileDraft(null));
+  const [skinSaving, setSkinSaving] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const accountSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -262,13 +266,29 @@ export default function Profile() {
   }, [startChat]);
 
   const openProfileEditor = useCallback(() => {
-    const headers = makeDefaultHeaders(lang);
-    const sp = new URLSearchParams();
-    sp.set('brief_id', headers.brief_id);
-    sp.set('trace_id', headers.trace_id);
-    sp.set('open', 'profile');
-    navigate({ pathname: '/chat', search: `?${sp.toString()}` });
-  }, [lang, navigate]);
+    const profile = bootstrapProfile as any;
+    setSkinDraft(buildFullProfileDraft(profile));
+    setSkinEditorOpen(true);
+  }, [bootstrapProfile]);
+
+  const saveSkinProfile = useCallback(async () => {
+    setSkinSaving(true);
+    try {
+      const patch = buildProfileUpdatePatch(skinDraft);
+      await bffJson<V1Envelope>('/v1/profile/update', makeHeaders({ authToken: authSession?.token || null }), {
+        method: 'POST',
+        body: JSON.stringify(patch),
+        timeoutMs: 15_000,
+      });
+      setSkinEditorOpen(false);
+      toast({ title: isCN ? '资料已更新' : 'Profile updated' });
+      void refreshBootstrapProfile();
+    } catch (err) {
+      toast({ title: isCN ? '保存失败' : 'Save failed', description: toBffErrorMessage(err), variant: 'destructive' });
+    } finally {
+      setSkinSaving(false);
+    }
+  }, [skinDraft, authSession?.token, makeHeaders, isCN, toBffErrorMessage, refreshBootstrapProfile]);
 
   const startAuth = useCallback(async () => {
     const email = authDraft.email.trim();
@@ -1007,6 +1027,188 @@ export default function Profile() {
           ))}
         </div>
       </div>
+
+      {skinEditorOpen ? (
+        <div className="fixed inset-0 z-[60]">
+          <button className="absolute inset-0 bg-black/35 backdrop-blur-sm" aria-label="Close" onClick={() => setSkinEditorOpen(false)} />
+          <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-[var(--aurora-shell-max)] overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
+            <div className="flex max-h-[85vh] max-h-[85dvh] flex-col">
+              <div className="flex items-center justify-between px-[var(--aurora-page-x)] pb-3 pt-4">
+                <div className="text-sm font-semibold text-foreground">{isCN ? '编辑肤况资料' : 'Edit skin profile'}</div>
+                <button
+                  className="aurora-home-role-icon inline-flex h-9 w-9 items-center justify-center rounded-full border"
+                  onClick={() => setSkinEditorOpen(false)}
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+16px)]">
+                <div className="profile-sheet-compact space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '肤质' : 'Skin type'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.skinType} onChange={(e) => setSkinDraft((p) => ({ ...p, skinType: e.target.value }))}>
+                        <option value="">{isCN ? '未选择' : '—'}</option>
+                        <option value="oily">{isCN ? '油性' : 'oily'}</option>
+                        <option value="dry">{isCN ? '干性' : 'dry'}</option>
+                        <option value="combination">{isCN ? '混合' : 'combination'}</option>
+                        <option value="normal">{isCN ? '中性' : 'normal'}</option>
+                        <option value="sensitive">{isCN ? '敏感' : 'sensitive'}</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '敏感程度' : 'Sensitivity'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.sensitivity} onChange={(e) => setSkinDraft((p) => ({ ...p, sensitivity: e.target.value }))}>
+                        <option value="">{isCN ? '未选择' : '—'}</option>
+                        <option value="low">{isCN ? '低' : 'low'}</option>
+                        <option value="medium">{isCN ? '中' : 'medium'}</option>
+                        <option value="high">{isCN ? '高' : 'high'}</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '屏障状态' : 'Barrier status'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.barrierStatus} onChange={(e) => setSkinDraft((p) => ({ ...p, barrierStatus: e.target.value }))}>
+                        <option value="">{isCN ? '未选择' : '—'}</option>
+                        <option value="healthy">{isCN ? '稳定' : 'healthy'}</option>
+                        <option value="impaired">{isCN ? '不稳定/刺痛' : 'impaired'}</option>
+                        <option value="unknown">{isCN ? '不确定' : 'unknown'}</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '预算' : 'Budget'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.budgetTier} onChange={(e) => setSkinDraft((p) => ({ ...p, budgetTier: e.target.value }))}>
+                        <option value="">{isCN ? '未选择' : '—'}</option>
+                        <option value="¥200">¥200</option>
+                        <option value="¥500">¥500</option>
+                        <option value="¥1000+">¥1000+</option>
+                        <option value="不确定">{isCN ? '不确定' : 'Not sure'}</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '年龄段' : 'Age band'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.age_band} onChange={(e) => setSkinDraft((p) => ({ ...p, age_band: e.target.value }))}>
+                        <option value="unknown">{isCN ? '未知/不填' : 'Unknown'}</option>
+                        <option value="under_13">&lt;13</option>
+                        <option value="13_17">13-17</option>
+                        <option value="18_24">18-24</option>
+                        <option value="25_34">25-34</option>
+                        <option value="35_44">35-44</option>
+                        <option value="45_54">45-54</option>
+                        <option value="55_plus">55+</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '孕期状态' : 'Pregnancy status'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.pregnancy_status} onChange={(e) => setSkinDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}>
+                        <option value="unknown">{isCN ? '未知/不填' : 'Unknown'}</option>
+                        <option value="not_pregnant">{isCN ? '未怀孕' : 'Not pregnant'}</option>
+                        <option value="pregnant">{isCN ? '怀孕中' : 'Pregnant'}</option>
+                        <option value="trying">{isCN ? '备孕中' : 'Trying'}</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '哺乳状态' : 'Lactation status'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.lactation_status} onChange={(e) => setSkinDraft((p) => ({ ...p, lactation_status: e.target.value }))}>
+                        <option value="unknown">{isCN ? '未知/不填' : 'Unknown'}</option>
+                        <option value="not_lactating">{isCN ? '不哺乳' : 'Not lactating'}</option>
+                        <option value="lactating">{isCN ? '哺乳中' : 'Lactating'}</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-[11px] text-muted-foreground">
+                      {isCN ? '高风险用药（可选）' : 'High-risk meds (optional)'}
+                      <input
+                        className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                        value={skinDraft.high_risk_medications_text}
+                        onChange={(e) => setSkinDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
+                        placeholder={isCN ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
+                      />
+                    </label>
+                  </div>
+
+                  <label className="space-y-1 text-[11px] text-muted-foreground">
+                    {isCN ? '常驻地/地区' : 'Home region'}
+                    <input
+                      className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                      value={skinDraft.region}
+                      onChange={(e) => setSkinDraft((p) => ({ ...p, region: e.target.value }))}
+                      placeholder={isCN ? '例如 San Francisco, CA' : 'e.g., San Francisco, CA'}
+                    />
+                  </label>
+
+                  <label className="space-y-1 text-[11px] text-muted-foreground">
+                    {isCN ? '目标（可多选）' : 'Goals (multi-select)'}
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        ['acne', isCN ? '控痘' : 'Acne'],
+                        ['redness', isCN ? '泛红/敏感' : 'Redness'],
+                        ['dark_spots', isCN ? '淡斑/痘印' : 'Dark spots'],
+                        ['dehydration', isCN ? '补水' : 'Hydration'],
+                        ['pores', isCN ? '毛孔' : 'Pores'],
+                        ['wrinkles', isCN ? '抗老' : 'Anti-aging'],
+                      ].map(([key, label]) => {
+                        const selected = skinDraft.goals.includes(key);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className={cn(
+                              'rounded-xl border border-border/60 px-3 py-1.5 text-[13px] font-medium',
+                              selected ? 'aurora-home-role-primary' : 'bg-background/60 text-foreground',
+                            )}
+                            onClick={() =>
+                              setSkinDraft((p) => ({
+                                ...p,
+                                goals: selected ? p.goals.filter((g) => g !== key) : [...p.goals, key],
+                              }))
+                            }
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </label>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex-1 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground',
+                        'active:scale-[0.99]',
+                      )}
+                      onClick={() => setSkinEditorOpen(false)}
+                      disabled={skinSaving}
+                    >
+                      {isCN ? '取消' : 'Cancel'}
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        'aurora-home-role-primary flex-1 rounded-2xl px-4 py-2.5 text-[14px] font-semibold',
+                        'active:scale-[0.99]',
+                      )}
+                      onClick={() => void saveSkinProfile()}
+                      disabled={skinSaving}
+                    >
+                      {skinSaving ? (isCN ? '保存中…' : 'Saving…') : (isCN ? '保存' : 'Save')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
