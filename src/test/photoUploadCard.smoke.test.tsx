@@ -131,7 +131,7 @@ describe('PhotoUploadCard smoke', () => {
     expect(screen.queryByText('Some photos are outside the guide frame.')).not.toBeInTheDocument();
   });
 
-  it('uses one-photo hint and keeps the optional second slot collapsible', async () => {
+  it('keeps both photo slots visible so the second lighting shot is immediately available', async () => {
     detectImpl = async () => [
       {
         boundingBox: {
@@ -146,20 +146,14 @@ describe('PhotoUploadCard smoke', () => {
     const onAction = vi.fn();
     const { container } = render(<PhotoUploadCard onAction={onAction} language="EN" />);
 
-    expect(screen.getByText('One clear photo is all you need to start')).toBeInTheDocument();
-    expect(screen.queryByText('Add a second photo under different lighting for better accuracy (optional)')).not.toBeInTheDocument();
+    expect(screen.queryByText('One clear photo is all you need to start')).not.toBeInTheDocument();
+
+    const initialFileInputs = Array.from(container.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
+    expect(initialFileInputs.length).toBe(2);
 
     uploadToFirstSlot(container);
 
     await screen.findByText('Frame good');
-    const addSecondPhoto = screen.getByRole('button', {
-      name: 'Add a second photo under different lighting for better accuracy (optional)',
-    });
-    expect(addSecondPhoto).toBeInTheDocument();
-
-    fireEvent.click(addSecondPhoto);
-    expect(screen.getByText('optional')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Hide optional photo' })).toBeInTheDocument();
 
     const fileInputs = Array.from(container.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
     expect(fileInputs.length).toBe(2);
@@ -167,9 +161,6 @@ describe('PhotoUploadCard smoke', () => {
 
     await screen.findByAltText('indoor_white');
     await screen.findAllByText('Frame good');
-    fireEvent.click(screen.getByRole('button', { name: 'Hide optional photo' }));
-
-    expect(screen.getByRole('button', { name: 'Review optional photo' })).toBeInTheDocument();
   });
 
   it('keeps skip and upload on one row and removes sample-photo fallback', async () => {

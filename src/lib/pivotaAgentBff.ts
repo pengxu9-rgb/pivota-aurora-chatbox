@@ -200,6 +200,10 @@ export const bffJson = async <TResponse>(
     throw new PivotaAgentBffError(`Request failed: ${res.status} ${res.statusText}`, res.status, body);
   }
 
+  if (res.status !== 204 && body === undefined) {
+    throw new Error('Service returned an incomplete response. Please try again.');
+  }
+
   return body as TResponse;
 };
 

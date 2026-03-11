@@ -11,7 +11,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   TriangleAlert,
-  Plus,
 } from 'lucide-react';
 
 interface PhotoUploadCardProps {
@@ -41,7 +40,6 @@ export function PhotoUploadCard({
     indoor_white: undefined,
   });
   const [consent, setConsent] = useState(false);
-  const [showSecondary, setShowSecondary] = useState(false);
 
   const daylightInputRef = useRef<HTMLInputElement>(null);
   const indoorInputRef = useRef<HTMLInputElement>(null);
@@ -69,8 +67,6 @@ export function PhotoUploadCard({
             openCamera: 'Frame camera',
             retakeCamera: 'Retake in frame',
             uploadAlbum: 'Upload image',
-            collapseSecondary: 'Hide optional photo',
-            reopenSecondary: 'Review optional photo',
             cameraGuideTitle: 'Align your face inside the oval frame',
             cameraGuideTip: 'Keep forehead, cheeks, and chin fully visible. Avoid filters and beauty mode.',
             cameraPermissionDenied: 'Camera permission denied. You can still upload from your album.',
@@ -99,8 +95,6 @@ export function PhotoUploadCard({
             openCamera: '框内拍照',
             retakeCamera: '重新框内拍照',
             uploadAlbum: '上传图片',
-            collapseSecondary: '收起可选照片',
-            reopenSecondary: '查看可选照片',
             cameraGuideTitle: '请将人脸对齐到椭圆框内',
             cameraGuideTip: '确保额头、双颊、下巴完整可见，避免滤镜与美颜。',
             cameraPermissionDenied: '相机权限未开启。你仍可从相册上传。',
@@ -295,9 +289,6 @@ export function PhotoUploadCard({
     async (slot: SlotId, file: File) => {
       if (uploading) return;
       const [preview, frameCheck] = await Promise.all([readAsDataUrl(file), analyzeUploadedFile(file)]);
-      if (slot === 'indoor_white') {
-        setShowSecondary(true);
-      }
       setPhotos((prev) => ({
         ...prev,
         [slot]: { file, preview, frameCheck },
@@ -324,9 +315,6 @@ export function PhotoUploadCard({
   const openCamera = useCallback(
     (slot: SlotId) => {
       if (uploading) return;
-      if (slot === 'indoor_white') {
-        setShowSecondary(true);
-      }
       setCameraSlot(slot);
       setCameraError(null);
       setLiveFrameCheck(null);
@@ -341,9 +329,6 @@ export function PhotoUploadCard({
     if (autoOpenNonce <= 0) return;
     if (autoOpenHandledNonceRef.current === autoOpenNonce) return;
     autoOpenHandledNonceRef.current = autoOpenNonce;
-    if (slot === 'indoor_white') {
-      setShowSecondary(true);
-    }
     openCamera(slot);
   }, [autoOpenNonce, autoOpenSlot, openCamera, uploading]);
 
@@ -714,48 +699,12 @@ export function PhotoUploadCard({
     );
   }
 
-  const secondaryVisible = showSecondary;
-  const hasSecondaryPhoto = Boolean(photos.indoor_white);
-
   return (
     <div className="chat-card space-y-3">
-
-      <div className="space-y-1">
-        <div className="text-xs text-foreground font-medium">{t('s3.intro', language)}</div>
-        <div className="text-[11px] text-muted-foreground leading-relaxed">{t('s3.tip', language)}</div>
-        <div className="text-[11px] text-muted-foreground">{t('s3.one_photo_hint', language)}</div>
+      <div className="grid grid-cols-2 gap-3">
+        {renderSlot('daylight', Sun, daylightInputRef)}
+        {renderSlot('indoor_white', Lightbulb, indoorInputRef)}
       </div>
-
-      {renderSlot('daylight', Sun, daylightInputRef)}
-
-      {photos.daylight ? (secondaryVisible ? (
-        <div className="rounded-lg border border-dashed border-border/60 bg-muted/30 p-2.5 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {language === 'CN' ? '可选' : 'optional'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowSecondary(false)}
-              className="text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-              disabled={uploading}
-            >
-              {copy.collapseSecondary}
-            </button>
-          </div>
-          {renderSlot('indoor_white', Lightbulb, indoorInputRef)}
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowSecondary(true)}
-          className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground hover:bg-muted/40 transition-colors"
-          disabled={uploading}
-        >
-          {hasSecondaryPhoto ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-          <span>{hasSecondaryPhoto ? copy.reopenSecondary : t('s3.slot.secondary_prompt', language)}</span>
-        </button>
-      )) : null}
 
       {hasPhotos && gentleAlertSlots.length > 0 && !guardNeedsConfirm && (
         <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">

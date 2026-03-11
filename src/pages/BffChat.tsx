@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { BffHeaders, Card, RecoBlockType, RecoEmployeeFeedbackType, SuggestedChip, V1Action, V1Envelope } from '@/lib/pivotaAgentBff';
 import { bffJson, bffChatStream, fetchRecoAlternatives, fetchRoutineSimulation, makeDefaultHeaders, PivotaAgentBffError, sendRecoEmployeeFeedback } from '@/lib/pivotaAgentBff';
 import type { SSEResultEvent } from '@/lib/pivotaAgentBff';
+import { retryWithBackoff } from '@/utils/retryWithBackoff';
 import { AnalysisSummaryCard } from '@/components/chat/cards/AnalysisSummaryCard';
 import { CardRenderBoundary } from '@/components/chat/CardRenderBoundary';
 import { ChatRichText } from '@/components/chat/ChatRichText';
@@ -8862,10 +8863,14 @@ export default function BffChat() {
             photos: photosForAnalysis,
             ...(hasCurrentRoutine ? { currentRoutine: profileCurrentRoutine } : {}),
           };
-          const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(body),
-          });
+          const env = await retryWithBackoff(
+            () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+              method: 'POST',
+              body: JSON.stringify(body),
+              timeoutMs: 20000,
+            }),
+            { maxRetries: 1, baseDelayMs: 1500 },
+          );
           applyEnvelope(env);
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
@@ -10060,10 +10065,14 @@ export default function BffChat() {
     try {
       setSessionState('S4_ANALYSIS_LOADING');
       const requestHeaders = { ...headers, lang: language };
-      const env = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-        method: 'POST',
-        body: JSON.stringify({ use_photo: false }),
-      });
+      const env = await retryWithBackoff(
+        () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify({ use_photo: false }),
+          timeoutMs: 20000,
+        }),
+        { maxRetries: 1, baseDelayMs: 1500 },
+      );
       applyEnvelope(env);
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
@@ -10109,10 +10118,14 @@ export default function BffChat() {
           currentRoutine: routine,
           ...(usePhoto ? { photos } : {}),
         };
-        const envAnalysis = await bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
+        const envAnalysis = await retryWithBackoff(
+          () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            timeoutMs: 20000,
+          }),
+          { maxRetries: 1, baseDelayMs: 1500 },
+        );
         applyEnvelope(envAnalysis);
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));

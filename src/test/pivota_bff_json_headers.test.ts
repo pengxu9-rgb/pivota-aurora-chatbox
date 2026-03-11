@@ -49,4 +49,20 @@ describe('bffJson header behavior', () => {
 
     expect(requestHeaders['Content-Type']).toBe('application/json');
   });
+
+  it('throws when a 200 response returns invalid json', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('{"ok":', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+
+    await expect(bffJson('/v1/analysis/skin', makeHeaders(), { method: 'POST' })).rejects.toThrow(
+      'Service returned an incomplete response. Please try again.',
+    );
+  });
 });

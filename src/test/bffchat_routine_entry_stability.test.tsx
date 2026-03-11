@@ -175,6 +175,71 @@ describe('Routine entry stability', () => {
     expect(pickStep(pmSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
   });
 
+  it('retries skin analysis once after a transient network failure', async () => {
+    const mock = vi.mocked(bffJson);
+    let analysisAttempts = 0;
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_retry',
+            trace_id: 'trace_bootstrap_retry',
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/analysis/skin') {
+        analysisAttempts += 1;
+        if (analysisAttempts === 1) {
+          return Promise.reject(new TypeError('Failed to fetch'));
+        }
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analysis_retry',
+            trace_id: 'trace_analysis_retry',
+            session_patch: {},
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat?open=routine']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i), {
+      target: { value: 'Biotherm Force Cleanser' },
+    });
+
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & analyze/i }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1500);
+      await Promise.resolve();
+    });
+
+    const calls = mock.mock.calls.filter((call) => call[0] === '/v1/analysis/skin');
+    expect(calls).toHaveLength(2);
+
+    expect(screen.queryByText(/Failed to fetch/i)).not.toBeInTheDocument();
+
+    randomSpy.mockRestore();
+  });
+
   it('keeps routine form editable while a normal chat request is timing out', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
