@@ -10,6 +10,7 @@ import { ChatRichText } from '@/components/chat/ChatRichText';
 import { ChatCardsV1Card } from '@/components/chat/cards/ChatCardsV1Card';
 import { DiagnosisCard } from '@/components/chat/cards/DiagnosisCard';
 import { DiagnosisV2IntroCard } from '@/components/chat/cards/DiagnosisV2IntroCard';
+import { DiagnosisV2PhotoPromptCard } from '@/components/chat/cards/DiagnosisV2PhotoPromptCard';
 import { IngredientGoalMatchCard } from '@/components/chat/cards/IngredientGoalMatchCard';
 import { IngredientHubCard } from '@/components/chat/cards/IngredientHubCard';
 import { PhotoUploadCard } from '@/components/chat/cards/PhotoUploadCard';
@@ -4689,6 +4690,10 @@ function BffCardView({
     return <DiagnosisCard onAction={(id, data) => onAction(id, data)} language={language} />;
   }
 
+  if (cardType === 'diagnosis_v2_photo_prompt') {
+    return <DiagnosisV2PhotoPromptCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
   if (cardType === 'analysis_summary') {
     const analysisObj = asObject((payload as any).analysis) || {};
     const featuresRaw = asArray((analysisObj as any).features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
@@ -8957,6 +8962,7 @@ export default function BffChat() {
         client_state?: AgentState;
         requested_transition?: RequestedTransition | null;
         thread_state?: Record<string, unknown> | null;
+        analysisContext?: ChatSessionAnalysisContext | null;
       },
     ) => {
       setLoadingIntent(inferAuroraLoadingIntent(message, action));
@@ -8976,6 +8982,7 @@ export default function BffChat() {
           bootstrapProfile: bootstrapInfo?.profile ?? null,
           sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
           sessionMeta,
+          analysisContext: opts?.analysisContext ?? null,
         });
         const priorMessages = buildChatRequestMessages(itemsRef.current);
         const body: Record<string, unknown> = {
@@ -9342,18 +9349,50 @@ export default function BffChat() {
             kind: 'text',
             content: language === 'CN' ? '开始皮肤分析' : 'Start skin analysis',
           },
-        ]);
-        await sendChat(
-          undefined,
           {
-            action_id: 'chip.start.diagnosis',
-            kind: 'chip',
-            data: {
-              reply_text: language === 'CN' ? '开始皮肤诊断' : 'Start skin diagnosis',
-            },
+            id: nextId(),
+            role: 'assistant',
+            kind: 'cards',
+            cards: [{
+              card_id: `local_diag_photo_prompt_${Date.now()}`,
+              type: 'diagnosis_v2_photo_prompt',
+              payload: {
+                has_existing_artifact: false,
+                prompt_text:
+                  language === 'CN'
+                    ? '先拍一张自拍可以显著提升分析准确度；你也可以跳过，继续低置信度基础分析。'
+                    : 'Take a selfie for better analysis. You can also skip and continue with a lower-confidence baseline.',
+                photo_action: {
+                  label: language === 'CN' ? '拍照提升准确度' : 'Take a selfie for better analysis',
+                },
+                skip_action: {
+                  label: language === 'CN' ? '跳过并继续' : 'Skip and continue',
+                },
+              },
+            }],
           },
-          { thread_state: nextThreadState },
-        );
+        ]);
+        setAgentStateSafe('DIAG_PHOTO_OPTIN');
+        return;
+      }
+
+      if (actionId === 'take_photo') {
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '我来上传照片' : 'I will add photos' },
+        ]);
+        setAgentStateSafe('DIAG_PHOTO_OPTIN');
+        handlePickPhoto();
+        return;
+      }
+
+      if (actionId === 'skip_photo') {
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过照片，继续分析' : 'Skip photo and continue' },
+        ]);
+        setAgentStateSafe('DIAG_ANALYSIS_SUMMARY');
+        await runLowConfidenceSkinAnalysis();
         return;
       }
 

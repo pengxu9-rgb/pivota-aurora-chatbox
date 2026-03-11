@@ -35,6 +35,45 @@ function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   };
 }
 
+function makeDiagnosisGateResponse() {
+  return {
+    cards: [
+      {
+        card_type: 'diagnosis_gate',
+        sections: [
+          {
+            type: 'goal_selection',
+            options: [
+              { id: 'hydration', label_en: 'Deep hydration', label_zh: '深层补水' },
+              { id: 'barrier', label_en: 'Repair skin barrier', label_zh: '修护屏障' },
+            ],
+          },
+          {
+            type: 'follow_up_questions',
+            questions: [
+              {
+                id: 'q1',
+                question: 'How sensitive does your skin feel lately?',
+                options: [
+                  { id: 'low', label: 'Low' },
+                  { id: 'high', label: 'High' },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    ops: {
+      thread_ops: [{ op: 'set', key: 'diagnosis_state', value: 'goal_selection' }],
+      profile_patch: {},
+      routine_patch: {},
+      experiment_events: [],
+    },
+    next_actions: [],
+  };
+}
+
 function renderChat(initialEntry = '/chat') {
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -43,10 +82,6 @@ function renderChat(initialEntry = '/chat') {
       </ShopProvider>
     </MemoryRouter>,
   );
-}
-
-function parseBody(call: unknown[]): Record<string, any> {
-  return JSON.parse(String(((call[2] as RequestInit | undefined)?.body || '{}'))) as Record<string, any>;
 }
 
 describe('BffChat diagnosis submit flow', () => {
@@ -61,240 +96,53 @@ describe('BffChat diagnosis submit flow', () => {
     }
   });
 
-  it('routes explicit chip.start.diagnosis through backend diagnosis_v2.start and submits goals back through thread_state', async () => {
+  it('loads the diagnosis goals gate from the backend on chip.start.diagnosis', async () => {
     const mock = vi.mocked(bffJson);
-    let chatTurn = 0;
 
     mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope());
-      }
-      if (path === '/v1/chat') {
-        chatTurn += 1;
-        if (chatTurn === 1) {
-          return Promise.resolve({
-            cards: [
-              {
-                card_type: 'diagnosis_gate',
-                sections: [
-                  {
-                    type: 'goal_selection',
-                    options: [
-                      { id: 'hydration', label_en: 'Deep hydration', label_zh: '深层补水' },
-                      { id: 'barrier', label_en: 'Repair skin barrier', label_zh: '修护屏障' },
-                    ],
-                  },
-                  {
-                    type: 'follow_up_questions',
-                    questions: [
-                      {
-                        id: 'q1',
-                        question: 'How sensitive does your skin feel lately?',
-                        options: [
-                          { id: 'low', label: 'Low' },
-                          { id: 'high', label: 'High' },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-            ops: {
-              thread_ops: [{ op: 'set', key: 'diagnosis_state', value: 'goal_selection' }],
-              profile_patch: {},
-              routine_patch: {},
-              experiment_events: [],
-            },
-            next_actions: [],
-          });
-        }
-
-        return Promise.resolve({
-          cards: [
-            {
-              card_type: 'skin_status',
-              sections: [
-                {
-                  type: 'skin_status_structured',
-                  skin_type: 'combination',
-                  primary_concerns: ['dehydration'],
-                  severity_scores: {},
-                  confidence: 0.7,
-                },
-              ],
-            },
-          ],
-          ops: {
-            thread_ops: [
-              { op: 'set', key: 'blueprint_id', value: 'bp_diag_1' },
-              { op: 'set', key: 'diagnosis_state', value: 'completed' },
-            ],
-            profile_patch: { skin_type: 'combination', primary_concerns: ['dehydration'], goals: ['hydration'] },
-            routine_patch: {},
-            experiment_events: [],
-          },
-          next_actions: [
-            {
-              action_type: 'navigate_skill',
-              target_skill_id: 'routine.apply_blueprint',
-              label: { en: 'Build my routine', zh: '生成我的护肤流程' },
-            },
-          ],
-        });
-      }
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
       return Promise.resolve(makeEnvelope());
     });
 
     renderChat('/chat?chip_id=chip.start.diagnosis');
 
     await screen.findByRole('button', { name: 'Deep hydration' });
-    expect(screen.queryByRole('button', { name: 'Combination' })).not.toBeInTheDocument();
 
+    const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
+    expect(chatCalls).toHaveLength(1);
+    expect(screen.queryByText('empty_state')).not.toBeInTheDocument();
+  });
+
+  it('opens the local photo prompt after goals are selected instead of sending another /v1/chat turn', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat('/chat?chip_id=chip.start.diagnosis');
+
+    await screen.findByRole('button', { name: 'Deep hydration' });
     fireEvent.click(screen.getByRole('button', { name: 'Deep hydration' }));
     fireEvent.click(screen.getByRole('radio', { name: 'High' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
 
-    await screen.findByRole('button', { name: 'Build my routine' });
+    await screen.findByRole('button', { name: 'Take a selfie for better analysis' });
+    expect(screen.getByRole('button', { name: 'Skip and continue' })).toBeInTheDocument();
 
     const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
-    expect(chatCalls).toHaveLength(2);
-
-    const firstBody = parseBody(chatCalls[0] as unknown[]);
-    const secondBody = parseBody(chatCalls[1] as unknown[]);
-
-    expect(firstBody.action?.action_id).toBe('chip.start.diagnosis');
-    expect(firstBody.thread_state).toBeUndefined();
-    expect(secondBody.action?.action_id).toBe('chip.start.diagnosis');
-    expect(secondBody.thread_state).toMatchObject({
-      diagnosis_state: 'goals_selected',
-      diagnosis_goals: ['hydration'],
-      diagnosis_followup_answers: { q1: 'high' },
-    });
-    const analysisCalls = mock.mock.calls.filter(([path]) => path === '/v1/analysis/skin');
-    expect(analysisCalls).toHaveLength(0);
+    expect(chatCalls).toHaveLength(1);
   });
 
-  it('first diagnosis click sends to backend and never shows empty_state or legacy card', async () => {
+  it('enters the photo uploader when the user chooses to take a photo', async () => {
     const mock = vi.mocked(bffJson);
 
     mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope());
-      }
-      if (path === '/v1/chat') {
-        return Promise.resolve({
-          cards: [
-            {
-              card_type: 'diagnosis_gate',
-              sections: [
-                {
-                  type: 'goal_selection',
-                  options: [
-                    { id: 'hydration', label_en: 'Deep hydration', label_zh: '深层补水' },
-                  ],
-                },
-              ],
-            },
-          ],
-          ops: {
-            thread_ops: [{ op: 'set', key: 'diagnosis_state', value: 'goal_selection' }],
-            profile_patch: {},
-            routine_patch: {},
-            experiment_events: [],
-          },
-          next_actions: [],
-        });
-      }
-      return Promise.resolve(makeEnvelope());
-    });
-
-    renderChat('/chat?chip_id=chip.start.diagnosis');
-
-    await screen.findByRole('button', { name: 'Deep hydration' });
-
-    const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
-    expect(chatCalls.length).toBeGreaterThanOrEqual(1);
-    expect(chatCalls[0]?.[0]).toBe('/v1/chat');
-
-    expect(screen.queryByText('empty_state')).not.toBeInTheDocument();
-    expect(screen.queryByText('Start diagnosis')).not.toBeInTheDocument();
-    expect(screen.queryByText('Analyze a product')).not.toBeInTheDocument();
-    expect(screen.queryByText('Ask about an ingredient')).not.toBeInTheDocument();
-  });
-
-  it('persists V2 thread_state so diagnosis follow-up chips carry blueprint_id', async () => {
-    const mock = vi.mocked(bffJson);
-    let chatTurn = 0;
-
-    mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope());
-      }
-      if (path === '/v1/chat') {
-        chatTurn += 1;
-        if (chatTurn === 1) {
-          return Promise.resolve({
-            cards: [
-              {
-                card_type: 'diagnosis_gate',
-                sections: [
-                  {
-                    type: 'goal_selection',
-                    options: [{ id: 'hydration', label_en: 'Deep hydration', label_zh: '深层补水' }],
-                  },
-                ],
-              },
-            ],
-            ops: {
-              thread_ops: [{ op: 'set', key: 'diagnosis_state', value: 'goal_selection' }],
-              profile_patch: {},
-              routine_patch: {},
-              experiment_events: [],
-            },
-            next_actions: [],
-          });
-        }
-        if (chatTurn === 2) {
-          return Promise.resolve({
-            cards: [
-              {
-                card_type: 'skin_status',
-                sections: [
-                  {
-                    type: 'skin_status_structured',
-                    skin_type: 'combination',
-                    primary_concerns: ['dehydration'],
-                    severity_scores: {},
-                    confidence: 0.7,
-                  },
-                ],
-              },
-            ],
-            ops: {
-              thread_ops: [
-                { op: 'set', key: 'blueprint_id', value: 'bp_diag_2' },
-                { op: 'set', key: 'diagnosis_state', value: 'completed' },
-              ],
-              profile_patch: {},
-              routine_patch: {},
-              experiment_events: [],
-            },
-            next_actions: [
-              {
-                action_type: 'navigate_skill',
-                target_skill_id: 'routine.apply_blueprint',
-                label: { en: 'Build my routine', zh: '生成我的护肤流程' },
-              },
-            ],
-          });
-        }
-        return Promise.resolve({
-          cards: [],
-          ops: { thread_ops: [], profile_patch: {}, routine_patch: {}, experiment_events: [] },
-          next_actions: [],
-        });
-      }
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
       return Promise.resolve(makeEnvelope());
     });
 
@@ -303,21 +151,36 @@ describe('BffChat diagnosis submit flow', () => {
     await screen.findByRole('button', { name: 'Deep hydration' });
     fireEvent.click(screen.getByRole('button', { name: 'Deep hydration' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Take a selfie for better analysis' }));
 
-    const routineChip = await screen.findByRole('button', { name: 'Build my routine' });
-    fireEvent.click(routineChip);
+    await screen.findByRole('button', { name: 'Skip photos' });
+    const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
+    expect(chatCalls).toHaveLength(1);
+  });
+
+  it('runs low-confidence analysis when the user skips the photo step', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
+      if (path === '/v1/analysis/skin') return Promise.resolve(makeEnvelope());
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat('/chat?chip_id=chip.start.diagnosis');
+
+    await screen.findByRole('button', { name: 'Deep hydration' });
+    fireEvent.click(screen.getByRole('button', { name: 'Deep hydration' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip and continue' }));
 
     await waitFor(() => {
-      const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
-      expect(chatCalls).toHaveLength(3);
+      const analysisCalls = mock.mock.calls.filter(([path]) => path === '/v1/analysis/skin');
+      expect(analysisCalls).toHaveLength(1);
     });
 
-    const thirdBody = parseBody(mock.mock.calls.filter(([path]) => path === '/v1/chat')[2] as unknown[]);
-    expect(thirdBody.action?.action_id).toBe('chip.start.routine');
-    expect(thirdBody.thread_state).toMatchObject({
-      blueprint_id: 'bp_diag_2',
-      diagnosis_state: 'completed',
-      diagnosis_goals: ['hydration'],
-    });
+    const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
+    expect(chatCalls).toHaveLength(1);
   });
 });
