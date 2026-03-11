@@ -56,6 +56,7 @@ type IngredientTargetLike = {
 type PlanVariant = 'v1' | 'v2';
 type ProductBucket = 'competitors' | 'dupes' | 'external_search_ctas';
 type OpenResult = 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
+type PriorityBadgeTone = 'best_match' | 'strong_match' | 'support_option';
 
 const asObject = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -119,6 +120,136 @@ const safeUrl = (value: unknown): string => {
     return '';
   }
 };
+
+const NON_SKINCARE_PRODUCT_PATTERNS = [
+  'lip gloss',
+  'lipstick',
+  'lip cream',
+  'lip stain',
+  'mascara',
+  'foundation',
+  'concealer',
+  'eyeshadow',
+  'eyeliner',
+  'highlighter',
+  'bronzer',
+  'blush',
+  'palette',
+  'powder',
+  'fragrance',
+  'perfume',
+  'body mist',
+  'hair mask',
+  'shampoo',
+  'conditioner',
+  'nail polish',
+  'diamond veil',
+];
+
+const SKINCARE_PRODUCT_HINTS = [
+  'spf',
+  'sunscreen',
+  'serum',
+  'moisturizer',
+  'moisturiser',
+  'cream',
+  'cleanser',
+  'lotion',
+  'balm',
+  'gel',
+  'essence',
+  'ampoule',
+  'fluid',
+  'emulsion',
+  'mask',
+  'treatment',
+  'niacinamide',
+  'retinol',
+  'vitamin c',
+  'ceramide',
+  'panthenol',
+  'azelaic',
+  'peptide',
+  'cica',
+];
+
+function normalizeDedupKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function productText(row: ProductLike): string {
+  return [
+    row.title,
+    row.name,
+    row.brand,
+    row.source,
+    row.source_block,
+    row.why_match,
+  ]
+    .map(asString)
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function isLikelySkincareProduct(row: ProductLike): boolean {
+  const haystack = productText(row);
+  if (!haystack) return true;
+  return !NON_SKINCARE_PRODUCT_PATTERNS.some((pattern) => haystack.includes(pattern));
+}
+
+function scoreProductRowRichness(row: ProductLike): number {
+  let score = 0;
+  const haystack = productText(row);
+  if (SKINCARE_PRODUCT_HINTS.some((pattern) => haystack.includes(pattern))) score += 3;
+  if (productOpenUrl(row)) score += 2;
+  if (asNumber(row.price) != null) score += 1;
+  if (asString(row.why_match)) score += 2;
+  if (asString(row.source_block).toLowerCase() === 'competitor') score += 1;
+  return score;
+}
+
+function dedupeProductRows(rows: ProductLike[]): ProductLike[] {
+  const seen = new Map<string, ProductLike>();
+  for (const row of rows) {
+    const key = `${normalizeDedupKey(asString(row.brand))}::${normalizeDedupKey(asString(row.title || row.name))}`;
+    const existing = seen.get(key);
+    if (!existing || scoreProductRowRichness(row) > scoreProductRowRichness(existing)) {
+      seen.set(key, row);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+function filterAndSortProductRows(rows: ProductLike[]): ProductLike[] {
+  return dedupeProductRows(rows.filter(isLikelySkincareProduct)).sort(
+    (a, b) => scoreProductRowRichness(b) - scoreProductRowRichness(a),
+  );
+}
+
+function mapPriorityTone(levelToken: string, score: number | null): PriorityBadgeTone {
+  const normalized = normalizePriorityLevel(levelToken, score);
+  if (normalized === 'high') return 'best_match';
+  if (normalized === 'medium') return 'strong_match';
+  return 'support_option';
+}
+
+function priorityToneLabel(tone: PriorityBadgeTone, language: Language): string {
+  if (language === 'CN') {
+    if (tone === 'best_match') return '最佳匹配';
+    if (tone === 'strong_match') return '强力匹配';
+    return '辅助选项';
+  }
+  if (tone === 'best_match') return 'Best match';
+  if (tone === 'strong_match') return 'Strong match';
+  return 'Support option';
+}
+
+function priorityToneClassName(tone: PriorityBadgeTone): string {
+  if (tone === 'best_match') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700';
+  if (tone === 'strong_match') return 'border-blue-500/40 bg-blue-500/10 text-blue-700';
+  return 'border-border/60 bg-muted/40 text-muted-foreground';
+}
 
 const readRefTarget = (raw: unknown): { product_id: string; merchant_id?: string } | null => {
   const ref = asObject(raw);
@@ -320,13 +451,13 @@ export function IngredientPlanCard({
   const labels =
     language === 'CN'
       ? {
-          title: '目标成分与产品',
+          title: '成分与产品推荐',
           preview: '补全 AM/PM routine 后将解锁个性化产品推荐。',
-          competitors: '主选',
-          dupes: '平替',
+          competitors: '推荐商品',
+          dupes: '辅助选项',
           linkUnavailable: '链接暂不可用',
-          search: '外部检索',
-          intensity: '强度',
+          search: '更多探索',
+          intensity: '方案强度',
           budget: '预算偏好',
           diversifiedUnknown: '（未知时已做价位分散）',
           usage: '用法',
@@ -334,18 +465,19 @@ export function IngredientPlanCard({
           conflictsTitle: '冲突说明',
           openProduct: '查看商品',
           openSearch: '打开搜索',
-          primaryBadge: '主选',
-          alternativeBadge: '平替',
+          primaryBadge: '最佳匹配',
+          alternativeBadge: '辅助选项',
           searchBadge: '检索',
+          filteredProducts: '已隐藏明显非护肤候选，保留更相关的护肤商品。',
         }
       : {
-          title: 'Target ingredients + products',
+          title: 'Ingredient & product recommendations',
           preview: 'Complete AM/PM routine to unlock personalized product picks.',
-          competitors: 'Primary picks',
-          dupes: 'Alternatives',
+          competitors: 'Recommended products',
+          dupes: 'Support options',
           linkUnavailable: 'Link unavailable',
-          search: 'External search',
-          intensity: 'Intensity',
+          search: 'Explore more',
+          intensity: 'Plan strength',
           budget: 'Budget context',
           diversifiedUnknown: '(diversified for unknown budget)',
           usage: 'How to use',
@@ -353,9 +485,10 @@ export function IngredientPlanCard({
           conflictsTitle: 'Conflicts',
           openProduct: 'Open product',
           openSearch: 'Open search',
-          primaryBadge: 'Primary',
-          alternativeBadge: 'Alternative',
+          primaryBadge: 'Best match',
+          alternativeBadge: 'Support option',
           searchBadge: 'Search',
+          filteredProducts: 'Obvious non-skincare candidates were hidden to keep these picks skincare-relevant.',
         };
 
   const sections = useMemo(
@@ -367,12 +500,22 @@ export function IngredientPlanCard({
           asString(target.display_name) ||
           `target_${index + 1}`;
         const score = asNumber(target.priority_score_0_100);
-        const level = normalizePriorityLevel(asString(target.priority_level), score);
+        const priorityTone = mapPriorityTone(asString(target.priority_level), score);
         const why = toStringList(target.why, 3);
         const guidance = toStringList(target.usage_guidance, 3);
-        const competitors = asProductRows(target.products?.competitors);
-        const dupes = asProductRows(target.products?.dupes);
-        return { ingredient, level, why, guidance, competitors, dupes };
+        const rawCompetitors = asProductRows(target.products?.competitors);
+        const rawDupes = asProductRows(target.products?.dupes);
+        const competitors = filterAndSortProductRows(rawCompetitors);
+        const dupes = filterAndSortProductRows(rawDupes);
+        return {
+          ingredient,
+          priorityTone,
+          why,
+          guidance,
+          competitors,
+          dupes,
+          filteredProducts: rawCompetitors.length + rawDupes.length > competitors.length + dupes.length,
+        };
       }),
     [targets],
   );
@@ -451,15 +594,20 @@ export function IngredientPlanCard({
         return (
           <div key={section.ingredient} className="space-y-3 rounded-2xl border border-border/60 bg-background/85 p-3">
             <div className="flex items-start justify-between gap-3">
-              <div className="text-base font-semibold text-foreground">{section.ingredient}</div>
-              <div className="shrink-0 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
-                {priorityLabel(section.level, language)}
+              <div>
+                <div className="text-base font-semibold text-foreground">{section.ingredient}</div>
+                {section.why.length ? (
+                  <div className="mt-1 text-xs leading-5 text-foreground/80">{section.why[0]}</div>
+                ) : null}
+              </div>
+              <div className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${priorityToneClassName(section.priorityTone)}`}>
+                {priorityToneLabel(section.priorityTone, language)}
               </div>
             </div>
 
-            {section.why.length ? (
+            {section.why.length > 1 ? (
               <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-muted-foreground">
-                {section.why.map((item) => (
+                {section.why.slice(1).map((item) => (
                   <li key={`${section.ingredient}_${item}`}>{item}</li>
                 ))}
               </ul>
@@ -478,7 +626,7 @@ export function IngredientPlanCard({
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">{labels.competitors}</div>
                     <div className="grid grid-cols-1 gap-2">
-                      {section.competitors.slice(0, 4).map((row, index) => (
+                      {section.competitors.slice(0, 3).map((row, index) => (
                         <ProductCard
                           key={`${section.ingredient}_competitor_${index}`}
                           row={row}
@@ -496,7 +644,7 @@ export function IngredientPlanCard({
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">{labels.dupes}</div>
                     <div className="grid grid-cols-1 gap-2">
-                      {section.dupes.slice(0, 3).map((row, index) => (
+                      {section.dupes.slice(0, 2).map((row, index) => (
                         <ProductCard
                           key={`${section.ingredient}_dupe_${index}`}
                           row={row}
@@ -509,6 +657,12 @@ export function IngredientPlanCard({
                     </div>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {section.filteredProducts ? (
+              <div className="rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-[11px] text-muted-foreground">
+                {labels.filteredProducts}
               </div>
             ) : null}
           </div>

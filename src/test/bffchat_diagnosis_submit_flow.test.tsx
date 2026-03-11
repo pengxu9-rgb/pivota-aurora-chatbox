@@ -164,7 +164,55 @@ describe('BffChat diagnosis submit flow', () => {
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
       if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
-      if (path === '/v1/analysis/skin') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/analysis/skin') {
+        return Promise.resolve(
+          makeEnvelope({
+            cards: [
+              {
+                card_id: 'ingredient_plan_after_skip',
+                type: 'ingredient_plan_v2',
+                payload: {
+                  schema_version: 'aurora.ingredient_plan.v2',
+                  intensity: {
+                    level: 'gentle',
+                    label: 'Gentle',
+                    explanation: 'Barrier-first, lower-irritation progression.',
+                  },
+                  targets: [
+                    {
+                      ingredient_id: 'uv_filters',
+                      ingredient_name: 'UV Filters',
+                      priority_score_0_100: 82,
+                      priority_level: 'high',
+                      why: ['Rule signal: low_confidence_gentle_only'],
+                      usage_guidance: ['Daily AM final step'],
+                      products: {
+                        competitors: [
+                          {
+                            product_id: 'spf_1',
+                            name: 'UV Filters SPF 45 Serum',
+                            brand: 'The Ordinary',
+                            pdp_url: 'https://example.com/pdp/spf-serum',
+                          },
+                          {
+                            product_id: 'lip_1',
+                            name: 'Gloss Bomb Cream Color Drip Lip Cream',
+                            brand: 'Fenty Beauty',
+                            pdp_url: 'https://example.com/pdp/lip-gloss',
+                          },
+                        ],
+                        dupes: [],
+                      },
+                    },
+                  ],
+                  avoid: [],
+                  conflicts: [],
+                },
+              } as any,
+            ],
+          }),
+        );
+      }
       return Promise.resolve(makeEnvelope());
     });
 
@@ -174,6 +222,10 @@ describe('BffChat diagnosis submit flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Deep hydration' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Skip and continue' }));
+
+    await screen.findByText('Ingredient & product recommendations');
+    expect(screen.getByText('UV Filters SPF 45 Serum')).toBeInTheDocument();
+    expect(screen.queryByText(/Gloss Bomb Cream/i)).not.toBeInTheDocument();
 
     await waitFor(() => {
       const analysisCalls = mock.mock.calls.filter(([path]) => path === '/v1/analysis/skin');

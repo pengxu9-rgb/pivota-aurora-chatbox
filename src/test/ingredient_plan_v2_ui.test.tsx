@@ -65,7 +65,8 @@ describe('ingredient_plan_v2 rich product UI', () => {
 
     expect(screen.getByText('Niacinamide Serum')).toBeInTheDocument();
     expect(screen.getByText('Brand A · amazon')).toBeInTheDocument();
-    expect(screen.getByText('Intensity: Balanced')).toBeInTheDocument();
+    expect(screen.getByText('Plan strength: Balanced')).toBeInTheDocument();
+    expect(screen.getAllByText('Best match').length).toBeGreaterThan(0);
     expect(screen.queryByText('https://example.com/pdp')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /open product: niacinamide serum/i }));
@@ -107,10 +108,67 @@ describe('ingredient_plan_v2 rich product UI', () => {
     );
 
     expect(screen.queryByText(/^-$/)).not.toBeInTheDocument();
-    expect(screen.queryByText('Primary picks')).not.toBeInTheDocument();
-    expect(screen.queryByText('Alternatives')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recommended products')).not.toBeInTheDocument();
+    expect(screen.queryByText('Support options')).not.toBeInTheDocument();
     expect(openSpy).not.toHaveBeenCalled();
 
     openSpy.mockRestore();
+  });
+
+  it('filters obvious makeup candidates out of skincare recommendations', () => {
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_filtered"
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'uv_filters',
+              ingredient_name: 'UV Filters',
+              priority_score_0_100: 82,
+              priority_level: 'high',
+              why: ['Daily UV protection matters most in low-confidence mode.'],
+              usage_guidance: ['AM final step'],
+              products: {
+                competitors: [
+                  {
+                    product_id: 'spf_1',
+                    name: 'UV Filters SPF 45 Serum',
+                    brand: 'The Ordinary',
+                    pdp_url: 'https://example.com/pdp/spf-serum',
+                  },
+                  {
+                    product_id: 'lip_1',
+                    name: 'Gloss Bomb Cream Color Drip Lip Cream',
+                    brand: 'Fenty Beauty',
+                    pdp_url: 'https://example.com/pdp/lip-gloss',
+                  },
+                  {
+                    product_id: 'veil_1',
+                    name: 'Diamond Bomb All-Over Diamond Veil',
+                    brand: 'Fenty Beauty',
+                    pdp_url: 'https://example.com/pdp/highlighter',
+                  },
+                ],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('UV Filters SPF 45 Serum')).toBeInTheDocument();
+    expect(screen.queryByText(/Gloss Bomb Cream/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Diamond Bomb All-Over Diamond Veil/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Obvious non-skincare candidates were hidden to keep these picks skincare-relevant.'),
+    ).toBeInTheDocument();
   });
 });
