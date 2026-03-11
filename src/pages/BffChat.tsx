@@ -8842,6 +8842,23 @@ export default function BffChat() {
       .slice(0, 4);
   }, [analysisPhotoRefs]);
 
+  const getLatestAnalysisStorySnapshot = useCallback((): Record<string, unknown> | null => {
+    for (let index = itemsRef.current.length - 1; index >= 0; index -= 1) {
+      const item = itemsRef.current[index];
+      if (!item || item.kind !== 'cards') continue;
+      const storyCard = item.cards.find((card) => card && card.type === 'analysis_story_v2');
+      if (!storyCard || !storyCard.payload || typeof storyCard.payload !== 'object' || Array.isArray(storyCard.payload)) {
+        continue;
+      }
+      try {
+        return JSON.parse(JSON.stringify(storyCard.payload)) as Record<string, unknown>;
+      } catch {
+        return storyCard.payload as Record<string, unknown>;
+      }
+    }
+    return null;
+  }, []);
+
   const sendChat = useCallback(
     async (
       message?: string,
@@ -9664,11 +9681,13 @@ export default function BffChat() {
           asString(data?.reply_text) ||
           (language === 'CN' ? '深入了解我的皮肤状态' : 'Tell me more about my skin');
         const photoRefs = getSanitizedAnalysisPhotos();
+        const analysisStorySnapshot = getLatestAnalysisStorySnapshot();
         const analysisContext: ChatSessionAnalysisContext = {
           analysis_origin: photoRefs.length > 0 ? 'photo' : 'profile',
           use_photo: photoRefs.length > 0,
           ...(photoRefs.length > 0 ? { photo_refs: photoRefs } : {}),
           source_card_type: 'analysis_story_v2',
+          ...(analysisStorySnapshot ? { analysis_story_snapshot: analysisStorySnapshot } : {}),
         };
         const actionData: Record<string, unknown> = {
           ...(data && typeof data === 'object' ? data : {}),
@@ -9676,6 +9695,7 @@ export default function BffChat() {
           use_photo: analysisContext.use_photo === true,
           ...(Array.isArray(analysisContext.photo_refs) ? { photo_refs: analysisContext.photo_refs } : {}),
           source_card_type: 'analysis_story_v2',
+          ...(analysisStorySnapshot ? { analysis_story_snapshot: analysisStorySnapshot } : {}),
           reply_text: replyText,
         };
         setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: replyText }]);
@@ -9819,6 +9839,7 @@ export default function BffChat() {
       anchorProductId,
       anchorProductUrl,
       applyEnvelope,
+      getLatestAnalysisStorySnapshot,
       getSanitizedAnalysisPhotos,
       headers,
       language,

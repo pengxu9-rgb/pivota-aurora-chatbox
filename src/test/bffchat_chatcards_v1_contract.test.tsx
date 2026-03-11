@@ -1327,6 +1327,12 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
         use_photo: false,
         source_card_type: 'analysis_story_v2',
       });
+      expect(lastBody.action.data.analysis_story_snapshot).toMatchObject({
+        confidence_overall: { level: 'medium' },
+      });
+      expect(lastBody.session.meta.analysis_context.analysis_story_snapshot).toMatchObject({
+        confidence_overall: { level: 'medium' },
+      });
     });
   });
 
@@ -1432,6 +1438,12 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
           use_photo: true,
           source_card_type: 'analysis_story_v2',
           photo_refs: [{ slot_id: 'daylight', photo_id: 'photo_daylight_1', qc_status: 'passed' }],
+        });
+        expect(body.action.data.analysis_story_snapshot).toMatchObject({
+          confidence_overall: { level: 'medium', score: 0.72 },
+        });
+        expect(body.session.meta.analysis_context.analysis_story_snapshot).toMatchObject({
+          confidence_overall: { level: 'medium', score: 0.72 },
         });
         expect(JSON.stringify(body)).not.toContain('blob:bffchat-photo-contract');
         expect(JSON.stringify(body)).not.toContain('"preview"');

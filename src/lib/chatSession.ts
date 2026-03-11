@@ -9,6 +9,7 @@ export type ChatSessionAnalysisContext = {
   use_photo?: boolean;
   photo_refs?: ChatSessionAnalysisPhotoRef[];
   source_card_type?: string;
+  analysis_story_snapshot?: Record<string, unknown>;
 };
 
 function isPlainObject(value: unknown): value is SessionProfile {
