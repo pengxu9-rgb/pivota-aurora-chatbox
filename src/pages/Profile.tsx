@@ -632,14 +632,6 @@ export default function Profile() {
         {authSession ? (
           <div className="mt-4 space-y-3">
             <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
-              <div className="text-[12px] text-muted-foreground">Signed in as</div>
-              <div className="mt-0.5 text-[15px] font-semibold text-foreground">{authSession.email}</div>
-              {authSession.expires_at ? (
-                <div className="mt-1 text-[12px] text-muted-foreground">Expires: {authSession.expires_at}</div>
-              ) : null}
-            </div>
-
-            <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
               <div className="text-[15px] font-semibold text-foreground">{isCN ? '个人资料' : 'Profile details'}</div>
               <div className="mt-1 text-[12px] text-muted-foreground">
                 {isCN ? '更新用户名与头像，左侧栏会同步显示。' : 'Update your name and avatar for the left sidebar.'}

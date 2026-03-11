@@ -11034,11 +11034,6 @@ export default function BffChat() {
                   <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">
                     <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '已登录' : 'Signed in'}</div>
                     <div className="mt-1 text-xs text-muted-foreground">{authSession.email}</div>
-                    {authSession.expires_at ? (
-                      <div className="mt-1 text-[11px] text-muted-foreground">
-                        {language === 'CN' ? '有效期至：' : 'Expires:'} {authSession.expires_at}
-                      </div>
-                    ) : null}
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-background/40 p-3">
                     <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '密码登录' : 'Password sign-in'}</div>
