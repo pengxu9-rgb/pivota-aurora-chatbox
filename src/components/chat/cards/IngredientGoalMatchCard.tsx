@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { t } from '@/lib/i18n';
 import type { Language } from '@/lib/types';
 
 const asObject = (value: unknown): Record<string, unknown> | null => {
@@ -29,10 +30,9 @@ export function IngredientGoalMatchCard({
   language: Language;
   onAction: (actionId: string, data?: Record<string, any>) => void;
 }) {
-  const isCN = language === 'CN';
   const root = asObject(payload) || {};
-  const goalLabel = asString(root.goal_label) || (isCN ? '目标成分匹配' : 'Ingredient goal match');
-  const sensitivityLabel = asString(root.sensitivity_label) || (isCN ? '未知' : 'Unknown');
+  const goalLabel = asString(root.goal_label) || t('ingredient_goal_match.default_goal_label', language);
+  const sensitivityLabel = asString(root.sensitivity_label) || t('ingredient_goal_match.unknown', language);
   const goalToken = asString(root.goal) || 'barrier';
   const sensitivityToken = asString(root.sensitivity) || 'unknown';
 
@@ -54,10 +54,10 @@ export function IngredientGoalMatchCard({
     <div className="space-y-2.5 rounded-2xl border border-border/60 bg-background/80 p-3.5">
       <div className="space-y-1">
         <div className="text-sm font-semibold text-foreground">
-          {isCN ? `按功效匹配：${goalLabel}` : `Goal match: ${goalLabel}`}
+          {t('ingredient_goal_match.title', language, { goal: goalLabel })}
         </div>
         <div className="text-xs text-muted-foreground">
-          {isCN ? `敏感度：${sensitivityLabel}` : `Sensitivity: ${sensitivityLabel}`}
+          {t('ingredient_goal_match.sensitivity', language, { sensitivity: sensitivityLabel })}
         </div>
       </div>
 
@@ -68,7 +68,7 @@ export function IngredientGoalMatchCard({
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-medium text-foreground">{row.ingredient}</div>
                 <div className="rounded-full border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {isCN ? `证据 ${row.evidence_grade}` : `Evidence ${row.evidence_grade}`}
+                  {t('ingredient_goal_match.evidence', language, { grade: row.evidence_grade })}
                 </div>
               </div>
               {row.reason ? <div className="mt-1 text-[11px] text-muted-foreground">{row.reason}</div> : null}
@@ -76,14 +76,14 @@ export function IngredientGoalMatchCard({
           ))
         ) : (
           <div className="rounded-xl border border-border/60 bg-background/60 p-2.5 text-xs text-muted-foreground">
-            {isCN ? '暂未识别到可匹配目标，请换一个功效目标。' : 'No matched goal yet. Try another target.'}
+            {t('ingredient_goal_match.empty', language)}
           </div>
         )}
       </div>
 
       {avoidPairs.length ? (
         <div className="rounded-xl border border-amber-300/60 bg-amber-50/50 p-2.5">
-          <div className="text-xs font-semibold text-amber-800">{isCN ? '避坑组合' : 'Avoid pairs'}</div>
+          <div className="text-xs font-semibold text-amber-800">{t('ingredient_goal_match.avoid_pairs', language)}</div>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-amber-900">
             {avoidPairs.map((line) => (
               <li key={line}>{line}</li>
@@ -106,7 +106,7 @@ export function IngredientGoalMatchCard({
             })
           }
         >
-          {isCN ? '去看产品（可选）' : 'See products (optional)'}
+          {t('ingredient_goal_match.btn.products', language)}
         </button>
         <button
           type="button"
@@ -117,7 +117,7 @@ export function IngredientGoalMatchCard({
             })
           }
         >
-          {isCN ? '再查一个成分' : 'Lookup another ingredient'}
+          {t('ingredient_goal_match.btn.lookup', language)}
         </button>
       </div>
     </div>

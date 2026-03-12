@@ -8,6 +8,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { normalizeEnvStressUiModelV1 } from '@/lib/auroraUiContracts';
+import { pickLocalizedText } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Language } from '@/lib/types';
 import type { CategorizedKitEntry, TravelProductLookupQuery } from '@/lib/auroraEnvStress';
@@ -830,6 +831,8 @@ export function EnvStressCard({
     [deltaMetrics, language],
   );
 
+  const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
@@ -846,19 +849,17 @@ export function EnvStressCard({
               </div>
               <div>
                 <div className="text-sm font-semibold text-foreground">
-                  {language === 'EN' ? 'Environment Stress' : '环境压力'}
+                  {L('Environment Stress', '环境压力')}
                 </div>
                 <div className="mt-1 text-[11px] text-muted-foreground">
-                  {language === 'EN'
-                    ? 'A bounded, explainable stress signal (ESS).'
-                    : '可解释、可降级的压力信号（ESS）。'}
+                  {L('A bounded, explainable stress signal (ESS).', '可解释、可降级的压力信号（ESS）。')}
                 </div>
               </div>
             </div>
 
             {typeof ess === 'number' ? (
               <div className="text-right">
-                <div className="text-[11px] text-muted-foreground">{language === 'EN' ? 'ESS' : 'ESS'}</div>
+                <div className="text-[11px] text-muted-foreground">ESS</div>
                 <div className="text-sm font-semibold text-foreground">{Math.round(ess)}/100</div>
               </div>
             ) : null}
@@ -878,7 +879,7 @@ export function EnvStressCard({
               <div className="flex items-center justify-between">
                 {tier ? (
                   <div className="text-[11px] text-muted-foreground">
-                    {language === 'EN' ? 'Tier:' : '等级：'} {tier}
+                    {L('Tier:', '等级：')} {tier}
                   </div>
                 ) : <span />}
               </div>
@@ -912,9 +913,7 @@ export function EnvStressCard({
           ) : (
             <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-[11px] text-muted-foreground">
               {model?.notes?.[0] ??
-                (language === 'EN'
-                  ? 'Environment stress is unavailable for this reply.'
-                  : '本次回复未拿到环境压力数据。')}
+                L('Environment stress is unavailable for this reply.', '本次回复未拿到环境压力数据。')}
             </div>
           )}
 

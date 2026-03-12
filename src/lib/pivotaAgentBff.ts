@@ -1,7 +1,10 @@
 import { getOrCreateAuroraUid } from './persistence';
 import type { ChatIntroHintV1 } from './chatCardsTypes';
+import { toBackendLanguage } from './persistence';
+import type { Language as UiLanguage } from './types';
 import { requestWithTimeout } from '@/utils/requestWithTimeout';
 
+/** Backend language headers are still binary until the service expands beyond EN/CN. */
 export type Language = 'EN' | 'CN';
 
 export type AssistantMessage = {
@@ -142,8 +145,9 @@ export class PivotaAgentBffError extends Error {
   }
 }
 
-export const makeDefaultHeaders = (lang: Language): BffHeaders => {
+export const makeDefaultHeaders = (lang: UiLanguage): BffHeaders => {
   const aurora_uid = getOrCreateAuroraUid();
+  const backendLang = toBackendLanguage(lang);
 
   const cryptoObj = globalThis.crypto as Crypto | undefined;
   const id = (prefix: string) =>
@@ -153,7 +157,7 @@ export const makeDefaultHeaders = (lang: Language): BffHeaders => {
     aurora_uid,
     trace_id: id('trace'),
     brief_id: id('brief'),
-    lang,
+    lang: backendLang,
   };
 };
 

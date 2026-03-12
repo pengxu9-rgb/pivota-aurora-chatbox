@@ -1,13 +1,23 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
+import { AURORA_AUTH_SESSION_CHANGED_EVENT, loadAuroraAuthSession } from '@/lib/auth';
 import type { Language } from '@/lib/types';
-import { getLangPref, setLangPref, type LangPref } from '@/lib/persistence';
+import {
+  getAccountLangPref,
+  getLangPref,
+  hasExplicitLangPref,
+  isLangPref,
+  setAccountLangPref,
+  setLangPref,
+  toUiLanguage,
+  type LangPref,
+} from '@/lib/persistence';
 import { t as translate } from '@/locales';
 
 type LanguageContextValue = {
-  /** Legacy language code used by existing components and APIs: 'EN' | 'CN' */
+  /** Uppercase UI locale used by existing components and APIs. */
   language: Language;
-  /** Lowercase preference stored in localStorage: 'en' | 'cn' */
+  /** Lowercase preference stored in localStorage. */
   langPref: LangPref;
   /** Update the language preference (triggers re-render for all consumers) */
   setLanguage: (pref: LangPref) => void;
@@ -17,26 +27,49 @@ type LanguageContextValue = {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
-const toLang = (pref: LangPref): Language => (pref === 'cn' ? 'CN' : 'EN');
-
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [pref, setPref] = useState<LangPref>(() => getLangPref());
 
   useEffect(() => {
     const onLangChanged = (evt: Event) => {
       const next = (evt as CustomEvent).detail;
-      if (next === 'en' || next === 'cn') setPref(next);
+      if (isLangPref(next)) setPref(next);
     };
     window.addEventListener('aurora_lang_pref_changed', onLangChanged as EventListener);
     return () => window.removeEventListener('aurora_lang_pref_changed', onLangChanged as EventListener);
   }, []);
 
+  useEffect(() => {
+    const syncWithAuthSession = () => {
+      const session = loadAuroraAuthSession();
+      const email = String(session?.email || '').trim();
+      if (!email) return;
+
+      const boundPref = getAccountLangPref(email);
+      if (boundPref) {
+        setLangPref(boundPref);
+        setPref(boundPref);
+        return;
+      }
+
+      if (hasExplicitLangPref()) {
+        setAccountLangPref(email, getLangPref());
+      }
+    };
+
+    syncWithAuthSession();
+    window.addEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, syncWithAuthSession);
+    return () => window.removeEventListener(AURORA_AUTH_SESSION_CHANGED_EVENT, syncWithAuthSession);
+  }, []);
+
   const setLanguage = useCallback((next: LangPref) => {
     setLangPref(next);
+    const email = String(loadAuroraAuthSession()?.email || '').trim();
+    if (email) setAccountLangPref(email, next);
     setPref(next);
   }, []);
 
-  const language = toLang(pref);
+  const language = toUiLanguage(pref);
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => translate(key, language, params),

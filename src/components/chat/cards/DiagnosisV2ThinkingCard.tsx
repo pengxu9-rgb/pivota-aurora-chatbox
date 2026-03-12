@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { t } from '@/lib/i18n';
 import type { DiagnosisV2ThinkingStep, Language } from '@/lib/types';
 
 interface Props {
@@ -6,10 +7,10 @@ interface Props {
   language: Language;
 }
 
-const STAGE_LABELS: Record<string, { CN: string; EN: string }> = {
-  goal_understanding: { CN: '理解你的护肤目标', EN: 'Understanding your goals' },
-  inference: { CN: '分析皮肤状态', EN: 'Analyzing skin state' },
-  strategy: { CN: '制定个性化策略', EN: 'Creating your strategy' },
+const STAGE_LABELS: Record<string, string> = {
+  goal_understanding: 'diagnosis_v2.thinking.goal_understanding',
+  inference: 'diagnosis_v2.thinking.inference',
+  strategy: 'diagnosis_v2.thinking.strategy',
 };
 
 const STAGE_ORDER = ['goal_understanding', 'inference', 'strategy'] as const;
@@ -35,7 +36,7 @@ export function DiagnosisV2ThinkingCard({ steps, language }: Props) {
 
   const stepsByStage = STAGE_ORDER.map((stageKey) => ({
     stageKey,
-    label: STAGE_LABELS[stageKey]?.[language] || stageKey,
+    label: t(STAGE_LABELS[stageKey] || stageKey, language),
     stageSteps: steps.filter((step) => step.stage === stageKey),
   }));
 
@@ -50,7 +51,7 @@ export function DiagnosisV2ThinkingCard({ steps, language }: Props) {
   return (
     <div className="chat-card space-y-3 animate-in fade-in duration-300">
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {language === 'CN' ? '正在为你深度分析...' : 'Deep analysis in progress...'}
+        {t('diagnosis_v2.thinking.title', language)}
       </p>
 
       <div ref={scrollRef} className="max-h-64 space-y-3 overflow-y-auto">

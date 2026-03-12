@@ -1,4 +1,5 @@
-type UiLanguage = 'CN' | 'EN';
+import { toBackendLanguage } from './persistence';
+import type { Language as UiLanguage } from './types';
 
 const isHttpProtocol = (url: URL): boolean => url.protocol === 'http:' || url.protocol === 'https:';
 
@@ -41,6 +42,6 @@ export function buildGoogleSearchFallbackUrl(rawQuery: string, language: UiLangu
   if (!query) return null;
   const url = new URL('https://www.google.com/search');
   url.searchParams.set('q', query);
-  url.searchParams.set('hl', language === 'CN' ? 'zh-CN' : 'en');
+  url.searchParams.set('hl', toBackendLanguage(language) === 'CN' ? 'zh-CN' : 'en');
   return url.toString();
 }

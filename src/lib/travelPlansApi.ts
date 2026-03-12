@@ -1,4 +1,5 @@
-import { PivotaAgentBffError, bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
+import { PivotaAgentBffError, bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
+import type { Language } from '@/lib/types';
 
 export type TravelPlanStatus = 'upcoming' | 'in_trip' | 'completed' | 'archived';
 

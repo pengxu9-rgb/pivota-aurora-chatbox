@@ -7,7 +7,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import type { Language } from '@/lib/pivotaAgentBff';
+import { t } from '@/lib/i18n';
+import type { Language } from '@/lib/types';
 import type { DestinationPlace, TravelPlaceField } from '@/lib/travelPlansApi';
 
 function buildPlaceMeta(place: DestinationPlace) {
@@ -34,15 +35,18 @@ export function DestinationDisambiguationDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const isDeparture = field === 'departure';
+  const queryLabel =
+    normalizedQuery ||
+    t(isDeparture ? 'travel.dialog.fallback_departure' : 'travel.dialog.fallback_destination', language);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md rounded-3xl border border-border/70 bg-background p-5">
         <DialogHeader>
-          <DialogTitle>{language === 'CN' ? (isDeparture ? '确认出发地' : '确认目的地') : isDeparture ? 'Confirm departure' : 'Confirm destination'}</DialogTitle>
+          <DialogTitle>{t(isDeparture ? 'travel.dialog.confirm_departure' : 'travel.dialog.confirm_destination', language)}</DialogTitle>
           <DialogDescription>
-            {language === 'CN'
-              ? `“${normalizedQuery || (isDeparture ? '该出发地' : '该地名')}”存在多个候选，请选择一个确定地点后继续。`
-              : `"${normalizedQuery || (isDeparture ? 'This departure location' : 'This destination')}" matches multiple places. Pick the exact one to continue.`}
+            {t(isDeparture ? 'travel.dialog.desc_departure' : 'travel.dialog.desc_destination', language, {
+              query: queryLabel,
+            })}
           </DialogDescription>
         </DialogHeader>
 

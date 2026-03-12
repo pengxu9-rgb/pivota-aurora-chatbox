@@ -1,6 +1,6 @@
 import React from 'react';
 import { Language, ProductAnalysisResult, MechanismVector } from '@/lib/types';
-import { t } from '@/lib/i18n';
+import { pickLocalizedText, t } from '@/lib/i18n';
 import { 
   CheckCircle2, 
   AlertTriangle, 
@@ -157,6 +157,7 @@ const suitabilityConfig = {
 };
 
 export function ProductAnalysisCard({ result, photoPreview, language, onAction }: ProductAnalysisCardProps) {
+  const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
   const config = suitabilityConfig[result.suitability];
   const SuitabilityIcon = config.icon;
   const productVector = computeProductVector(result);
@@ -165,6 +166,10 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
     acc[axis] = pickContributors(axis, result.ingredients.beneficial ?? []);
     return acc;
   }, {} as ProductVectorContributors);
+  const matchedSkinTypeLabel = result.skinProfileMatch ? t(`diagnosis.skin_type.${result.skinProfileMatch.skinType}`, language) : '';
+  const matchedProfileTitle = result.skinProfileMatch
+    ? L(`Matched to your ${matchedSkinTypeLabel.toLowerCase()} skin profile`, `基于您的${matchedSkinTypeLabel}肤质分析`)
+    : '';
   
   return (
     <div className="chat-card space-y-3">
@@ -191,7 +196,7 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
             </div>
             <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium", config.bg, config.color)}>
               <SuitabilityIcon className="w-3.5 h-3.5" />
-              {language === 'EN' ? config.label.en : config.label.cn}
+              {L(config.label.en, config.label.cn)}
             </div>
           </div>
         </div>
@@ -204,21 +209,16 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
             <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center">
               <Palette className="w-3.5 h-3.5 text-indigo-600" />
             </div>
-            <span className="text-sm font-medium text-indigo-700">
-              {language === 'EN' 
-                ? `Matched to your ${result.skinProfileMatch.skinType} skin profile`
-                : `基于您的${result.skinProfileMatch.skinType === 'oily' ? '油性' : result.skinProfileMatch.skinType === 'dry' ? '干性' : result.skinProfileMatch.skinType === 'combination' ? '混合性' : result.skinProfileMatch.skinType === 'sensitive' ? '敏感性' : '中性'}肤质分析`
-              }
-            </span>
+            <span className="text-sm font-medium text-indigo-700">{matchedProfileTitle}</span>
           </div>
           {result.skinProfileMatch.matchedConcerns.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               <span className="text-xs text-indigo-600">
-                {language === 'EN' ? 'Addresses:' : '针对:'}
+                {L('Addresses:', '针对:')}
               </span>
               {result.skinProfileMatch.matchedConcerns.map(concern => (
                 <span key={concern} className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                  {concern.replace('_', ' ')}
+                  {t(`diagnosis.concern.${concern}`, language)}
                 </span>
               ))}
             </div>
@@ -226,11 +226,11 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
           {result.skinProfileMatch.unmatchedConcerns.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               <span className="text-xs text-slate-500">
-                {language === 'EN' ? 'Does not address:' : '未涉及:'}
+                {L('Does not address:', '未涉及:')}
               </span>
               {result.skinProfileMatch.unmatchedConcerns.map(concern => (
                 <span key={concern} className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                  {concern.replace('_', ' ')}
+                  {t(`diagnosis.concern.${concern}`, language)}
                 </span>
               ))}
             </div>
@@ -244,7 +244,7 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
           <XCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-medium text-rose-700">
-              {language === 'EN' ? 'VETO: Not suitable for your skin' : 'VETO: 不适合您的肤质'}
+              {L('VETO: Not suitable for your skin', 'VETO: 不适合您的肤质')}
             </p>
             <p className="text-xs text-rose-600 mt-0.5">
               {result.ingredients.veto}
@@ -255,9 +255,9 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
 
       {/* Product Vector Radar */}
       <ProductVectorRadar
-        title={language === 'EN' ? 'Product Vector Radar' : '产品向量雷达'}
-        productLabel={language === 'EN' ? 'Product' : '产品'}
-        idealLabel={language === 'EN' ? 'Your Ideal' : '你的理想'}
+        title={L('Product Vector Radar', '产品向量雷达')}
+        productLabel={L('Product', '产品')}
+        idealLabel={L('Your Ideal', '你的理想')}
         productVector={productVector}
         idealVector={idealVector}
         contributors={contributors}
@@ -267,7 +267,7 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
       {/* Mechanism Vectors */}
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          {language === 'EN' ? 'Mechanism Vectors' : '功效向量'}
+          {L('Mechanism Vectors', '功效向量')}
         </h4>
         <div className="space-y-2">
           {result.mechanisms.map(({ vector, strength }) => {
@@ -276,7 +276,7 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
               <div key={vector} className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5 w-24 text-xs text-muted-foreground">
                   {mech.icon}
-                  <span>{language === 'EN' ? mech.en : mech.cn}</span>
+                  <span>{L(mech.en, mech.cn)}</span>
                 </div>
                 <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                   <div 
@@ -296,7 +296,7 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
         <div className="space-y-1.5">
           <h4 className="text-xs font-medium text-emerald-600 flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3" />
-            {language === 'EN' ? 'Beneficial' : '有益成分'}
+            {L('Beneficial', '有益成分')}
           </h4>
           <div className="flex flex-wrap gap-1">
             {result.ingredients.beneficial.map(ing => (
@@ -310,7 +310,7 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
           <div className="space-y-1.5">
             <h4 className="text-xs font-medium text-amber-600 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
-              {language === 'EN' ? 'Caution' : '注意成分'}
+              {L('Caution', '注意成分')}
             </h4>
             <div className="flex flex-wrap gap-1">
               {result.ingredients.caution.map(ing => (
@@ -336,10 +336,10 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
           )}
           <span className="text-sm font-medium">
             {result.usageAdvice.timing === 'AM' 
-              ? (language === 'EN' ? 'Morning Use' : '早间使用')
+              ? L('Morning Use', '早间使用')
               : result.usageAdvice.timing === 'PM'
-                ? (language === 'EN' ? 'Evening Use' : '晚间使用')
-                : (language === 'EN' ? 'Morning & Evening' : '早晚可用')
+                ? L('Evening Use', '晚间使用')
+                : L('Morning & Evening', '早晚可用')
             }
           </span>
         </div>
@@ -352,10 +352,10 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-medium text-primary flex items-center gap-1.5">
               <DollarSign className="w-4 h-4" />
-              {language === 'EN' ? 'Budget Alternative' : '平价替代'}
+              {L('Budget Alternative', '平价替代')}
             </h4>
             <span className="text-xs font-bold text-primary">
-              {language === 'EN' ? `Save ${result.dupeRecommendation.savingsPercent}%` : `省 ${result.dupeRecommendation.savingsPercent}%`}
+              {L(`Save ${result.dupeRecommendation.savingsPercent}%`, `省 ${result.dupeRecommendation.savingsPercent}%`)}
             </span>
           </div>
           <div>
@@ -372,13 +372,13 @@ export function ProductAnalysisCard({ result, photoPreview, language, onAction }
           onClick={() => onAction('product_analysis_done')}
           className="action-button action-button-primary flex-1"
         >
-          {language === 'EN' ? 'Done' : '完成'}
+          {L('Done', '完成')}
         </button>
         <button
           onClick={() => onAction('product_analysis_another')}
           className="action-button action-button-secondary flex-1"
         >
-          {language === 'EN' ? 'Analyze Another' : '分析另一个'}
+          {L('Analyze Another', '分析另一个')}
         </button>
       </div>
     </div>

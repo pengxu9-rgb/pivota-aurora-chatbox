@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Language } from '@/lib/types';
+import { pickLocalizedText } from '@/lib/i18n';
 import { Loader2, Check } from 'lucide-react';
 
 export type AuroraLoadingIntent = 'default' | 'environment';
@@ -18,16 +19,16 @@ interface AuroraLoadingCardProps {
   streamedText?: string;
 }
 
-const FALLBACK_MESSAGES: Record<AuroraLoadingIntent, Record<Language, string[]>> = {
+const FALLBACK_MESSAGES: Record<AuroraLoadingIntent, { en: string[]; cn: string[] }> = {
   default: {
-    EN: [
+    en: [
       'Analyzing Skin Profile...',
       'Searching Ingredient Database...',
       'Checking Safety Protocols...',
       'Matching Product Vectors...',
       'Optimizing Budget...',
     ],
-    CN: [
+    cn: [
       '分析肤质档案...',
       '搜索成分数据库...',
       '检查安全协议...',
@@ -36,14 +37,14 @@ const FALLBACK_MESSAGES: Record<AuroraLoadingIntent, Record<Language, string[]>>
     ],
   },
   environment: {
-    EN: [
+    en: [
       'Analyzing Environment Stress...',
       'Detecting Weather Scenario...',
       'Generating Protective Tips...',
       'Tailoring Advice to Your Profile...',
       'Preparing Product-type Suggestions...',
     ],
-    CN: [
+    cn: [
       '评估环境压力...',
       '识别天气场景...',
       '生成防护要点...',
@@ -61,7 +62,7 @@ export function AuroraLoadingCard({
   streamedText,
 }: AuroraLoadingCardProps) {
   const [fallbackIndex, setFallbackIndex] = useState(0);
-  const fallbackMessages = FALLBACK_MESSAGES[intent][language];
+  const fallbackMessages = pickLocalizedText(language, FALLBACK_MESSAGES[intent]);
   const useRealSteps = thinkingSteps && thinkingSteps.length > 0;
 
   useEffect(() => {
@@ -106,7 +107,7 @@ export function AuroraLoadingCard({
             <Loader2 className="w-5 h-5 text-primary animate-spin" />
           </div>
           <p className="section-label">
-            {language === 'EN' ? 'AURORA THINKING' : 'AURORA 思考中'}
+            {pickLocalizedText(language, { en: 'AURORA THINKING', cn: 'AURORA 思考中' })}
           </p>
         </div>
 
@@ -132,7 +133,7 @@ export function AuroraLoadingCard({
 
         {onSkip && (
           <button onClick={onSkip} className="action-button action-button-ghost text-sm">
-            {language === 'EN' ? 'Continue without analysis' : '不做分析直接继续'}
+            {pickLocalizedText(language, { en: 'Continue without analysis', cn: '不做分析直接继续' })}
           </button>
         )}
       </div>
@@ -155,7 +156,7 @@ export function AuroraLoadingCard({
           <Loader2 className="w-5 h-5 text-primary animate-spin" />
         </div>
         <p className="section-label">
-          {language === 'EN' ? 'AURORA THINKING' : 'AURORA 思考中'}
+          {pickLocalizedText(language, { en: 'AURORA THINKING', cn: 'AURORA 思考中' })}
         </p>
       </div>
 
@@ -184,7 +185,7 @@ export function AuroraLoadingCard({
 
       {onSkip && (
         <button onClick={onSkip} className="action-button action-button-ghost text-sm">
-          {language === 'EN' ? 'Continue without analysis' : '不做分析直接继续'}
+          {pickLocalizedText(language, { en: 'Continue without analysis', cn: '不做分析直接继续' })}
         </button>
       )}
     </div>

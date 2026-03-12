@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { bffJson, type BffHeaders } from '@/lib/pivotaAgentBff';
+import { bffJson, makeDefaultHeaders, type BffHeaders } from '@/lib/pivotaAgentBff';
 
 const makeHeaders = (): BffHeaders => ({
   aurora_uid: 'uid_test',
@@ -64,5 +64,16 @@ describe('bffJson header behavior', () => {
     await expect(bffJson('/v1/analysis/skin', makeHeaders(), { method: 'POST' })).rejects.toThrow(
       'Service returned an incomplete response. Please try again.',
     );
+  });
+
+  it('maps non-Chinese UI locales to EN backend headers', async () => {
+    await bffJson('/v1/analysis/skin', makeDefaultHeaders('FR'), { method: 'POST' });
+
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const requestHeaders = (init.headers || {}) as Record<string, string>;
+
+    expect(requestHeaders['X-Lang']).toBe('EN');
+    expect(requestHeaders['X-Aurora-Lang']).toBe('en');
   });
 });

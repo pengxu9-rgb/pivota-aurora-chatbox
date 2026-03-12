@@ -1,6 +1,6 @@
 import React from 'react';
 import { Language, AnalysisResult, DiagnosisResult, Session } from '@/lib/types';
-import { t, getConfidenceLabel } from '@/lib/i18n';
+import { t, getConfidenceLabel, pickLocalizedText } from '@/lib/i18n';
 import { Calculator, CheckCircle2, AlertTriangle, HelpCircle, ChevronRight, Shield } from 'lucide-react';
 
 interface AuroraScoringCardProps {
@@ -13,15 +13,16 @@ interface AuroraScoringCardProps {
 }
 
 function barrierSummary(status: DiagnosisResult['barrierStatus'] | undefined, language: Language) {
-  if (status === 'healthy') return language === 'EN' ? 'Healthy barrier' : '屏障稳定';
-  if (status === 'impaired') return language === 'EN' ? 'Barrier stressed' : '屏障受损/脆弱';
-  if (status === 'unknown') return language === 'EN' ? 'Barrier: not sure' : '屏障：不确定';
-  return language === 'EN' ? 'Barrier: not provided' : '屏障：未填写';
+  if (status === 'healthy') return pickLocalizedText(language, { en: 'Healthy barrier', cn: '屏障稳定' });
+  if (status === 'impaired') return pickLocalizedText(language, { en: 'Barrier stressed', cn: '屏障受损/脆弱' });
+  if (status === 'unknown') return pickLocalizedText(language, { en: 'Barrier: not sure', cn: '屏障：不确定' });
+  return pickLocalizedText(language, { en: 'Barrier: not provided', cn: '屏障：未填写' });
 }
 
 export function AuroraScoringCard({ payload, onAction, language }: AuroraScoringCardProps) {
   const { analysis, session } = payload;
   const photoCount = Object.values(session.photos).filter(p => p?.preview).length;
+  const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
 
   const confidenceIcons = {
     pretty_sure: CheckCircle2,
@@ -43,52 +44,44 @@ export function AuroraScoringCard({ payload, onAction, language }: AuroraScoring
           <Calculator className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <p className="section-label">
-            {language === 'EN' ? 'ASSESSMENT SUMMARY' : '分析总结'}
-          </p>
-          <h3 className="text-sm font-semibold text-foreground">
-            {language === 'EN' ? 'Your Skin Snapshot' : '你的皮肤快照'}
-          </h3>
+          <p className="section-label">{L('ASSESSMENT SUMMARY', '分析总结')}</p>
+          <h3 className="text-sm font-semibold text-foreground">{L('Your Skin Snapshot', '你的皮肤快照')}</h3>
         </div>
       </div>
 
       {/* Snapshot */}
       <div className="grid grid-cols-1 gap-2 rounded-xl bg-muted/30 p-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted-foreground">{language === 'EN' ? 'Skin type:' : '肤质：'}</span>
+          <span className="text-muted-foreground">{L('Skin type:', '肤质：')}</span>
           <span className="font-medium text-foreground">
             {session.diagnosis?.skinType
               ? t(`diagnosis.skin_type.${session.diagnosis.skinType}`, language)
-              : language === 'EN'
-                ? 'Not provided'
-                : '未填写'}
+              : L('Not provided', '未填写')}
           </span>
           <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground">{language === 'EN' ? 'Barrier:' : '屏障：'}</span>
+          <span className="text-muted-foreground">{L('Barrier:', '屏障：')}</span>
           <span className="font-medium text-foreground">{barrierSummary(session.diagnosis?.barrierStatus, language)}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted-foreground">{language === 'EN' ? 'Priorities:' : '目标：'}</span>
+          <span className="text-muted-foreground">{L('Priorities:', '目标：')}</span>
           <span className="font-medium text-foreground">
             {session.diagnosis?.concerns?.length
               ? session.diagnosis.concerns
                   .slice(0, 3)
                   .map((c) => t(`diagnosis.concern.${c}`, language))
                   .join(', ')
-              : language === 'EN'
-                ? 'Not provided'
-                : '未填写'}
+              : L('Not provided', '未填写')}
           </span>
         </div>
       </div>
 
       {/* Evidence line */}
       <p className="text-xs text-muted-foreground">
-        {language === 'EN' 
-          ? `Based on your answers${photoCount > 0 ? ` and ${photoCount} photo(s)` : ''}`
-          : `根据你的回答${photoCount > 0 ? `和 ${photoCount} 张照片` : ''}`
-        }
+        {L(
+          `Based on your answers${photoCount > 0 ? ` and ${photoCount} photo(s)` : ''}`,
+          `根据你的回答${photoCount > 0 ? `和 ${photoCount} 张照片` : ''}`,
+        )}
       </p>
 
       {/* Features/Observations */}
@@ -116,7 +109,7 @@ export function AuroraScoringCard({ payload, onAction, language }: AuroraScoring
         <div className="flex items-center gap-2 mb-1">
           <Shield className="w-4 h-4 text-primary" />
           <span className="text-xs font-medium text-primary uppercase tracking-wide">
-            {language === 'EN' ? 'Strategy' : '策略'}
+            {L('Strategy', '策略')}
           </span>
         </div>
         <p className="text-sm text-foreground">
@@ -130,7 +123,7 @@ export function AuroraScoringCard({ payload, onAction, language }: AuroraScoring
           onClick={() => onAction('analysis_review_products')}
           className="action-button action-button-secondary w-full"
         >
-          {language === 'EN' ? '🔎 Review my current products first' : '🔎 先评估我现在用的产品'}
+          {L('🔎 Review my current products first', '🔎 先评估我现在用的产品')}
         </button>
         <button
           onClick={() => onAction('analysis_continue')}

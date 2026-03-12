@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getOrCreateAuroraUid } from '@/lib/persistence';
+import { getOrCreateAuroraUid, toBackendLangPref, toBackendLanguage, toUiLanguage } from '@/lib/persistence';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getPivotaShopBaseUrl, buildPdpUrl, type PdpTarget } from '@/lib/pivotaShop';
 import { loadAuroraAuthSession } from '@/lib/auth';
@@ -78,6 +78,8 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const shopBaseUrl = useMemo(() => getPivotaShopBaseUrl(), []);
   const shopOrigin = useMemo(() => safeParseUrl(shopBaseUrl)?.origin ?? null, [shopBaseUrl]);
   const { langPref } = useLanguage();
+  const shopLangPref = useMemo(() => toBackendLangPref(langPref), [langPref]);
+  const shopLanguage = useMemo(() => toBackendLanguage(toUiLanguage(langPref)), [langPref]);
   const [bridgeReady, setBridgeReady] = useState(false);
 
   const [persisted, setPersisted] = useState<PersistedShopState>(() => loadShopState(auroraUid) ?? blankState(auroraUid));
@@ -110,7 +112,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         url: args.url,
         shopBaseUrl,
         auroraUid,
-        lang: langPref,
+        lang: shopLangPref,
       });
       if (!normalized) return;
       const nextEpoch = drawerEpochRef.current + 1;
@@ -122,7 +124,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       setShopTitle(String(args.title || '').trim());
       setShopOpen(true);
     },
-    [auroraUid, langPref, shopBaseUrl],
+    [auroraUid, shopBaseUrl, shopLangPref],
   );
 
   const closeShop = useCallback(() => {
@@ -147,12 +149,12 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const openCart = useCallback(() => {
     const sent = shopOpen && bridgeReady ? sendToShop(buildAuroraOpenCartMessage()) : false;
     if (sent) return;
-    openShop({ url: `${shopBaseUrl}/?open=cart`, title: langPref === 'cn' ? '购物车' : 'Cart' });
-  }, [bridgeReady, langPref, openShop, sendToShop, shopBaseUrl, shopOpen]);
+    openShop({ url: `${shopBaseUrl}/?open=cart`, title: shopLanguage === 'CN' ? '购物车' : 'Cart' });
+  }, [bridgeReady, openShop, sendToShop, shopBaseUrl, shopLanguage, shopOpen]);
 
   const openOrders = useCallback(() => {
-    openShop({ url: `${shopBaseUrl}/orders`, title: langPref === 'cn' ? '订单' : 'Orders' });
-  }, [langPref, openShop, shopBaseUrl]);
+    openShop({ url: `${shopBaseUrl}/orders`, title: shopLanguage === 'CN' ? '订单' : 'Orders' });
+  }, [openShop, shopBaseUrl, shopLanguage]);
 
   const openPdp = useCallback(
     (args: { target: PdpTarget; title?: string }) => {
@@ -305,7 +307,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
           else setShopOpen(true);
         }}
         onIframe={handleIframeRef}
-        language={langPref === 'cn' ? 'CN' : 'EN'}
+        language={shopLanguage}
       />
     </ShopContext.Provider>
   );

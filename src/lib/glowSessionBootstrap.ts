@@ -1,5 +1,5 @@
 import { getApiBaseUrl, getApiRootUrl } from './pivotaApi';
-import type { LangPref } from './persistence';
+import { toBackendLangPref, type LangPref } from './persistence';
 
 export type GlowBootstrapSummary = {
   goal_primary: string | null;
@@ -95,7 +95,7 @@ export const fetchGlowSessionBootstrap = async (args: {
       headers: {
         Accept: 'application/json',
         ...(args.auroraUid ? { 'X-Aurora-Uid': args.auroraUid } : {}),
-        'X-Aurora-Lang': args.lang,
+        'X-Aurora-Lang': toBackendLangPref(args.lang),
         ...(args.briefId ? { 'X-Brief-ID': args.briefId } : {}),
         ...(args.traceId ? { 'X-Trace-ID': args.traceId } : {}),
       },

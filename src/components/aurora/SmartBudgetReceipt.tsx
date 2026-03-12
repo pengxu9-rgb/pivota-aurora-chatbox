@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ReceiptText, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 
 import { Language } from '@/lib/types';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -83,13 +84,12 @@ export function SmartBudgetReceipt({
     return visibleTotal / days;
   }, [periodDays, visibleTotal]);
 
-  const title = language === 'EN' ? 'Smart Budget' : '智能预算';
-  const optimizeLabel = language === 'EN' ? 'Optimize Budget' : '优化预算';
-  const dailyLabel = language === 'EN' ? 'Daily Cost' : '每日成本';
-  const totalLabel = language === 'EN' ? 'Total' : '总计';
-  const savingsLabel = language === 'EN' ? 'Total Savings' : '总省钱';
-  const unknownLabel =
-    language === 'EN' ? 'Some prices are missing — totals may be incomplete.' : '部分价格缺失，总计可能不完整。';
+  const title = t('smart_budget.title', language);
+  const optimizeLabel = t('smart_budget.optimize', language);
+  const dailyLabel = t('smart_budget.daily', language);
+  const totalLabel = t('smart_budget.total', language);
+  const savingsLabel = t('smart_budget.savings', language);
+  const unknownLabel = t('smart_budget.unknown', language);
 
   const onToggleOptimized = (next: boolean) => {
     setOptimized(next);
@@ -117,7 +117,7 @@ export function SmartBudgetReceipt({
               variant="secondary"
             >
               <ReceiptText className="h-4 w-4 mr-2" />
-              {language === 'EN' ? 'Total:' : '总计：'} {formatMoney(visibleTotal, currency)}
+              {t('smart_budget.total_short', language)} {formatMoney(visibleTotal, currency)}
               <ChevronUp className="h-4 w-4 ml-2 text-muted-foreground" />
             </Button>
           </motion.div>
@@ -141,13 +141,11 @@ export function SmartBudgetReceipt({
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-foreground truncate">{title}</p>
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                          {language === 'EN' ? 'Receipt' : '收据'}
+                          {t('smart_budget.receipt', language)}
                         </span>
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-snug">
-                        {language === 'EN'
-                          ? 'Anchored on daily cost — optimize without losing signal.'
-                          : '以每日成本为锚点，优化预算但不牺牲信息质量。'}
+                        {t('smart_budget.subtitle', language)}
                       </p>
                     </div>
                   </div>
@@ -179,7 +177,7 @@ export function SmartBudgetReceipt({
                     >
                       {formatMoney(daily, currency)}
                       <span className="text-xs text-muted-foreground font-normal ml-1">
-                        {language === 'EN' ? '/day' : '/天'}
+                        {t('smart_budget.per_day', language)}
                       </span>
                     </motion.p>
                   </div>
@@ -206,7 +204,7 @@ export function SmartBudgetReceipt({
                         {optimizeLabel}
                       </p>
                       <p className="text-[11px] text-muted-foreground">
-                        {language === 'EN' ? 'Swap in dupes and show savings.' : '切换平替并展示省钱。'}
+                        {t('smart_budget.toggle_hint', language)}
                       </p>
                     </div>
                     <Switch checked={optimized} onCheckedChange={onToggleOptimized} />
@@ -219,10 +217,10 @@ export function SmartBudgetReceipt({
                 <div className="rounded-xl border border-border/70 bg-white/70 overflow-hidden">
                   <div className="px-3 py-2 bg-muted/30 border-b border-dashed border-border/70 flex items-center justify-between">
                     <p className="text-[10px] tracking-wider text-muted-foreground uppercase">
-                      {language === 'EN' ? 'Items' : '清单'}
+                      {t('smart_budget.items', language)}
                     </p>
                     <p className="text-[10px] tracking-wider text-muted-foreground uppercase">
-                      {language === 'EN' ? 'Price' : '价格'}
+                      {t('smart_budget.price', language)}
                     </p>
                   </div>
 
@@ -281,4 +279,3 @@ export function SmartBudgetReceipt({
     </div>
   );
 }
-

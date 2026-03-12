@@ -6,10 +6,12 @@ describe('external search fallback', () => {
   it('builds google search URL with locale hint', () => {
     const cn = buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'CN');
     const en = buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'EN');
+    const fr = buildGoogleSearchFallbackUrl('IPSA Time Reset Aqua', 'FR');
     expect(cn).toContain('google.com/search');
     expect(cn).toContain('q=IPSA+Time+Reset+Aqua');
     expect(cn).toContain('hl=zh-CN');
     expect(en).toContain('hl=en');
+    expect(fr).toContain('hl=en');
   });
 
   it('normalizes google redirect url to target URL', () => {

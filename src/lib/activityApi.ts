@@ -1,4 +1,5 @@
-import { bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
+import { bffJson, makeDefaultHeaders } from '@/lib/pivotaAgentBff';
+import type { Language } from '@/lib/types';
 
 export type ActivityEventType =
   | 'chat_started'

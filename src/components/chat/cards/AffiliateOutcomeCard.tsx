@@ -1,5 +1,6 @@
 import React from 'react';
 import { Language, Product, Offer } from '@/lib/types';
+import { t } from '@/lib/i18n';
 import { ExternalLink, CheckCircle, AlertTriangle, Bookmark, ArrowRight } from 'lucide-react';
 
 interface AffiliateOutcomeCardProps {
@@ -18,13 +19,10 @@ export function AffiliateOutcomeCard({ affiliateItems, onAction, language }: Aff
         </div>
         <div>
           <p className="section-label">
-            {language === 'EN' ? 'EXTERNAL PURCHASE' : '外部购买'}
+            {t('affiliate_outcome.label', language)}
           </p>
           <h3 className="text-sm font-semibold text-foreground">
-            {language === 'EN' 
-              ? 'Complete your purchase on retailer sites' 
-              : '在零售商网站完成购买'
-            }
+            {t('affiliate_outcome.title', language)}
           </h3>
         </div>
       </div>
@@ -32,10 +30,7 @@ export function AffiliateOutcomeCard({ affiliateItems, onAction, language }: Aff
       {/* Disclosure */}
       <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
         <p className="text-xs text-muted-foreground">
-          {language === 'EN'
-            ? '📌 These links open retailer websites. Affiliate links are used—no price change for you.'
-            : '📌 这些链接将打开零售商网站。使用联盟链接——您的价格不变。'
-          }
+          {t('affiliate_outcome.disclosure', language)}
         </p>
       </div>
 
@@ -75,10 +70,7 @@ export function AffiliateOutcomeCard({ affiliateItems, onAction, language }: Aff
       {/* Outcome closure */}
       <div className="pt-3 border-t border-border/50">
         <p className="text-sm text-muted-foreground mb-3">
-          {language === 'EN' 
-            ? 'After visiting the retailer sites:' 
-            : '访问零售商网站后：'
-          }
+          {t('affiliate_outcome.after_visit', language)}
         </p>
         <div className="grid grid-cols-1 gap-2">
           <button
@@ -86,7 +78,7 @@ export function AffiliateOutcomeCard({ affiliateItems, onAction, language }: Aff
             className="action-button action-button-primary flex items-center justify-center gap-2"
           >
             <CheckCircle className="w-4 h-4" />
-            {language === 'EN' ? "✅ I completed my purchase" : "✅ 我已完成购买"}
+            {t('affiliate_outcome.btn.completed', language)}
           </button>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -94,14 +86,14 @@ export function AffiliateOutcomeCard({ affiliateItems, onAction, language }: Aff
               className="action-button action-button-secondary flex items-center justify-center gap-2"
             >
               <AlertTriangle className="w-4 h-4" />
-              {language === 'EN' ? "Couldn't complete" : "无法完成"}
+              {t('affiliate_outcome.btn.failed', language)}
             </button>
             <button
               onClick={() => onAction('affiliate_outcome_save')}
               className="action-button action-button-ghost flex items-center justify-center gap-2"
             >
               <Bookmark className="w-4 h-4" />
-              {language === 'EN' ? "Save routine" : "保存方案"}
+              {t('affiliate_outcome.btn.save', language)}
             </button>
           </div>
         </div>

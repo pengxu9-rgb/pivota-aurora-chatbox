@@ -1,5 +1,5 @@
 import type { Session } from './types';
-import { getAuroraUid, getLangPref } from './persistence';
+import { getAuroraUid, getLangPref, toBackendLangPref } from './persistence';
 
 export class PivotaApiError extends Error {
   readonly status: number;
@@ -117,7 +117,7 @@ const getAuroraUidHeader = () => {
 };
 
 const getAuroraLangHeader = () => {
-  return { 'X-Aurora-Lang': getLangPref() };
+  return { 'X-Aurora-Lang': toBackendLangPref(getLangPref()) };
 };
 
 export const pivotaJson = async <TResponse>(

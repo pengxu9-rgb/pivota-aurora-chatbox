@@ -1,5 +1,6 @@
 import React from 'react';
 import { Language } from '@/lib/types';
+import { pickLocalizedText } from '@/lib/i18n';
 import { Sun, Moon, AlertTriangle, Check, ExternalLink, GitCompareArrows } from 'lucide-react';
 
 export interface RoutineStep {
@@ -38,6 +39,7 @@ export function AuroraRoutineCard({
   onStepClick,
   onStepSecondaryAction,
 }: AuroraRoutineCardProps) {
+  const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
   const categoryLabels: Record<string, { EN: string; CN: string }> = {
     cleanser: { EN: 'Cleanser', CN: '洁面' },
     treatment: { EN: 'Treatment', CN: '精华' },
@@ -88,7 +90,7 @@ export function AuroraRoutineCard({
               {step.external ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                   <ExternalLink className="h-3 w-3" />
-                  External
+                  {L('External', '外部')}
                 </span>
               ) : null}
             </div>
@@ -105,7 +107,7 @@ export function AuroraRoutineCard({
             <span className={`signal-pill text-[10px] ${
               step.type === 'premium' ? 'signal-pill-warning' : 'signal-pill-success'
             }`}>
-              {categoryLabels[step.category]?.[language] || step.category}
+              {categoryLabels[step.category] ? L(categoryLabels[step.category].EN, categoryLabels[step.category].CN) : step.category}
             </span>
             {hasSecondaryAction ? (
               <button
@@ -131,12 +133,8 @@ export function AuroraRoutineCard({
     <div className="chat-card-elevated space-y-3">
       {/* Header */}
       <div className="pb-3 border-b border-border">
-        <p className="section-label mb-1">
-          {language === 'EN' ? 'ROUTINE & COMPATIBILITY' : '搭配与禁忌'}
-        </p>
-        <h3 className="text-sm font-semibold text-foreground">
-          {language === 'EN' ? 'Your Personalized Routine' : '你的个性化护肤流程'}
-        </h3>
+        <p className="section-label mb-1">{L('ROUTINE & COMPATIBILITY', '搭配与禁忌')}</p>
+        <h3 className="text-sm font-semibold text-foreground">{L('Your Personalized Routine', '你的个性化护肤流程')}</h3>
       </div>
 
       {/* Conflicts Warning */}
@@ -145,7 +143,8 @@ export function AuroraRoutineCard({
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-4 h-4 text-risk" />
             <span className="text-sm font-medium text-risk">
-              ⚠️ {language === 'EN' ? 'Conflicts Detected' : '检测到冲突'}
+              {'⚠️ '}
+              {L('Conflicts Detected', '检测到冲突')}
             </span>
           </div>
           {compatibilitySummary ? (
@@ -167,10 +166,10 @@ export function AuroraRoutineCard({
         <div className="flex items-center gap-2">
           <Sun className="w-4 h-4 text-warning" />
           <span className="text-sm font-medium text-foreground">
-            {language === 'EN' ? 'Morning Routine' : '早间护肤'}
+            {L('Morning Routine', '早间护肤')}
           </span>
           <span className="text-xs text-muted-foreground">
-            ({amSteps.length} {language === 'EN' ? 'steps' : '步'})
+            ({amSteps.length} {L('steps', '步')})
           </span>
         </div>
         <div className="space-y-1.5">
@@ -183,10 +182,10 @@ export function AuroraRoutineCard({
         <div className="flex items-center gap-2">
           <Moon className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium text-foreground">
-            {language === 'EN' ? 'Evening Routine' : '晚间护肤'}
+            {L('Evening Routine', '晚间护肤')}
           </span>
           <span className="text-xs text-muted-foreground">
-            ({pmSteps.length} {language === 'EN' ? 'steps' : '步'})
+            ({pmSteps.length} {L('steps', '步')})
           </span>
         </div>
         <div className="space-y-1.5">
@@ -200,10 +199,7 @@ export function AuroraRoutineCard({
           <Check className="w-4 h-4 text-success" />
           <div className="space-y-1">
             <span className="block text-sm text-success">
-              {language === 'EN' 
-                ? 'All products are compatible ✓' 
-                : '所有产品均兼容 ✓'
-              }
+              {L('All products are compatible ✓', '所有产品均兼容 ✓')}
             </span>
             {compatibilitySummary ? (
               <span className="block text-xs text-success/90">{compatibilitySummary}</span>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { t } from '@/lib/i18n';
 import { FlowState, Language } from '@/lib/types';
 import { Terminal, Box, GitCompareArrows, Wallet, CheckCircle2, ChevronRight, X } from 'lucide-react';
 
@@ -12,7 +13,7 @@ interface AuroraDiagnosisProgressProps {
 interface ProgressStep {
   id: string;
   icon: React.ElementType;
-  label: { EN: string; CN: string };
+  labelKey: string;
   states: FlowState[];
 }
 
@@ -20,25 +21,25 @@ const STEPS: ProgressStep[] = [
   {
     id: 'input',
     icon: Terminal,
-    label: { EN: 'Profile', CN: '资料' },
+    labelKey: 'aurora_progress.step.profile',
     states: ['S0_LANDING', 'S1_OPEN_INTENT', 'S2_DIAGNOSIS', 'S3_PHOTO_OPTION', 'S3a_PHOTO_QC'],
   },
   {
     id: 'analyze',
     icon: Box,
-    label: { EN: 'Analysis', CN: '分析' },
+    labelKey: 'aurora_progress.step.analysis',
     states: ['S4_ANALYSIS_LOADING', 'S5_ANALYSIS_SUMMARY', 'S5a_RISK_CHECK'],
   },
   {
     id: 'compare',
     icon: GitCompareArrows,
-    label: { EN: 'Products', CN: '产品' },
+    labelKey: 'aurora_progress.step.products',
     states: ['S6_BUDGET', 'S7_PRODUCT_RECO'],
   },
   {
     id: 'checkout',
     icon: Wallet,
-    label: { EN: 'Complete', CN: '完成' },
+    labelKey: 'aurora_progress.step.complete',
     states: ['S8_CHECKOUT', 'S9_SUCCESS', 'S10_FAILURE', 'S11_RECOVERY'],
   },
 ];
@@ -107,10 +108,10 @@ export function AuroraDiagnosisProgress({ currentState, language, onExpand, onDi
           </div>
           <div>
             <p className="text-xs font-medium text-foreground">
-              {language === 'EN' ? 'Skin Diagnosis' : '皮肤诊断'}
+              {t('aurora_progress.title', language)}
             </p>
             <p className="text-[10px] text-muted-foreground">
-              {language === 'EN' ? `${progressPercent}% complete` : `已完成 ${progressPercent}%`}
+              {t('aurora_progress.complete_pct', language, { percent: progressPercent })}
             </p>
           </div>
         </div>
@@ -121,7 +122,7 @@ export function AuroraDiagnosisProgress({ currentState, language, onExpand, onDi
               onClick={onExpand}
               className="text-xs text-primary hover:text-primary/80 flex items-center gap-0.5 transition-colors"
             >
-              {language === 'EN' ? 'Details' : '详情'}
+              {t('aurora_progress.details', language)}
               <ChevronRight className="w-3 h-3" />
             </button>
           ) : null}
@@ -130,7 +131,7 @@ export function AuroraDiagnosisProgress({ currentState, language, onExpand, onDi
               type="button"
               onClick={onDismiss}
               className="rounded-md p-1 text-muted-foreground hover:text-foreground transition-colors"
-              aria-label={language === 'EN' ? 'Dismiss' : '收起'}
+              aria-label={t('aurora_progress.dismiss', language)}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -175,7 +176,7 @@ export function AuroraDiagnosisProgress({ currentState, language, onExpand, onDi
                     ? 'text-success'
                     : 'text-muted-foreground'
                 }`}>
-                  {step.label[language]}
+                  {t(step.labelKey, language)}
                 </span>
               </div>
               

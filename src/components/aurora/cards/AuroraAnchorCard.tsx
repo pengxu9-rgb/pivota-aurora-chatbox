@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Language, Product, Offer } from '@/lib/types';
+import { getBadgeLabel, pickLocalizedText } from '@/lib/i18n';
 import { AlertOctagon, TrendingDown, Beaker, Star, AlertTriangle } from 'lucide-react';
 
 interface AuroraAnchorCardProps {
@@ -26,12 +27,13 @@ export function AuroraAnchorCard({
   onSelect,
   hidePriceWhenUnknown = false,
 }: AuroraAnchorCardProps) {
+  const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
   const bestOffer = offers[0];
   const hasKnownPrice = typeof bestOffer?.price === 'number' && Number.isFinite(bestOffer.price);
   const categoryToken = String(product.category || '').trim();
   const isUnknownCategory = /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(categoryToken);
   const categoryLabel = isUnknownCategory
-    ? (language === 'CN' ? '护肤' : 'Skincare')
+    ? L('Skincare', '护肤')
     : categoryToken;
   
   const vector = mechanismVector || null;
@@ -92,9 +94,7 @@ export function AuroraAnchorCard({
                 <span className="text-base font-bold text-foreground font-mono-nums">
                   {hasKnownPrice
                     ? `$${bestOffer.price.toFixed(2)}`
-                    : language === 'EN'
-                      ? 'Price unavailable'
-                      : '价格暂不可得'}
+                    : L('Price unavailable', '价格暂不可得')}
                 </span>
                 {hasKnownPrice && bestOffer?.original_price ? (
                   <span className="text-xs text-muted-foreground line-through font-mono-nums">
@@ -112,7 +112,7 @@ export function AuroraAnchorCard({
             <div className="flex items-center gap-1">
               <Beaker className="w-3 h-3 text-primary" />
               <span className="section-label">
-                {language === 'EN' ? 'MECHANISM VECTOR' : '机制向量'}
+                {L('MECHANISM VECTOR', '机制向量')}
               </span>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -121,7 +121,10 @@ export function AuroraAnchorCard({
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-0.5">
                       <span className="text-[10px] text-muted-foreground">
-                        {vectorLabels[key as keyof typeof vectorLabels][language]}
+                        {L(
+                          vectorLabels[key as keyof typeof vectorLabels].EN,
+                          vectorLabels[key as keyof typeof vectorLabels].CN,
+                        )}
                       </span>
                       <span className="text-[10px] font-mono-nums text-foreground">
                         {value}
@@ -147,10 +150,10 @@ export function AuroraAnchorCard({
           <div className="flex items-start gap-2 p-2 rounded-lg bg-risk/10">
             <AlertTriangle className="w-4 h-4 text-risk flex-shrink-0 mt-0.5" />
             <p className="text-xs text-risk">
-              {language === 'EN' 
-                ? 'Not recommended for sensitive/reactive skin. May cause increased irritation.'
-                : '不推荐敏感/反应性肌肤使用。可能加重刺激。'
-              }
+              {L(
+                'Not recommended for sensitive/reactive skin. May cause increased irritation.',
+                '不推荐敏感/反应性肌肤使用。可能加重刺激。',
+              )}
             </p>
           </div>
         )}
@@ -173,12 +176,7 @@ export function AuroraAnchorCard({
                 {badge === 'fastest_shipping' && '⚡'}
                 {badge === 'high_reliability' && '⭐'}
                 {' '}
-                {language === 'EN' 
-                  ? badge.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
-                  : badge === 'best_price' ? '最低价' :
-                    badge === 'best_returns' ? '退换保障' :
-                    badge === 'fastest_shipping' ? '最快发货' : '高可靠'
-                }
+                {getBadgeLabel(badge, language)}
               </span>
             ))}
           </div>
@@ -189,7 +187,7 @@ export function AuroraAnchorCard({
             onClick={onSelect}
             className="action-button action-button-primary w-full"
           >
-            {language === 'EN' ? 'Select This Product' : '选择此产品'}
+            {L('Select This Product', '选择此产品')}
           </button>
         )}
       </div>

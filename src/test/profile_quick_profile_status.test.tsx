@@ -34,7 +34,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 import { bffJson } from '@/lib/pivotaAgentBff';
 import Profile from '@/pages/Profile';
 import { clearAuroraAuthSession, saveAuroraAuthSession } from '@/lib/auth';
-import { setLangPref } from '@/lib/persistence';
+import { getAccountLangPref, setAccountLangPref, setLangPref } from '@/lib/persistence';
 import { toast } from '@/components/ui/use-toast';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
@@ -136,7 +136,9 @@ describe('Profile quick profile status', () => {
     await screen.findByRole('button', { name: 'Start quick profile' });
     expect(screen.queryByRole('button', { name: 'Sign in to sync profile' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to Chinese' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Select language' }), {
+      target: { value: 'cn' },
+    });
     await screen.findByRole('button', { name: '开始快速画像' });
 
     fireEvent.click(screen.getByRole('button', { name: '开始快速画像' }));
@@ -146,6 +148,45 @@ describe('Profile quick profile status', () => {
       title: '快速画像',
       chip_id: 'chip_quick_profile',
     });
+  }, PROFILE_TEST_TIMEOUT_MS);
+
+  it('supports selecting newly added locales from the language menu', async () => {
+    mockProfileBff({ bootstrapProfile: { skinType: 'oily' } });
+
+    render(<Profile />);
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Select language' }), {
+      target: { value: 'fr' },
+    });
+
+    await screen.findByRole('combobox', { name: 'Choisir la langue' });
+    expect(screen.getByRole('button', { name: 'Start quick profile' })).toBeInTheDocument();
+  }, PROFILE_TEST_TIMEOUT_MS);
+
+  it('binds manual language changes to the signed-in account', async () => {
+    saveAuroraAuthSession({ token: 'signed_in_token', email: 'user@example.com', expires_at: null });
+    mockProfileBff({ bootstrapProfile: { skinType: 'oily' } });
+
+    render(<Profile />);
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Select language' }), {
+      target: { value: 'cn' },
+    });
+
+    await screen.findByRole('combobox', { name: '选择语言' });
+    expect(window.localStorage.getItem('lang_pref')).toBe('cn');
+    expect(getAccountLangPref('USER@example.com')).toBe('cn');
+  }, PROFILE_TEST_TIMEOUT_MS);
+
+  it('restores the bound language when the signed-in account already has one', async () => {
+    saveAuroraAuthSession({ token: 'signed_in_token', email: 'user@example.com', expires_at: null });
+    setAccountLangPref('user@example.com', 'fr');
+    mockProfileBff({ bootstrapProfile: { skinType: 'oily' } });
+
+    render(<Profile />);
+
+    await screen.findByRole('combobox', { name: 'Choisir la langue' });
+    expect(screen.getByRole('button', { name: 'Start quick profile' })).toBeInTheDocument();
   }, PROFILE_TEST_TIMEOUT_MS);
 
   it('shows complete_guest state with sync CTA', async () => {

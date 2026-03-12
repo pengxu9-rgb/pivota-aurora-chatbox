@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Language } from '@/lib/types';
-import { t } from '@/lib/i18n';
+import { pickLocalizedText, t } from '@/lib/i18n';
 import { User, Droplets, Target, ChevronRight } from 'lucide-react';
 
 interface AuroraProfileCardProps {
@@ -30,6 +30,7 @@ const SKIN_CONCERNS: { id: SkinConcern; icon: string }[] = [
 ];
 
 export function AuroraProfileCard({ onAction, language }: AuroraProfileCardProps) {
+  const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [skinType, setSkinType] = useState<SkinType | null>(null);
   const [concerns, setConcerns] = useState<SkinConcern[]>([]);
@@ -62,12 +63,8 @@ export function AuroraProfileCard({ onAction, language }: AuroraProfileCardProps
           <User className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <p className="section-label">
-            {language === 'EN' ? 'PROFILE BUILDER' : '画像构建'}
-          </p>
-          <h3 className="text-sm font-semibold text-foreground">
-            {language === 'EN' ? 'Tell me about your skin' : '告诉我你的肤质'}
-          </h3>
+          <p className="section-label">{L('PROFILE BUILDER', '画像构建')}</p>
+          <h3 className="text-sm font-semibold text-foreground">{L('Tell me about your skin', '告诉我你的肤质')}</h3>
         </div>
       </div>
 
@@ -146,14 +143,9 @@ export function AuroraProfileCard({ onAction, language }: AuroraProfileCardProps
       {/* Step 3: Barrier Status */}
       {step === 3 && (
         <div className="space-y-3">
-          <label className="text-sm font-medium text-foreground">
-            {language === 'EN' ? 'Barrier Health' : '屏障状态'}
-          </label>
+          <label className="text-sm font-medium text-foreground">{L('Barrier Health', '屏障状态')}</label>
           <p className="text-xs text-muted-foreground">
-            {language === 'EN' 
-              ? 'Signs: stinging with products, redness, dryness despite moisturizer'
-              : '症状：使用产品刺痛、发红、保湿后仍干燥'
-            }
+            {L('Signs: stinging with products, redness, dryness despite moisturizer', '症状：使用产品刺痛、发红、保湿后仍干燥')}
           </p>
           <div className="space-y-2">
             {[
@@ -186,7 +178,7 @@ export function AuroraProfileCard({ onAction, language }: AuroraProfileCardProps
                 }`}
               >
                 <span className="text-sm font-medium text-foreground">
-                  {status.label[language]}
+                  {L(status.label.EN, status.label.CN)}
                 </span>
                 {barrierStatus === status.id && (
                   <div className={`w-2 h-2 rounded-full ${status.dotClass}`} />
@@ -200,9 +192,7 @@ export function AuroraProfileCard({ onAction, language }: AuroraProfileCardProps
       {/* Signal Pills Preview */}
       {(skinType || concerns.length > 0) && (
         <div className="pt-3 border-t border-border">
-          <p className="section-label mb-2">
-            {language === 'EN' ? 'KEY SIGNALS' : '关键信号'}
-          </p>
+          <p className="section-label mb-2">{L('KEY SIGNALS', '关键信号')}</p>
           <div className="flex flex-wrap gap-1.5">
             {skinType && (
               <span className="signal-pill signal-pill-primary">
@@ -215,7 +205,7 @@ export function AuroraProfileCard({ onAction, language }: AuroraProfileCardProps
               </span>
             ))}
             {barrierStatus === 'impaired' && step === 3 && (
-              <span className="signal-pill signal-pill-warning">barrier impaired</span>
+              <span className="signal-pill signal-pill-warning">{L('Barrier stressed', '屏障受损')}</span>
             )}
           </div>
         </div>

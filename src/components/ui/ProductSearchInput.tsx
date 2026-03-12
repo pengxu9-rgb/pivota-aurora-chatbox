@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CheckCircle2, Search } from 'lucide-react';
-import { bffJson, type BffHeaders, type Language } from '@/lib/pivotaAgentBff';
+import { bffJson, type BffHeaders } from '@/lib/pivotaAgentBff';
+import { toBackendLanguage } from '@/lib/persistence';
+import type { Language } from '@/lib/types';
 
 export type ResolvedProduct = {
   product_id: string;
@@ -197,7 +199,7 @@ export function ProductSearchInput({
           const resp = await bffJson<RoutineResolveResponse>('/v1/routine/resolve-products', headers, {
             method: 'POST',
             body: JSON.stringify({
-              lang: language,
+              lang: toBackendLanguage(language),
               products: [{ slot, step, text: searchText }],
             }),
             timeoutMs: 8000,

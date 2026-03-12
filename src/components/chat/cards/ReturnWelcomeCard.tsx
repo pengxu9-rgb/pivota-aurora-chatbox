@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import type { SuggestedChip } from '@/lib/pivotaAgentBff';
+import { t } from '@/lib/i18n';
 import type { Language } from '@/lib/types';
 import type { ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 
@@ -13,20 +14,18 @@ type Props = {
 
 const formatGoalPrimary = (raw: string, language: Language) => {
   const norm = raw.trim().toLowerCase();
-  const isCN = language === 'CN';
-
-  const map: Record<string, { en: string; cn: string }> = {
-    breakouts: { en: 'Breakouts', cn: '控痘/闭口' },
-    acne: { en: 'Breakouts', cn: '控痘/闭口' },
-    brightening: { en: 'Brightening', cn: '提亮/淡斑' },
-    antiaging: { en: 'Anti-aging', cn: '抗老' },
-    barrier: { en: 'Barrier repair', cn: '修护屏障' },
-    spf: { en: 'SPF / sun', cn: '防晒' },
-    other: { en: 'Other', cn: '其他' },
+  const map: Record<string, string> = {
+    breakouts: 'return_welcome.goal.breakouts',
+    acne: 'return_welcome.goal.breakouts',
+    brightening: 'return_welcome.goal.brightening',
+    antiaging: 'return_welcome.goal.antiaging',
+    barrier: 'return_welcome.goal.barrier',
+    spf: 'return_welcome.goal.spf',
+    other: 'return_welcome.goal.other',
   };
 
-  const hit = map[norm];
-  if (hit) return isCN ? hit.cn : hit.en;
+  const key = map[norm];
+  if (key) return t(key, language);
   return raw.trim();
 };
 
@@ -37,7 +36,7 @@ const joinList = (items: string[] | null | undefined, empty: string) => {
 
 export function ReturnWelcomeCard({ language, summary, chips, onChip, disabled }: Props) {
   const text = useMemo(() => {
-    const empty = language === 'CN' ? '—' : '—';
+    const empty = '—';
     const goal = summary?.goal_primary ? formatGoalPrimary(summary.goal_primary, language) : empty;
     const am = joinList(summary?.plan_am_short, empty);
     const pm = joinList(summary?.plan_pm_short, empty);
@@ -49,9 +48,9 @@ export function ReturnWelcomeCard({ language, summary, chips, onChip, disabled }
   return (
     <div className="chat-card-elevated space-y-3">
       <div className="space-y-1">
-        <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '欢迎回来' : 'Welcome back'}</div>
+        <div className="text-sm font-semibold text-foreground">{t('return_welcome.title', language)}</div>
         <div className="text-sm text-muted-foreground">
-          {language === 'CN' ? `上次我们在做：${text.goal}` : `Last time we were working on: ${text.goal}`}
+          {t('return_welcome.subtitle', language, { goal: text.goal })}
         </div>
       </div>
 
@@ -59,7 +58,7 @@ export function ReturnWelcomeCard({ language, summary, chips, onChip, disabled }
         <div className="space-y-2">
           <div>
             <span className="text-xs font-medium text-muted-foreground">
-              {language === 'CN' ? '你的当前方案' : 'Your current plan'}
+              {t('return_welcome.current_plan', language)}
             </span>
             <div className="mt-1">
               <span className="font-medium">AM</span> {text.am} <span className="mx-1 text-muted-foreground">/</span>{' '}
@@ -68,15 +67,17 @@ export function ReturnWelcomeCard({ language, summary, chips, onChip, disabled }
           </div>
 
           <div>
-            <span className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '敏感点' : 'Sensitivities'}</span>
+            <span className="text-xs font-medium text-muted-foreground">{t('return_welcome.sensitivities', language)}</span>
             <div className="mt-1">{text.sens}</div>
           </div>
 
           <div>
             <span className="text-xs font-medium text-muted-foreground">
-              {language === 'CN' ? '距离上次' : 'Days since last'}
+              {t('return_welcome.days_since_last', language)}
             </span>
-            <div className="mt-1">{language === 'CN' ? `${text.days} 天` : `${text.days} days`}</div>
+            <div className="mt-1">
+              {text.days === '—' ? text.days : t('return_welcome.days_value', language, { count: text.days })}
+            </div>
           </div>
         </div>
       </div>

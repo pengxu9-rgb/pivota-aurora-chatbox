@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Language } from '@/lib/types';
-import { t, getBudgetLabel } from '@/lib/i18n';
+import { t, getBudgetLabel, pickLocalizedText } from '@/lib/i18n';
 import { Wallet, TrendingDown, TrendingUp, Sparkles, ChevronRight } from 'lucide-react';
 
 interface AuroraBudgetCardProps {
@@ -29,6 +29,7 @@ const BUDGETS: { tier: BudgetTier; icon: React.ReactNode; desc: { EN: string; CN
 ];
 
 export function AuroraBudgetCard({ onAction, language }: AuroraBudgetCardProps) {
+  const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
   const [budget, setBudget] = useState<BudgetTier>('$$');
 
   return (
@@ -39,9 +40,7 @@ export function AuroraBudgetCard({ onAction, language }: AuroraBudgetCardProps) 
           <Wallet className="w-5 h-5 text-primary" />
         </div>
         <div>
-          <p className="section-label">
-            {language === 'EN' ? 'HIGH-LOW BUDGET' : 'HIGH-LOW 预算'}
-          </p>
+          <p className="section-label">{L('HIGH-LOW BUDGET', 'HIGH-LOW 预算')}</p>
           <h3 className="text-sm font-semibold text-foreground">
             {t('budget.intro', language)}
           </h3>
@@ -51,10 +50,10 @@ export function AuroraBudgetCard({ onAction, language }: AuroraBudgetCardProps) 
       {/* Strategy Explanation */}
       <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
         <p className="text-xs text-foreground">
-          {language === 'EN' 
-            ? '💡 Strategy: Save on daily basics (cleanser, moisturizer), invest in high-efficacy treatments (serums, actives)'
-            : '💡 策略：日常基础品平价，高效功效品升级'
-          }
+          {L(
+            '💡 Strategy: Save on daily basics (cleanser, moisturizer), invest in high-efficacy treatments (serums, actives)',
+            '💡 策略：日常基础品平价，高效功效品升级',
+          )}
         </p>
       </div>
 
@@ -90,7 +89,7 @@ export function AuroraBudgetCard({ onAction, language }: AuroraBudgetCardProps) 
                     {getBudgetLabel(b.tier, language)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {b.desc[language]}
+                    {L(b.desc.EN, b.desc.CN)}
                   </p>
                 </div>
               </div>

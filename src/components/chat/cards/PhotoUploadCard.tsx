@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Language, PhotoSlot } from '@/lib/types';
-import { t } from '@/lib/i18n';
+import { isChineseLanguage, t } from '@/lib/i18n';
 import {
   Camera,
   X,
@@ -62,36 +62,8 @@ export function PhotoUploadCard({
 
   const copy = useMemo(
     () =>
-      language === 'EN'
+      isChineseLanguage(language)
         ? {
-            openCamera: 'Frame camera',
-            retakeCamera: 'Retake in frame',
-            uploadAlbum: 'Upload image',
-            cameraGuideTitle: 'Align your face inside the oval frame',
-            cameraGuideTip: 'Keep forehead, cheeks, and chin fully visible. Avoid filters and beauty mode.',
-            cameraPermissionDenied: 'Camera permission denied. You can still upload from your album.',
-            cameraNotSupported: 'This browser cannot open camera preview. Please upload an image instead.',
-            analyzing: 'Checking framing...',
-            frameGood: 'Frame good',
-            frameWarn: 'Usable but off',
-            frameBad: 'High drift risk',
-            frameUnknown: 'Frame check unavailable',
-            capture: 'Capture',
-            cancel: 'Cancel',
-            guardTitle: 'Some photos are outside the guide frame.',
-            guardBody: 'You can continue, but detection may drift. Recommended: retake in frame first.',
-            continueAnyway: 'Continue anyway',
-            retakeFirst: 'Retake first',
-            noFace: 'No face detected. Move closer and keep your full face inside the oval.',
-            offCenter: 'Move your nose toward the center of the frame.',
-            tooSmall: 'Move closer so your face fills the oval.',
-            tooLarge: 'Step back slightly so forehead and chin stay inside.',
-            cutoff: 'Keep forehead, cheeks, and chin fully inside the frame.',
-            detectorUnavailable: 'Manual frame mode only on this browser; quality will be checked after upload.',
-            frameOkay: 'Framing looks good.',
-            warningBanner: 'Framing is not ideal. You can still upload, but a retake may improve accuracy.',
-          }
-        : {
             openCamera: '框内拍照',
             retakeCamera: '重新框内拍照',
             uploadAlbum: '上传图片',
@@ -118,6 +90,34 @@ export function PhotoUploadCard({
             detectorUnavailable: '当前浏览器仅支持手动框拍，上传后仍会继续质量校验。',
             frameOkay: '取景状态良好。',
             warningBanner: '取景有偏差。仍可上传，但重拍会更稳。',
+          }
+        : {
+            openCamera: 'Frame camera',
+            retakeCamera: 'Retake in frame',
+            uploadAlbum: 'Upload image',
+            cameraGuideTitle: 'Align your face inside the oval frame',
+            cameraGuideTip: 'Keep forehead, cheeks, and chin fully visible. Avoid filters and beauty mode.',
+            cameraPermissionDenied: 'Camera permission denied. You can still upload from your album.',
+            cameraNotSupported: 'This browser cannot open camera preview. Please upload an image instead.',
+            analyzing: 'Checking framing...',
+            frameGood: 'Frame good',
+            frameWarn: 'Usable but off',
+            frameBad: 'High drift risk',
+            frameUnknown: 'Frame check unavailable',
+            capture: 'Capture',
+            cancel: 'Cancel',
+            guardTitle: 'Some photos are outside the guide frame.',
+            guardBody: 'You can continue, but detection may drift. Recommended: retake in frame first.',
+            continueAnyway: 'Continue anyway',
+            retakeFirst: 'Retake first',
+            noFace: 'No face detected. Move closer and keep your full face inside the oval.',
+            offCenter: 'Move your nose toward the center of the frame.',
+            tooSmall: 'Move closer so your face fills the oval.',
+            tooLarge: 'Step back slightly so forehead and chin stay inside.',
+            cutoff: 'Keep forehead, cheeks, and chin fully inside the frame.',
+            detectorUnavailable: 'Manual frame mode only on this browser; quality will be checked after upload.',
+            frameOkay: 'Framing looks good.',
+            warningBanner: 'Framing is not ideal. You can still upload, but a retake may improve accuracy.',
           },
     [language]
   );
