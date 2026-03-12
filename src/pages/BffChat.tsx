@@ -1509,6 +1509,170 @@ function extractProductSearchClarification(input: unknown): { question: string; 
   };
 }
 
+type TravelLookupResultItem = {
+  product: Product;
+  raw: Record<string, unknown>;
+};
+
+function cleanTravelLookupText(value: unknown): string | null {
+  const text = asString(value)?.trim() || '';
+  if (!text) return null;
+  if (/^(unknown(?:\s+brand|\s+product)?|未知(?:品牌|产品)?|n\/a|null|undefined)$/i.test(text)) return null;
+  return text;
+}
+
+function readTravelLookupRefTarget(raw: unknown): { product_id: string; merchant_id?: string | null } | null {
+  const ref = asObject(raw);
+  if (!ref) return null;
+  const productId = asString((ref as any).product_id ?? (ref as any).productId)?.trim() || '';
+  const merchantId = asString((ref as any).merchant_id ?? (ref as any).merchantId)?.trim() || null;
+  if (!productId) return null;
+  return merchantId ? { product_id: productId, merchant_id: merchantId } : { product_id: productId };
+}
+
+function isInternalTravelLookupPdpUrl(rawUrl: string | null): boolean {
+  const url = String(rawUrl || '').trim();
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const isPdpPath = segments.length === 2 && segments[0] === 'products' && Boolean(segments[1]);
+    const isBrowseRoute = String(parsed.searchParams.get('open') || '').trim().toLowerCase() === 'browse';
+    return isPdpPath && !isBrowseRoute;
+  } catch {
+    return false;
+  }
+}
+
+function buildTravelLookupOpenTarget(row: Record<string, unknown>, product: Product) {
+  const source = asObject((row as any).product) || row;
+  const pdpOpen =
+    asObject((source as any).pdp_open) ||
+    asObject((source as any).pdpOpen) ||
+    asObject((row as any).pdp_open) ||
+    asObject((row as any).pdpOpen) ||
+    null;
+  const pdpOpenExternal = asObject((pdpOpen as any)?.external) || null;
+  const subject = asObject((pdpOpen as any)?.subject) || null;
+
+  const directUrlCandidates = [
+    asString((source as any).pdp_url),
+    asString((source as any).url),
+    asString((source as any).product_url),
+    asString((source as any).productUrl),
+    asString((source as any).purchase_path),
+    asString((source as any).purchasePath),
+    asString((pdpOpenExternal as any)?.url),
+  ]
+    .map((value) => normalizeOutboundFallbackUrl(String(value || '').trim()))
+    .filter((value): value is string => Boolean(value));
+
+  const directInternalUrl = directUrlCandidates.find((value) => isInternalTravelLookupPdpUrl(value)) || null;
+  const directExternalUrl = directUrlCandidates.find((value) => !isInternalTravelLookupPdpUrl(value)) || null;
+
+  const directRef =
+    readTravelLookupRefTarget((pdpOpen as any)?.product_ref) ||
+    readTravelLookupRefTarget((source as any).product_ref) ||
+    readTravelLookupRefTarget((source as any).canonical_product_ref) ||
+    null;
+  const rawProductId = asString((source as any).product_id ?? (source as any).productId)?.trim() || null;
+  const rawMerchantId = asString((source as any).merchant_id ?? (source as any).merchantId)?.trim() || null;
+  const fallbackRef = rawProductId ? { product_id: rawProductId, ...(rawMerchantId ? { merchant_id: rawMerchantId } : {}) } : null;
+  const canonicalProductRef =
+    readTravelLookupRefTarget((source as any).canonical_product_ref) ||
+    readTravelLookupRefTarget((pdpOpen as any)?.canonical_product_ref) ||
+    directRef ||
+    fallbackRef ||
+    null;
+
+  const subjectProductGroupId =
+    asString((subject as any)?.id) ||
+    asString((subject as any)?.product_group_id) ||
+    asString((subject as any)?.productGroupId) ||
+    asString((source as any).subject_product_group_id) ||
+    asString((source as any).subjectProductGroupId) ||
+    asString((source as any).product_group_id) ||
+    asString((source as any).productGroupId) ||
+    null;
+
+  const groupTarget = extractPdpTargetFromProductGroupId(subjectProductGroupId || null);
+  const derivedInternalUrl = directInternalUrl
+    || (canonicalProductRef?.product_id ? buildPdpUrl(canonicalProductRef) : '')
+    || (groupTarget?.product_id ? buildPdpUrl(groupTarget) : '')
+    || null;
+
+  const brand = cleanTravelLookupText((source as any).brand) || cleanTravelLookupText(product.brand);
+  const name =
+    cleanTravelLookupText((source as any).name) ||
+    cleanTravelLookupText((source as any).title) ||
+    cleanTravelLookupText((source as any).display_name ?? (source as any).displayName) ||
+    cleanTravelLookupText(product.name);
+  const skuId = asString((source as any).sku_id ?? (source as any).skuId)?.trim() || null;
+
+  const itemResolveReasonCode =
+    asString((source as any)?.metadata?.resolve_reason_code) ||
+    asString((source as any)?.metadata?.resolveReasonCode) ||
+    asString((source as any)?.metadata?.pdp_open_fail_reason) ||
+    asString((source as any)?.metadata?.resolve_fail_reason) ||
+    null;
+
+  const externalQuery =
+    asString((pdpOpenExternal as any)?.query) ||
+    [brand, name].filter(Boolean).join(' ').trim() ||
+    null;
+  const explicitExternalPath =
+    String((pdpOpen as any)?.path || (source as any)?.metadata?.pdp_open_path || '')
+      .trim()
+      .toLowerCase() === 'external';
+  const anchorKey =
+    subjectProductGroupId ||
+    canonicalProductRef?.product_id ||
+    rawProductId ||
+    skuId ||
+    (externalQuery ? `q:${externalQuery}` : null) ||
+    (directExternalUrl ? `ext:${directExternalUrl.slice(0, 180)}` : null);
+
+  return {
+    brand,
+    name,
+    internalUrl: derivedInternalUrl,
+    externalUrl: directExternalUrl,
+    externalQuery,
+    preferExternalSearch: explicitExternalPath && !derivedInternalUrl,
+    anchorKey,
+    subjectProductGroupId,
+    canonicalProductRef,
+    resolveQuery: externalQuery,
+    hints: {
+      ...(canonicalProductRef ? { product_ref: canonicalProductRef } : {}),
+      ...(rawProductId ? { product_id: rawProductId } : {}),
+      ...(skuId ? { sku_id: skuId } : {}),
+      ...(brand ? { brand } : {}),
+      ...(name ? { title: name } : {}),
+      ...(externalQuery ? { aliases: [externalQuery, name, brand].filter(Boolean) } : {}),
+    },
+    pdpOpenHint:
+      pdpOpen || explicitExternalPath || directExternalUrl || externalQuery
+        ? {
+            path: asString((pdpOpen as any)?.path) || (explicitExternalPath || directExternalUrl ? 'external' : null),
+            resolve_reason_code: asString((pdpOpen as any)?.resolve_reason_code) || itemResolveReasonCode || null,
+            external:
+              directExternalUrl || externalQuery
+                ? {
+                    query: externalQuery,
+                    url: directExternalUrl,
+                  }
+                : pdpOpenExternal
+                  ? {
+                      query: asString((pdpOpenExternal as any)?.query) || null,
+                      url: normalizeOutboundFallbackUrl(asString((pdpOpenExternal as any)?.url) || '') || null,
+                    }
+                  : null,
+          }
+        : null,
+  };
+}
+
 function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Offer[] {
   const explicitOffers = asArray((raw as any).offers)
     .map((v) => asObject(v))
@@ -4074,7 +4238,7 @@ function BffCardView({
     ingredientHints: string | null;
     loading: boolean;
     error: string | null;
-    results: Product[];
+    results: TravelLookupResultItem[];
     reply: string | null;
     clarification: { question: string; options: string[] } | null;
   } | null>(null);
@@ -4178,7 +4342,10 @@ function BffCardView({
         });
         if (travelLookupRequestRef.current !== requestId) return;
         const results = extractProductsFromSearchResponse(resp)
-          .map((row) => toUiProduct(asObject((row as any).product) || row, language))
+          .map((row) => ({
+            product: toUiProduct(asObject((row as any).product) || row, language),
+            raw: row,
+          }))
           .slice(0, 8);
         const reply = extractProductSearchReply(resp);
         const clarification = extractProductSearchClarification(resp);
@@ -4216,6 +4383,66 @@ function BffCardView({
     [language, resolveProductsSearch],
   );
 
+  const openTravelLookupProduct = useCallback(
+    async (entry: TravelLookupResultItem) => {
+      const target = buildTravelLookupOpenTarget(entry.raw, entry.product);
+      const title = [target.brand, target.name].filter(Boolean).join(' ').trim() || entry.product.name;
+
+      if (target.internalUrl) {
+        if (onOpenPdp) {
+          onOpenPdp({ url: target.internalUrl, ...(title ? { title } : {}) });
+        } else {
+          window.location.assign(target.internalUrl);
+        }
+        return;
+      }
+
+      if (!target.preferExternalSearch && resolveProductRef && target.resolveQuery) {
+        try {
+          const resolved = await resolveProductRef({
+            query: target.resolveQuery,
+            lang: language === 'CN' ? 'cn' : 'en',
+            ...(Object.keys(target.hints).length ? { hints: target.hints } : {}),
+          });
+          const stableTarget = extractStablePdpTargetFromProductsResolveResponse(resolved);
+          if (stableTarget?.product_id) {
+            const resolvedUrl = buildPdpUrl({
+              product_id: stableTarget.product_id,
+              merchant_id: stableTarget.merchant_id ?? null,
+            });
+            if (onOpenPdp) {
+              onOpenPdp({ url: resolvedUrl, ...(title ? { title } : {}) });
+            } else {
+              window.location.assign(resolvedUrl);
+            }
+            return;
+          }
+        } catch {
+          // Fall through to external search fallback when lightweight resolve fails.
+        }
+      }
+
+      const externalUrl = target.externalUrl || buildGoogleSearchFallbackUrl(target.externalQuery || '');
+      if (!externalUrl) return;
+
+      const popup = window.open(externalUrl, '_blank', 'noopener,noreferrer');
+      if (popup) return;
+
+      try {
+        window.location.assign(externalUrl);
+      } catch {
+        toast({
+          title: language === 'CN' ? '无法打开外部页面' : 'Unable to open external page',
+          description:
+            language === 'CN'
+              ? '浏览器可能拦截了新标签页弹窗，请允许后重试。'
+              : 'Your browser may have blocked the popup. Please allow popups and retry.',
+        });
+      }
+    },
+    [language, onOpenPdp, resolveProductRef],
+  );
+
   const travelLookupTitle = language === 'CN' ? '旅行产品查找' : 'Travel product lookup';
   const travelLookupBody = travelLookupState ? (
     <div className="space-y-3 px-4 pb-4">
@@ -4238,8 +4465,11 @@ function BffCardView({
         </div>
       ) : travelLookupState.results.length ? (
         <div className="space-y-2">
-          {travelLookupState.results.map((product, idx) => {
+          {travelLookupState.results.map((entry, idx) => {
+            const { product } = entry;
             const imageUrl = pickProductImageUrl(product);
+            const target = buildTravelLookupOpenTarget(entry.raw, product);
+            const isOpenable = Boolean(target.internalUrl || target.externalUrl || target.externalQuery || (resolveProductRef && target.resolveQuery));
             return (
               <div
                 key={`${product.sku_id}_${idx}`}
@@ -4255,7 +4485,21 @@ function BffCardView({
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold leading-snug text-foreground">{product.name}</div>
+                  {isOpenable ? (
+                    <button
+                      type="button"
+                      className="inline-flex max-w-full items-center gap-1 text-left text-sm font-semibold leading-snug text-foreground transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      onClick={() => {
+                        void openTravelLookupProduct(entry);
+                      }}
+                      aria-label={`${language === 'CN' ? '打开商品' : 'Open product'} ${product.name}`}
+                    >
+                      <span className="truncate">{product.name}</span>
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    </button>
+                  ) : (
+                    <div className="text-sm font-semibold leading-snug text-foreground">{product.name}</div>
+                  )}
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {[product.brand, product.category].filter(Boolean).join(' · ')}
                   </div>
@@ -4300,8 +4544,16 @@ function BffCardView({
         aria-label={travelLookupTitle}
         aria-describedby={undefined}
       >
-        <DrawerHeader>
+        <DrawerHeader className="flex flex-row items-center justify-between gap-3 px-4 pb-2 pt-3 text-left">
           <DrawerTitle>{travelLookupTitle}</DrawerTitle>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
+            aria-label={language === 'CN' ? '关闭' : 'Close'}
+            onClick={() => setTravelLookupOpen(false)}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </DrawerHeader>
         <div className="overflow-y-auto pb-2">{travelLookupBody}</div>
       </DrawerContent>

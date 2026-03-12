@@ -603,6 +603,236 @@ describe('BffChat env stress recommendation routing', () => {
     expect(screen.queryByText('No matching products found.')).not.toBeInTheDocument();
   });
 
+  it('adds a close control to the travel product lookup drawer', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string, _headers?: unknown, opts?: unknown) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_travel_close',
+            trace_id: 'trace_chat_travel_close',
+            assistant_text: 'Travel picks are ready.',
+            cards: [
+              {
+                id: 'travel_drawer_close',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 49,
+                      tier: 'Medium',
+                      radar: [{ axis: 'Weather', value: 41 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Singapore',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 55,
+                        },
+                        categorized_kit: [
+                          {
+                            id: 'sun_protection',
+                            title: 'Sun protection',
+                            ingredient_logic: 'Photostable UV filters.',
+                            preparations: [{ name: 'Face SPF50+ PA++++ sunscreen', detail: 'Reapply at midday' }],
+                            brand_suggestions: [{ brand: 'Aurora Lab', product_name: 'Daily SPF Fluid' }],
+                          },
+                        ],
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: [],
+                          improve_by: [],
+                        },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+
+      if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
+        return Promise.resolve({
+          status: 'success',
+          success: true,
+          products: [
+            {
+              product_id: 'prod_spf_fluid',
+              merchant_id: 'merchant_spf',
+              title: 'Daily SPF Fluid',
+              brand: 'Aurora Lab',
+            },
+          ],
+        });
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    const browseTrigger = await waitForEnabledButton('Browse products (1)');
+    fireEvent.click(browseTrigger);
+
+    expect(await screen.findByText('Travel product lookup')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  });
+
+  it('opens product details from travel lookup names and falls back directly to external search', async () => {
+    const mock = vi.mocked(bffJson);
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as any));
+
+    mock.mockImplementation((path: string, _headers?: unknown, opts?: unknown) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_travel_open_product',
+            trace_id: 'trace_chat_travel_open_product',
+            assistant_text: 'Travel picks are ready.',
+            cards: [
+              {
+                id: 'travel_open_product',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 49,
+                      tier: 'Medium',
+                      radar: [{ axis: 'Weather', value: 41 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Singapore',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 55,
+                        },
+                        categorized_kit: [
+                          {
+                            id: 'sun_protection',
+                            title: 'Sun protection',
+                            ingredient_logic: 'Photostable UV filters.',
+                            preparations: [{ name: 'Face SPF50+ PA++++ sunscreen', detail: 'Reapply at midday' }],
+                            brand_suggestions: [{ brand: 'Aurora Lab', product_name: 'Daily SPF Fluid' }],
+                          },
+                        ],
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: [],
+                          improve_by: [],
+                        },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+
+      if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
+        return Promise.resolve({
+          status: 'success',
+          success: true,
+          products: [
+            {
+              product_id: 'prod_spf_fluid',
+              merchant_id: 'merchant_spf',
+              title: 'Daily SPF Fluid',
+              brand: 'Aurora Lab',
+            },
+            {
+              title: 'Barrier Rescue Cream',
+              brand: 'Aurora Lab',
+              pdp_open: {
+                path: 'external',
+                external: {
+                  query: 'Aurora Lab Barrier Rescue Cream',
+                },
+              },
+            },
+          ],
+        });
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    const browseTrigger = await waitForEnabledButton('Browse products (1)');
+    fireEvent.click(browseTrigger);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open product Barrier Rescue Cream' }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Aurora+Lab+Barrier+Rescue+Cream'),
+        '_blank',
+        'noopener,noreferrer',
+      );
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open product Daily SPF Fluid' }));
+    expect(await screen.findByRole('heading', { name: 'Aurora Lab Daily SPF Fluid' })).toBeInTheDocument();
+
+    openSpy.mockRestore();
+  });
+
   it('keeps the latest travel product results when lookups resolve out of order', async () => {
     const mock = vi.mocked(bffJson);
     const searchRequests = new Map<string, ReturnType<typeof createDeferred<any>>>();
