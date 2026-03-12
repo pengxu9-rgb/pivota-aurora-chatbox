@@ -1434,6 +1434,22 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
     description,
     image_url,
     size,
+    product_id: asString(raw.product_id ?? raw.productId) || null,
+    merchant_id: asString((raw as any).merchant_id ?? (raw as any).merchantId) || null,
+    in_stock:
+      typeof (raw as any).in_stock === 'boolean'
+        ? Boolean((raw as any).in_stock)
+        : (raw as any).in_stock === null
+          ? null
+          : typeof (raw as any).available === 'boolean'
+            ? Boolean((raw as any).available)
+            : null,
+    inventory_quantity: asNumber((raw as any).inventory_quantity ?? (raw as any).inventoryQuantity) ?? null,
+    availability_state: asString((raw as any).availability_state ?? (raw as any).availabilityState) || null,
+    canonical_url: asString((raw as any).canonical_url ?? (raw as any).canonicalUrl) || null,
+    destination_url: asString((raw as any).destination_url ?? (raw as any).destinationUrl) || null,
+    external_url: asString((raw as any).external_url ?? (raw as any).externalUrl) || null,
+    external_redirect_url: asString((raw as any).external_redirect_url ?? (raw as any).externalRedirectUrl) || null,
   };
 
   const mechanism = asNumberRecord(raw.mechanism) || asNumberRecord((raw as any).mechanism_vector);
@@ -1490,7 +1506,53 @@ function extractProductSearchReply(input: unknown): string | null {
   return null;
 }
 
-function extractProductSearchClarification(input: unknown): { question: string; options: string[] } | null {
+type ProductSearchClarification = {
+  question: string;
+  options: string[];
+  slot: string | null;
+  reasonCode: string | null;
+  dedupKey: string | null;
+};
+
+type ProductSearchSlotState = {
+  asked_slots: string[];
+  resolved_slots: Record<string, string>;
+};
+
+function normalizeProductSearchSlotState(input: unknown): ProductSearchSlotState {
+  const root = asObject(input) || {};
+  return {
+    asked_slots: Array.from(
+      new Set(
+        asArray((root as any).asked_slots)
+          .map((value) => asString(value)?.trim().toLowerCase())
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ),
+    resolved_slots: Object.fromEntries(
+      Object.entries(asObject((root as any).resolved_slots) || {})
+        .map(([key, value]) => [String(key || '').trim().toLowerCase(), asString(value)?.trim() || ''])
+        .filter(([key, value]) => Boolean(key && value)),
+    ),
+  };
+}
+
+function mergeProductSearchSlotState(
+  base: ProductSearchSlotState | null | undefined,
+  patch: ProductSearchSlotState | null | undefined,
+): ProductSearchSlotState {
+  const normalizedBase = normalizeProductSearchSlotState(base);
+  const normalizedPatch = normalizeProductSearchSlotState(patch);
+  return {
+    asked_slots: Array.from(new Set([...normalizedBase.asked_slots, ...normalizedPatch.asked_slots])),
+    resolved_slots: {
+      ...normalizedBase.resolved_slots,
+      ...normalizedPatch.resolved_slots,
+    },
+  };
+}
+
+function extractProductSearchClarification(input: unknown): ProductSearchClarification | null {
   const root = asObject(input) || {};
   const clarification =
     asObject((root as any).clarification) ||
@@ -1506,13 +1568,64 @@ function extractProductSearchClarification(input: unknown): { question: string; 
   return {
     question: question?.trim() || '',
     options,
+    slot: asString((clarification as any).slot) || null,
+    reasonCode: asString((clarification as any).reason_code ?? (clarification as any).reasonCode) || null,
+    dedupKey: asString((clarification as any).dedup_key ?? (clarification as any).dedupKey) || null,
   };
+}
+
+function extractProductSearchSlotState(input: unknown): ProductSearchSlotState | null {
+  const root = asObject(input) || {};
+  const metadata =
+    asObject((root as any).metadata) ||
+    asObject((root as any).data?.metadata) ||
+    asObject((root as any).result?.metadata);
+  const slotState =
+    asObject((metadata as any)?.slot_state) ||
+    asObject((metadata as any)?.search_decision?.slot_state) ||
+    asObject((metadata as any)?.search_trace?.slot_state);
+  if (!slotState) return null;
+  return normalizeProductSearchSlotState(slotState);
+}
+
+function resolveTravelLookupAvailabilityState(product: Product): 'in_stock' | 'unknown' | 'out_of_stock' {
+  const explicitState = String(product.availability_state || '').trim().toLowerCase();
+  if (explicitState === 'in_stock' || explicitState === 'out_of_stock' || explicitState === 'unknown') {
+    return explicitState;
+  }
+  if (typeof product.in_stock === 'boolean') {
+    return product.in_stock ? 'in_stock' : 'out_of_stock';
+  }
+  if (typeof product.inventory_quantity === 'number' && Number.isFinite(product.inventory_quantity)) {
+    return product.inventory_quantity > 0 ? 'in_stock' : 'out_of_stock';
+  }
+  return 'unknown';
 }
 
 type TravelLookupResultItem = {
   product: Product;
   raw: Record<string, unknown>;
 };
+
+function sortTravelLookupProducts(products: TravelLookupResultItem[]): TravelLookupResultItem[] {
+  const rank: Record<'in_stock' | 'unknown' | 'out_of_stock', number> = {
+    in_stock: 0,
+    unknown: 1,
+    out_of_stock: 2,
+  };
+  return products
+    .map((entry, index) => ({
+      entry,
+      index,
+      state: resolveTravelLookupAvailabilityState(entry.product),
+    }))
+    .sort((left, right) => {
+      const rankDiff = rank[left.state] - rank[right.state];
+      if (rankDiff !== 0) return rankDiff;
+      return left.index - right.index;
+    })
+    .map((item) => item.entry);
+}
 
 function cleanTravelLookupText(value: unknown): string | null {
   const text = asString(value)?.trim() || '';
@@ -4240,7 +4353,10 @@ function BffCardView({
     error: string | null;
     results: TravelLookupResultItem[];
     reply: string | null;
-    clarification: { question: string; options: string[] } | null;
+    clarification: ProductSearchClarification | null;
+    slotState: ProductSearchSlotState;
+    lastClarification: ProductSearchClarification | null;
+    selectedOption: string | null;
   } | null>(null);
 
   const submitRecoFeedback = useCallback(
@@ -4315,49 +4431,97 @@ function BffCardView({
 
   const structuredCitations = cardType === 'aurora_structured' ? extractExternalVerificationCitations(payload) : [];
 
-  const handleTravelProductLookup = useCallback(
-    async (lookup: TravelProductLookupQuery) => {
+  const runTravelLookupSearch = useCallback(
+    async ({
+      categoryTitle,
+      query,
+      ingredientHints,
+      preferBrand,
+      clarificationSlot,
+      clarificationAnswer,
+      slotState,
+      selectedOption,
+    }: {
+      categoryTitle: string;
+      query: string;
+      ingredientHints: string | null;
+      preferBrand?: string | null;
+      clarificationSlot?: string | null;
+      clarificationAnswer?: string | null;
+      slotState?: ProductSearchSlotState | null;
+      selectedOption?: string | null;
+    }) => {
       if (!resolveProductsSearch) return;
-      const query = String(lookup.searchQuery || '').trim();
-      if (!query) return;
       const requestId = travelLookupRequestRef.current + 1;
+      const normalizedSlotState = normalizeProductSearchSlotState(slotState);
       travelLookupRequestRef.current = requestId;
       setTravelLookupOpen(true);
       setTravelLookupState({
-        categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+        categoryTitle,
         query,
-        ingredientHints: asString(lookup.ingredientHints) || null,
+        ingredientHints,
         loading: true,
         error: null,
         results: [],
         reply: null,
         clarification: null,
+        slotState: normalizedSlotState,
+        lastClarification: null,
+        selectedOption: selectedOption || null,
       });
 
       try {
         const resp = await resolveProductsSearch({
           query,
           limit: 8,
-          preferBrand: asString(lookup.preferBrand) || null,
+          preferBrand: preferBrand || null,
+          uiSurface: 'travel_lookup',
+          clarificationSlot: clarificationSlot || null,
+          clarificationAnswer: clarificationAnswer || null,
+          slotState: normalizedSlotState,
         });
         if (travelLookupRequestRef.current !== requestId) return;
-        const results = extractProductsFromSearchResponse(resp)
-          .map((row) => ({
-            product: toUiProduct(asObject((row as any).product) || row, language),
-            raw: row,
-          }))
-          .slice(0, 8);
+        const results = sortTravelLookupProducts(
+          extractProductsFromSearchResponse(resp)
+            .map((row) => ({
+              product: toUiProduct(asObject((row as any).product) || row, language),
+              raw: row,
+            }))
+            .slice(0, 8),
+        );
         const reply = extractProductSearchReply(resp);
         const clarification = extractProductSearchClarification(resp);
+        const responseSlotState = extractProductSearchSlotState(resp);
+        const mergedSlotState = mergeProductSearchSlotState(
+          mergeProductSearchSlotState(
+            normalizedSlotState,
+            clarificationSlot && clarificationAnswer
+              ? {
+                  asked_slots: [clarificationSlot],
+                  resolved_slots: { [clarificationSlot]: clarificationAnswer },
+                }
+              : null,
+          ),
+          responseSlotState,
+        );
+        const finalSlotState = clarification?.slot
+          ? mergeProductSearchSlotState(mergedSlotState, {
+              asked_slots: [clarification.slot],
+              resolved_slots: {},
+            })
+          : mergedSlotState;
         setTravelLookupState({
-          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          categoryTitle,
           query,
-          ingredientHints: asString(lookup.ingredientHints) || null,
+          ingredientHints,
           loading: false,
           error: null,
           results,
           reply,
           clarification,
+          slotState: finalSlotState,
+          lastClarification: clarification,
+          selectedOption: selectedOption || null,
         });
       } catch (err) {
         if (travelLookupRequestRef.current !== requestId) return;
@@ -4365,9 +4529,9 @@ function BffCardView({
           (err instanceof DOMException && err.name === 'AbortError') ||
           /abort/i.test(err instanceof Error ? err.message : String(err));
         setTravelLookupState({
-          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          categoryTitle,
           query,
-          ingredientHints: asString(lookup.ingredientHints) || null,
+          ingredientHints,
           loading: false,
           error: isAbort
             ? (language === 'CN'
@@ -4377,10 +4541,43 @@ function BffCardView({
           results: [],
           reply: null,
           clarification: null,
+          slotState: normalizedSlotState,
+          lastClarification: null,
+          selectedOption: selectedOption || null,
         });
       }
     },
     [language, resolveProductsSearch],
+  );
+
+  const handleTravelProductLookup = useCallback(
+    async (lookup: TravelProductLookupQuery) => {
+      const query = String(lookup.searchQuery || '').trim();
+      if (!query) return;
+      await runTravelLookupSearch({
+        categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+        query,
+        ingredientHints: asString(lookup.ingredientHints) || null,
+        preferBrand: asString(lookup.preferBrand) || null,
+      });
+    },
+    [language, runTravelLookupSearch],
+  );
+
+  const handleTravelLookupClarificationSelect = useCallback(
+    async (option: string) => {
+      if (!travelLookupState?.lastClarification?.slot) return;
+      await runTravelLookupSearch({
+        categoryTitle: travelLookupState.categoryTitle,
+        query: travelLookupState.query,
+        ingredientHints: travelLookupState.ingredientHints,
+        clarificationSlot: travelLookupState.lastClarification.slot,
+        clarificationAnswer: option,
+        slotState: travelLookupState.slotState,
+        selectedOption: option,
+      });
+    },
+    [runTravelLookupSearch, travelLookupState],
   );
 
   const openTravelLookupProduct = useCallback(
@@ -4470,6 +4667,13 @@ function BffCardView({
             const imageUrl = pickProductImageUrl(product);
             const target = buildTravelLookupOpenTarget(entry.raw, product);
             const isOpenable = Boolean(target.internalUrl || target.externalUrl || target.externalQuery || (resolveProductRef && target.resolveQuery));
+            const availabilityState = resolveTravelLookupAvailabilityState(product);
+            const availabilityLabel =
+              availabilityState === 'out_of_stock'
+                ? (language === 'CN' ? '缺货' : 'Out of stock')
+                : availabilityState === 'unknown'
+                  ? (language === 'CN' ? '库存未知' : 'Availability unknown')
+                  : null;
             return (
               <div
                 key={`${product.sku_id}_${idx}`}
@@ -4503,6 +4707,20 @@ function BffCardView({
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {[product.brand, product.category].filter(Boolean).join(' · ')}
                   </div>
+                  {availabilityLabel ? (
+                    <div className="mt-1">
+                      <span
+                        className={cn(
+                          'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                          availabilityState === 'out_of_stock'
+                            ? 'border-amber-300 bg-amber-50 text-amber-900'
+                            : 'border-border/60 bg-muted/30 text-muted-foreground',
+                        )}
+                      >
+                        {availabilityLabel}
+                      </span>
+                    </div>
+                  ) : null}
                   {product.description ? (
                     <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{product.description}</div>
                   ) : null}
@@ -4520,12 +4738,22 @@ function BffCardView({
           {travelLookupState.clarification?.options?.length ? (
             <div className="flex flex-wrap gap-1.5">
               {travelLookupState.clarification.options.map((option) => (
-                <span
+                <button
                   key={option}
-                  className="rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] text-foreground/80"
+                  type="button"
+                  disabled={travelLookupState.loading}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] transition',
+                    travelLookupState.selectedOption === option
+                      ? 'border-foreground/30 bg-foreground/10 text-foreground'
+                      : 'border-border/60 bg-muted/20 text-foreground/80 hover:bg-muted/40',
+                  )}
+                  onClick={() => {
+                    void handleTravelLookupClarificationSelect(option);
+                  }}
                 >
                   {option}
-                </span>
+                </button>
               ))}
             </div>
           ) : null}
@@ -11314,10 +11542,18 @@ export default function BffChat() {
       query,
       limit,
       preferBrand,
+      uiSurface,
+      clarificationSlot,
+      clarificationAnswer,
+      slotState,
     }: {
       query: string;
       limit?: number;
       preferBrand?: string | null;
+      uiSurface?: string | null;
+      clarificationSlot?: string | null;
+      clarificationAnswer?: string | null;
+      slotState?: ProductSearchSlotState | null;
     }) => {
       const q = String(query || '').trim();
       if (!q) throw new Error('products.search requires query');
@@ -11339,6 +11575,21 @@ export default function BffChat() {
         lang: language === 'CN' ? 'cn' : 'en',
         source: 'aurora_chatbox',
         catalog_surface: 'beauty',
+        ...(uiSurface ? { ui_surface: uiSurface } : {}),
+        ...(uiSurface === 'travel_lookup'
+          ? {
+              allow_external_seed: 'true',
+              external_seed_strategy: 'unified_relevance',
+              fast_mode: 'true',
+            }
+          : {}),
+        ...(clarificationSlot ? { clarification_slot: clarificationSlot } : {}),
+        ...(clarificationAnswer ? { clarification_answer: clarificationAnswer } : {}),
+        ...(slotState &&
+        ((Array.isArray(slotState.asked_slots) && slotState.asked_slots.length > 0) ||
+          Object.keys(slotState.resolved_slots || {}).length > 0)
+          ? { slot_state: JSON.stringify(slotState) }
+          : {}),
       });
       try {
         return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
