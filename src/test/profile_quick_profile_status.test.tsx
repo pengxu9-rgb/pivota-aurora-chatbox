@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@/test/testProviders';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/ui/use-toast', () => ({
@@ -136,14 +136,14 @@ describe('Profile quick profile status', () => {
     await screen.findByRole('button', { name: 'Start quick profile' });
     expect(screen.queryByRole('button', { name: 'Sign in to sync profile' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '切换到中文' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to Chinese' }));
     await screen.findByRole('button', { name: '开始快速画像' });
 
     fireEvent.click(screen.getByRole('button', { name: '开始快速画像' }));
 
     expect(outletContext.startChat).toHaveBeenCalledWith({
       kind: 'chip',
-      title: 'Quick Profile',
+      title: '快速画像',
       chip_id: 'chip_quick_profile',
     });
   }, PROFILE_TEST_TIMEOUT_MS);
@@ -206,7 +206,7 @@ describe('Profile quick profile status', () => {
     expect(screen.queryByDisplayValue('stale@example.com')).not.toBeInTheDocument();
   }, PROFILE_TEST_TIMEOUT_MS);
 
-  it('shows complete_signed state and opens profile editor route', async () => {
+  it('shows complete_signed state and exposes the inline profile editor', async () => {
     saveAuroraAuthSession({ token: 'token_signed', email: 'signed@example.com', expires_at: null });
     mockProfileBff({
       bootstrapProfile: {
@@ -218,13 +218,10 @@ describe('Profile quick profile status', () => {
 
     render(<Profile />);
 
-    const editButton = await screen.findByRole('button', { name: 'Edit full profile' });
-    fireEvent.click(editButton);
-
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    const navArg = mockNavigate.mock.calls[0]?.[0] as { pathname: string; search: string };
-    expect(navArg.pathname).toBe('/chat');
-    expect(navArg.search).toContain('open=profile');
+    await screen.findByRole('button', { name: 'Save profile' });
+    expect(screen.getByLabelText('Display name')).toHaveValue('');
+    expect(screen.getByText('signed@example.com')).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
   }, PROFILE_TEST_TIMEOUT_MS);
 
   it('refreshes bootstrap with auth token after verify login', async () => {
@@ -254,7 +251,7 @@ describe('Profile quick profile status', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
 
-    await screen.findByRole('button', { name: 'Edit full profile' });
+    await screen.findByRole('button', { name: 'Save profile' });
 
     await waitFor(() => {
       const bootstrapCalls = vi.mocked(bffJson).mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');

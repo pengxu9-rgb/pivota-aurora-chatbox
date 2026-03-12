@@ -100,10 +100,8 @@ import {
 import type { TravelProductLookupQuery } from '@/lib/auroraEnvStress';
 import {
   getLangMismatchHintMutedUntil,
-  getLangPref,
   getLangReplyMode,
   setLangMismatchHintMutedUntil,
-  setLangPref,
   setLangReplyMode,
   type LangPref,
   type LangReplyMode,
@@ -128,6 +126,7 @@ import {
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { pickProductImageUrl } from '@/lib/productImage';
 import { useShop } from '@/contexts/shop';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
@@ -469,7 +468,6 @@ const FF_SHOW_PASSIVE_GATES = (() => {
 
 const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
 
-const getInitialLanguage = (): UiLanguage => (getLangPref() === 'cn' ? 'CN' : 'EN');
 const LANGUAGE_MISMATCH_HINT_SNOOZE_MS = 6 * 60 * 60 * 1000;
 
 const parseUiLanguageToken = (raw: unknown): UiLanguage | null => {
@@ -1434,6 +1432,22 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
     description,
     image_url,
     size,
+    product_id: asString(raw.product_id ?? raw.productId) || null,
+    merchant_id: asString((raw as any).merchant_id ?? (raw as any).merchantId) || null,
+    in_stock:
+      typeof (raw as any).in_stock === 'boolean'
+        ? Boolean((raw as any).in_stock)
+        : (raw as any).in_stock === null
+          ? null
+          : typeof (raw as any).available === 'boolean'
+            ? Boolean((raw as any).available)
+            : null,
+    inventory_quantity: asNumber((raw as any).inventory_quantity ?? (raw as any).inventoryQuantity) ?? null,
+    availability_state: asString((raw as any).availability_state ?? (raw as any).availabilityState) || null,
+    canonical_url: asString((raw as any).canonical_url ?? (raw as any).canonicalUrl) || null,
+    destination_url: asString((raw as any).destination_url ?? (raw as any).destinationUrl) || null,
+    external_url: asString((raw as any).external_url ?? (raw as any).externalUrl) || null,
+    external_redirect_url: asString((raw as any).external_redirect_url ?? (raw as any).externalRedirectUrl) || null,
   };
 
   const mechanism = asNumberRecord(raw.mechanism) || asNumberRecord((raw as any).mechanism_vector);
@@ -1490,7 +1504,53 @@ function extractProductSearchReply(input: unknown): string | null {
   return null;
 }
 
-function extractProductSearchClarification(input: unknown): { question: string; options: string[] } | null {
+type ProductSearchClarification = {
+  question: string;
+  options: string[];
+  slot: string | null;
+  reasonCode: string | null;
+  dedupKey: string | null;
+};
+
+type ProductSearchSlotState = {
+  asked_slots: string[];
+  resolved_slots: Record<string, string>;
+};
+
+function normalizeProductSearchSlotState(input: unknown): ProductSearchSlotState {
+  const root = asObject(input) || {};
+  return {
+    asked_slots: Array.from(
+      new Set(
+        asArray((root as any).asked_slots)
+          .map((value) => asString(value)?.trim().toLowerCase())
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ),
+    resolved_slots: Object.fromEntries(
+      Object.entries(asObject((root as any).resolved_slots) || {})
+        .map(([key, value]) => [String(key || '').trim().toLowerCase(), asString(value)?.trim() || ''])
+        .filter(([key, value]) => Boolean(key && value)),
+    ),
+  };
+}
+
+function mergeProductSearchSlotState(
+  base: ProductSearchSlotState | null | undefined,
+  patch: ProductSearchSlotState | null | undefined,
+): ProductSearchSlotState {
+  const normalizedBase = normalizeProductSearchSlotState(base);
+  const normalizedPatch = normalizeProductSearchSlotState(patch);
+  return {
+    asked_slots: Array.from(new Set([...normalizedBase.asked_slots, ...normalizedPatch.asked_slots])),
+    resolved_slots: {
+      ...normalizedBase.resolved_slots,
+      ...normalizedPatch.resolved_slots,
+    },
+  };
+}
+
+function extractProductSearchClarification(input: unknown): ProductSearchClarification | null {
   const root = asObject(input) || {};
   const clarification =
     asObject((root as any).clarification) ||
@@ -1506,171 +1566,58 @@ function extractProductSearchClarification(input: unknown): { question: string; 
   return {
     question: question?.trim() || '',
     options,
+    slot: asString((clarification as any).slot) || null,
+    reasonCode: asString((clarification as any).reason_code ?? (clarification as any).reasonCode) || null,
+    dedupKey: asString((clarification as any).dedup_key ?? (clarification as any).dedupKey) || null,
   };
 }
 
-type TravelLookupResultItem = {
-  product: Product;
-  raw: Record<string, unknown>;
-};
-
-function cleanTravelLookupText(value: unknown): string | null {
-  const text = asString(value)?.trim() || '';
-  if (!text) return null;
-  if (/^(unknown(?:\s+brand|\s+product)?|未知(?:品牌|产品)?|n\/a|null|undefined)$/i.test(text)) return null;
-  return text;
+function extractProductSearchSlotState(input: unknown): ProductSearchSlotState | null {
+  const root = asObject(input) || {};
+  const metadata =
+    asObject((root as any).metadata) ||
+    asObject((root as any).data?.metadata) ||
+    asObject((root as any).result?.metadata);
+  const slotState =
+    asObject((metadata as any)?.slot_state) ||
+    asObject((metadata as any)?.search_decision?.slot_state) ||
+    asObject((metadata as any)?.search_trace?.slot_state);
+  if (!slotState) return null;
+  return normalizeProductSearchSlotState(slotState);
 }
 
-function readTravelLookupRefTarget(raw: unknown): { product_id: string; merchant_id?: string | null } | null {
-  const ref = asObject(raw);
-  if (!ref) return null;
-  const productId = asString((ref as any).product_id ?? (ref as any).productId)?.trim() || '';
-  const merchantId = asString((ref as any).merchant_id ?? (ref as any).merchantId)?.trim() || null;
-  if (!productId) return null;
-  return merchantId ? { product_id: productId, merchant_id: merchantId } : { product_id: productId };
-}
-
-function isInternalTravelLookupPdpUrl(rawUrl: string | null): boolean {
-  const url = String(rawUrl || '').trim();
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    const isPdpPath = segments.length === 2 && segments[0] === 'products' && Boolean(segments[1]);
-    const isBrowseRoute = String(parsed.searchParams.get('open') || '').trim().toLowerCase() === 'browse';
-    return isPdpPath && !isBrowseRoute;
-  } catch {
-    return false;
+function resolveTravelLookupAvailabilityState(product: Product): 'in_stock' | 'unknown' | 'out_of_stock' {
+  const explicitState = String(product.availability_state || '').trim().toLowerCase();
+  if (explicitState === 'in_stock' || explicitState === 'out_of_stock' || explicitState === 'unknown') {
+    return explicitState;
   }
+  if (typeof product.in_stock === 'boolean') {
+    return product.in_stock ? 'in_stock' : 'out_of_stock';
+  }
+  if (typeof product.inventory_quantity === 'number' && Number.isFinite(product.inventory_quantity)) {
+    return product.inventory_quantity > 0 ? 'in_stock' : 'out_of_stock';
+  }
+  return 'unknown';
 }
 
-function buildTravelLookupOpenTarget(row: Record<string, unknown>, product: Product) {
-  const source = asObject((row as any).product) || row;
-  const pdpOpen =
-    asObject((source as any).pdp_open) ||
-    asObject((source as any).pdpOpen) ||
-    asObject((row as any).pdp_open) ||
-    asObject((row as any).pdpOpen) ||
-    null;
-  const pdpOpenExternal = asObject((pdpOpen as any)?.external) || null;
-  const subject = asObject((pdpOpen as any)?.subject) || null;
-
-  const directUrlCandidates = [
-    asString((source as any).pdp_url),
-    asString((source as any).url),
-    asString((source as any).product_url),
-    asString((source as any).productUrl),
-    asString((source as any).purchase_path),
-    asString((source as any).purchasePath),
-    asString((pdpOpenExternal as any)?.url),
-  ]
-    .map((value) => normalizeOutboundFallbackUrl(String(value || '').trim()))
-    .filter((value): value is string => Boolean(value));
-
-  const directInternalUrl = directUrlCandidates.find((value) => isInternalTravelLookupPdpUrl(value)) || null;
-  const directExternalUrl = directUrlCandidates.find((value) => !isInternalTravelLookupPdpUrl(value)) || null;
-
-  const directRef =
-    readTravelLookupRefTarget((pdpOpen as any)?.product_ref) ||
-    readTravelLookupRefTarget((source as any).product_ref) ||
-    readTravelLookupRefTarget((source as any).canonical_product_ref) ||
-    null;
-  const rawProductId = asString((source as any).product_id ?? (source as any).productId)?.trim() || null;
-  const rawMerchantId = asString((source as any).merchant_id ?? (source as any).merchantId)?.trim() || null;
-  const fallbackRef = rawProductId ? { product_id: rawProductId, ...(rawMerchantId ? { merchant_id: rawMerchantId } : {}) } : null;
-  const canonicalProductRef =
-    readTravelLookupRefTarget((source as any).canonical_product_ref) ||
-    readTravelLookupRefTarget((pdpOpen as any)?.canonical_product_ref) ||
-    directRef ||
-    fallbackRef ||
-    null;
-
-  const subjectProductGroupId =
-    asString((subject as any)?.id) ||
-    asString((subject as any)?.product_group_id) ||
-    asString((subject as any)?.productGroupId) ||
-    asString((source as any).subject_product_group_id) ||
-    asString((source as any).subjectProductGroupId) ||
-    asString((source as any).product_group_id) ||
-    asString((source as any).productGroupId) ||
-    null;
-
-  const groupTarget = extractPdpTargetFromProductGroupId(subjectProductGroupId || null);
-  const derivedInternalUrl = directInternalUrl
-    || (canonicalProductRef?.product_id ? buildPdpUrl(canonicalProductRef) : '')
-    || (groupTarget?.product_id ? buildPdpUrl(groupTarget) : '')
-    || null;
-
-  const brand = cleanTravelLookupText((source as any).brand) || cleanTravelLookupText(product.brand);
-  const name =
-    cleanTravelLookupText((source as any).name) ||
-    cleanTravelLookupText((source as any).title) ||
-    cleanTravelLookupText((source as any).display_name ?? (source as any).displayName) ||
-    cleanTravelLookupText(product.name);
-  const skuId = asString((source as any).sku_id ?? (source as any).skuId)?.trim() || null;
-
-  const itemResolveReasonCode =
-    asString((source as any)?.metadata?.resolve_reason_code) ||
-    asString((source as any)?.metadata?.resolveReasonCode) ||
-    asString((source as any)?.metadata?.pdp_open_fail_reason) ||
-    asString((source as any)?.metadata?.resolve_fail_reason) ||
-    null;
-
-  const externalQuery =
-    asString((pdpOpenExternal as any)?.query) ||
-    [brand, name].filter(Boolean).join(' ').trim() ||
-    null;
-  const explicitExternalPath =
-    String((pdpOpen as any)?.path || (source as any)?.metadata?.pdp_open_path || '')
-      .trim()
-      .toLowerCase() === 'external';
-  const anchorKey =
-    subjectProductGroupId ||
-    canonicalProductRef?.product_id ||
-    rawProductId ||
-    skuId ||
-    (externalQuery ? `q:${externalQuery}` : null) ||
-    (directExternalUrl ? `ext:${directExternalUrl.slice(0, 180)}` : null);
-
-  return {
-    brand,
-    name,
-    internalUrl: derivedInternalUrl,
-    externalUrl: directExternalUrl,
-    externalQuery,
-    preferExternalSearch: explicitExternalPath && !derivedInternalUrl,
-    anchorKey,
-    subjectProductGroupId,
-    canonicalProductRef,
-    resolveQuery: externalQuery,
-    hints: {
-      ...(canonicalProductRef ? { product_ref: canonicalProductRef } : {}),
-      ...(rawProductId ? { product_id: rawProductId } : {}),
-      ...(skuId ? { sku_id: skuId } : {}),
-      ...(brand ? { brand } : {}),
-      ...(name ? { title: name } : {}),
-      ...(externalQuery ? { aliases: [externalQuery, name, brand].filter(Boolean) } : {}),
-    },
-    pdpOpenHint:
-      pdpOpen || explicitExternalPath || directExternalUrl || externalQuery
-        ? {
-            path: asString((pdpOpen as any)?.path) || (explicitExternalPath || directExternalUrl ? 'external' : null),
-            resolve_reason_code: asString((pdpOpen as any)?.resolve_reason_code) || itemResolveReasonCode || null,
-            external:
-              directExternalUrl || externalQuery
-                ? {
-                    query: externalQuery,
-                    url: directExternalUrl,
-                  }
-                : pdpOpenExternal
-                  ? {
-                      query: asString((pdpOpenExternal as any)?.query) || null,
-                      url: normalizeOutboundFallbackUrl(asString((pdpOpenExternal as any)?.url) || '') || null,
-                    }
-                  : null,
-          }
-        : null,
+function sortTravelLookupProducts(products: Product[]): Product[] {
+  const rank: Record<'in_stock' | 'unknown' | 'out_of_stock', number> = {
+    in_stock: 0,
+    unknown: 1,
+    out_of_stock: 2,
   };
+  return products
+    .map((product, index) => ({
+      product,
+      index,
+      state: resolveTravelLookupAvailabilityState(product),
+    }))
+    .sort((left, right) => {
+      const rankDiff = rank[left.state] - rank[right.state];
+      if (rankDiff !== 0) return rankDiff;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.product);
 }
 
 function toAnchorOffers(raw: Record<string, unknown>, language: UiLanguage): Offer[] {
@@ -2016,12 +1963,13 @@ function Sheet({
   onOpenMenu?: () => void;
   children: React.ReactNode;
 }) {
+  const { t } = useLanguage();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60]">
       <button
         className="absolute inset-0 bg-black/35 backdrop-blur-sm"
-        aria-label="Close"
+        aria-label={t('common.close')}
         onClick={onClose}
       />
       <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-[var(--aurora-shell-max)] overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
@@ -2035,7 +1983,7 @@ function Sheet({
                   onClick={() => {
                     onOpenMenu();
                   }}
-                  aria-label="Open menu"
+                  aria-label={t('common.open_menu')}
                 >
                   <Menu className="h-4 w-4" />
                 </button>
@@ -2045,7 +1993,7 @@ function Sheet({
             <button
               className="aurora-home-role-icon inline-flex h-9 w-9 items-center justify-center rounded-full border"
               onClick={onClose}
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               <X className="h-4 w-4" />
             </button>
@@ -2191,7 +2139,15 @@ export function RecommendationsCard({
     };
     signal?: AbortSignal;
   }) => Promise<any>;
-  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
+  resolveProductsSearch?: (args: {
+    query: string;
+    limit?: number;
+    preferBrand?: string | null;
+    uiSurface?: string | null;
+    clarificationSlot?: string | null;
+    clarificationAnswer?: string | null;
+    slotState?: ProductSearchSlotState | null;
+  }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
@@ -2221,6 +2177,7 @@ export function RecommendationsCard({
     position: number;
     brand: string | null;
     name: string | null;
+    match_state?: string | null;
     subject_product_group_id?: string | null;
     canonical_product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
     resolve_query?: string | null;
@@ -2370,6 +2327,7 @@ export function RecommendationsCard({
       const position = Math.max(0, Number(card.position) || 0);
       const safeBrand = String(card.brand || '').trim();
       const safeName = String(card.name || '').trim();
+      const matchState = String(card.match_state || '').trim().toLowerCase();
       const title = [safeBrand, safeName].filter(Boolean).join(' ').trim();
       const skuType = card.hints?.sku_id
         ? 'sku_id'
@@ -2473,10 +2431,15 @@ export function RecommendationsCard({
             preferredPdpPath === 'external' &&
             hintedReasonCode === 'NO_CANDIDATES' &&
             hasStrongNoCandidatesHint;
+          const shouldDirectExternalFromMatchState =
+            preferredPdpPath === 'external' &&
+            matchState === 'llm_seed' &&
+            !shouldRetryNoCandidatesBeforeExternal;
           const shouldDirectExternalFromHint =
             preferredPdpPath === 'external' &&
             PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
             !shouldRetryNoCandidatesBeforeExternal;
+          const shouldSuppressExternalPopupToast = shouldDirectExternalFromMatchState;
 
           const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
           if (card.subject_product_group_id && !groupTarget) {
@@ -2506,7 +2469,7 @@ export function RecommendationsCard({
             return;
           }
 
-          if (shouldDirectExternalFromHint) {
+          if (shouldDirectExternalFromHint || shouldDirectExternalFromMatchState) {
             openPath = 'external';
             setDetailsFlow({ key: anchorKey, state: 'opening_external' });
             const external =
@@ -2530,6 +2493,9 @@ export function RecommendationsCard({
             }
             failReason = failReason || (!external.url ? 'google_query_empty' : 'popup_blocked');
             setDetailsFlow({ key: anchorKey, state: 'error' });
+            if (shouldSuppressExternalPopupToast) {
+              return;
+            }
             toast({
               title: language === 'CN' ? '无法打开外部页面' : 'Unable to open external page',
               description:
@@ -2950,6 +2916,10 @@ export function RecommendationsCard({
         position: step.position,
         brand: step.product.brand,
         name: step.product.name,
+        match_state:
+          asString((step.rawItem as any)?.metadata?.match_state) ||
+          asString((step.rawItem as any)?.metadata?.matchState) ||
+          null,
         subject_product_group_id: step.subject_product_group_id,
         canonical_product_ref: step.canonical_product_ref,
         resolve_query: step.resolve_query || null,
@@ -3123,6 +3093,9 @@ export function RecommendationsCard({
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
     const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
     const step = asString(item.step) || display.category || (language === 'CN' ? '步骤' : 'Step');
+    const typeRaw =
+      String(asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
+    const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
@@ -4198,7 +4171,15 @@ function BffCardView({
     };
     signal?: AbortSignal;
   }) => Promise<any>;
-  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
+  resolveProductsSearch?: (args: {
+    query: string;
+    limit?: number;
+    preferBrand?: string | null;
+    uiSurface?: string | null;
+    clarificationSlot?: string | null;
+    clarificationAnswer?: string | null;
+    slotState?: ProductSearchSlotState | null;
+  }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   bootstrapInfo?: BootstrapInfo | null;
   profileSnapshot?: Record<string, unknown> | null;
@@ -4236,11 +4217,15 @@ function BffCardView({
     categoryTitle: string;
     query: string;
     ingredientHints: string | null;
+    preferBrand: string | null;
     loading: boolean;
     error: string | null;
-    results: TravelLookupResultItem[];
+    results: Product[];
     reply: string | null;
-    clarification: { question: string; options: string[] } | null;
+    clarification: ProductSearchClarification | null;
+    slotState: ProductSearchSlotState;
+    lastClarification: ProductSearchClarification | null;
+    selectedOption: string | null;
   } | null>(null);
 
   const submitRecoFeedback = useCallback(
@@ -4315,49 +4300,96 @@ function BffCardView({
 
   const structuredCitations = cardType === 'aurora_structured' ? extractExternalVerificationCitations(payload) : [];
 
-  const handleTravelProductLookup = useCallback(
-    async (lookup: TravelProductLookupQuery) => {
+  const runTravelLookupSearch = useCallback(
+    async ({
+      categoryTitle,
+      query,
+      ingredientHints,
+      preferBrand,
+      clarificationSlot,
+      clarificationAnswer,
+      slotState,
+      selectedOption,
+    }: {
+      categoryTitle: string;
+      query: string;
+      ingredientHints: string | null;
+      preferBrand?: string | null;
+      clarificationSlot?: string | null;
+      clarificationAnswer?: string | null;
+      slotState?: ProductSearchSlotState | null;
+      selectedOption?: string | null;
+    }) => {
       if (!resolveProductsSearch) return;
-      const query = String(lookup.searchQuery || '').trim();
-      if (!query) return;
       const requestId = travelLookupRequestRef.current + 1;
+      const normalizedSlotState = normalizeProductSearchSlotState(slotState);
       travelLookupRequestRef.current = requestId;
       setTravelLookupOpen(true);
       setTravelLookupState({
-        categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+        categoryTitle,
         query,
-        ingredientHints: asString(lookup.ingredientHints) || null,
+        ingredientHints,
+        preferBrand: preferBrand || null,
         loading: true,
         error: null,
         results: [],
         reply: null,
         clarification: null,
+        slotState: normalizedSlotState,
+        lastClarification: null,
+        selectedOption: selectedOption || null,
       });
 
       try {
         const resp = await resolveProductsSearch({
           query,
           limit: 8,
-          preferBrand: asString(lookup.preferBrand) || null,
+          preferBrand: preferBrand || null,
+          uiSurface: 'travel_lookup',
+          clarificationSlot: clarificationSlot || null,
+          clarificationAnswer: clarificationAnswer || null,
+          slotState: normalizedSlotState,
         });
         if (travelLookupRequestRef.current !== requestId) return;
-        const results = extractProductsFromSearchResponse(resp)
-          .map((row) => ({
-            product: toUiProduct(asObject((row as any).product) || row, language),
-            raw: row,
-          }))
-          .slice(0, 8);
+        const results = sortTravelLookupProducts(
+          extractProductsFromSearchResponse(resp)
+            .map((row) => toUiProduct(asObject((row as any).product) || row, language))
+            .slice(0, 8),
+        );
         const reply = extractProductSearchReply(resp);
         const clarification = extractProductSearchClarification(resp);
+        const responseSlotState = extractProductSearchSlotState(resp);
+        const mergedSlotState = mergeProductSearchSlotState(
+          mergeProductSearchSlotState(
+            normalizedSlotState,
+            clarificationSlot && clarificationAnswer
+              ? {
+                  asked_slots: [clarificationSlot],
+                  resolved_slots: { [clarificationSlot]: clarificationAnswer },
+                }
+              : null,
+          ),
+          responseSlotState,
+        );
+        const finalSlotState = clarification?.slot
+          ? mergeProductSearchSlotState(mergedSlotState, {
+              asked_slots: [clarification.slot],
+              resolved_slots: {},
+            })
+          : mergedSlotState;
         setTravelLookupState({
-          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          categoryTitle,
           query,
-          ingredientHints: asString(lookup.ingredientHints) || null,
+          ingredientHints,
+          preferBrand: preferBrand || null,
           loading: false,
           error: null,
           results,
           reply,
           clarification,
+          slotState: finalSlotState,
+          lastClarification: clarification,
+          selectedOption: selectedOption || null,
         });
       } catch (err) {
         if (travelLookupRequestRef.current !== requestId) return;
@@ -4365,9 +4397,10 @@ function BffCardView({
           (err instanceof DOMException && err.name === 'AbortError') ||
           /abort/i.test(err instanceof Error ? err.message : String(err));
         setTravelLookupState({
-          categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+          categoryTitle,
           query,
-          ingredientHints: asString(lookup.ingredientHints) || null,
+          ingredientHints,
+          preferBrand: preferBrand || null,
           loading: false,
           error: isAbort
             ? (language === 'CN'
@@ -4377,70 +4410,83 @@ function BffCardView({
           results: [],
           reply: null,
           clarification: null,
+          slotState: normalizedSlotState,
+          lastClarification: null,
+          selectedOption: selectedOption || null,
         });
       }
     },
     [language, resolveProductsSearch],
   );
 
-  const openTravelLookupProduct = useCallback(
-    async (entry: TravelLookupResultItem) => {
-      const target = buildTravelLookupOpenTarget(entry.raw, entry.product);
-      const title = [target.brand, target.name].filter(Boolean).join(' ').trim() || entry.product.name;
+  const handleTravelLookupClarificationSelect = useCallback(
+    async (option: string) => {
+      if (!travelLookupState?.lastClarification?.slot) return;
+      await runTravelLookupSearch({
+        categoryTitle: travelLookupState.categoryTitle,
+        query: travelLookupState.query,
+        ingredientHints: travelLookupState.ingredientHints,
+        preferBrand: travelLookupState.preferBrand,
+        clarificationSlot: travelLookupState.lastClarification.slot,
+        clarificationAnswer: option,
+        slotState: travelLookupState.slotState,
+        selectedOption: option,
+      });
+    },
+    [runTravelLookupSearch, travelLookupState],
+  );
 
-      if (target.internalUrl) {
+  const openTravelLookupProduct = useCallback(
+    (product: Product) => {
+      const productId = String(product.product_id || '').trim();
+      const merchantId = String(product.merchant_id || '').trim();
+      const displayTitle = [product.brand, product.name].filter(Boolean).join(' ').trim() || product.name;
+      if (productId && merchantId !== 'external_seed') {
+        const pdpUrl = buildPdpUrl({
+          product_id: productId,
+          merchant_id: merchantId || null,
+        });
         if (onOpenPdp) {
-          onOpenPdp({ url: target.internalUrl, ...(title ? { title } : {}) });
+          onOpenPdp({ url: pdpUrl, ...(displayTitle ? { title: displayTitle } : {}) });
         } else {
-          window.location.assign(target.internalUrl);
+          window.location.assign(pdpUrl);
         }
         return;
       }
 
-      if (!target.preferExternalSearch && resolveProductRef && target.resolveQuery) {
-        try {
-          const resolved = await resolveProductRef({
-            query: target.resolveQuery,
-            lang: language === 'CN' ? 'cn' : 'en',
-            ...(Object.keys(target.hints).length ? { hints: target.hints } : {}),
-          });
-          const stableTarget = extractStablePdpTargetFromProductsResolveResponse(resolved);
-          if (stableTarget?.product_id) {
-            const resolvedUrl = buildPdpUrl({
-              product_id: stableTarget.product_id,
-              merchant_id: stableTarget.merchant_id ?? null,
-            });
-            if (onOpenPdp) {
-              onOpenPdp({ url: resolvedUrl, ...(title ? { title } : {}) });
-            } else {
-              window.location.assign(resolvedUrl);
-            }
-            return;
-          }
-        } catch {
-          // Fall through to external search fallback when lightweight resolve fails.
-        }
+      const outboundUrl = normalizeOutboundFallbackUrl(
+        product.external_redirect_url ||
+          product.external_url ||
+          product.destination_url ||
+          product.canonical_url ||
+          '',
+      );
+      if (outboundUrl) {
+        window.open(outboundUrl, '_blank', 'noopener,noreferrer');
+        return;
       }
 
-      const externalUrl = target.externalUrl || buildGoogleSearchFallbackUrl(target.externalQuery || '');
-      if (!externalUrl) return;
-
-      const popup = window.open(externalUrl, '_blank', 'noopener,noreferrer');
-      if (popup) return;
-
-      try {
-        window.location.assign(externalUrl);
-      } catch {
-        toast({
-          title: language === 'CN' ? '无法打开外部页面' : 'Unable to open external page',
-          description:
-            language === 'CN'
-              ? '浏览器可能拦截了新标签页弹窗，请允许后重试。'
-              : 'Your browser may have blocked the popup. Please allow popups and retry.',
-        });
+      const fallbackQuery = [product.brand, product.name].filter(Boolean).join(' ').trim();
+      const googleUrl = buildGoogleSearchFallbackUrl(fallbackQuery, language);
+      if (googleUrl) {
+        window.open(googleUrl, '_blank', 'noopener,noreferrer');
       }
     },
-    [language, onOpenPdp, resolveProductRef],
+    [language, onOpenPdp],
+  );
+
+  const handleTravelProductLookup = useCallback(
+    async (lookup: TravelProductLookupQuery) => {
+      const query = String(lookup.searchQuery || '').trim();
+      if (!query) return;
+      await runTravelLookupSearch({
+        categoryTitle: String(lookup.categoryTitle || '').trim() || (language === 'CN' ? '旅行清单' : 'Travel kit'),
+        query,
+        ingredientHints: asString(lookup.ingredientHints) || null,
+        preferBrand: asString(lookup.preferBrand) || null,
+      });
+    },
+    [language, runTravelLookupSearch],
   );
 
   const travelLookupTitle = language === 'CN' ? '旅行产品查找' : 'Travel product lookup';
@@ -4465,11 +4511,15 @@ function BffCardView({
         </div>
       ) : travelLookupState.results.length ? (
         <div className="space-y-2">
-          {travelLookupState.results.map((entry, idx) => {
-            const { product } = entry;
+          {travelLookupState.results.map((product, idx) => {
             const imageUrl = pickProductImageUrl(product);
-            const target = buildTravelLookupOpenTarget(entry.raw, product);
-            const isOpenable = Boolean(target.internalUrl || target.externalUrl || target.externalQuery || (resolveProductRef && target.resolveQuery));
+            const availabilityState = resolveTravelLookupAvailabilityState(product);
+            const availabilityLabel =
+              availabilityState === 'out_of_stock'
+                ? (language === 'CN' ? '缺货' : 'Out of stock')
+                : availabilityState === 'unknown'
+                  ? (language === 'CN' ? '库存未知' : 'Availability unknown')
+                  : null;
             return (
               <div
                 key={`${product.sku_id}_${idx}`}
@@ -4485,24 +4535,40 @@ function BffCardView({
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  {isOpenable ? (
+                  <div className="flex items-start justify-between gap-2">
                     <button
                       type="button"
-                      className="inline-flex max-w-full items-center gap-1 text-left text-sm font-semibold leading-snug text-foreground transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      onClick={() => {
-                        void openTravelLookupProduct(entry);
-                      }}
-                      aria-label={`${language === 'CN' ? '打开商品' : 'Open product'} ${product.name}`}
+                      className="min-w-0 text-left text-sm font-semibold leading-snug text-foreground hover:underline"
+                      onClick={() => openTravelLookupProduct(product)}
                     >
-                      <span className="truncate">{product.name}</span>
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                      <span className="line-clamp-2">{product.name}</span>
                     </button>
-                  ) : (
-                    <div className="text-sm font-semibold leading-snug text-foreground">{product.name}</div>
-                  )}
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full p-1 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                      onClick={() => openTravelLookupProduct(product)}
+                      aria-label={language === 'CN' ? '打开商品' : 'Open product'}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                  </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {[product.brand, product.category].filter(Boolean).join(' · ')}
                   </div>
+                  {availabilityLabel ? (
+                    <div className="mt-1">
+                      <span
+                        className={cn(
+                          'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                          availabilityState === 'out_of_stock'
+                            ? 'border-amber-300 bg-amber-50 text-amber-900'
+                            : 'border-border/60 bg-muted/30 text-muted-foreground',
+                        )}
+                      >
+                        {availabilityLabel}
+                      </span>
+                    </div>
+                  ) : null}
                   {product.description ? (
                     <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{product.description}</div>
                   ) : null}
@@ -4520,12 +4586,22 @@ function BffCardView({
           {travelLookupState.clarification?.options?.length ? (
             <div className="flex flex-wrap gap-1.5">
               {travelLookupState.clarification.options.map((option) => (
-                <span
+                <button
                   key={option}
-                  className="rounded-full border border-border/60 bg-muted/20 px-2.5 py-1 text-[11px] text-foreground/80"
+                  type="button"
+                  disabled={travelLookupState.loading}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] transition',
+                    travelLookupState.selectedOption === option
+                      ? 'border-foreground/30 bg-foreground/10 text-foreground'
+                      : 'border-border/60 bg-muted/20 text-foreground/80 hover:bg-muted/40',
+                  )}
+                  onClick={() => {
+                    void handleTravelLookupClarificationSelect(option);
+                  }}
                 >
                   {option}
-                </span>
+                </button>
               ))}
             </div>
           ) : null}
@@ -4544,16 +4620,18 @@ function BffCardView({
         aria-label={travelLookupTitle}
         aria-describedby={undefined}
       >
-        <DrawerHeader className="flex flex-row items-center justify-between gap-3 px-4 pb-2 pt-3 text-left">
-          <DrawerTitle>{travelLookupTitle}</DrawerTitle>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-            aria-label={language === 'CN' ? '关闭' : 'Close'}
-            onClick={() => setTravelLookupOpen(false)}
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <DrawerHeader>
+          <div className="flex items-center justify-between gap-3">
+            <DrawerTitle>{travelLookupTitle}</DrawerTitle>
+            <button
+              type="button"
+              className="rounded-full border border-border/60 p-2 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
+              onClick={() => setTravelLookupOpen(false)}
+              aria-label={language === 'CN' ? '关闭' : 'Close'}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </DrawerHeader>
         <div className="overflow-y-auto pb-2">{travelLookupBody}</div>
       </DrawerContent>
@@ -7350,9 +7428,7 @@ function BffCardView({
 }
 
 export default function BffChat() {
-  const initialLanguageRef = useRef<UiLanguage | null>(null);
-  if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
-  const initialLanguage = initialLanguageRef.current;
+  const { language, setLanguage: setAppLanguage } = useLanguage();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -7408,11 +7484,10 @@ export default function BffChat() {
     asObject((location.state as any)?.session_patch?.profile) || null,
   );
 
-  const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [langReplyMode, setLangReplyModeState] = useState<LangReplyMode>(() => getLangReplyMode());
   const langMismatchHintMutedUntilRef = useRef<number>(getLangMismatchHintMutedUntil());
   const [headers, setHeaders] = useState(() => {
-    const base = makeDefaultHeaders(initialLanguage);
+    const base = makeDefaultHeaders(language);
     const briefId = searchParams.brief_id;
     const traceId = searchParams.trace_id;
     return {
@@ -7581,10 +7656,6 @@ export default function BffChat() {
       region: normalized.region || '',
     });
   }, [authSession?.email, bootstrapInfo?.profile, profileSnapshot]);
-
-  useEffect(() => {
-    setLangPref(toLangPref(language));
-  }, [language]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -7980,7 +8051,7 @@ export default function BffChat() {
           from_lang: toLangPref(language),
           to_lang: toLangPref(mismatchTargetUiLanguage),
         });
-        setLanguage(mismatchTargetUiLanguage);
+        setAppLanguage(toLangPref(mismatchTargetUiLanguage));
         autoFollowNotice =
           language === 'CN'
             ? `已按你的输入切换为${toUiLanguageName(mismatchTargetUiLanguage, 'CN')}回复。`
@@ -10806,7 +10877,7 @@ export default function BffChat() {
               from_lang: toLangPref(language),
               to_lang: toLangPref(targetUiLang),
             });
-            setLanguage(targetUiLang);
+            setAppLanguage(toLangPref(targetUiLang));
           }
           if (targetUiLang) {
             assistantAck =
@@ -10822,7 +10893,7 @@ export default function BffChat() {
               from_lang: toLangPref(language),
               to_lang: toLangPref(targetUiLang),
             });
-            setLanguage(targetUiLang);
+            setAppLanguage(toLangPref(targetUiLang));
           }
           assistantAck =
             language === 'CN'
@@ -11198,22 +11269,6 @@ export default function BffChat() {
     void run().finally(() => clearActionIntentParams());
   }, [deepLinkChip, hasBootstrapped, headers.brief_id, headers.trace_id, navigate, onChip, searchParams, submitText]);
 
-  const switchLanguage = useCallback(
-    (next: UiLanguage) => {
-      if (next === language) return;
-      const ctx: AnalyticsContext = {
-        brief_id: headers.brief_id,
-        trace_id: headers.trace_id,
-        aurora_uid: headers.aurora_uid,
-        lang: toLangPref(language),
-        state: agentState,
-      };
-      emitUiLanguageSwitched(ctx, { from_lang: toLangPref(language), to_lang: toLangPref(next) });
-      setLanguage(next);
-    },
-    [agentState, headers, language],
-  );
-
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
   const flowState = useMemo(() => {
     const s = String(sessionState || '').trim();
@@ -11314,10 +11369,18 @@ export default function BffChat() {
       query,
       limit,
       preferBrand,
+      uiSurface,
+      clarificationSlot,
+      clarificationAnswer,
+      slotState,
     }: {
       query: string;
       limit?: number;
       preferBrand?: string | null;
+      uiSurface?: string | null;
+      clarificationSlot?: string | null;
+      clarificationAnswer?: string | null;
+      slotState?: ProductSearchSlotState | null;
     }) => {
       const q = String(query || '').trim();
       if (!q) throw new Error('products.search requires query');
@@ -11339,6 +11402,21 @@ export default function BffChat() {
         lang: language === 'CN' ? 'cn' : 'en',
         source: 'aurora_chatbox',
         catalog_surface: 'beauty',
+        ...(uiSurface ? { ui_surface: uiSurface } : {}),
+        ...(uiSurface === 'travel_lookup'
+          ? {
+              allow_external_seed: 'true',
+              external_seed_strategy: 'unified_relevance',
+              fast_mode: 'true',
+            }
+          : {}),
+        ...(clarificationSlot ? { clarification_slot: clarificationSlot } : {}),
+        ...(clarificationAnswer ? { clarification_answer: clarificationAnswer } : {}),
+        ...(slotState &&
+        ((Array.isArray(slotState.asked_slots) && slotState.asked_slots.length > 0) ||
+          Object.keys(slotState.resolved_slots || {}).length > 0)
+          ? { slot_state: JSON.stringify(slotState) }
+          : {}),
       });
       try {
         return await bffJson<any>(`/agent/v1/products/search?${params.toString()}`, requestHeaders, {
@@ -11355,7 +11433,7 @@ export default function BffChat() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <button type="button" className="ios-nav-button ml-1" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+        <button type="button" className="ios-nav-button ml-1" onClick={() => setSidebarOpen(true)} aria-label={t('common.open_menu', language)}>
           <Menu className="h-[18px] w-[18px]" />
         </button>
 

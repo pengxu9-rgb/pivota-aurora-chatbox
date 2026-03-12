@@ -2,6 +2,8 @@ import { AnalyticsEvent } from './types';
 import { getPivotaAgentBaseUrl } from './pivotaAgentBff';
 
 const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
+const isTestRuntime = () =>
+  typeof process !== 'undefined' && (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test');
 
 const buildEventsIngestUrl = (baseUrl: string) => {
   const normalized = normalizeBaseUrl(baseUrl);
@@ -63,6 +65,7 @@ class AnalyticsStore {
   }
 
   private enqueue(event: AnalyticsEvent) {
+    if (isTestRuntime()) return;
     // Best-effort remote ingest: keep a small pending queue and flush asynchronously.
     this.pending.push(event);
     if (this.pending.length > this.maxPending) {

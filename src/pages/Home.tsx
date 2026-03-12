@@ -4,18 +4,18 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { listActivity, type ActivityItem } from '@/lib/activityApi';
-import { getLangPref } from '@/lib/persistence';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 
 export default function Home() {
   const { openSidebar, openComposer, startChat } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
+  const { language, t } = useLanguage();
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    const language = getLangPref() === 'cn' ? 'CN' : 'EN';
     setRecentLoading(true);
     void listActivity(language, { limit: 3 })
       .then((response) => {
@@ -33,7 +33,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [language]);
 
   return (
     <div className="font-aurora-body bg-[hsl(var(--aurora-home-background))] pb-6 text-[hsl(var(--aurora-home-foreground))]">
@@ -52,7 +52,7 @@ export default function Home() {
               type="button"
               onClick={openSidebar}
               className="ml-1 inline-flex h-[var(--aurora-home-menu-size)] w-[var(--aurora-home-menu-size)] items-center justify-center rounded-2xl border border-white/35 bg-white/25 text-white shadow-card backdrop-blur active:scale-[0.97]"
-              aria-label="Open menu"
+              aria-label={t('common.open_menu')}
             >
               <Menu className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />
             </button>
@@ -61,26 +61,26 @@ export default function Home() {
 
           <div className="relative mt-7 text-center">
             <div className="font-aurora-heading font-semibold tracking-[-0.03em]" style={{ fontSize: 'var(--aurora-home-title-size)' }}>
-              24/7 Skin Agent
+              {t('home.hero.title')}
             </div>
             <div className="mt-1 text-white/80" style={{ fontSize: 'var(--aurora-home-subtitle-size)' }}>
-              Diagnose. Match. Optimize.
+              {t('home.hero.subtitle')}
             </div>
           </div>
 
           <div className="relative mt-5 flex flex-wrap justify-center gap-2">
             <Pill
-              label="My Routine"
+              label={t('home.pill.routine')}
               Icon={Workflow}
               onClick={() => navigate('/routine')}
             />
             <Pill
-              label="Plans"
+              label={t('home.pill.plans')}
               Icon={CalendarDays}
               onClick={() => navigate('/plans')}
             />
             <Pill
-              label="Explore"
+              label={t('home.pill.explore')}
               Icon={Compass}
               onClick={() => navigate('/explore')}
             />
@@ -101,11 +101,11 @@ export default function Home() {
             backgroundColor: 'hsl(var(--aurora-home-card) / var(--aurora-home-glass-alpha))',
             backdropFilter: 'blur(var(--aurora-home-search-blur))',
           }}
-          aria-label="Open chat composer"
+          aria-label={t('nav.open_chat')}
         >
           <Sparkles className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)] text-[hsl(var(--aurora-home-primary))]" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[15px] text-[hsl(var(--aurora-home-muted-foreground))]">Ask Aurora anything...</div>
+            <div className="truncate text-[15px] text-[hsl(var(--aurora-home-muted-foreground))]">{t('home.search.placeholder')}</div>
           </div>
           <div
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border text-[hsl(var(--aurora-home-primary-foreground))]"
@@ -120,62 +120,62 @@ export default function Home() {
       </div>
 
       <div className="mt-4 px-[var(--aurora-page-x)]">
-        <div className="section-label text-[hsl(var(--aurora-home-muted-foreground))]">Quick actions</div>
+        <div className="section-label text-[hsl(var(--aurora-home-muted-foreground))]">{t('home.quick_actions')}</div>
       </div>
       <div className="scrollbar-hide -mx-[var(--aurora-page-x)] mt-1.5 overflow-x-auto px-[var(--aurora-page-x)]">
         <div className="flex w-max gap-2.5 pb-1">
           <QuickActionIcon
-            label="Diagnosis"
+            label={t('home.action.diagnosis')}
             Icon={Sparkles}
-            onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
+            onClick={() => startChat({ kind: 'chip', title: t('composer.action.skin_diagnosis'), chip_id: 'chip.start.diagnosis' })}
           />
           <QuickActionIcon
-            label="Photo"
+            label={t('home.action.photo')}
             Icon={Camera}
-            onClick={() => startChat({ kind: 'open', title: 'Photo Analysis', open: 'photo' })}
+            onClick={() => startChat({ kind: 'open', title: t('composer.action.photo_analysis'), open: 'photo' })}
           />
           <QuickActionIcon
-            label="Product"
+            label={t('home.action.product')}
             Icon={Search}
-            onClick={() => startChat({ kind: 'chip', title: 'Product Check', chip_id: 'chip.start.evaluate' })}
+            onClick={() => startChat({ kind: 'chip', title: t('composer.action.product_check'), chip_id: 'chip.start.evaluate' })}
           />
           <QuickActionIcon
-            label="Routine"
+            label={t('home.action.routine')}
             Icon={Beaker}
-            onClick={() => startChat({ kind: 'chip', title: 'Routine Builder', chip_id: 'chip.start.routine' })}
+            onClick={() => startChat({ kind: 'chip', title: t('composer.action.routine_builder'), chip_id: 'chip.start.routine' })}
           />
           <QuickActionIcon
-            label="Ingredients"
+            label={t('home.action.ingredients')}
             Icon={FlaskConical}
-            onClick={() => startChat({ kind: 'chip', title: 'Ingredient Science', chip_id: 'chip.start.ingredients.entry' })}
+            onClick={() => startChat({ kind: 'chip', title: t('composer.action.ingredient_science'), chip_id: 'chip.start.ingredients.entry' })}
           />
           <QuickActionIcon
-            label="Dupes"
+            label={t('home.action.dupes')}
             Icon={Copy}
-            onClick={() => startChat({ kind: 'chip', title: 'Find Dupes', chip_id: 'chip.start.dupes' })}
+            onClick={() => startChat({ kind: 'chip', title: t('composer.action.find_dupes'), chip_id: 'chip.start.dupes' })}
           />
           <QuickActionIcon
-            label="Check-in"
+            label={t('home.action.checkin')}
             Icon={Activity}
-            onClick={() => startChat({ kind: 'chip', title: 'Check-in', chip_id: 'chip_checkin_now' })}
+            onClick={() => startChat({ kind: 'chip', title: t('composer.action.checkin'), chip_id: 'chip_checkin_now' })}
           />
         </div>
       </div>
 
       <div className="mt-6 px-[var(--aurora-page-x)]">
         <div className="flex items-center justify-between">
-          <div className="ios-section-title font-aurora-heading text-[hsl(var(--aurora-home-foreground))]">More for your skin</div>
+          <div className="ios-section-title font-aurora-heading text-[hsl(var(--aurora-home-foreground))]">{t('home.more_for_skin')}</div>
         </div>
         <div className="mt-2.5 grid grid-cols-2 gap-2.5">
           <FeatureCard
-            title="Daily Routine"
-            subtitle="Personalized for you"
+            title={t('home.feature.daily_routine')}
+            subtitle={t('home.feature.daily_routine_sub')}
             tone="indigo"
-            onClick={() => startChat({ kind: 'open', title: 'Routine Analysis', open: 'routine' })}
+            onClick={() => startChat({ kind: 'open', title: t('composer.action.routine_builder'), open: 'routine' })}
           />
           <FeatureCard
-            title="Plan A Trip"
-            subtitle="Travel-ready skin plan"
+            title={t('home.feature.plan_trip')}
+            subtitle={t('home.feature.plan_trip_sub')}
             tone="emerald"
             onClick={() => navigate('/plans')}
           />
@@ -184,13 +184,13 @@ export default function Home() {
 
       <div className="mt-6 px-[var(--aurora-page-x)]">
         <div className="flex items-center justify-between">
-          <div className="ios-section-title font-aurora-heading text-[hsl(var(--aurora-home-foreground))]">Recent activity</div>
+          <div className="ios-section-title font-aurora-heading text-[hsl(var(--aurora-home-foreground))]">{t('home.recent_activity')}</div>
           <button
             type="button"
             className="text-[12px] font-semibold text-[hsl(var(--aurora-home-primary))] hover:opacity-90"
             onClick={() => navigate('/activity')}
           >
-            See all
+            {t('home.see_all')}
           </button>
         </div>
 
@@ -203,7 +203,7 @@ export default function Home() {
               backdropFilter: 'blur(var(--aurora-home-search-blur))',
             }}
           >
-            <div className="text-[13px] text-[hsl(var(--aurora-home-muted-foreground))]">Loading activity...</div>
+            <div className="text-[13px] text-[hsl(var(--aurora-home-muted-foreground))]">{t('home.loading_activity')}</div>
           </div>
         ) : recentActivity.length ? (
           <div
@@ -221,9 +221,9 @@ export default function Home() {
                 className="w-full rounded-2xl px-3 py-2.5 text-left hover:bg-[hsl(var(--aurora-home-primary)/0.06)]"
                 onClick={() => openActivityDeeplink(item.deeplink, navigate)}
               >
-                <div className="text-[14px] font-semibold text-[hsl(var(--aurora-home-foreground))]">{formatActivityTitle(item)}</div>
+                <div className="text-[14px] font-semibold text-[hsl(var(--aurora-home-foreground))]">{formatActivityTitle(item, t)}</div>
                 <div className="mt-0.5 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">
-                  {formatActivitySubtitle(item)}
+                  {formatActivitySubtitle(item, t)}
                 </div>
               </button>
             ))}
@@ -244,15 +244,15 @@ export default function Home() {
               <Sparkles className="h-6 w-6" />
             </div>
             <div className="font-aurora-heading mt-3 text-[15px] font-semibold tracking-[-0.01em] text-[hsl(var(--aurora-home-foreground))]">
-              Start your first skin diagnosis
+              {t('home.empty.title')}
             </div>
-            <div className="mt-1 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">Takes ~1 minute and helps personalize everything.</div>
+            <div className="mt-1 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">{t('home.empty.subtitle')}</div>
             <button
               type="button"
               className="mt-4 inline-flex items-center justify-center rounded-2xl bg-[hsl(var(--aurora-home-primary))] px-4 py-2.5 text-[14px] font-semibold text-[hsl(var(--aurora-home-primary-foreground))] shadow-card active:scale-[0.99]"
-              onClick={() => startChat({ kind: 'chip', title: 'Skin Diagnosis', chip_id: 'chip.start.diagnosis' })}
+              onClick={() => startChat({ kind: 'chip', title: t('composer.action.skin_diagnosis'), chip_id: 'chip.start.diagnosis' })}
             >
-              Start
+              {t('home.empty.start')}
             </button>
           </div>
         )}
@@ -260,6 +260,8 @@ export default function Home() {
     </div>
   );
 }
+
+type TFn = (key: string, params?: Record<string, string | number>) => string;
 
 function openActivityDeeplink(deeplink: string | null | undefined, navigate: (to: string) => void) {
   const target = String(deeplink || '').trim();
@@ -276,60 +278,52 @@ function openActivityDeeplink(deeplink: string | null | undefined, navigate: (to
   }
 }
 
-function formatActivityTitle(item: ActivityItem): string {
-  switch (item.event_type) {
-    case 'chat_started':
-      return 'Started a chat';
-    case 'skin_analysis':
-      return 'Completed skin analysis';
-    case 'tracker_logged':
-      return 'Logged a check-in';
-    case 'profile_updated':
-      return 'Updated profile';
-    case 'travel_plan_created':
-      return 'Created a travel plan';
-    case 'travel_plan_updated':
-      return 'Updated a travel plan';
-    case 'travel_plan_archived':
-      return 'Archived a travel plan';
-    default:
-      return 'Activity';
-  }
+function formatActivityTitle(item: ActivityItem, t: TFn): string {
+  const keyMap: Record<string, string> = {
+    chat_started: 'home.activity.chat_started',
+    skin_analysis: 'home.activity.skin_analysis',
+    tracker_logged: 'home.activity.tracker_logged',
+    profile_updated: 'home.activity.profile_updated',
+    travel_plan_created: 'home.activity.travel_plan_created',
+    travel_plan_updated: 'home.activity.travel_plan_updated',
+    travel_plan_archived: 'home.activity.travel_plan_archived',
+  };
+  return t(keyMap[item.event_type] || 'home.activity.default');
 }
 
-function formatActivitySubtitle(item: ActivityItem): string {
+function formatActivitySubtitle(item: ActivityItem, t: TFn): string {
   const payload = item.payload && typeof item.payload === 'object' ? item.payload : {};
   if (item.event_type === 'skin_analysis') {
     const usedPhotos = payload.used_photos === true;
     const failureCode = typeof payload.photo_failure_code === 'string' ? payload.photo_failure_code.trim() : '';
-    if (usedPhotos) return `Photo-based analysis · ${formatRelativeTime(item.occurred_at_ms)}`;
-    if (failureCode) return `No-photo (${failureCode}) · ${formatRelativeTime(item.occurred_at_ms)}`;
-    return `No-photo analysis · ${formatRelativeTime(item.occurred_at_ms)}`;
+    if (usedPhotos) return `${t('home.activity.photo_based')} · ${formatRelativeTime(item.occurred_at_ms, t)}`;
+    if (failureCode) return `${t('home.activity.no_photo')} (${failureCode}) · ${formatRelativeTime(item.occurred_at_ms, t)}`;
+    return `${t('home.activity.no_photo')} · ${formatRelativeTime(item.occurred_at_ms, t)}`;
   }
   if (
     (item.event_type === 'travel_plan_created' || item.event_type === 'travel_plan_updated' || item.event_type === 'travel_plan_archived') &&
     typeof payload.destination === 'string' &&
     payload.destination.trim()
   ) {
-    return `${payload.destination.trim()} · ${formatRelativeTime(item.occurred_at_ms)}`;
+    return `${payload.destination.trim()} · ${formatRelativeTime(item.occurred_at_ms, t)}`;
   }
   if (item.event_type === 'tracker_logged' && typeof payload.date === 'string' && payload.date.trim()) {
-    return `${payload.date.trim()} · ${formatRelativeTime(item.occurred_at_ms)}`;
+    return `${payload.date.trim()} · ${formatRelativeTime(item.occurred_at_ms, t)}`;
   }
-  return formatRelativeTime(item.occurred_at_ms);
+  return formatRelativeTime(item.occurred_at_ms, t);
 }
 
-function formatRelativeTime(occurredAtMs: number): string {
+function formatRelativeTime(occurredAtMs: number, t: TFn): string {
   const deltaMs = Date.now() - Number(occurredAtMs || 0);
-  if (!Number.isFinite(deltaMs)) return 'Just now';
+  if (!Number.isFinite(deltaMs)) return t('home.time.just_now');
   const deltaSeconds = Math.max(0, Math.floor(deltaMs / 1000));
-  if (deltaSeconds < 60) return 'Just now';
+  if (deltaSeconds < 60) return t('home.time.just_now');
   const minutes = Math.floor(deltaSeconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return t('home.time.minutes_ago', { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t('home.time.hours_ago', { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
+  if (days < 30) return t('home.time.days_ago', { n: days });
   return new Date(occurredAtMs).toLocaleDateString();
 }
 

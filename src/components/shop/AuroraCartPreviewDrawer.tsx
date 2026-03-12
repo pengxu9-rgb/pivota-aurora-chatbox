@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { ShoppingCart, X } from 'lucide-react';
 
 import { Drawer, DrawerClose, DrawerContent } from '@/components/ui/drawer';
 import { cn } from '@/lib/utils';
 import { useShop } from '@/contexts/shop';
-import { getLangPref } from '@/lib/persistence';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 function formatMoney(value: number, currency?: string) {
   if (!Number.isFinite(value)) return '—';
@@ -35,18 +35,7 @@ export function AuroraCartPreviewDrawer({
   onOpenChange: (open: boolean) => void;
 }) {
   const shop = useShop();
-  const [langPref, setLangPref] = useState(() => getLangPref());
-
-  useEffect(() => {
-    const onLang = (evt: Event) => {
-      const next = (evt as CustomEvent).detail;
-      if (next === 'en' || next === 'cn') setLangPref(next);
-    };
-    window.addEventListener('aurora_lang_pref_changed', onLang as EventListener);
-    return () => window.removeEventListener('aurora_lang_pref_changed', onLang as EventListener);
-  }, []);
-
-  const language = langPref === 'cn' ? 'CN' : 'EN';
+  const { language, t } = useLanguage();
   const items = useMemo(() => shop.cart?.items ?? [], [shop.cart?.items]);
   const itemCount = Math.max(0, Number(shop.cart?.item_count) || 0);
 
@@ -80,7 +69,7 @@ export function AuroraCartPreviewDrawer({
     onOpenChange(false);
     shop.openShop({
       url: `/order?${sp.toString()}`,
-      title: language === 'CN' ? '结账' : 'Checkout',
+      title: t('s6.btn.checkout'),
     });
   };
 
@@ -99,16 +88,12 @@ export function AuroraCartPreviewDrawer({
                 <ShoppingCart className="h-5 w-5" />
               </div>
               <div className="min-w-0 leading-tight">
-                <div className="truncate text-sm font-semibold text-foreground">{language === 'CN' ? '购物车' : 'Cart'}</div>
+                <div className="truncate text-sm font-semibold text-foreground">{t('shop.cart_title')}</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
                   {itemCount
-                    ? language === 'CN'
-                      ? `${itemCount} 件商品`
-                      : `${itemCount} item(s)`
-                    : language === 'CN'
-                      ? '空'
-                      : 'Empty'}
-                  {updatedAt ? <span className="ml-2 hidden sm:inline">· {updatedAt}</span> : null}
+                    ? t('shop.item_count', { n: itemCount })
+                    : t('shop.empty_short')}
+                  {updatedAt ? <span className="ml-2 hidden sm:inline">{'\u00B7'} {updatedAt}</span> : null}
                 </div>
               </div>
             </div>
@@ -117,7 +102,7 @@ export function AuroraCartPreviewDrawer({
               <button
                 type="button"
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-                aria-label={language === 'CN' ? '关闭' : 'Close'}
+                aria-label={t('common.close')}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -128,7 +113,7 @@ export function AuroraCartPreviewDrawer({
             {items.length ? (
               <div className="space-y-3">
                 {items.slice(0, 20).map((it) => {
-                  const title = String(it.title || '').trim() || (language === 'CN' ? '商品' : 'Item');
+                  const title = String(it.title || '').trim() || t('shop.item');
                   const qty = Math.max(1, Number(it.quantity) || 1);
                   const line = (Number(it.price) || 0) * qty;
                   const canOpenPdp = Boolean(String(it.product_id || '').trim());
@@ -144,7 +129,7 @@ export function AuroraCartPreviewDrawer({
                           <div className="truncate text-sm font-semibold text-foreground">{title}</div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span className="whitespace-nowrap">
-                              {language === 'CN' ? `数量 ${qty}` : `Qty ${qty}`}
+                              {t('shop.qty', { n: qty })}
                             </span>
                             <span className="whitespace-nowrap">{formatMoney(line, it.currency)}</span>
                           </div>
@@ -162,7 +147,7 @@ export function AuroraCartPreviewDrawer({
                             onOpenChange(false);
                           }}
                         >
-                          {language === 'CN' ? '查看' : 'View'}
+                          {t('shop.view')}
                         </button>
                       </div>
                     </div>
@@ -170,17 +155,15 @@ export function AuroraCartPreviewDrawer({
                 })}
                 {items.length > 20 ? (
                   <div className="rounded-2xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                    {language === 'CN' ? '仅展示前 20 个商品。点击「编辑购物车」查看完整商品列表。' : 'Showing the first 20 items. Tap “Edit cart” to view the full list.'}
+                    {t('shop.showing_first_20')}
                   </div>
                 ) : null}
               </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center rounded-3xl border border-border/60 bg-muted/20 p-6 text-center">
-                <div className="text-sm font-semibold text-foreground">{language === 'CN' ? '你的购物车是空的' : 'Your cart is empty'}</div>
+                <div className="text-sm font-semibold text-foreground">{t('shop.empty_cart')}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {language === 'CN'
-                    ? '你可以从推荐卡片里加入商品。'
-                    : 'Add items from recommendations in chat.'}
+                  {t('shop.empty_cart_desc')}
                 </div>
               </div>
             )}
@@ -188,7 +171,7 @@ export function AuroraCartPreviewDrawer({
 
           <div className="border-t border-border/60 bg-background/60 px-4 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{language === 'CN' ? '小计' : 'Subtotal'}</span>
+              <span className="text-muted-foreground">{t('shop.subtotal')}</span>
               <span className="font-semibold text-foreground">{formatMoney(totals.subtotal, totals.currency)}</span>
             </div>
 
@@ -202,7 +185,7 @@ export function AuroraCartPreviewDrawer({
               disabled={!itemCount}
               onClick={onCheckout}
             >
-              {language === 'CN' ? '直接去结账' : 'Checkout now'}
+              {t('shop.checkout_now')}
             </button>
 
             <button
@@ -211,7 +194,7 @@ export function AuroraCartPreviewDrawer({
               onClick={onEditCart}
               disabled={!itemCount}
             >
-              {language === 'CN' ? '编辑购物车' : 'Edit cart'}
+              {t('shop.edit_cart')}
             </button>
 
             <button
@@ -219,7 +202,7 @@ export function AuroraCartPreviewDrawer({
               className="mt-2 inline-flex h-12 w-full items-center justify-center rounded-2xl border border-border/60 bg-muted/40 text-sm font-semibold text-foreground/80"
               onClick={() => onOpenChange(false)}
             >
-              {language === 'CN' ? '继续聊天' : 'Keep chatting'}
+              {t('shop.keep_chatting')}
             </button>
           </div>
         </div>

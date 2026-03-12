@@ -2,24 +2,19 @@ import React from 'react';
 import { Compass, Droplets, Home, MessageCircle, User } from 'lucide-react';
 
 import { NavLink } from '@/components/NavLink';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 
-type NavItem = {
-  to: string;
-  label: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  end?: boolean;
-};
-
-const NAV: NavItem[] = [
-  { to: '/', label: 'Home', Icon: Home, end: true },
-  { to: '/routine', label: 'Routine', Icon: Droplets, end: true },
-  // center chat button handled separately
-  { to: '/explore', label: 'Explore', Icon: Compass, end: true },
-  { to: '/profile', label: 'Profile', Icon: User, end: true },
-];
-
 export function BottomNav({ onChat }: { onChat: () => void }) {
+  const { t } = useLanguage();
+
+  const NAV = [
+    { to: '/', label: t('nav.home'), Icon: Home, end: true },
+    { to: '/routine', label: t('nav.routine'), Icon: Droplets, end: true },
+    { to: '/explore', label: t('nav.explore'), Icon: Compass, end: true },
+    { to: '/profile', label: t('nav.profile'), Icon: User, end: true },
+  ];
+
   return (
     <nav className="font-aurora-body fixed inset-x-0 bottom-0 z-50">
       <div className="mx-auto w-full max-w-[var(--aurora-shell-max)] px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+var(--aurora-nav-bottom-gap))] pt-[var(--aurora-nav-top-gap)]">
@@ -52,7 +47,7 @@ export function BottomNav({ onChat }: { onChat: () => void }) {
                   borderColor: 'hsl(var(--aurora-home-primary) / 0.36)',
                   backgroundColor: 'hsl(var(--aurora-home-primary))',
                 }}
-                aria-label="Open chat"
+                aria-label={t('nav.open_chat')}
               >
                 <MessageCircle className="h-[var(--aurora-nav-icon-size)] w-[var(--aurora-nav-icon-size)]" />
               </button>
@@ -66,6 +61,13 @@ export function BottomNav({ onChat }: { onChat: () => void }) {
     </nav>
   );
 }
+
+type NavItem = {
+  to: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  end?: boolean;
+};
 
 function NavSlot({ item }: { item: NavItem }) {
   const { to, label, Icon, end } = item;

@@ -8,6 +8,7 @@ import { AuroraCartPreviewDrawer } from '@/components/shop/AuroraCartPreviewDraw
 import { AURORA_AUTH_SESSION_CHANGED_EVENT, loadAuroraAuthSession } from '@/lib/auth';
 import type { ChatHistoryItem } from '@/lib/chatHistory';
 import { AURORA_USER_PROFILE_UPDATED_EVENT, loadAuroraUserProfile } from '@/lib/userProfile';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import { useShop } from '@/contexts/shop';
 
@@ -18,19 +19,19 @@ type SidebarIdentity = {
   isSignedIn: boolean;
 };
 
-function resolveSidebarIdentity(): SidebarIdentity {
+function resolveSidebarIdentity(defaultName: string, defaultSubtitle: string): SidebarIdentity {
   if (typeof window === 'undefined') {
-    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '', isSignedIn: false };
+    return { displayName: defaultName, subtitle: defaultSubtitle, avatarUrl: '', isSignedIn: false };
   }
 
   const authSession = loadAuroraAuthSession();
   const email = String(authSession?.email || '').trim();
   if (!email) {
-    return { displayName: 'User', subtitle: 'Personal', avatarUrl: '', isSignedIn: false };
+    return { displayName: defaultName, subtitle: defaultSubtitle, avatarUrl: '', isSignedIn: false };
   }
 
   const profile = loadAuroraUserProfile(email);
-  const displayName = profile?.displayName?.trim() || email.split('@')[0] || 'User';
+  const displayName = profile?.displayName?.trim() || email.split('@')[0] || defaultName;
   return {
     displayName,
     subtitle: email,
@@ -52,14 +53,15 @@ export function AuroraSidebar({
 }) {
   const navigate = useNavigate();
   const shop = useShop();
+  const { t } = useLanguage();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
   const [cartPreviewOpen, setCartPreviewOpen] = React.useState(false);
-  const [identity, setIdentity] = React.useState<SidebarIdentity>(() => resolveSidebarIdentity());
+  const [identity, setIdentity] = React.useState<SidebarIdentity>(() => resolveSidebarIdentity(t('sidebar.user_default'), t('sidebar.subtitle_default')));
   const [avatarLoadError, setAvatarLoadError] = React.useState(false);
 
   const syncIdentity = React.useCallback(() => {
-    setIdentity(resolveSidebarIdentity());
-  }, []);
+    setIdentity(resolveSidebarIdentity(t('sidebar.user_default'), t('sidebar.subtitle_default')));
+  }, [t]);
 
   React.useEffect(() => {
     syncIdentity();
@@ -123,22 +125,22 @@ export function AuroraSidebar({
                     }}
                   >
                     <LogIn className="h-3.5 w-3.5" />
-                    Sign in
+                    {t('sidebar.sign_in')}
                   </button>
                 ) : null}
               </div>
             </div>
 
             <div className="p-2.5">
-              <SideLink to="/" label="Home" Icon={Home} end onNavigate={() => onOpenChange(false)} />
-              <SideLink to="/routine" label="My Routine" Icon={Sparkles} end onNavigate={() => onOpenChange(false)} />
-              <SideLink to="/plans" label="Plans" Icon={CalendarDays} end onNavigate={() => onOpenChange(false)} />
-              <SideLink to="/explore" label="Explore" Icon={Compass} end onNavigate={() => onOpenChange(false)} />
-              <SideLink to="/profile" label="Profile" Icon={User} end onNavigate={() => onOpenChange(false)} />
+              <SideLink to="/" label={t('nav.home')} Icon={Home} end onNavigate={() => onOpenChange(false)} />
+              <SideLink to="/routine" label={t('sidebar.my_routine')} Icon={Sparkles} end onNavigate={() => onOpenChange(false)} />
+              <SideLink to="/plans" label={t('sidebar.plans')} Icon={CalendarDays} end onNavigate={() => onOpenChange(false)} />
+              <SideLink to="/explore" label={t('nav.explore')} Icon={Compass} end onNavigate={() => onOpenChange(false)} />
+              <SideLink to="/profile" label={t('nav.profile')} Icon={User} end onNavigate={() => onOpenChange(false)} />
 
-              <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Shop</div>
+              <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t('sidebar.shop')}</div>
               <SideAction
-                label="Cart"
+                label={t('sidebar.cart')}
                 Icon={ShoppingCart}
                 badge={cartCount ? String(cartCount) : null}
                 onClick={() => {
@@ -147,7 +149,7 @@ export function AuroraSidebar({
                 }}
               />
               <SideAction
-                label="Orders"
+                label={t('sidebar.orders')}
                 Icon={Package}
                 onClick={() => {
                   onOpenChange(false);
@@ -156,7 +158,7 @@ export function AuroraSidebar({
               />
             </div>
 
-            <div className="px-[var(--aurora-page-x)] pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Recent</div>
+            <div className="px-[var(--aurora-page-x)] pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t('sidebar.recent')}</div>
 
             <div className="flex-1 overflow-y-auto p-2.5">
               {history.length ? (
@@ -178,7 +180,7 @@ export function AuroraSidebar({
                         <div className="truncate text-[14px] text-foreground">{it.title}</div>
                         <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
                           <Clock className="h-3.5 w-3.5" />
-                          History
+                          {t('sidebar.history')}
                         </div>
                       </div>
                     </button>
@@ -186,7 +188,7 @@ export function AuroraSidebar({
                 </div>
               ) : (
                 <div className="rounded-2xl border border-border/60 bg-muted/20 p-3 text-[12px] text-muted-foreground">
-                  No recent chats yet.
+                  {t('sidebar.no_recent')}
                 </div>
               )}
             </div>

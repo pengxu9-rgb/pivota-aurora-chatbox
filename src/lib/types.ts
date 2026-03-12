@@ -270,6 +270,15 @@ export interface Product {
   description: string;
   image_url: string;
   size: string;
+  product_id?: string | null;
+  merchant_id?: string | null;
+  in_stock?: boolean | null;
+  inventory_quantity?: number | null;
+  availability_state?: 'in_stock' | 'unknown' | 'out_of_stock' | string | null;
+  canonical_url?: string | null;
+  destination_url?: string | null;
+  external_url?: string | null;
+  external_redirect_url?: string | null;
   fit_tags?: string[]; // e.g., ["gentle", "fragrance-free", "vegan"]
   source_sku_id?: string | null;
   // Scientific + social signals (optional; populated by Aurora / Glow Agent when available)

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import MobileShell from "@/layouts/MobileShell";
 import { ShopProvider } from "@/contexts/shop";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import BffChat from "./pages/BffChat";
 import Home from "./pages/Home";
 import NotFound from "./pages/NotFound";
@@ -22,6 +23,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <LanguageProvider>
       <ShopProvider>
         <BrowserRouter>
           <Routes>
@@ -48,6 +50,7 @@ const App = () => (
           </Routes>
         </BrowserRouter>
       </ShopProvider>
+      </LanguageProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

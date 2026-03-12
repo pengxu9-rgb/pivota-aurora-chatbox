@@ -20,6 +20,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 
 import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
+import { LanguageProvider } from '@/contexts/LanguageContext';
 import { bffJson } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 import type { ChatResponseV1 } from '@/lib/chatCardsTypes';
@@ -89,6 +90,18 @@ async function waitForEnabledButton(name: string | RegExp) {
   return button;
 }
 
+function renderChat(initialEntries: React.ComponentProps<typeof MemoryRouter>['initialEntries'] = ['/chat']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <LanguageProvider>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </LanguageProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe('BffChat env stress recommendation routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,42 +142,34 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter
-        initialEntries={[
-          {
-            pathname: '/chat',
-            search: '?q=Please+build+my+travel+plan',
-            state: {
-              session_patch: {
-                profile: {
-                  travel_plan: {
-                    destination: 'Athens',
-                    start_date: '2026-03-12',
-                    end_date: '2026-03-15',
-                    destination_place: {
-                      label: 'Athens, Attica, Greece',
-                      canonical_name: 'Athens',
-                      latitude: 37.98376,
-                      longitude: 23.72784,
-                      country_code: 'GR',
-                      country: 'Greece',
-                      admin1: 'Attica',
-                      timezone: 'Europe/Athens',
-                      resolution_source: 'user_selected',
-                    },
-                  },
+    renderChat([
+      {
+        pathname: '/chat',
+        search: '?q=Please+build+my+travel+plan',
+        state: {
+          session_patch: {
+            profile: {
+              travel_plan: {
+                destination: 'Athens',
+                start_date: '2026-03-12',
+                end_date: '2026-03-15',
+                destination_place: {
+                  label: 'Athens, Attica, Greece',
+                  canonical_name: 'Athens',
+                  latitude: 37.98376,
+                  longitude: 23.72784,
+                  country_code: 'GR',
+                  country: 'Greece',
+                  admin1: 'Attica',
+                  timezone: 'Europe/Athens',
+                  resolution_source: 'user_selected',
                 },
               },
             },
-          } as any,
-        ]}
-      >
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+          },
+        },
+      } as any,
+    ]);
 
     await waitForEnabledComposer();
 
@@ -315,13 +320,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How is the weather in Paris this week?' } });
@@ -447,6 +446,9 @@ describe('BffChat env stress recommendation routing', () => {
         expect(url.searchParams.get('limit')).toBe('8');
         expect(url.searchParams.get('source')).toBe('aurora_chatbox');
         expect(url.searchParams.get('catalog_surface')).toBe('beauty');
+        expect(url.searchParams.get('allow_external_seed')).toBe('true');
+        expect(url.searchParams.get('external_seed_strategy')).toBe('unified_relevance');
+        expect(url.searchParams.get('fast_mode')).toBe('true');
         return Promise.resolve({
           status: 'success',
           products: [
@@ -465,13 +467,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -487,8 +483,9 @@ describe('BffChat env stress recommendation routing', () => {
     expect(mock.mock.calls.some((call) => call[0] === '/agent/shop/v1/invoke')).toBe(false);
   });
 
-  it('surfaces travel product search clarification replies instead of appearing inert', async () => {
+  it('continues travel product lookup clarification inside the drawer without adding chat turns', async () => {
     const mock = vi.mocked(bffJson);
+    let searchCallCount = 0;
 
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
@@ -564,15 +561,61 @@ describe('BffChat env stress recommendation routing', () => {
 
       if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
         const url = new URL(path, 'https://aurora.test');
+        searchCallCount += 1;
+        expect(url.searchParams.get('ui_surface')).toBe('travel_lookup');
         expect(url.searchParams.get('query')).toBe('Face SPF50+ PA++++ sunscreen');
+        expect(url.searchParams.get('allow_external_seed')).toBe('true');
+        expect(url.searchParams.get('external_seed_strategy')).toBe('unified_relevance');
+        expect(url.searchParams.get('fast_mode')).toBe('true');
+        if (searchCallCount === 1) {
+          return Promise.resolve({
+            status: 'success',
+            success: true,
+            products: [],
+            reply: 'Do you have a brand preference?',
+            clarification: {
+              question: 'Do you have a brand preference?',
+              options: ['No brand preference', 'Global brands', 'Local brands'],
+              slot: 'brand',
+              reason_code: 'CLARIFY_BRAND',
+              dedup_key: 'travel_lookup_brand',
+            },
+            metadata: {
+              search_decision: {
+                slot_state: {
+                  asked_slots: ['brand'],
+                  resolved_slots: {},
+                },
+              },
+            },
+          });
+        }
+
+        expect(url.searchParams.get('clarification_slot')).toBe('brand');
+        expect(url.searchParams.get('clarification_answer')).toBe('No brand preference');
+        expect(JSON.parse(String(url.searchParams.get('slot_state')))).toEqual({
+          asked_slots: ['brand'],
+          resolved_slots: {},
+        });
         return Promise.resolve({
           status: 'success',
           success: true,
-          products: [],
-          reply: 'Do you have a brand preference?',
-          clarification: {
-            question: 'Do you have a brand preference?',
-            options: ['No brand preference', 'Global brands', 'Local brands'],
+          products: [
+            {
+              product_id: 'prod_spf_result',
+              merchant_id: 'merchant_spf',
+              title: 'Daily UV Fluid',
+              brand: 'Aurora Lab',
+              availability_state: 'in_stock',
+            },
+          ],
+          metadata: {
+            search_decision: {
+              slot_state: {
+                asked_slots: ['brand'],
+                resolved_slots: { brand: 'No brand preference' },
+              },
+            },
           },
         });
       }
@@ -580,13 +623,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -599,7 +636,12 @@ describe('BffChat env stress recommendation routing', () => {
 
     expect(await screen.findByText('Travel product lookup')).toBeInTheDocument();
     expect((await screen.findAllByText('Do you have a brand preference?')).length).toBeGreaterThan(0);
-    expect(screen.getByText('No brand preference')).toBeInTheDocument();
+    const clarificationButton = screen.getByRole('button', { name: 'No brand preference' });
+    fireEvent.click(clarificationButton);
+
+    expect(await screen.findByText('Daily UV Fluid')).toBeInTheDocument();
+    expect(searchCallCount).toBe(2);
+    expect(mock.mock.calls.filter((call) => call[0] === '/v1/chat')).toHaveLength(1);
     expect(screen.queryByText('No matching products found.')).not.toBeInTheDocument();
   });
 
@@ -687,13 +729,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -705,6 +741,125 @@ describe('BffChat env stress recommendation routing', () => {
     expect(await screen.findByText('Travel product lookup')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  });
+
+  it('shows availability badges and keeps out-of-stock travel results after available ones', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeV1Response({
+            request_id: 'req_chat_travel_stock',
+            trace_id: 'trace_chat_travel_stock',
+            assistant_text: 'Travel picks are ready.',
+            cards: [
+              {
+                id: 'travel_stock_badges',
+                type: 'travel',
+                priority: 1,
+                title: 'Travel mode',
+                tags: ['travel'],
+                sections: [
+                  {
+                    kind: 'travel_structured',
+                    env_payload: {
+                      schema_version: 'aurora.ui.env_stress.v1',
+                      ess: 47,
+                      tier: 'Medium',
+                      radar: [{ axis: 'Weather', value: 43 }],
+                      travel_readiness: {
+                        destination_context: {
+                          destination: 'Singapore',
+                          start_date: '2026-03-12',
+                          end_date: '2026-03-20',
+                          env_source: 'weather_api',
+                          epi: 52,
+                        },
+                        categorized_kit: [
+                          {
+                            id: 'barrier_support',
+                            title: 'Warmer / more humid',
+                            ingredient_logic: 'Keep textures light.',
+                            preparations: [{ name: 'Gel-cream moisturizer (AM)', detail: 'AM only' }],
+                            brand_suggestions: [{ product: 'Gel-cream moisturizer (AM)', brand: '' }],
+                          },
+                        ],
+                        shopping_preview: {
+                          products: [],
+                          buying_channels: ['pharmacy', 'ecommerce'],
+                        },
+                        confidence: {
+                          level: 'medium',
+                          missing_inputs: [],
+                          improve_by: [],
+                        },
+                      },
+                    },
+                  },
+                ],
+                actions: [],
+              },
+            ],
+          }),
+        );
+      }
+
+      if (typeof path === 'string' && path.startsWith('/agent/v1/products/search?')) {
+        return Promise.resolve({
+          status: 'success',
+          success: true,
+          products: [
+            {
+              product_id: 'prod_oos',
+              merchant_id: 'external_seed',
+              title: 'Sold Out SPF',
+              brand: 'Fenty Beauty',
+              availability_state: 'out_of_stock',
+            },
+            {
+              product_id: 'prod_in_stock',
+              merchant_id: 'merchant_hydra',
+              title: 'Hydrating Gel Cream',
+              brand: 'Aurora Lab',
+              availability_state: 'in_stock',
+            },
+            {
+              product_id: 'prod_unknown',
+              merchant_id: 'merchant_unknown',
+              title: 'Mystery SPF',
+              brand: 'Unknown Lab',
+              availability_state: 'unknown',
+            },
+          ],
+        });
+      }
+
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat();
+
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    const browseTrigger = await waitForEnabledButton('Browse products (1)');
+    fireEvent.click(browseTrigger);
+
+    expect(await screen.findByText('Hydrating Gel Cream')).toBeInTheDocument();
+    expect(screen.getByText('Out of stock')).toBeInTheDocument();
+    expect(screen.getByText('Availability unknown')).toBeInTheDocument();
+
+    const orderedNames = screen
+      .getAllByRole('button')
+      .map((node) => node.textContent?.trim() || '')
+      .filter((value) => ['Hydrating Gel Cream', 'Mystery SPF', 'Sold Out SPF'].includes(value));
+    expect(orderedNames).toEqual(['Hydrating Gel Cream', 'Mystery SPF', 'Sold Out SPF']);
   });
 
   it('opens product details from travel lookup names and falls back directly to external search', async () => {
@@ -802,13 +957,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -817,7 +966,7 @@ describe('BffChat env stress recommendation routing', () => {
     const browseTrigger = await waitForEnabledButton('Browse products (1)');
     fireEvent.click(browseTrigger);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open product Barrier Rescue Cream' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Barrier Rescue Cream' }));
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledWith(
@@ -827,7 +976,7 @@ describe('BffChat env stress recommendation routing', () => {
       );
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open product Daily SPF Fluid' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Daily SPF Fluid' }));
     expect(await screen.findByRole('heading', { name: 'Aurora Lab Daily SPF Fluid' })).toBeInTheDocument();
 
     openSpy.mockRestore();
@@ -918,13 +1067,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -1082,13 +1225,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How stressful is my travel environment?' } });
@@ -1181,13 +1318,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Plan my travel skincare for Paris.' } });

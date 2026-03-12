@@ -7,7 +7,7 @@ import { ChatComposerDrawer, type ChatStartIntent } from '@/components/mobile/Ch
 import { logActivity } from '@/lib/activityApi';
 import { loadChatHistory, upsertChatHistoryItem, type ChatHistoryItem } from '@/lib/chatHistory';
 import { makeDefaultHeaders } from '@/lib/pivotaAgentBff';
-import { getLangPref } from '@/lib/persistence';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export type MobileShellContext = {
   openSidebar: () => void;
@@ -15,10 +15,9 @@ export type MobileShellContext = {
   startChat: (intent: ChatStartIntent) => void;
 };
 
-const toUiLang = () => (getLangPref() === 'cn' ? 'CN' : 'EN') as const;
-
 export default function MobileShell() {
   const navigate = useNavigate();
+  const { language } = useLanguage();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerDefaultQuery, setComposerDefaultQuery] = useState<string>('');
@@ -46,7 +45,7 @@ export default function MobileShell() {
 
   const startChat = useCallback(
     (intent: ChatStartIntent) => {
-      const lang = toUiLang();
+      const lang = language;
       const sp = new URLSearchParams();
       let search = '';
       let navigationState: { session_patch: Record<string, unknown> } | undefined;

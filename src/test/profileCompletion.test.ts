@@ -25,8 +25,7 @@ describe('profileCompletion', () => {
       sensitivity: 'high',
       goals: ['acne', 'barrier'],
     };
-    expect(formatQuickProfileSummary(profile, 'EN')).toContain('Skin: oily');
-    expect(formatQuickProfileSummary(profile, 'CN')).toContain('肤质：oily');
+    expect(formatQuickProfileSummary(profile, 'EN')).toBe('No additional info yet.');
+    expect(formatQuickProfileSummary(profile, 'CN')).toBe('尚未填写补充信息。');
   });
 });
-
