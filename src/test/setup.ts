@@ -1,4 +1,8 @@
 import "@testing-library/jest-dom";
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi } from "vitest";
+
+import { analytics } from "@/lib/analytics";
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
@@ -85,3 +89,9 @@ console.error = (...args: Parameters<typeof console.error>) => {
   if (shouldSuppressError(toConsoleText(args))) return;
   originalError(...args);
 };
+
+afterEach(() => {
+  cleanup();
+  analytics.clear();
+  vi.useRealTimers();
+});

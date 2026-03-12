@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@/test/testProviders';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -142,7 +142,7 @@ describe('BffChat V2 recommendations cards', () => {
     expect(onOpenPdp).toHaveBeenCalledTimes(1);
     expect(onOpenPdp.mock.calls[0]?.[0]?.url).toContain('/products/prod_mask_1');
 
-    const compareButton = screen.getAllByRole('button', { name: /Alts/i })
+    const compareButton = screen.getAllByRole('button', { name: /More comparison candidates/i })
       .find((element) => element.tagName === 'BUTTON');
     expect(compareButton).toBeTruthy();
     fireEvent.click(compareButton as HTMLElement);
@@ -295,7 +295,7 @@ describe('BffChat V2 recommendations cards', () => {
       loadRecommendationCompatibility: vi.fn().mockResolvedValue(null),
     });
 
-    const compareButton = (await screen.findAllByRole('button', { name: /Alts/i }))
+    const compareButton = (await screen.findAllByRole('button', { name: /More comparison candidates/i }))
       .find((element) => element.tagName === 'BUTTON');
     expect(compareButton).toBeTruthy();
     fireEvent.click(compareButton as HTMLElement);
@@ -363,7 +363,7 @@ describe('BffChat V2 recommendations cards', () => {
     fireEvent.change(input, { target: { value: 'Recommend a facial mask that suits me.' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    const compareButton = (await screen.findAllByRole('button', { name: /Alts/i }))
+    const compareButton = (await screen.findAllByRole('button', { name: /More comparison candidates/i }))
       .find((element) => element.tagName === 'BUTTON');
     expect(compareButton).toBeTruthy();
     fireEvent.click(compareButton as HTMLElement);

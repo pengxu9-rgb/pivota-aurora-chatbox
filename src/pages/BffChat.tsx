@@ -100,10 +100,8 @@ import {
 import type { TravelProductLookupQuery } from '@/lib/auroraEnvStress';
 import {
   getLangMismatchHintMutedUntil,
-  getLangPref,
   getLangReplyMode,
   setLangMismatchHintMutedUntil,
-  setLangPref,
   setLangReplyMode,
   type LangPref,
   type LangReplyMode,
@@ -128,6 +126,7 @@ import {
 import { filterRecommendationCardsForState } from '@/lib/recoGate';
 import { pickProductImageUrl } from '@/lib/productImage';
 import { useShop } from '@/contexts/shop';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
@@ -469,7 +468,6 @@ const FF_SHOW_PASSIVE_GATES = (() => {
 
 const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
 
-const getInitialLanguage = (): UiLanguage => (getLangPref() === 'cn' ? 'CN' : 'EN');
 const LANGUAGE_MISMATCH_HINT_SNOOZE_MS = 6 * 60 * 60 * 1000;
 
 const parseUiLanguageToken = (raw: unknown): UiLanguage | null => {
@@ -1709,10 +1707,11 @@ function buildTravelLookupOpenTarget(row: Record<string, unknown>, product: Prod
     null;
 
   const groupTarget = extractPdpTargetFromProductGroupId(subjectProductGroupId || null);
-  const derivedInternalUrl = directInternalUrl
-    || (canonicalProductRef?.product_id ? buildPdpUrl(canonicalProductRef) : '')
-    || (groupTarget?.product_id ? buildPdpUrl(groupTarget) : '')
-    || null;
+  const derivedInternalUrl =
+    directInternalUrl ||
+    (canonicalProductRef?.product_id ? buildPdpUrl(canonicalProductRef) : '') ||
+    (groupTarget?.product_id ? buildPdpUrl(groupTarget) : '') ||
+    null;
 
   const brand = cleanTravelLookupText((source as any).brand) || cleanTravelLookupText(product.brand);
   const name =
@@ -2129,12 +2128,13 @@ function Sheet({
   onOpenMenu?: () => void;
   children: React.ReactNode;
 }) {
+  const { t } = useLanguage();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60]">
       <button
         className="absolute inset-0 bg-black/35 backdrop-blur-sm"
-        aria-label="Close"
+        aria-label={t('common.close')}
         onClick={onClose}
       />
       <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-[var(--aurora-shell-max)] overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
@@ -2148,7 +2148,7 @@ function Sheet({
                   onClick={() => {
                     onOpenMenu();
                   }}
-                  aria-label="Open menu"
+                  aria-label={t('common.open_menu')}
                 >
                   <Menu className="h-4 w-4" />
                 </button>
@@ -2158,7 +2158,7 @@ function Sheet({
             <button
               className="aurora-home-role-icon inline-flex h-9 w-9 items-center justify-center rounded-full border"
               onClick={onClose}
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               <X className="h-4 w-4" />
             </button>
@@ -2304,7 +2304,15 @@ export function RecommendationsCard({
     };
     signal?: AbortSignal;
   }) => Promise<any>;
-  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
+  resolveProductsSearch?: (args: {
+    query: string;
+    limit?: number;
+    preferBrand?: string | null;
+    uiSurface?: string | null;
+    clarificationSlot?: string | null;
+    clarificationAnswer?: string | null;
+    slotState?: ProductSearchSlotState | null;
+  }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
   analyticsCtx?: AnalyticsContext;
@@ -2334,6 +2342,7 @@ export function RecommendationsCard({
     position: number;
     brand: string | null;
     name: string | null;
+    match_state?: string | null;
     subject_product_group_id?: string | null;
     canonical_product_ref?: { product_id?: string | null; merchant_id?: string | null } | null;
     resolve_query?: string | null;
@@ -2483,6 +2492,7 @@ export function RecommendationsCard({
       const position = Math.max(0, Number(card.position) || 0);
       const safeBrand = String(card.brand || '').trim();
       const safeName = String(card.name || '').trim();
+      const matchState = String(card.match_state || '').trim().toLowerCase();
       const title = [safeBrand, safeName].filter(Boolean).join(' ').trim();
       const skuType = card.hints?.sku_id
         ? 'sku_id'
@@ -2586,10 +2596,15 @@ export function RecommendationsCard({
             preferredPdpPath === 'external' &&
             hintedReasonCode === 'NO_CANDIDATES' &&
             hasStrongNoCandidatesHint;
+          const shouldDirectExternalFromMatchState =
+            preferredPdpPath === 'external' &&
+            matchState === 'llm_seed' &&
+            !shouldRetryNoCandidatesBeforeExternal;
           const shouldDirectExternalFromHint =
             preferredPdpPath === 'external' &&
             PDP_EXTERNAL_DIRECT_OPEN_REASON_CODES.has(hintedReasonCode) &&
             !shouldRetryNoCandidatesBeforeExternal;
+          const shouldSuppressExternalPopupToast = shouldDirectExternalFromMatchState;
 
           const groupTarget = extractPdpTargetFromProductGroupId(card.subject_product_group_id || null);
           if (card.subject_product_group_id && !groupTarget) {
@@ -2619,7 +2634,7 @@ export function RecommendationsCard({
             return;
           }
 
-          if (shouldDirectExternalFromHint) {
+          if (shouldDirectExternalFromHint || shouldDirectExternalFromMatchState) {
             openPath = 'external';
             setDetailsFlow({ key: anchorKey, state: 'opening_external' });
             const external =
@@ -2643,6 +2658,9 @@ export function RecommendationsCard({
             }
             failReason = failReason || (!external.url ? 'google_query_empty' : 'popup_blocked');
             setDetailsFlow({ key: anchorKey, state: 'error' });
+            if (shouldSuppressExternalPopupToast) {
+              return;
+            }
             toast({
               title: language === 'CN' ? '无法打开外部页面' : 'Unable to open external page',
               description:
@@ -3063,6 +3081,10 @@ export function RecommendationsCard({
         position: step.position,
         brand: step.product.brand,
         name: step.product.name,
+        match_state:
+          asString((step.rawItem as any)?.metadata?.match_state) ||
+          asString((step.rawItem as any)?.metadata?.matchState) ||
+          null,
         subject_product_group_id: step.subject_product_group_id,
         canonical_product_ref: step.canonical_product_ref,
         resolve_query: step.resolve_query || null,
@@ -3236,6 +3258,9 @@ export function RecommendationsCard({
       (externalAnchorSeed ? `ext:${externalAnchorSeed.slice(0, 180)}` : null);
     const isResolving = detailsFlow.state === 'resolving' && detailsFlow.key === anchorId;
     const step = asString(item.step) || display.category || (language === 'CN' ? '步骤' : 'Step');
+    const typeRaw =
+      String(asString((item as any).type) || asString((item as any).tier) || asString((item as any).kind) || '').toLowerCase();
+    const type = typeRaw.includes('dupe') ? 'dupe' : 'premium';
     const notes = asArray(item.notes).map((n) => asString(n)).filter(Boolean) as string[];
     const alternativesRaw = asArray((item as any).alternatives).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const evidencePack = asObject((item as any).evidence_pack) || asObject((item as any).evidencePack) || null;
@@ -4311,7 +4336,15 @@ function BffCardView({
     };
     signal?: AbortSignal;
   }) => Promise<any>;
-  resolveProductsSearch?: (args: { query: string; limit?: number; preferBrand?: string | null }) => Promise<any>;
+  resolveProductsSearch?: (args: {
+    query: string;
+    limit?: number;
+    preferBrand?: string | null;
+    uiSurface?: string | null;
+    clarificationSlot?: string | null;
+    clarificationAnswer?: string | null;
+    slotState?: ProductSearchSlotState | null;
+  }) => Promise<any>;
   onDeepScanProduct?: (inputText: string) => void;
   bootstrapInfo?: BootstrapInfo | null;
   profileSnapshot?: Record<string, unknown> | null;
@@ -4349,6 +4382,7 @@ function BffCardView({
     categoryTitle: string;
     query: string;
     ingredientHints: string | null;
+    preferBrand: string | null;
     loading: boolean;
     error: string | null;
     results: TravelLookupResultItem[];
@@ -4460,6 +4494,7 @@ function BffCardView({
         categoryTitle,
         query,
         ingredientHints,
+        preferBrand: preferBrand || null,
         loading: true,
         error: null,
         results: [],
@@ -4514,6 +4549,7 @@ function BffCardView({
           categoryTitle,
           query,
           ingredientHints,
+          preferBrand: preferBrand || null,
           loading: false,
           error: null,
           results,
@@ -4532,6 +4568,7 @@ function BffCardView({
           categoryTitle,
           query,
           ingredientHints,
+          preferBrand: preferBrand || null,
           loading: false,
           error: isAbort
             ? (language === 'CN'
@@ -4563,7 +4600,6 @@ function BffCardView({
     },
     [language, runTravelLookupSearch],
   );
-
   const handleTravelLookupClarificationSelect = useCallback(
     async (option: string) => {
       if (!travelLookupState?.lastClarification?.slot) return;
@@ -4571,6 +4607,7 @@ function BffCardView({
         categoryTitle: travelLookupState.categoryTitle,
         query: travelLookupState.query,
         ingredientHints: travelLookupState.ingredientHints,
+        preferBrand: travelLookupState.preferBrand,
         clarificationSlot: travelLookupState.lastClarification.slot,
         clarificationAnswer: option,
         slotState: travelLookupState.slotState,
@@ -4619,7 +4656,7 @@ function BffCardView({
         }
       }
 
-      const externalUrl = target.externalUrl || buildGoogleSearchFallbackUrl(target.externalQuery || '');
+      const externalUrl = target.externalUrl || buildGoogleSearchFallbackUrl(target.externalQuery || '', language);
       if (!externalUrl) return;
 
       const popup = window.open(externalUrl, '_blank', 'noopener,noreferrer');
@@ -4689,21 +4726,33 @@ function BffCardView({
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  {isOpenable ? (
-                    <button
-                      type="button"
-                      className="inline-flex max-w-full items-center gap-1 text-left text-sm font-semibold leading-snug text-foreground transition hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      onClick={() => {
-                        void openTravelLookupProduct(entry);
-                      }}
-                      aria-label={`${language === 'CN' ? '打开商品' : 'Open product'} ${product.name}`}
-                    >
-                      <span className="truncate">{product.name}</span>
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                    </button>
-                  ) : (
-                    <div className="text-sm font-semibold leading-snug text-foreground">{product.name}</div>
-                  )}
+                  <div className="flex items-start justify-between gap-2">
+                    {isOpenable ? (
+                      <>
+                        <button
+                          type="button"
+                          className="min-w-0 text-left text-sm font-semibold leading-snug text-foreground hover:underline"
+                          onClick={() => {
+                            void openTravelLookupProduct(entry);
+                          }}
+                        >
+                          <span className="line-clamp-2">{product.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-full p-1 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                          onClick={() => {
+                            void openTravelLookupProduct(entry);
+                          }}
+                          aria-label={language === 'CN' ? '打开商品' : 'Open product'}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="text-sm font-semibold leading-snug text-foreground">{product.name}</div>
+                    )}
+                  </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {[product.brand, product.category].filter(Boolean).join(' · ')}
                   </div>
@@ -4772,16 +4821,18 @@ function BffCardView({
         aria-label={travelLookupTitle}
         aria-describedby={undefined}
       >
-        <DrawerHeader className="flex flex-row items-center justify-between gap-3 px-4 pb-2 pt-3 text-left">
-          <DrawerTitle>{travelLookupTitle}</DrawerTitle>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/70 text-foreground/80"
-            aria-label={language === 'CN' ? '关闭' : 'Close'}
-            onClick={() => setTravelLookupOpen(false)}
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <DrawerHeader>
+          <div className="flex items-center justify-between gap-3">
+            <DrawerTitle>{travelLookupTitle}</DrawerTitle>
+            <button
+              type="button"
+              className="rounded-full border border-border/60 p-2 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
+              onClick={() => setTravelLookupOpen(false)}
+              aria-label={language === 'CN' ? '关闭' : 'Close'}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </DrawerHeader>
         <div className="overflow-y-auto pb-2">{travelLookupBody}</div>
       </DrawerContent>
@@ -7578,9 +7629,7 @@ function BffCardView({
 }
 
 export default function BffChat() {
-  const initialLanguageRef = useRef<UiLanguage | null>(null);
-  if (!initialLanguageRef.current) initialLanguageRef.current = getInitialLanguage();
-  const initialLanguage = initialLanguageRef.current;
+  const { language, setLanguage: setAppLanguage } = useLanguage();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -7636,11 +7685,10 @@ export default function BffChat() {
     asObject((location.state as any)?.session_patch?.profile) || null,
   );
 
-  const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [langReplyMode, setLangReplyModeState] = useState<LangReplyMode>(() => getLangReplyMode());
   const langMismatchHintMutedUntilRef = useRef<number>(getLangMismatchHintMutedUntil());
   const [headers, setHeaders] = useState(() => {
-    const base = makeDefaultHeaders(initialLanguage);
+    const base = makeDefaultHeaders(language);
     const briefId = searchParams.brief_id;
     const traceId = searchParams.trace_id;
     return {
@@ -7809,10 +7857,6 @@ export default function BffChat() {
       region: normalized.region || '',
     });
   }, [authSession?.email, bootstrapInfo?.profile, profileSnapshot]);
-
-  useEffect(() => {
-    setLangPref(toLangPref(language));
-  }, [language]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -8208,7 +8252,7 @@ export default function BffChat() {
           from_lang: toLangPref(language),
           to_lang: toLangPref(mismatchTargetUiLanguage),
         });
-        setLanguage(mismatchTargetUiLanguage);
+        setAppLanguage(toLangPref(mismatchTargetUiLanguage));
         autoFollowNotice =
           language === 'CN'
             ? `已按你的输入切换为${toUiLanguageName(mismatchTargetUiLanguage, 'CN')}回复。`
@@ -11034,7 +11078,7 @@ export default function BffChat() {
               from_lang: toLangPref(language),
               to_lang: toLangPref(targetUiLang),
             });
-            setLanguage(targetUiLang);
+            setAppLanguage(toLangPref(targetUiLang));
           }
           if (targetUiLang) {
             assistantAck =
@@ -11050,7 +11094,7 @@ export default function BffChat() {
               from_lang: toLangPref(language),
               to_lang: toLangPref(targetUiLang),
             });
-            setLanguage(targetUiLang);
+            setAppLanguage(toLangPref(targetUiLang));
           }
           assistantAck =
             language === 'CN'
@@ -11426,22 +11470,6 @@ export default function BffChat() {
     void run().finally(() => clearActionIntentParams());
   }, [deepLinkChip, hasBootstrapped, headers.brief_id, headers.trace_id, navigate, onChip, searchParams, submitText]);
 
-  const switchLanguage = useCallback(
-    (next: UiLanguage) => {
-      if (next === language) return;
-      const ctx: AnalyticsContext = {
-        brief_id: headers.brief_id,
-        trace_id: headers.trace_id,
-        aurora_uid: headers.aurora_uid,
-        lang: toLangPref(language),
-        state: agentState,
-      };
-      emitUiLanguageSwitched(ctx, { from_lang: toLangPref(language), to_lang: toLangPref(next) });
-      setLanguage(next);
-    },
-    [agentState, headers, language],
-  );
-
   const canSend = useMemo(() => !isLoading && input.trim().length > 0, [isLoading, input]);
   const flowState = useMemo(() => {
     const s = String(sessionState || '').trim();
@@ -11606,7 +11634,7 @@ export default function BffChat() {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <button type="button" className="ios-nav-button ml-1" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+        <button type="button" className="ios-nav-button ml-1" onClick={() => setSidebarOpen(true)} aria-label={t('common.open_menu', language)}>
           <Menu className="h-[18px] w-[18px]" />
         </button>
 

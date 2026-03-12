@@ -20,6 +20,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 
 import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
+import { LanguageProvider } from '@/contexts/LanguageContext';
 import { bffJson } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 import type { ChatResponseV1 } from '@/lib/chatCardsTypes';
@@ -89,6 +90,18 @@ async function waitForEnabledButton(name: string | RegExp) {
   return button;
 }
 
+function renderChat(initialEntries: React.ComponentProps<typeof MemoryRouter>['initialEntries'] = ['/chat']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <LanguageProvider>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </LanguageProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe('BffChat env stress recommendation routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,42 +142,34 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter
-        initialEntries={[
-          {
-            pathname: '/chat',
-            search: '?q=Please+build+my+travel+plan',
-            state: {
-              session_patch: {
-                profile: {
-                  travel_plan: {
-                    destination: 'Athens',
-                    start_date: '2026-03-12',
-                    end_date: '2026-03-15',
-                    destination_place: {
-                      label: 'Athens, Attica, Greece',
-                      canonical_name: 'Athens',
-                      latitude: 37.98376,
-                      longitude: 23.72784,
-                      country_code: 'GR',
-                      country: 'Greece',
-                      admin1: 'Attica',
-                      timezone: 'Europe/Athens',
-                      resolution_source: 'user_selected',
-                    },
-                  },
+    renderChat([
+      {
+        pathname: '/chat',
+        search: '?q=Please+build+my+travel+plan',
+        state: {
+          session_patch: {
+            profile: {
+              travel_plan: {
+                destination: 'Athens',
+                start_date: '2026-03-12',
+                end_date: '2026-03-15',
+                destination_place: {
+                  label: 'Athens, Attica, Greece',
+                  canonical_name: 'Athens',
+                  latitude: 37.98376,
+                  longitude: 23.72784,
+                  country_code: 'GR',
+                  country: 'Greece',
+                  admin1: 'Attica',
+                  timezone: 'Europe/Athens',
+                  resolution_source: 'user_selected',
                 },
               },
             },
-          } as any,
-        ]}
-      >
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+          },
+        },
+      } as any,
+    ]);
 
     await waitForEnabledComposer();
 
@@ -315,13 +320,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How is the weather in Paris this week?' } });
@@ -468,13 +467,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -630,13 +623,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -742,13 +729,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -861,13 +842,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -982,13 +957,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -997,7 +966,7 @@ describe('BffChat env stress recommendation routing', () => {
     const browseTrigger = await waitForEnabledButton('Browse products (1)');
     fireEvent.click(browseTrigger);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open product Barrier Rescue Cream' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Barrier Rescue Cream' }));
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledWith(
@@ -1007,7 +976,7 @@ describe('BffChat env stress recommendation routing', () => {
       );
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Open product Daily SPF Fluid' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Daily SPF Fluid' }));
     expect(await screen.findByRole('heading', { name: 'Aurora Lab Daily SPF Fluid' })).toBeInTheDocument();
 
     openSpy.mockRestore();
@@ -1098,13 +1067,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Show my travel skincare plan' } });
@@ -1262,13 +1225,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'How stressful is my travel environment?' } });
@@ -1361,13 +1318,7 @@ describe('BffChat env stress recommendation routing', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
 
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'Plan my travel skincare for Paris.' } });

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getOrCreateAuroraUid, getLangPref } from '@/lib/persistence';
+import { getOrCreateAuroraUid } from '@/lib/persistence';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { getPivotaShopBaseUrl, buildPdpUrl, type PdpTarget } from '@/lib/pivotaShop';
 import { loadAuroraAuthSession } from '@/lib/auth';
 import {
@@ -76,17 +77,8 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
   const auroraUid = useMemo(() => getOrCreateAuroraUid(), []);
   const shopBaseUrl = useMemo(() => getPivotaShopBaseUrl(), []);
   const shopOrigin = useMemo(() => safeParseUrl(shopBaseUrl)?.origin ?? null, [shopBaseUrl]);
-  const [langPref, setLangPrefState] = useState(() => getLangPref());
+  const { langPref } = useLanguage();
   const [bridgeReady, setBridgeReady] = useState(false);
-
-  useEffect(() => {
-    const onLang = (evt: Event) => {
-      const next = (evt as CustomEvent).detail;
-      if (next === 'en' || next === 'cn') setLangPrefState(next);
-    };
-    window.addEventListener('aurora_lang_pref_changed', onLang as EventListener);
-    return () => window.removeEventListener('aurora_lang_pref_changed', onLang as EventListener);
-  }, []);
 
   const [persisted, setPersisted] = useState<PersistedShopState>(() => loadShopState(auroraUid) ?? blankState(auroraUid));
   const [shopOpen, setShopOpen] = useState(false);

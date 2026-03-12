@@ -14,8 +14,9 @@ import { useLocation, useNavigate, useOutletContext, useParams } from 'react-rou
 import { toast } from '@/components/ui/use-toast';
 import { DestinationDisambiguationDialog } from '@/components/travel/DestinationDisambiguationDialog';
 import type { MobileShellContext } from '@/layouts/MobileShell';
-import { getLangPref } from '@/lib/persistence';
-import type { Language } from '@/lib/pivotaAgentBff';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { t as tl } from '@/locales';
+import type { Language } from '@/lib/types';
 import {
   archiveTravelPlan,
   getDestinationAmbiguityPayload,
@@ -69,13 +70,13 @@ const makeDraftFromPlan = (plan: TravelPlanCardModel | null): EditDraft => ({
 
 const buildValidationError = (draft: EditDraft, language: Language): string | null => {
   if (!draft.destination.trim() || !draft.departure_region.trim() || !draft.start_date || !draft.end_date) {
-    return language === 'CN' ? '请先填写目的地、出发地与日期。' : 'Please fill destination, departure, and dates first.';
+    return tl('plans.validation.fill_required', language);
   }
   if (draft.start_date > draft.end_date) {
-    return language === 'CN' ? '开始日期不能晚于结束日期。' : 'Start date cannot be after end date.';
+    return tl('plans.validation.date_order', language);
   }
   if (draft.indoor_outdoor_ratio.trim() && normalizeRatio(draft.indoor_outdoor_ratio) == null) {
-    return language === 'CN' ? '户外比例需为 0 到 1 之间数字。' : 'Outdoor ratio must be a number between 0 and 1.';
+    return tl('plans.validation.outdoor_ratio', language);
   }
   return null;
 };
@@ -111,18 +112,14 @@ const hasDepartureInfo = (plan: { departure_region?: string | null } | null | un
   Boolean(String(plan?.departure_region || '').trim());
 
 const getNeedsDepartureLabel = (language: Language): string =>
-  language === 'CN' ? '需补充出发地' : 'Needs departure';
+  tl('plan_details.needs_departure', language);
 
 const getMissingDepartureMessage = (language: Language): string =>
-  language === 'CN'
-    ? '请先补充出发地，再开始这次 travel analysis。'
-    : 'Add the departure location first before starting this travel analysis.';
+  tl('plan_details.needs_departure_desc', language);
 
 const getStatusLabel = (status: TravelPlanCardModel['status'], language: Language): string => {
-  if (status === 'in_trip') return language === 'CN' ? '行程中' : 'In trip';
-  if (status === 'upcoming') return language === 'CN' ? '即将出行' : 'Upcoming';
-  if (status === 'completed') return language === 'CN' ? '已结束' : 'Completed';
-  return language === 'CN' ? '已归档' : 'Archived';
+  const map: Record<string, string> = { in_trip: 'plans.status.in_trip', upcoming: 'plans.status.upcoming', completed: 'plans.status.completed' };
+  return tl(map[status] || 'plans.status.archived', language);
 };
 
 const getTimingLabel = (plan: TravelPlanCardModel, language: Language): string => {
@@ -130,21 +127,21 @@ const getTimingLabel = (plan: TravelPlanCardModel, language: Language): string =
   const daysToEnd = Number.isFinite(Number(plan.days_to_end)) ? Number(plan.days_to_end) : null;
 
   if (plan.status === 'upcoming') {
-    if (daysToStart == null) return language === 'CN' ? '即将出发' : 'Starts soon';
-    if (daysToStart <= 0) return language === 'CN' ? '今天出发' : 'Starts today';
-    return language === 'CN' ? `${daysToStart} 天后出发` : `Starts in ${daysToStart} days`;
+    if (daysToStart == null) return tl('plans.status.starts_soon', language);
+    if (daysToStart <= 0) return tl('plans.status.starts_today', language);
+    return tl('plans.status.starts_in_days', language, { days: daysToStart });
   }
   if (plan.status === 'in_trip') {
     const dayIndex = daysToStart == null ? null : Math.max(1, Math.abs(daysToStart) + 1);
-    if (dayIndex == null) return language === 'CN' ? '行程进行中' : 'Trip in progress';
-    return language === 'CN' ? `行程第 ${dayIndex} 天` : `Day ${dayIndex} of trip`;
+    if (dayIndex == null) return tl('plans.status.in_progress', language);
+    return tl('plans.status.day_of_trip', language, { day: dayIndex });
   }
   if (plan.status === 'completed') {
-    if (daysToEnd == null) return language === 'CN' ? '行程已结束' : 'Trip ended';
+    if (daysToEnd == null) return tl('plans.status.ended', language);
     const endedDays = Math.max(0, Math.abs(daysToEnd));
-    return language === 'CN' ? `${endedDays} 天前结束` : `Ended ${endedDays} days ago`;
+    return tl('plans.status.ended_days_ago', language, { days: endedDays });
   }
-  return language === 'CN' ? '已归档' : 'Archived';
+  return tl('plans.status.archived', language);
 };
 
 const formatDateRange = (plan: TravelPlanCardModel): string => `${plan.start_date} - ${plan.end_date}`;
@@ -154,7 +151,7 @@ export default function PlanDetails() {
   const navigate = useNavigate();
   const params = useParams<{ tripId: string }>();
   const location = useLocation();
-  const language: Language = useMemo(() => (getLangPref() === 'cn' ? 'CN' : 'EN'), []);
+  const { language, t } = useLanguage();
 
   const tripId = useMemo(() => String(params.tripId || '').trim(), [params.tripId]);
   const routeState = (location.state as PlanDetailsRouteState | null) ?? null;
@@ -180,7 +177,7 @@ export default function PlanDetails() {
     if (!tripId) {
       setPlan(null);
       setLoading(false);
-      setError(language === 'CN' ? '计划 ID 无效。' : 'Invalid plan id.');
+      setError(t('plan_details.invalid_id'));
       return;
     }
 
@@ -253,7 +250,7 @@ export default function PlanDetails() {
       setDraft(makeDraftFromPlan(nextPlan));
       setEditing(false);
       setPendingDestinationSelection(null);
-      toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
+      toast({ title: t('plans.toast.updated') });
     } catch (err) {
       const ambiguity = getDestinationAmbiguityPayload(err);
       if (ambiguity) {
@@ -307,7 +304,7 @@ export default function PlanDetails() {
       setDraft(makeDraftFromPlan(nextPlan));
       setEditing(false);
       setPendingDestinationSelection(null);
-      toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
+      toast({ title: t('plans.toast.updated') });
     } catch (err) {
       const ambiguity = getDestinationAmbiguityPayload(err);
       if (ambiguity) {
@@ -342,7 +339,7 @@ export default function PlanDetails() {
       setPlan(archivedPlan);
       setDraft(makeDraftFromPlan(archivedPlan));
       setEditing(false);
-      toast({ title: language === 'CN' ? '计划已归档' : 'Plan archived' });
+      toast({ title: t('plans.toast.archived') });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -366,7 +363,7 @@ export default function PlanDetails() {
 
     startChat({
       kind: 'query',
-      title: language === 'CN' ? `旅行护肤：${plan.destination}` : `Travel skincare: ${plan.destination}`,
+      title: t('plan_details.chat_title', { destination: plan.destination }),
       query,
       ...(buildTravelPlanSessionPatch(plan) ? { session_patch: buildTravelPlanSessionPatch(plan) } : {}),
     });
@@ -390,21 +387,21 @@ export default function PlanDetails() {
         }}
       />
       <div className="ios-page-header">
-        <button type="button" onClick={onBack} className="ios-nav-button" aria-label={language === 'CN' ? '返回计划' : 'Back to plans'}>
+        <button type="button" onClick={onBack} className="ios-nav-button" aria-label={t('plan_details.back')}>
           <ArrowLeft className="h-[18px] w-[18px]" />
         </button>
-        <div className="ios-page-title">{language === 'CN' ? 'Trip details' : 'Trip details'}</div>
+        <div className="ios-page-title">{t('plans.title')}</div>
         <div className="ios-header-spacer" />
       </div>
 
       {loading ? (
         <div className="ios-panel mt-4 flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          {language === 'CN' ? '加载详情中...' : 'Loading details...'}
+          {t('plan_details.loading')}
         </div>
       ) : !plan ? (
         <div className="ios-panel mt-4 space-y-3">
-          <div className="text-sm text-foreground">{language === 'CN' ? '未找到该行程。' : 'Plan not found.'}</div>
+          <div className="text-sm text-foreground">{t('plan_details.not_found')}</div>
           {error ? <div className="text-xs text-red-500">{error}</div> : null}
           <button
             type="button"
@@ -412,7 +409,7 @@ export default function PlanDetails() {
             className="inline-flex items-center gap-2 rounded-xl border border-border/60 px-3 py-1.5 text-sm"
           >
             <ArrowLeft className="h-4 w-4" />
-            {language === 'CN' ? '返回计划列表' : 'Back to plans'}
+            {t('plan_details.back')}
           </button>
         </div>
       ) : (
@@ -427,7 +424,7 @@ export default function PlanDetails() {
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {hasDepartureInfo(plan)
-                    ? `${language === 'CN' ? '出发地' : 'Departure'}: ${plan.departure_region}`
+                    ? `${t('plans.form.departure')}: ${plan.departure_region}`
                     : getNeedsDepartureLabel(language)}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">{getTimingLabel(plan, language)}</div>
@@ -451,21 +448,19 @@ export default function PlanDetails() {
             ) : null}
 
             <div className="mt-4 space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
-              <div className="text-xs font-semibold text-foreground">{language === 'CN' ? 'Itinerary' : 'Itinerary'}</div>
+              <div className="text-xs font-semibold text-foreground">{t('plans.form.itinerary')}</div>
               <div className="text-sm text-muted-foreground">
                 {plan.itinerary?.trim()
                   ? plan.itinerary
-                  : language === 'CN'
-                    ? '暂无详细行程备注。'
-                    : 'No itinerary details yet.'}
+                  : t('plan_details.no_itinerary')}
               </div>
             </div>
 
             <div className="mt-3 space-y-3 rounded-2xl border border-border/60 bg-background/60 p-3">
-              <div className="text-xs font-semibold text-foreground">{language === 'CN' ? 'Prep checklist' : 'Prep checklist'}</div>
+              <div className="text-xs font-semibold text-foreground">{t('plans.prep_checklist')}</div>
               {checklist.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
-                  {language === 'CN' ? '暂无建议清单。' : 'No checklist available.'}
+                  {t('plan_details.no_checklist')}
                 </div>
               ) : (
                 <ul className="space-y-2 text-sm text-muted-foreground">
@@ -486,7 +481,7 @@ export default function PlanDetails() {
                 className="inline-flex items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-sm"
               >
                 <MessageCircle className="h-4 w-4" />
-                {language === 'CN' ? '在聊天中打开' : 'Open in chat'}
+                {t('plans.btn.open_chat')}
               </button>
 
               <button
@@ -495,7 +490,7 @@ export default function PlanDetails() {
                 className="inline-flex items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-sm"
               >
                 <Pencil className="h-4 w-4" />
-                {editing ? (language === 'CN' ? '取消编辑' : 'Cancel edit') : language === 'CN' ? '编辑' : 'Edit'}
+                {editing ? t('plan_details.cancel_edit') : t('plans.btn.edit')}
               </button>
 
               <button
@@ -505,23 +500,17 @@ export default function PlanDetails() {
                 className="inline-flex items-center justify-center gap-1 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-sm disabled:opacity-60"
               >
                 {archiving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
-                {plan.status === 'archived'
-                  ? language === 'CN'
-                    ? '已归档'
-                    : 'Archived'
-                  : language === 'CN'
-                    ? '归档'
-                    : 'Archive'}
+                {plan.status === 'archived' ? t('plans.status.archived') : t('plans.btn.archive')}
               </button>
             </div>
           </div>
 
           {editing ? (
             <div className="ios-panel mt-4">
-              <div className="mb-3 text-sm font-semibold text-foreground">{language === 'CN' ? '编辑计划' : 'Edit plan'}</div>
+              <div className="mb-3 text-sm font-semibold text-foreground">{t('plan_details.edit_plan')}</div>
               <div className="space-y-3">
                 <label className="block">
-                  <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '目的地' : 'Destination'}</div>
+                  <div className="mb-1 text-xs text-muted-foreground">{t('plans.form.destination')}</div>
                   <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <input
@@ -534,7 +523,7 @@ export default function PlanDetails() {
                 </label>
 
                 <label className="block">
-                  <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '出发地' : 'Departure'}</div>
+                  <div className="mb-1 text-xs text-muted-foreground">{t('plans.form.departure')}</div>
                   <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <input
@@ -542,14 +531,14 @@ export default function PlanDetails() {
                       value={draft.departure_region}
                       onChange={(e) => setDraft((prev) => ({ ...prev, departure_region: e.target.value }))}
                       className="h-6 w-full bg-transparent text-sm text-foreground outline-none"
-                      placeholder={homeRegion || (language === 'CN' ? '例如：San Francisco / 上海' : 'e.g. San Francisco / Shanghai')}
+                      placeholder={homeRegion || t('plans.form.departure_placeholder')}
                     />
                   </div>
                 </label>
 
                 <div className="travel-date-grid">
                   <label className="block">
-                    <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '开始日期' : 'Start date'}</div>
+                    <div className="mb-1 text-xs text-muted-foreground">{t('plans.form.start_date')}</div>
                     <input
                       type="date"
                       value={draft.start_date}
@@ -558,7 +547,7 @@ export default function PlanDetails() {
                     />
                   </label>
                   <label className="block">
-                    <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '结束日期' : 'End date'}</div>
+                    <div className="mb-1 text-xs text-muted-foreground">{t('plans.form.end_date')}</div>
                     <input
                       type="date"
                       value={draft.end_date}
@@ -570,7 +559,7 @@ export default function PlanDetails() {
 
                 <label className="block">
                   <div className="mb-1 text-xs text-muted-foreground">
-                    {language === 'CN' ? '户外比例（0-1，可选）' : 'Outdoor ratio (0-1, optional)'}
+                    {t('plans.form.outdoor_ratio')}
                   </div>
                   <input
                     type="number"
@@ -585,7 +574,7 @@ export default function PlanDetails() {
                 </label>
 
                 <label className="block">
-                  <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '行程备注' : 'Itinerary'}</div>
+                  <div className="mb-1 text-xs text-muted-foreground">{t('plans.form.itinerary')}</div>
                   <textarea
                     value={draft.itinerary}
                     onChange={(e) => setDraft((prev) => ({ ...prev, itinerary: e.target.value }))}
@@ -603,7 +592,7 @@ export default function PlanDetails() {
                 disabled={saving}
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {saving ? (language === 'CN' ? '保存中...' : 'Saving...') : language === 'CN' ? '保存修改' : 'Save changes'}
+                {saving ? t('plans.form.saving') : t('plans.form.save_changes')}
               </button>
             </div>
           ) : null}

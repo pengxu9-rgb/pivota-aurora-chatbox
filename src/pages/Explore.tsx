@@ -3,9 +3,11 @@ import { Compass, Menu, Sparkles } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function Explore() {
   const { openSidebar, openComposer } = useOutletContext<MobileShellContext>();
+  const { t } = useLanguage();
 
   return (
     <div className="ios-page">
@@ -14,11 +16,11 @@ export default function Explore() {
           type="button"
           onClick={openSidebar}
           className="ios-nav-button"
-          aria-label="Open menu"
+          aria-label={t('common.open_menu')}
         >
           <Menu className="h-[18px] w-[18px]" />
         </button>
-        <div className="ios-page-title">Explore</div>
+        <div className="ios-page-title">{t('explore.title')}</div>
         <div className="ios-header-spacer" />
       </div>
 
@@ -28,9 +30,9 @@ export default function Explore() {
             <Compass className="h-[18px] w-[18px]" />
           </div>
           <div>
-            <div className="ios-section-title">Discover answers faster</div>
+            <div className="ios-section-title">{t('explore.discover')}</div>
             <div className="ios-caption mt-1">
-              Best practice: start from a goal + a product link (or ingredient list) to reduce back-and-forth.
+              {t('explore.discover_desc')}
             </div>
           </div>
         </div>
@@ -41,7 +43,7 @@ export default function Explore() {
           onClick={() => openComposer()}
         >
           <Sparkles className="h-4 w-4" />
-          Ask a question
+          {t('explore.ask_question')}
         </button>
       </div>
     </div>
