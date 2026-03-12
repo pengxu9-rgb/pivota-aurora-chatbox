@@ -535,110 +535,7 @@ export default function Profile() {
         </button>
       </div>
 
-      <div className="ios-panel mt-4">
-        <div className="flex items-start gap-3">
-          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
-            <User className="h-[18px] w-[18px]" />
-          </div>
-          <div>
-            <div className="ios-section-title">Quick profile</div>
-            <div className="ios-caption mt-1">
-              {quickProfileStatus === 'incomplete'
-                ? (isCN
-                    ? '建议先完成 30 秒快速画像，Aurora 才能更准确地个性化推荐。'
-                    : 'Best practice: complete the 30‑sec quick profile once so Aurora can personalize recommendations.')
-                : quickProfileStatus === 'complete_guest'
-                  ? (isCN
-                      ? '快速画像已完成，当前仅保存在本设备。登录后可跨设备同步。'
-                      : 'Quick profile is complete on this device. Sign in to sync across devices.')
-                  : (isCN
-                      ? '快速画像已完成并已同步到账号。'
-                      : 'Quick profile is complete and synced to your account.')}
-            </div>
-            {quickProfileStatus !== 'incomplete' ? (
-              <div className="mt-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-[12px] text-muted-foreground">
-                {quickProfileSummary}
-              </div>
-            ) : null}
-            {bootstrapLoading ? (
-              <div className="mt-2 text-[12px] text-muted-foreground">{isCN ? '正在刷新画像状态…' : 'Refreshing profile status…'}</div>
-            ) : null}
-            {bootstrapError ? (
-              <div className="mt-2 text-[12px] text-red-600">{bootstrapError}</div>
-            ) : null}
-          </div>
-        </div>
-
-        {quickProfileStatus === 'incomplete' ? (
-          <button
-            type="button"
-            className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
-            onClick={openQuickProfile}
-          >
-            {isCN ? '开始快速画像' : 'Start quick profile'}
-          </button>
-        ) : null}
-
-        {quickProfileStatus === 'complete_guest' ? (
-          <div className="mt-4 grid gap-2">
-            <button
-              type="button"
-              className="aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
-              onClick={() => {
-                setAuthMode('code');
-                setAuthStage('email');
-                setAuthError(null);
-                setAuthNotice(isCN ? '登录后将把当前设备画像同步到账号。' : 'Sign in to sync this device profile to your account.');
-                setShowSyncHint(true);
-                window.setTimeout(() => {
-                  accountSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }, 60);
-              }}
-            >
-              {isCN ? '登录并同步资料' : 'Sign in to sync profile'}
-            </button>
-            {showSyncHint ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800">
-                {isCN ? '请在下方 Account 区域输入邮箱完成登录。' : 'Please enter your email in the Account section below to sign in.'}
-              </div>
-            ) : null}
-            <button
-              type="button"
-              className={cn(
-                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
-                'active:scale-[0.99]',
-              )}
-              onClick={openQuickProfile}
-            >
-              {isCN ? '重新填写快速画像' : 'Retake quick profile'}
-            </button>
-          </div>
-        ) : null}
-
-        {quickProfileStatus === 'complete_signed' ? (
-          <div className="mt-4 grid gap-2">
-            <button
-              type="button"
-              className="aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
-              onClick={openProfileEditor}
-            >
-              {isCN ? '补充信息' : 'Additional info'}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
-                'active:scale-[0.99]',
-              )}
-              onClick={openQuickProfile}
-            >
-              {isCN ? '重新填写快速画像' : 'Retake quick profile'}
-            </button>
-          </div>
-        ) : null}
-      </div>
-
-      <div ref={accountSectionRef} className="ios-panel mt-3">
+      <div ref={accountSectionRef} className="ios-panel mt-4">
         <div className="flex items-start gap-3">
           <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
             <Shield className="h-[18px] w-[18px]" />
@@ -993,6 +890,109 @@ export default function Profile() {
 
         {!authSession && authNotice ? <div className="mt-3 text-[12px] text-emerald-700">{authNotice}</div> : null}
         {authError ? <div className="mt-3 text-[12px] text-red-600">{authError}</div> : null}
+      </div>
+
+      <div className="ios-panel mt-3">
+        <div className="flex items-start gap-3">
+          <div className="aurora-home-role-icon inline-flex h-11 w-11 items-center justify-center rounded-2xl border">
+            <User className="h-[18px] w-[18px]" />
+          </div>
+          <div>
+            <div className="ios-section-title">Quick profile</div>
+            <div className="ios-caption mt-1">
+              {quickProfileStatus === 'incomplete'
+                ? (isCN
+                    ? '建议先完成 30 秒快速画像，Aurora 才能更准确地个性化推荐。'
+                    : 'Best practice: complete the 30‑sec quick profile once so Aurora can personalize recommendations.')
+                : quickProfileStatus === 'complete_guest'
+                  ? (isCN
+                      ? '快速画像已完成，当前仅保存在本设备。登录后可跨设备同步。'
+                      : 'Quick profile is complete on this device. Sign in to sync across devices.')
+                  : (isCN
+                      ? '快速画像已完成并已同步到账号。'
+                      : 'Quick profile is complete and synced to your account.')}
+            </div>
+            {quickProfileStatus !== 'incomplete' ? (
+              <div className="mt-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-[12px] text-muted-foreground">
+                {quickProfileSummary}
+              </div>
+            ) : null}
+            {bootstrapLoading ? (
+              <div className="mt-2 text-[12px] text-muted-foreground">{isCN ? '正在刷新画像状态…' : 'Refreshing profile status…'}</div>
+            ) : null}
+            {bootstrapError ? (
+              <div className="mt-2 text-[12px] text-red-600">{bootstrapError}</div>
+            ) : null}
+          </div>
+        </div>
+
+        {quickProfileStatus === 'incomplete' ? (
+          <button
+            type="button"
+            className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
+            onClick={openQuickProfile}
+          >
+            {isCN ? '开始快速画像' : 'Start quick profile'}
+          </button>
+        ) : null}
+
+        {quickProfileStatus === 'complete_guest' ? (
+          <div className="mt-4 grid gap-2">
+            <button
+              type="button"
+              className="aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
+              onClick={() => {
+                setAuthMode('code');
+                setAuthStage('email');
+                setAuthError(null);
+                setAuthNotice(isCN ? '登录后将把当前设备画像同步到账号。' : 'Sign in to sync this device profile to your account.');
+                setShowSyncHint(true);
+                window.setTimeout(() => {
+                  accountSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 60);
+              }}
+            >
+              {isCN ? '登录并同步资料' : 'Sign in to sync profile'}
+            </button>
+            {showSyncHint ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-800">
+                {isCN ? '请在下方 Account 区域输入邮箱完成登录。' : 'Please enter your email in the Account section below to sign in.'}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className={cn(
+                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
+                'active:scale-[0.99]',
+              )}
+              onClick={openQuickProfile}
+            >
+              {isCN ? '重新填写快速画像' : 'Retake quick profile'}
+            </button>
+          </div>
+        ) : null}
+
+        {quickProfileStatus === 'complete_signed' ? (
+          <div className="mt-4 grid gap-2">
+            <button
+              type="button"
+              className="aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
+              onClick={openProfileEditor}
+            >
+              {isCN ? '补充信息' : 'Additional info'}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-4 py-2.5 text-[14px] font-semibold text-foreground shadow-card',
+                'active:scale-[0.99]',
+              )}
+              onClick={openQuickProfile}
+            >
+              {isCN ? '重新填写快速画像' : 'Retake quick profile'}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="ios-panel-soft mt-3">
