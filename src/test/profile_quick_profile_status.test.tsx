@@ -160,7 +160,10 @@ describe('Profile quick profile status', () => {
     });
 
     await screen.findByRole('combobox', { name: 'Choisir la langue' });
-    expect(screen.getByRole('button', { name: 'Start quick profile' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Commencer le profil rapide' })).toBeInTheDocument();
+    expect(screen.getByText('Compte')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Envoyer le code' })).toBeInTheDocument();
+    expect(screen.getByText("Centre d'aide")).toBeInTheDocument();
   }, PROFILE_TEST_TIMEOUT_MS);
 
   it('binds manual language changes to the signed-in account', async () => {
@@ -186,7 +189,7 @@ describe('Profile quick profile status', () => {
     render(<Profile />);
 
     await screen.findByRole('combobox', { name: 'Choisir la langue' });
-    expect(screen.getByRole('button', { name: 'Start quick profile' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Commencer le profil rapide' })).toBeInTheDocument();
   }, PROFILE_TEST_TIMEOUT_MS);
 
   it('shows complete_guest state with sync CTA', async () => {
