@@ -701,11 +701,11 @@ const nextAgentStateForChip = (chipId: string): AgentState | null => {
     case 'chip.start.evaluate':
       return 'PRODUCT_LINK_EVAL';
     case 'chip.start.routine':
-      return 'RECO_GATE';
+      return 'ROUTINE_INTAKE';
     case 'chip.start.reco_products':
       return 'RECO_GATE';
     case 'chip.action.reco_routine':
-      return 'RECO_GATE';
+      return 'ROUTINE_INTAKE';
     default:
       return null;
   }
@@ -11430,6 +11430,13 @@ export default function BffChat() {
       }
 
       if (id === 'chip_eval_routine') {
+        setRoutineDraft(makeEmptyRoutineDraft());
+        setRoutineTab('am');
+        setRoutineSheetOpen(true);
+        return;
+      }
+
+      if (id === 'chip.start.routine' || id === 'chip.action.reco_routine') {
         setRoutineDraft(makeEmptyRoutineDraft());
         setRoutineTab('am');
         setRoutineSheetOpen(true);

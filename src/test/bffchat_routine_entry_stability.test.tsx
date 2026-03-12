@@ -93,6 +93,43 @@ describe('Routine entry stability', () => {
     expect(chatCalls).toHaveLength(0);
   });
 
+  it('opens the routine sheet when clicking the landing Build an AM/PM routine chip and does not send /v1/chat', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_landing',
+            trace_id: 'trace_bootstrap_landing',
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_chat_should_not_happen' }));
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const trigger = await screen.findByRole('button', { name: /Build an AM\/PM routine/i });
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
+    });
+
+    const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+    expect(chatCalls).toHaveLength(0);
+  });
+
   it('fills PM fields from AM when tapping Same as AM and submits copied routine', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
