@@ -14,6 +14,7 @@ import {
   getDestinationAmbiguityPayload,
   type CreateTravelPlanInput,
   type DestinationPlace,
+  type TravelPlaceField,
   type TravelPlanCardModel,
   type TravelPlansSummary,
   type UpdateTravelPlanInput,
@@ -22,6 +23,7 @@ import { toast } from '@/components/ui/use-toast';
 
 type PlanDraft = {
   destination: string;
+  departure_region: string;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio: string;
@@ -31,6 +33,8 @@ type PlanDraft = {
 type PlanChatPayload = {
   destination: string;
   destination_place?: DestinationPlace | null;
+  departure_region: string;
+  departure_place?: DestinationPlace | null;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio?: number | null;
@@ -39,6 +43,7 @@ type PlanChatPayload = {
 };
 
 type PendingDestinationSelection = {
+  field: TravelPlaceField;
   mode: 'create' | 'edit';
   tripId?: string;
   normalizedQuery: string;
@@ -48,6 +53,7 @@ type PendingDestinationSelection = {
 
 const makeEmptyDraft = (): PlanDraft => ({
   destination: '',
+  departure_region: '',
   start_date: '',
   end_date: '',
   indoor_outdoor_ratio: '',
@@ -94,8 +100,8 @@ const getTimingLabel = (plan: TravelPlanCardModel, language: Language): string =
 };
 
 const buildCreateValidationError = (draft: PlanDraft, language: Language): string | null => {
-  if (!draft.destination.trim() || !draft.start_date || !draft.end_date) {
-    return language === 'CN' ? '请先填写目的地与日期。' : 'Please fill destination and dates first.';
+  if (!draft.destination.trim() || !draft.departure_region.trim() || !draft.start_date || !draft.end_date) {
+    return language === 'CN' ? '请先填写目的地、出发地与日期。' : 'Please fill destination, departure, and dates first.';
   }
   if (draft.start_date > draft.end_date) {
     return language === 'CN' ? '开始日期不能晚于结束日期。' : 'Start date cannot be after end date.';
@@ -109,19 +115,23 @@ const buildCreateValidationError = (draft: PlanDraft, language: Language): strin
 const buildPlanChatQuery = (plan: PlanChatPayload, language: Language): string => {
   const itineraryText = String(plan.itinerary || '').trim();
   if (language === 'CN') {
-    return `请基于我的旅行计划给护肤建议。目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`;
+    return `请基于我的旅行计划给护肤建议。出发地：${plan.departure_region}；目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。${itineraryText ? `行程备注：${itineraryText}` : ''}`;
   }
-  return `Please adjust my skincare based on this travel plan. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
+  return `Please adjust my skincare based on this travel plan. Departure: ${plan.departure_region}. Destination: ${plan.destination}. Dates: ${plan.start_date} to ${plan.end_date}.${itineraryText ? ` Itinerary: ${itineraryText}` : ''}`;
 };
 
 const buildTravelPlanSessionPatch = (plan: PlanChatPayload): Record<string, unknown> | undefined => {
   const travelPlan: Record<string, unknown> = {
     destination: String(plan.destination || '').trim(),
+    departure_region: String(plan.departure_region || '').trim(),
     start_date: String(plan.start_date || '').trim(),
     end_date: String(plan.end_date || '').trim(),
   };
   if (plan.destination_place && typeof plan.destination_place === 'object') {
     travelPlan.destination_place = plan.destination_place;
+  }
+  if (plan.departure_place && typeof plan.departure_place === 'object') {
+    travelPlan.departure_place = plan.departure_place;
   }
   if (typeof plan.itinerary === 'string' && plan.itinerary.trim()) {
     travelPlan.itinerary = plan.itinerary.trim();
@@ -132,9 +142,19 @@ const buildTravelPlanSessionPatch = (plan: PlanChatPayload): Record<string, unkn
   if (typeof plan.trip_id === 'string' && plan.trip_id.trim()) {
     travelPlan.trip_id = plan.trip_id.trim();
   }
-  if (!travelPlan.destination || !travelPlan.start_date || !travelPlan.end_date) return undefined;
+  if (!travelPlan.destination || !travelPlan.departure_region || !travelPlan.start_date || !travelPlan.end_date) return undefined;
   return { profile: { travel_plan: travelPlan } };
 };
+
+const hasDepartureInfo = (plan: { departure_region?: string | null }): boolean => Boolean(String(plan?.departure_region || '').trim());
+
+const getNeedsDepartureLabel = (language: Language): string =>
+  language === 'CN' ? '需补充出发地' : 'Needs departure';
+
+const getMissingDepartureMessage = (language: Language): string =>
+  language === 'CN'
+    ? '请先补充出发地，再开始这次 travel analysis。'
+    : 'Add the departure location first before starting this travel analysis.';
 
 export default function Plans() {
   const { openSidebar, startChat } = useOutletContext<MobileShellContext>();
@@ -151,6 +171,7 @@ export default function Plans() {
   const [pendingDestinationSelection, setPendingDestinationSelection] = useState<PendingDestinationSelection | null>(null);
   const [selectingDestination, setSelectingDestination] = useState(false);
   const language: Language = useMemo(() => (getLangPref() === 'cn' ? 'CN' : 'EN'), []);
+  const summaryHomeRegion = typeof summary?.home_region === 'string' ? summary.home_region.trim() : '';
 
   const refreshPlans = useCallback(
     async (options: { silent?: boolean } = {}) => {
@@ -174,6 +195,12 @@ export default function Plans() {
     void refreshPlans();
   }, [refreshPlans]);
 
+  useEffect(() => {
+    if (!summaryHomeRegion) return;
+    setDraft((prev) => (prev.departure_region.trim() ? prev : { ...prev, departure_region: summaryHomeRegion }));
+    setEditDraft((prev) => (prev.departure_region.trim() ? prev : { ...prev, departure_region: summaryHomeRegion }));
+  }, [summaryHomeRegion]);
+
   const startPlanChat = useCallback(
     (plan: PlanChatPayload) => {
       startChat({
@@ -192,6 +219,8 @@ export default function Plans() {
         trip_id: String((created?.plan as any)?.trip_id || ''),
         destination: String((created?.plan as any)?.destination || createPayload.destination),
         destination_place: ((created?.plan as any)?.destination_place || (createPayload as any).destination_place || null) as DestinationPlace | null,
+        departure_region: String((created?.plan as any)?.departure_region || (createPayload as any).departure_region || ''),
+        departure_place: ((created?.plan as any)?.departure_place || (createPayload as any).departure_place || null) as DestinationPlace | null,
         start_date: String((created?.plan as any)?.start_date || createPayload.start_date),
         end_date: String((created?.plan as any)?.end_date || createPayload.end_date),
         indoor_outdoor_ratio:
@@ -217,6 +246,8 @@ export default function Plans() {
         trip_id: String((updated?.plan as any)?.trip_id || ''),
         destination: String((updated?.plan as any)?.destination || updatePayload.destination || ''),
         destination_place: ((updated?.plan as any)?.destination_place || (updatePayload as any).destination_place || null) as DestinationPlace | null,
+        departure_region: String((updated?.plan as any)?.departure_region || (updatePayload as any).departure_region || ''),
+        departure_place: ((updated?.plan as any)?.departure_place || (updatePayload as any).departure_place || null) as DestinationPlace | null,
         start_date: String((updated?.plan as any)?.start_date || updatePayload.start_date || ''),
         end_date: String((updated?.plan as any)?.end_date || updatePayload.end_date || ''),
         indoor_outdoor_ratio:
@@ -245,6 +276,7 @@ export default function Plans() {
       if (!ambiguity) return false;
       setPendingDestinationSelection({
         ...nextSelection,
+        field: ambiguity.field || nextSelection.field,
         normalizedQuery: ambiguity.normalized_query || nextSelection.normalizedQuery,
         candidates: ambiguity.candidates,
       });
@@ -267,7 +299,9 @@ export default function Plans() {
         if (pendingDestinationSelection.mode === 'create') {
           const payload: CreateTravelPlanInput = {
             ...(pendingDestinationSelection.payload as CreateTravelPlanInput),
-            destination_place: resolvedCandidate,
+            ...(pendingDestinationSelection.field === 'departure'
+              ? { departure_place: resolvedCandidate }
+              : { destination_place: resolvedCandidate }),
           };
           const created = await createTravelPlan(language, payload);
           handleCreateSuccess(created, payload);
@@ -275,7 +309,9 @@ export default function Plans() {
           setWorkingTripId(pendingDestinationSelection.tripId);
           const payload: UpdateTravelPlanInput = {
             ...(pendingDestinationSelection.payload as UpdateTravelPlanInput),
-            destination_place: resolvedCandidate,
+            ...(pendingDestinationSelection.field === 'departure'
+              ? { departure_place: resolvedCandidate }
+              : { destination_place: resolvedCandidate }),
           };
           const updated = await updateTravelPlan(language, pendingDestinationSelection.tripId, payload);
           handleEditSuccess(updated, payload);
@@ -286,7 +322,9 @@ export default function Plans() {
             ...pendingDestinationSelection,
             payload: {
               ...pendingDestinationSelection.payload,
-              destination_place: resolvedCandidate,
+              ...(pendingDestinationSelection.field === 'departure'
+                ? { departure_place: resolvedCandidate }
+                : { destination_place: resolvedCandidate }),
             },
           })
         ) {
@@ -313,6 +351,7 @@ export default function Plans() {
       setSavingCreate(true);
       const createPayload: CreateTravelPlanInput = {
         destination: draft.destination.trim(),
+        departure_region: draft.departure_region.trim(),
         start_date: draft.start_date,
         end_date: draft.end_date,
         ...(normalizeRatio(draft.indoor_outdoor_ratio) != null
@@ -325,11 +364,13 @@ export default function Plans() {
     } catch (err) {
       if (
         maybeHandleDestinationAmbiguity(err, {
+          field: 'destination',
           mode: 'create',
           normalizedQuery: draft.destination.trim(),
           candidates: [],
           payload: {
             destination: draft.destination.trim(),
+            departure_region: draft.departure_region.trim(),
             start_date: draft.start_date,
             end_date: draft.end_date,
             ...(normalizeRatio(draft.indoor_outdoor_ratio) != null
@@ -352,6 +393,7 @@ export default function Plans() {
     setExpandedTripIds((prev) => ({ ...prev, [plan.trip_id]: true }));
     setEditDraft({
       destination: plan.destination || '',
+      departure_region: plan.departure_region || summaryHomeRegion || '',
       start_date: plan.start_date || '',
       end_date: plan.end_date || '',
       indoor_outdoor_ratio:
@@ -374,6 +416,7 @@ export default function Plans() {
       const itineraryText = editDraft.itinerary.trim();
       const updatePayload: UpdateTravelPlanInput = {
         destination: editDraft.destination.trim(),
+        departure_region: editDraft.departure_region.trim(),
         start_date: editDraft.start_date,
         end_date: editDraft.end_date,
         ...(normalizeRatio(editDraft.indoor_outdoor_ratio) != null
@@ -386,12 +429,14 @@ export default function Plans() {
     } catch (err) {
       if (
         maybeHandleDestinationAmbiguity(err, {
+          field: 'destination',
           mode: 'edit',
           tripId,
           normalizedQuery: editDraft.destination.trim(),
           candidates: [],
           payload: {
             destination: editDraft.destination.trim(),
+            departure_region: editDraft.departure_region.trim(),
             start_date: editDraft.start_date,
             end_date: editDraft.end_date,
             ...(normalizeRatio(editDraft.indoor_outdoor_ratio) != null
@@ -423,10 +468,19 @@ export default function Plans() {
   };
 
   const openPlanInChat = (plan: TravelPlanCardModel) => {
+    if (!hasDepartureInfo(plan)) {
+      const nextError = getMissingDepartureMessage(language);
+      setError(nextError);
+      toast({ title: getNeedsDepartureLabel(language) });
+      beginEdit(plan);
+      return;
+    }
     startPlanChat({
       trip_id: String(plan.trip_id || '').trim(),
       destination: String(plan.destination || '').trim(),
       destination_place: plan.destination_place || null,
+      departure_region: String(plan.departure_region || '').trim(),
+      departure_place: plan.departure_place || null,
       start_date: String(plan.start_date || ''),
       end_date: String(plan.end_date || ''),
       indoor_outdoor_ratio:
@@ -446,6 +500,7 @@ export default function Plans() {
       <DestinationDisambiguationDialog
         open={Boolean(pendingDestinationSelection)}
         language={language}
+        field={pendingDestinationSelection?.field || 'destination'}
         normalizedQuery={pendingDestinationSelection?.normalizedQuery || ''}
         candidates={pendingDestinationSelection?.candidates || []}
         submitting={selectingDestination}
@@ -493,6 +548,26 @@ export default function Plans() {
                 value={draft.destination}
                 onChange={(e) => setDraft((prev) => ({ ...prev, destination: e.target.value }))}
                 placeholder={language === 'CN' ? '例如：Tokyo / Paris' : 'e.g. Tokyo / Paris'}
+                className="h-6 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+              />
+            </div>
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '出发地' : 'Departure'}</div>
+            <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={draft.departure_region}
+                onChange={(e) => setDraft((prev) => ({ ...prev, departure_region: e.target.value }))}
+                placeholder={
+                  summaryHomeRegion
+                    ? summaryHomeRegion
+                    : language === 'CN'
+                      ? '例如：San Francisco / 上海'
+                      : 'e.g. San Francisco / Shanghai'
+                }
                 className="h-6 w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
               />
             </div>
@@ -616,12 +691,24 @@ export default function Plans() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-[15px] font-semibold text-foreground">{plan.destination}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">{buildDateRangeLabel(plan)}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{buildDateRangeLabel(plan)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {hasDepartureInfo(plan)
+                    ? `${language === 'CN' ? '出发地' : 'Departure'}: ${plan.departure_region}`
+                    : getNeedsDepartureLabel(language)}
+                </div>
                       <div className="mt-1 text-xs text-muted-foreground">{getTimingLabel(plan, language)}</div>
                     </div>
-                    <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-                      {getStatusLabel(plan.status, language)}
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {getStatusLabel(plan.status, language)}
+                      </span>
+                      {!hasDepartureInfo(plan) ? (
+                        <span className="rounded-full border border-amber-400/60 bg-amber-50/60 px-2 py-0.5 text-[11px] text-amber-700">
+                          {getNeedsDepartureLabel(language)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   {hasDetails ? (
@@ -703,6 +790,13 @@ export default function Plans() {
                         onChange={(e) => setEditDraft((prev) => ({ ...prev, destination: e.target.value }))}
                         className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
                         placeholder={language === 'CN' ? '目的地' : 'Destination'}
+                      />
+                      <input
+                        type="text"
+                        value={editDraft.departure_region}
+                        onChange={(e) => setEditDraft((prev) => ({ ...prev, departure_region: e.target.value }))}
+                        className="h-9 w-full rounded-xl border border-border/60 bg-background px-2.5 text-[13px] text-foreground outline-none"
+                        placeholder={language === 'CN' ? '出发地' : 'Departure'}
                       />
                       <div className="travel-date-grid">
                         <input

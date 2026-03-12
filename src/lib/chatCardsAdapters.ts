@@ -522,6 +522,8 @@ const adaptTravel = (payload: AnyRecord, sections: AnyRecord[]): TravelAdapterDa
   const rootHasEnvSignals =
     asObject(payload.travel_readiness) ||
     asObject(payload.destination_context) ||
+    asObject(payload.origin_context) ||
+    asObject(payload.delta_vs_origin) ||
     asObject(payload.delta_vs_home) ||
     asObject(payload.env_stress);
   if (rootHasEnvSignals) {

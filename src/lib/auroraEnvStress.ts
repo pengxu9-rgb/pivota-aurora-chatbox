@@ -138,6 +138,20 @@ export type TravelReadinessV1 = {
     weather_reason?: string | null;
     epi?: number | null;
   };
+  origin_context?: {
+    label?: string | null;
+    source?: string | null;
+    baseline_status?: string | null;
+  };
+  delta_vs_origin?: {
+    temperature?: TravelMetricDelta;
+    humidity?: TravelMetricDelta;
+    uv?: TravelMetricDelta;
+    wind?: TravelMetricDelta;
+    precip?: TravelMetricDelta;
+    summary_tags?: string[];
+    baseline_status?: string | null;
+  };
   delta_vs_home?: {
     temperature?: TravelMetricDelta;
     humidity?: TravelMetricDelta;

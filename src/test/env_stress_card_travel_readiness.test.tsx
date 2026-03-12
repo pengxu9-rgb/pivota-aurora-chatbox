@@ -26,6 +26,16 @@ describe('EnvStressCard travel readiness', () => {
               weather_reason: 'weather_api_ok',
               epi: 67,
             },
+            origin_context: {
+              label: 'San Francisco',
+              source: 'trip_departure',
+              baseline_status: 'ok',
+            },
+            delta_vs_origin: {
+              temperature: { home: 18, destination: 10, delta: -8, unit: 'C' },
+              humidity: { home: 58, destination: 76, delta: 18, unit: '%' },
+              summary_tags: ['colder', 'more_humid'],
+            },
             delta_vs_home: {
               temperature: { home: 18, destination: 10, delta: -8, unit: 'C' },
               humidity: { home: 58, destination: 76, delta: 18, unit: '%' },
@@ -100,7 +110,8 @@ describe('EnvStressCard travel readiness', () => {
       />,
     );
 
-    expect(screen.getByText('Destination delta')).toBeInTheDocument();
+    expect(screen.getByText('Departure vs destination')).toBeInTheDocument();
+    expect(screen.getByText('Departure 18C -> Destination 10C (delta -8C)')).toBeInTheDocument();
     expect(screen.getByText('Live weather')).toBeInTheDocument();
     expect(screen.getByText('Skincare concerns & preparation')).toBeInTheDocument();
     expect(screen.getByText('Sun protection')).toBeInTheDocument();
@@ -210,6 +221,42 @@ describe('EnvStressCard travel readiness', () => {
     );
 
     expect(screen.getByText(/legacy_note_1/)).toBeInTheDocument();
+    expect(screen.queryByText('Destination delta')).not.toBeInTheDocument();
+  });
+
+  it('switches heading to departure vs destination when delta_vs_origin exists', () => {
+    render(
+      <EnvStressCard
+        payload={{
+          schema_version: 'aurora.ui.env_stress.v1',
+          ess: 54,
+          tier: 'Moderate',
+          radar: [{ axis: 'Hydration', value: 50 }],
+          notes: [],
+          travel_readiness: {
+            destination_context: {
+              destination: 'Singapore',
+              start_date: '2026-03-01',
+              end_date: '2026-03-05',
+              env_source: 'weather_api',
+            },
+            origin_context: {
+              label: 'San Francisco',
+              source: 'trip_departure',
+              baseline_status: 'ok',
+            },
+            delta_vs_origin: {
+              humidity: { home: 52, destination: 74, delta: 22, unit: '%' },
+              summary_tags: ['more_humid'],
+              baseline_status: 'ok',
+            },
+          },
+        }}
+        language="EN"
+      />,
+    );
+
+    expect(screen.getByText('Departure vs destination')).toBeInTheDocument();
     expect(screen.queryByText('Destination delta')).not.toBeInTheDocument();
   });
 

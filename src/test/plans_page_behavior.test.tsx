@@ -47,6 +47,7 @@ function makePlan(overrides: Partial<TravelPlanCardModel> = {}): TravelPlanCardM
   return {
     trip_id: overrides.trip_id ?? 'trip_1',
     destination: overrides.destination ?? 'Tokyo',
+    departure_region: overrides.departure_region ?? 'San Francisco',
     start_date: overrides.start_date ?? '2099-03-01',
     end_date: overrides.end_date ?? '2099-03-05',
     created_at_ms: overrides.created_at_ms ?? 1,
@@ -64,12 +65,25 @@ describe('Plans page behavior', () => {
       plans: [],
       summary: {
         active_trip_id: null,
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 0, completed: 0, archived: 0 },
       },
     });
     vi.mocked(createTravelPlan).mockResolvedValue({
       plan: makePlan({
         trip_id: 'trip_new',
+        departure_region: 'San Francisco, California, United States',
+        departure_place: {
+          label: 'San Francisco, California, United States',
+          canonical_name: 'San Francisco',
+          latitude: 37.7749,
+          longitude: -122.4194,
+          country_code: 'US',
+          country: 'United States',
+          admin1: 'California',
+          timezone: 'America/Los_Angeles',
+          resolution_source: 'auto_resolved',
+        },
         destination_place: {
           label: 'Tokyo, Tokyo, Japan',
           canonical_name: 'Tokyo',
@@ -84,6 +98,7 @@ describe('Plans page behavior', () => {
       }),
       summary: {
         active_trip_id: 'trip_new',
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
@@ -91,6 +106,7 @@ describe('Plans page behavior', () => {
       plan: makePlan({ trip_id: 'trip_1', destination: 'Tokyo Updated' }),
       summary: {
         active_trip_id: 'trip_1',
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
@@ -98,6 +114,7 @@ describe('Plans page behavior', () => {
       plan: makePlan({ trip_id: 'trip_1', status: 'archived', is_archived: true }),
       summary: {
         active_trip_id: null,
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 0, completed: 0, archived: 1 },
       },
     });
@@ -117,6 +134,9 @@ describe('Plans page behavior', () => {
 
     fireEvent.change(screen.getByPlaceholderText('e.g. Tokyo / Paris'), {
       target: { value: 'Tokyo' },
+    });
+    fireEvent.change(await screen.findByDisplayValue('San Francisco'), {
+      target: { value: 'San Francisco' },
     });
     fireEvent.change(startDateInput, { target: { value: '2099-03-01' } });
     fireEvent.change(endDateInput, { target: { value: '2099-03-05' } });
@@ -141,6 +161,7 @@ describe('Plans page behavior', () => {
         session_patch: expect.objectContaining({
           profile: expect.objectContaining({
             travel_plan: expect.objectContaining({
+              departure_region: 'San Francisco, California, United States',
               destination: 'Tokyo',
               destination_place: expect.objectContaining({
                 canonical_name: 'Tokyo',
@@ -166,6 +187,7 @@ describe('Plans page behavior', () => {
       ],
       summary: {
         active_trip_id: 'trip_edit_layout',
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
@@ -205,6 +227,7 @@ describe('Plans page behavior', () => {
       ],
       summary: {
         active_trip_id: 'trip_chat',
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
@@ -222,6 +245,7 @@ describe('Plans page behavior', () => {
           profile: expect.objectContaining({
             travel_plan: expect.objectContaining({
               trip_id: 'trip_chat',
+              departure_region: 'San Francisco',
               destination_place: expect.objectContaining({
                 canonical_name: 'Tokyo',
               }),
@@ -392,3 +416,21 @@ describe('Plans page behavior', () => {
     });
   });
 });
+  it('blocks open in chat for legacy trips missing departure', async () => {
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({
+      plans: [makePlan({ trip_id: 'trip_missing_departure', departure_region: '' })],
+      summary: {
+        active_trip_id: 'trip_missing_departure',
+        home_region: 'San Francisco',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+      },
+    });
+
+    render(<Plans />);
+    const openInChatButton = await screen.findByRole('button', { name: 'Open in chat' });
+    fireEvent.click(openInChatButton);
+
+    expect(outletContext.startChat).not.toHaveBeenCalled();
+    expect((await screen.findAllByDisplayValue('San Francisco')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Needs departure')[0]).toBeInTheDocument();
+  });

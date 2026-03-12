@@ -14,10 +14,14 @@ export type DestinationPlace = {
   resolution_source?: 'auto_resolved' | 'user_selected';
 };
 
+export type TravelPlaceField = 'destination' | 'departure';
+
 export type TravelPlanCardModel = {
   trip_id: string;
   destination: string;
   destination_place?: DestinationPlace | null;
+  departure_region?: string | null;
+  departure_place?: DestinationPlace | null;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio?: number;
@@ -34,6 +38,7 @@ export type TravelPlanCardModel = {
 
 export type TravelPlansSummary = {
   active_trip_id: string | null;
+  home_region?: string | null;
   counts: {
     in_trip: number;
     upcoming: number;
@@ -50,6 +55,8 @@ export type TravelPlansListResponse = {
 export type CreateTravelPlanInput = {
   destination: string;
   destination_place?: DestinationPlace;
+  departure_region: string;
+  departure_place?: DestinationPlace;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio?: number;
@@ -66,7 +73,8 @@ export type TravelPlanMutationResponse = {
 };
 
 export type DestinationAmbiguityResponse = {
-  error: 'DESTINATION_AMBIGUOUS';
+  error: 'DESTINATION_AMBIGUOUS' | 'DEPARTURE_AMBIGUOUS';
+  field: TravelPlaceField;
   normalized_query: string;
   candidates: DestinationPlace[];
 };
@@ -137,12 +145,17 @@ export const getDestinationAmbiguityPayload = (error: unknown): DestinationAmbig
   if (error.status !== 409) return null;
   const body = error.responseBody;
   if (!body || typeof body !== 'object') return null;
-  if ((body as { error?: string }).error !== 'DESTINATION_AMBIGUOUS') return null;
+  const errorCode = String((body as { error?: string }).error || '').trim().toUpperCase();
+  if (errorCode !== 'DESTINATION_AMBIGUOUS' && errorCode !== 'DEPARTURE_AMBIGUOUS') return null;
   const candidates = Array.isArray((body as { candidates?: unknown[] }).candidates)
     ? ((body as { candidates: unknown[] }).candidates as DestinationPlace[])
     : [];
   return {
-    error: 'DESTINATION_AMBIGUOUS',
+    error: errorCode as DestinationAmbiguityResponse['error'],
+    field:
+      String((body as { field?: string }).field || '').trim().toLowerCase() === 'departure'
+        ? 'departure'
+        : 'destination',
     normalized_query:
       typeof (body as { normalized_query?: string }).normalized_query === 'string'
         ? (body as { normalized_query: string }).normalized_query

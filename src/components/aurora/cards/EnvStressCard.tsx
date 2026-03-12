@@ -19,15 +19,20 @@ type MetricDelta = {
   unit?: string | null;
 };
 
-function formatDeltaLine(language: Language, metric: MetricDelta | undefined) {
+function getTravelDelta(travelReadiness: Record<string, any> | null | undefined) {
+  if (travelReadiness?.delta_vs_origin) return travelReadiness.delta_vs_origin;
+  return travelReadiness?.delta_vs_home;
+}
+
+function formatDeltaLine(language: Language, metric: MetricDelta | undefined, baselineLabel: string) {
   if (!metric) return null;
   const home = typeof metric.home === 'number' ? metric.home : null;
   const destination = typeof metric.destination === 'number' ? metric.destination : null;
   const delta = typeof metric.delta === 'number' ? metric.delta : null;
   const unit = typeof metric.unit === 'string' && metric.unit.trim() ? metric.unit.trim() : '';
   if (home == null && destination == null && delta == null) return null;
-  if (language === 'CN') return `常驻地 ${home ?? '-'}${unit} -> 目的地 ${destination ?? '-'}${unit} (Δ ${delta ?? '-'}${unit})`;
-  return `Home ${home ?? '-'}${unit} -> Destination ${destination ?? '-'}${unit} (delta ${delta ?? '-'}${unit})`;
+  if (language === 'CN') return `${baselineLabel} ${home ?? '-'}${unit} -> 目的地 ${destination ?? '-'}${unit} (Δ ${delta ?? '-'}${unit})`;
+  return `${baselineLabel} ${home ?? '-'}${unit} -> Destination ${destination ?? '-'}${unit} (delta ${delta ?? '-'}${unit})`;
 }
 
 function formatCompactSignal({
@@ -132,6 +137,8 @@ function ClimateAnalysisSection({
   usesLiveWeather,
   usesClimateFallback,
   weatherSourceLabel,
+  deltaHeading,
+  summaryTags,
   metricRows,
   compactSignals,
 }: {
@@ -140,6 +147,8 @@ function ClimateAnalysisSection({
   usesLiveWeather: boolean;
   usesClimateFallback: boolean;
   weatherSourceLabel: string | null;
+  deltaHeading: string;
+  summaryTags: string[];
   metricRows: { key: string; label: string; value: string | null }[];
   compactSignals: string[];
 }) {
@@ -152,7 +161,7 @@ function ClimateAnalysisSection({
         <div className="font-semibold text-foreground/90">
           {usesClimateFallback
             ? language === 'CN' ? '目的地气候概览' : 'Destination climate'
-            : language === 'CN' ? '目的地差异' : 'Destination delta'}
+            : deltaHeading}
         </div>
         <div className="mt-1">
           {language === 'CN' ? '目的地：' : 'Destination: '}
@@ -194,9 +203,9 @@ function ClimateAnalysisSection({
           </div>
         ) : null}
 
-        {travelReadiness.delta_vs_home?.summary_tags?.length ? (
+        {summaryTags.length ? (
           <div className="mt-2 flex flex-wrap gap-1">
-            {travelReadiness.delta_vs_home.summary_tags.slice(0, 6).map((tag: string) => (
+            {summaryTags.slice(0, 6).map((tag: string) => (
               <span key={tag} className="rounded-full border border-border/70 px-2 py-0.5 text-[10px]">
                 {tag}
               </span>
@@ -782,6 +791,17 @@ export function EnvStressCard({
   const envSource = String(travelReadiness?.destination_context?.env_source || '').trim().toLowerCase();
   const usesLiveWeather = envSource === 'weather_api';
   const usesClimateFallback = Boolean(travelReadiness) && envSource !== '' && envSource !== 'weather_api';
+  const deltaMetrics = getTravelDelta(travelReadiness as Record<string, any>);
+  const hasOriginDelta = Boolean((travelReadiness as Record<string, any>)?.delta_vs_origin || (travelReadiness as Record<string, any>)?.origin_context);
+  const baselineLabel = language === 'CN' ? (hasOriginDelta ? '出发地' : '常驻地') : hasOriginDelta ? 'Departure' : 'Home';
+  const deltaHeading = usesClimateFallback
+    ? language === 'CN' ? '目的地气候概览' : 'Destination climate'
+    : language === 'CN'
+      ? hasOriginDelta ? '出发地与目的地差异' : '目的地差异'
+      : hasOriginDelta
+        ? 'Departure vs destination'
+        : 'Destination delta';
+  const summaryTags = Array.isArray(deltaMetrics?.summary_tags) ? deltaMetrics.summary_tags : [];
   const weatherSourceLabel = usesLiveWeather
     ? language === 'CN' ? '实时天气' : 'Live weather'
     : usesClimateFallback
@@ -791,23 +811,23 @@ export function EnvStressCard({
   const metricRows = useMemo(
     () =>
       [
-        { key: 'temperature', label: language === 'CN' ? '温度' : 'Temperature', value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.temperature) },
-        { key: 'humidity', label: language === 'CN' ? '湿度' : 'Humidity', value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.humidity) },
-        { key: 'uv', label: language === 'CN' ? '紫外线' : 'UV', value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.uv) },
-        { key: 'wind', label: language === 'CN' ? '风' : 'Wind', value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.wind) },
-        { key: 'precip', label: language === 'CN' ? '降水' : 'Precipitation', value: formatDeltaLine(language, travelReadiness?.delta_vs_home?.precip) },
+        { key: 'temperature', label: language === 'CN' ? '温度' : 'Temperature', value: formatDeltaLine(language, deltaMetrics?.temperature, baselineLabel) },
+        { key: 'humidity', label: language === 'CN' ? '湿度' : 'Humidity', value: formatDeltaLine(language, deltaMetrics?.humidity, baselineLabel) },
+        { key: 'uv', label: language === 'CN' ? '紫外线' : 'UV', value: formatDeltaLine(language, deltaMetrics?.uv, baselineLabel) },
+        { key: 'wind', label: language === 'CN' ? '风' : 'Wind', value: formatDeltaLine(language, deltaMetrics?.wind, baselineLabel) },
+        { key: 'precip', label: language === 'CN' ? '降水' : 'Precipitation', value: formatDeltaLine(language, deltaMetrics?.precip, baselineLabel) },
       ].filter((row) => Boolean(row.value)),
-    [language, travelReadiness],
+    [baselineLabel, deltaMetrics, language],
   );
 
   const compactSignals = useMemo(
     () =>
       [
-        formatCompactSignal({ language, metric: travelReadiness?.delta_vs_home?.temperature, labelCn: '温差', labelEn: 'Temp' }),
-        formatCompactSignal({ language, metric: travelReadiness?.delta_vs_home?.humidity, labelCn: '湿度', labelEn: 'Humidity' }),
-        formatCompactSignal({ language, metric: travelReadiness?.delta_vs_home?.uv, labelCn: 'UV', labelEn: 'UV' }),
+        formatCompactSignal({ language, metric: deltaMetrics?.temperature, labelCn: '温差', labelEn: 'Temp' }),
+        formatCompactSignal({ language, metric: deltaMetrics?.humidity, labelCn: '湿度', labelEn: 'Humidity' }),
+        formatCompactSignal({ language, metric: deltaMetrics?.uv, labelCn: 'UV', labelEn: 'UV' }),
       ].filter(Boolean) as string[],
-    [language, travelReadiness],
+    [deltaMetrics, language],
   );
 
   return (
@@ -907,6 +927,8 @@ export function EnvStressCard({
                 usesLiveWeather={usesLiveWeather}
                 usesClimateFallback={usesClimateFallback}
                 weatherSourceLabel={weatherSourceLabel}
+                deltaHeading={deltaHeading}
+                summaryTags={summaryTags}
                 metricRows={metricRows}
                 compactSignals={compactSignals}
               />

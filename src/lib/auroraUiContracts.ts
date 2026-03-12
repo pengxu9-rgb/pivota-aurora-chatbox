@@ -251,6 +251,28 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
     };
   }
 
+  const originContext = isPlainObject(value.origin_context) ? value.origin_context : null;
+  if (originContext) {
+    out.origin_context = {
+      label: normalizeOptionalText(originContext.label, 140),
+      source: normalizeOptionalText(originContext.source, 40),
+      baseline_status: normalizeOptionalText(originContext.baseline_status, 48),
+    };
+  }
+
+  const originDeltaObj = isPlainObject(value.delta_vs_origin) ? value.delta_vs_origin : null;
+  if (originDeltaObj) {
+    out.delta_vs_origin = {
+      temperature: normalizeTravelMetricDelta(originDeltaObj.temperature) || undefined,
+      humidity: normalizeTravelMetricDelta(originDeltaObj.humidity) || undefined,
+      uv: normalizeTravelMetricDelta(originDeltaObj.uv) || undefined,
+      wind: normalizeTravelMetricDelta(originDeltaObj.wind) || undefined,
+      precip: normalizeTravelMetricDelta(originDeltaObj.precip) || undefined,
+      summary_tags: normalizeStringArray(originDeltaObj.summary_tags, 8, 40),
+      baseline_status: normalizeOptionalText(originDeltaObj.baseline_status, 48),
+    };
+  }
+
   const deltaObj = isPlainObject(value.delta_vs_home) ? value.delta_vs_home : null;
   if (deltaObj) {
     out.delta_vs_home = {
