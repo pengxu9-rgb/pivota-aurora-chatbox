@@ -21,6 +21,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
 import { bffJson } from '@/lib/pivotaAgentBff';
+import { __resetPersistenceMemoryForTests, setLangPref } from '@/lib/persistence';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
@@ -88,6 +89,7 @@ describe('BffChat diagnosis submit flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    __resetPersistenceMemoryForTests();
     if (!HTMLElement.prototype.scrollIntoView) {
       Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
         value: vi.fn(),
@@ -116,7 +118,7 @@ describe('BffChat diagnosis submit flow', () => {
 
   it('renders the diagnosis gate follow-up choices in Chinese when lang_pref=cn', async () => {
     const mock = vi.mocked(bffJson);
-    window.localStorage.setItem('lang_pref', 'cn');
+    setLangPref('cn');
 
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());

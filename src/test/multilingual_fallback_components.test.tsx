@@ -13,7 +13,7 @@ import { ReturnWelcomeCard } from '@/components/chat/cards/ReturnWelcomeCard';
 import { DestinationDisambiguationDialog } from '@/components/travel/DestinationDisambiguationDialog';
 
 describe('multilingual component fallbacks', () => {
-  it('falls back to English in the destination disambiguation dialog for FR', () => {
+  it('renders localized French copy in the destination disambiguation dialog for FR', () => {
     render(
       <DestinationDisambiguationDialog
         open={true}
@@ -34,8 +34,8 @@ describe('multilingual component fallbacks', () => {
       />,
     );
 
-    expect(screen.getByText('Confirm departure')).toBeInTheDocument();
-    expect(screen.getByText(/This departure location/)).toBeInTheDocument();
+    expect(screen.getByText('Confirmer le départ')).toBeInTheDocument();
+    expect(screen.getByText(/Ce lieu de départ/)).toBeInTheDocument();
     expect(screen.queryByText('确认出发地')).not.toBeInTheDocument();
   });
 
