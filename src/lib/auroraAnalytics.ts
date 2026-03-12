@@ -327,7 +327,13 @@ export const emitIngredientProductOpenResult = (
     product_id?: string | null;
     source_card_type?: string | null;
     url?: string | null;
-    result: 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
+    result:
+      | 'success_shop_drawer'
+      | 'success_new_tab'
+      | 'success_same_tab_fallback'
+      | 'blocked_popup'
+      | 'blocked_invalid_url'
+      | 'failed_unknown';
     blocked_reason?: string | null;
   } & Record<string, unknown>,
 ) => emitWithContext('ingredient_product_open_result', ctx, props);

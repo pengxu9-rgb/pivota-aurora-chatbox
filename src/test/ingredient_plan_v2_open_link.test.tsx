@@ -93,12 +93,15 @@ describe('ingredient_plan_v2 open link behavior', () => {
     expect(screen.getByText('Link unavailable')).toBeInTheDocument();
   });
 
-  it('derives internal PDP URL from pdp_open.product_ref when direct URL is absent', () => {
+  it('opens internal PDPs in the shop drawer when an in-app opener is provided', () => {
+    const onOpenPdp = vi.fn();
+
     render(
       <IngredientPlanCard
         language="EN"
         analyticsCtx={analyticsCtx}
         cardId="plan_card_3"
+        onOpenPdp={onOpenPdp}
         payload={{
           targets: [
             {
@@ -123,7 +126,11 @@ describe('ingredient_plan_v2 open link behavior', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /view product: ref-only spf/i }));
-    expect(window.open).toHaveBeenCalled();
+    expect(onOpenPdp).toHaveBeenCalledWith({
+      url: 'https://agent.pivota.cc/products/prod_ref_3?merchant_id=merch_ref_3&entry=aurora_chatbox',
+      title: 'Ref-only SPF',
+    });
+    expect(window.open).not.toHaveBeenCalled();
     expect(analytics.emit).toHaveBeenCalledWith(
       'ingredient_product_open_attempt',
       'brief_test',
@@ -133,5 +140,53 @@ describe('ingredient_plan_v2 open link behavior', () => {
         url: 'https://agent.pivota.cc/products/prod_ref_3?merchant_id=merch_ref_3&entry=aurora_chatbox',
       }),
     );
+    expect(analytics.emit).toHaveBeenCalledWith(
+      'ingredient_product_open_result',
+      'brief_test',
+      'trace_test',
+      expect.objectContaining({
+        result: 'success_shop_drawer',
+      }),
+    );
+  });
+
+  it('opens direct internal shop PDP URLs in the shop drawer when available', () => {
+    const onOpenPdp = vi.fn();
+
+    render(
+      <IngredientPlanCard
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="plan_card_4"
+        onOpenPdp={onOpenPdp}
+        payload={{
+          targets: [
+            {
+              ingredient: 'Ceramides',
+              products: {
+                competitors: [
+                  {
+                    product_id: 'ext_prod_4',
+                    merchant_id: 'external_seed',
+                    title: 'Barrier Cream',
+                    brand: 'Brand B',
+                    pdp_url: 'https://agent.pivota.cc/products/ext_prod_4?merchant_id=external_seed&entry=aurora_chatbox',
+                  },
+                ],
+                dupes: [],
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /view product: barrier cream/i }));
+
+    expect(onOpenPdp).toHaveBeenCalledWith({
+      url: 'https://agent.pivota.cc/products/ext_prod_4?merchant_id=external_seed&entry=aurora_chatbox',
+      title: 'Brand B Barrier Cream',
+    });
+    expect(window.open).not.toHaveBeenCalled();
   });
 });

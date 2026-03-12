@@ -22,7 +22,12 @@ import {
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
 import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
-import { buildPdpUrl, extractPdpTargetFromProductGroupId, extractStablePdpTargetFromProductsResolveResponse } from '@/lib/pivotaShop';
+import {
+  buildPdpUrl,
+  extractPdpTargetFromProductGroupId,
+  extractStablePdpTargetFromProductsResolveResponse,
+  getPivotaShopBaseUrl,
+} from '@/lib/pivotaShop';
 import type { Language } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { applyRecommendationDisplayOptions, mapModuleToRecommendationVm, getSeverityLabel, humanizeRegionId } from '@/lib/recommendationViewModel';
@@ -73,6 +78,25 @@ const MODULE_LABELS: Record<string, { en: string; zh: string }> = {
   chin: { en: 'Chin', zh: '下巴' },
   under_eye_left: { en: 'Left under-eye', zh: '左眼下' },
   under_eye_right: { en: 'Right under-eye', zh: '右眼下' },
+};
+
+const parseInternalShopPdpUrl = (rawUrl: string): { url: string; product_id: string; merchant_id: string | null } | null => {
+  const normalizedUrl = normalizeOutboundFallbackUrl(String(rawUrl || '').trim());
+  if (!normalizedUrl) return null;
+  try {
+    const parsed = new URL(normalizedUrl);
+    const shopBase = new URL(getPivotaShopBaseUrl());
+    if (parsed.origin !== shopBase.origin) return null;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length !== 2 || segments[0] !== 'products' || !segments[1]) return null;
+    return {
+      url: parsed.toString(),
+      product_id: segments[1],
+      merchant_id: String(parsed.searchParams.get('merchant_id') || '').trim() || null,
+    };
+  } catch {
+    return null;
+  }
 };
 
 const ISSUE_LABELS: Record<IssueType, { en: string; zh: string }> = {
@@ -877,6 +901,21 @@ export function PhotoModulesCard({
 
       const directUrl = String(product.product_url || '').trim();
       if (directUrl) {
+        const internalTarget = parseInternalShopPdpUrl(directUrl);
+        if (internalTarget) {
+          if (analyticsCtx) {
+            emitUiPdpOpened(analyticsCtx, {
+              product_id: internalTarget.product_id,
+              merchant_id: internalTarget.merchant_id,
+              card_position: productIndex,
+              sku_type: 'direct_internal_url',
+              card_id: cardId ?? null,
+            });
+          }
+          if (onOpenPdp) onOpenPdp({ url: internalTarget.url, ...(title ? { title } : {}) });
+          else window.location.assign(internalTarget.url);
+          return;
+        }
         if (openExternal(directUrl, query || title || action.ingredient_name)) return;
       }
 

@@ -350,6 +350,54 @@ describe('photo_modules_v1 acceptance', () => {
     expect(String(onOpenPdp.mock.calls[0][0]?.url || '')).toContain('/products/prod_niacinamide_1');
   });
 
+  it('opens direct internal shop PDP URLs in the drawer instead of a new tab', async () => {
+    const payload = buildValidPayload();
+    payload.modules[0].actions[0].products = [
+      {
+        product_id: 'ext_direct_1',
+        merchant_id: 'external_seed',
+        product_group_id: '',
+        canonical_product_ref: null,
+        title: 'Barrier Support Lotion',
+        brand: 'Brand Direct',
+        image_url: '',
+        benefit_tags: [],
+        price: 22,
+        currency: 'USD',
+        price_label: '',
+        social_proof: null,
+        evidence: null,
+        why_match: 'Direct internal PDP URL only.',
+        how_to_use: 'Use after cleansing.',
+        cautions: [],
+        product_url: 'https://agent.pivota.cc/products/ext_direct_1?merchant_id=external_seed&entry=aurora_chatbox',
+        retrieval_source: 'external_seed',
+        retrieval_reason: 'external_seed_supplement',
+        suitability_score: 0.81,
+      },
+    ];
+    const normalized = normalizePhotoModulesUiModelV1(payload);
+    expect(normalized.model).not.toBeNull();
+
+    const onOpenPdp = vi.fn();
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    render(<PhotoModulesCard model={normalized.model!} language="EN" onOpenPdp={onOpenPdp} />);
+
+    fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
+    fireEvent.click(
+      within(screen.getByTestId('reco-product-card-ext_direct_1')).getByRole('button', { name: /view product/i }),
+    );
+
+    await Promise.resolve();
+    expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    expect(onOpenPdp).toHaveBeenCalledWith({
+      url: 'https://agent.pivota.cc/products/ext_direct_1?merchant_id=external_seed&entry=aurora_chatbox',
+      title: 'Brand Direct Barrier Support Lotion',
+    });
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
   it('returns model=null on schema-fail payload and allows safe downgrade path', () => {
     const normalized = normalizePhotoModulesUiModelV1({
       used_photos: true,

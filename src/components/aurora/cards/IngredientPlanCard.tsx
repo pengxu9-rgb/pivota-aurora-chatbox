@@ -19,7 +19,7 @@ import {
   type ModuleRecommendationVm,
   type PriorityLabel,
 } from '@/lib/recommendationViewModel';
-import { buildPdpUrl, extractPdpTargetFromProductGroupId } from '@/lib/pivotaShop';
+import { buildPdpUrl, extractPdpTargetFromProductGroupId, getPivotaShopBaseUrl } from '@/lib/pivotaShop';
 import type { Language } from '@/lib/types';
 
 type ProductLike = {
@@ -80,7 +80,13 @@ type IngredientTargetLike = {
 
 type PlanVariant = 'v1' | 'v2';
 type ProductBucket = 'competitors' | 'dupes' | 'external_search_ctas';
-type OpenResult = 'success_new_tab' | 'success_same_tab_fallback' | 'blocked_popup' | 'blocked_invalid_url' | 'failed_unknown';
+type OpenResult =
+  | 'success_shop_drawer'
+  | 'success_new_tab'
+  | 'success_same_tab_fallback'
+  | 'blocked_popup'
+  | 'blocked_invalid_url'
+  | 'failed_unknown';
 type SyntheticPlanProduct = PhotoModulesProduct & { category?: string; __planBucket?: ProductBucket };
 
 const PLAN_MODULE_ID = 'ingredient_plan_v2';
@@ -301,6 +307,38 @@ function openWithAnchorFallback(url: string): { result: OpenResult; blockedReaso
   } catch {
     return { result: 'failed_unknown', blockedReason: 'open_exception' };
   }
+}
+
+function isInternalShopPdpUrl(url: string): boolean {
+  const normalizedUrl = safeUrl(url);
+  if (!normalizedUrl) return false;
+  try {
+    const parsed = new URL(normalizedUrl);
+    const shopBase = new URL(getPivotaShopBaseUrl());
+    if (parsed.origin !== shopBase.origin) return false;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    return segments.length === 2 && segments[0] === 'products' && Boolean(segments[1]);
+  } catch {
+    return false;
+  }
+}
+
+function resolveInternalDrawerUrl(product: PhotoModulesProduct): string {
+  const groupTarget = extractPdpTargetFromProductGroupId(product.product_group_id || null);
+  if (groupTarget?.product_id) return safeUrl(buildPdpUrl(groupTarget));
+
+  const canonicalRef = product.canonical_product_ref;
+  if (canonicalRef?.product_id) {
+    return safeUrl(
+      buildPdpUrl({
+        product_id: canonicalRef.product_id,
+        merchant_id: canonicalRef.merchant_id || product.merchant_id || null,
+      }),
+    );
+  }
+
+  const directUrl = safeUrl(product.product_url);
+  return isInternalShopPdpUrl(directUrl) ? directUrl : '';
 }
 
 const normalizeIntensityLevel = (token: string): 'gentle' | 'balanced' | 'active' => {
@@ -574,12 +612,14 @@ export function IngredientPlanCard({
   variant,
   analyticsCtx,
   cardId,
+  onOpenPdp,
 }: {
   payload: Record<string, unknown>;
   language: Language;
   variant?: PlanVariant;
   analyticsCtx?: AnalyticsContext;
   cardId?: string;
+  onOpenPdp?: (args: { url: string; title?: string }) => void;
 }) {
   const previewOnly = payload.preview_only === true;
   const resolvedVariant = variant || 'v2';
@@ -631,8 +671,10 @@ export function IngredientPlanCard({
     productIndex: number;
   }) => {
     const url = asString(product.product_url);
+    const drawerUrl = resolveInternalDrawerUrl(product);
     const productId = asString(product.product_id) || null;
     const source = ((product as SyntheticPlanProduct).__planBucket || 'competitors') as ProductBucket;
+    const title = [asString(product.brand), asString(product.title)].filter(Boolean).join(' ').trim() || asString(product.title);
 
     if (analyticsCtx) {
       emitIngredientProductOpenAttempt(analyticsCtx, {
@@ -644,7 +686,13 @@ export function IngredientPlanCard({
       });
     }
 
-    const openResult = openWithAnchorFallback(url);
+    const openResult =
+      drawerUrl && onOpenPdp
+        ? (() => {
+            onOpenPdp({ url: drawerUrl, ...(title ? { title } : {}) });
+            return { result: 'success_shop_drawer' as const };
+          })()
+        : openWithAnchorFallback(url);
 
     if (analyticsCtx) {
       emitIngredientProductOpenResult(analyticsCtx, {
