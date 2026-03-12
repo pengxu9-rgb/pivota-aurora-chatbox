@@ -1985,6 +1985,141 @@ const profileRecoCompleteness = (profile: Record<string, unknown> | null | undef
   return { score, missing };
 };
 
+const RECO_GOAL_CLARIFY_OPTIONS = Object.freeze([
+  { key: 'breakouts', labelEN: 'Breakouts', labelCN: '控痘/闭口', goal: 'acne', replyEN: 'Recommend products for breakouts / clogged pores.', replyCN: '给我控痘/闭口方向的产品推荐。' },
+  { key: 'brightening', labelEN: 'Brightening', labelCN: '提亮/淡斑', goal: 'dark_spots', replyEN: 'Recommend products for brightening / dark spots.', replyCN: '给我提亮/淡斑方向的产品推荐。' },
+  { key: 'antiaging', labelEN: 'Anti-aging', labelCN: '抗老', goal: 'wrinkles', replyEN: 'Recommend products for anti-aging / fine lines.', replyCN: '给我抗老方向的产品推荐。' },
+  { key: 'barrier', labelEN: 'Barrier repair', labelCN: '修护屏障', goal: 'barrier_repair', replyEN: 'Recommend products for barrier repair.', replyCN: '给我修护屏障方向的产品推荐。' },
+  { key: 'spf', labelEN: 'SPF / sun', labelCN: '防晒', goal: 'sunscreen', replyEN: 'Recommend sunscreen / daily SPF products.', replyCN: '给我日常防晒方向的产品推荐。' },
+]);
+
+const normalizeRecoGoalToken = (raw: unknown): string => {
+  const token = String(raw || '').trim().toLowerCase();
+  if (!token) return '';
+  if (token === 'breakout' || token === 'breakouts' || token === 'blemish' || token === 'blemishes') return 'acne';
+  if (token === 'brightening' || token === 'tone') return 'dark_spots';
+  if (token === 'antiaging' || token === 'anti-aging' || token === 'anti_aging' || token === 'fine_lines') return 'wrinkles';
+  if (token === 'barrier' || token === 'barrier repair' || token === 'barrier_repair') return 'barrier_repair';
+  if (token === 'spf' || token === 'sun' || token === 'sunscreen' || token === 'uv_protection') return 'sunscreen';
+  return token;
+};
+
+const extractResolvedRecoGoals = (value: unknown): string[] => {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of normalizeProfileGoals(value)) {
+    const normalized = normalizeRecoGoalToken(raw);
+    if (!normalized || normalized === 'unknown' || normalized === 'other') continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+};
+
+const getPrimaryResolvedRecoGoal = (profile: Record<string, unknown> | null | undefined): string => {
+  return extractResolvedRecoGoals((profile as any)?.goals)[0] || '';
+};
+
+const humanizeRecoGoal = (goal: string, language: UiLanguage): string => {
+  const normalized = normalizeRecoGoalToken(goal);
+  const hit = RECO_GOAL_CLARIFY_OPTIONS.find((item) => item.goal === normalized);
+  if (hit) return language === 'CN' ? hit.labelCN : hit.labelEN;
+  if (normalized === 'pores') return language === 'CN' ? '毛孔' : 'Pores';
+  return normalized.replace(/[_-]+/g, ' ').trim() || (language === 'CN' ? '产品推荐' : 'product recommendations');
+};
+
+const buildGoalSpecificRecoReplyText = (language: UiLanguage, goal: string): string => {
+  const normalized = normalizeRecoGoalToken(goal);
+  const hit = RECO_GOAL_CLARIFY_OPTIONS.find((item) => item.goal === normalized);
+  if (hit) return language === 'CN' ? hit.replyCN : hit.replyEN;
+  const label = humanizeRecoGoal(normalized, language);
+  return language === 'CN' ? `给我${label}方向的产品推荐。` : `Recommend products for ${label}.`;
+};
+
+const buildGoalfulRecoActionData = ({
+  language,
+  baseData,
+  goal,
+  triggerSource,
+}: {
+  language: UiLanguage;
+  baseData: Record<string, unknown>;
+  goal: string;
+  triggerSource: string;
+}): Record<string, unknown> => {
+  const existingProfilePatch = asObject((baseData as any).profile_patch) || asObject((baseData as any).profilePatch) || {};
+  return {
+    ...baseData,
+    reply_text: buildGoalSpecificRecoReplyText(language, goal),
+    profile_patch: {
+      ...existingProfilePatch,
+      goals: [normalizeRecoGoalToken(goal)],
+    },
+    trigger_source: asString((baseData as any).trigger_source) || triggerSource,
+    include_alternatives: (baseData as any).include_alternatives === undefined ? true : (baseData as any).include_alternatives,
+  };
+};
+
+const hasResolvedRecoGoalInChipData = (data: Record<string, unknown>): boolean => {
+  const profilePatch = asObject((data as any).profile_patch) || asObject((data as any).profilePatch);
+  if (extractResolvedRecoGoals(profilePatch?.goals).length > 0) return true;
+  if (extractResolvedRecoGoals((data as any).goals).length > 0) return true;
+  if (extractResolvedRecoGoals((data as any).goal).length > 0) return true;
+  if (asString((data as any).ingredient_goal) || asString((data as any).ingredientGoal)) return true;
+  if (asString((data as any).ingredient_query) || asString((data as any).ingredientQuery) || asString((data as any).ingredient_name)) return true;
+  if (Array.isArray((data as any).ingredient_candidates) && (data as any).ingredient_candidates.length > 0) return true;
+  if (Array.isArray((data as any).ingredientCandidates) && (data as any).ingredientCandidates.length > 0) return true;
+  if (Array.isArray((data as any).product_candidates) && (data as any).product_candidates.length > 0) return true;
+  if (Array.isArray((data as any).productCandidates) && (data as any).productCandidates.length > 0) return true;
+  if (asString((data as any).category) || asString((data as any).product_type) || asString((data as any).productType)) return true;
+  if (String((data as any).trigger_source || '').trim().toLowerCase() === 'travel_handoff') return true;
+  return false;
+};
+
+const buildRecoGoalClarificationText = (language: UiLanguage): string => {
+  return language === 'CN'
+    ? '你这次想优先解决什么，或者想先看哪类产品？我先按这个方向给你收紧推荐。'
+    : 'What do you want to prioritize first, or which product type do you want first? I will narrow recommendations from there.';
+};
+
+const buildRecoGoalOtherPrompt = (language: UiLanguage): string => {
+  return language === 'CN'
+    ? '告诉我你这次最想解决的目标或想看的品类，比如提亮精华、防晒，或修护面霜。'
+    : 'Tell me your top goal or product type, for example brightening serum, sunscreen, or barrier moisturizer.';
+};
+
+const buildRecoGoalClarificationChips = (language: UiLanguage): SuggestedChip[] => {
+  const isCN = language === 'CN';
+  const goalChips = RECO_GOAL_CLARIFY_OPTIONS.map((item) => ({
+    chip_id: `chip.reco_goal.${item.key}`,
+    label: isCN ? item.labelCN : item.labelEN,
+    kind: 'quick_reply' as const,
+    data: {
+      action_id: 'chip.start.reco_products',
+      reply_text: isCN ? item.replyCN : item.replyEN,
+      profile_patch: { goals: [item.goal] },
+      trigger_source: 'reco_goal_clarify',
+      include_alternatives: true,
+    },
+  }));
+
+  goalChips.push({
+    chip_id: 'chip.reco_goal.other',
+    label: isCN ? '其他' : 'Other',
+    kind: 'quick_reply',
+    data: {
+      action_id: 'chip.start.reco_products',
+      reply_text: buildRecoGoalOtherPrompt(language),
+      trigger_source: 'reco_goal_clarify',
+      reco_goal: 'other',
+      v2_freeform_fallback: true,
+    },
+  });
+
+  return goalChips;
+};
+
 const getIngredientFitProfileStatus = (profile: Record<string, unknown> | null | undefined) => {
   const p = profile ?? {};
   const goals = (p as any).goals;
@@ -7757,6 +7892,7 @@ export default function BffChat() {
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
+  const [pendingRecoGoalOther, setPendingRecoGoalOther] = useState(false);
   const threadStateRef = useRef<Record<string, unknown>>({});
 
   const clearDiagnosisThreadState = useCallback(() => {
@@ -10807,53 +10943,30 @@ export default function BffChat() {
     async (raw: string) => {
       const msg = String(raw || '').trim();
       if (!msg) return;
-    const directUrl = parseMaybeUrl(msg);
-    if (directUrl) {
-      setInput('');
-      await runProductDeepScan(directUrl);
-      return;
-    }
-    const isTextExplicitQuickProfile = (() => {
-      const t = msg.trim().toLowerCase();
-      if (!t) return false;
-      if (t.includes('quick profile') || t.includes('30-sec quick profile') || t.includes('30 sec quick profile')) return true;
-      if (t.includes('快速画像')) return true;
-      if (t.includes('30秒') && t.includes('画像')) return true;
-      if (t.includes('30秒快速画像') || t.includes('30 秒快速画像')) return true;
-      return false;
-    })();
+      const directUrl = parseMaybeUrl(msg);
+      if (directUrl) {
+        setInput('');
+        await runProductDeepScan(directUrl);
+        return;
+      }
 
-    if (isTextExplicitQuickProfile) {
-      const fromState = agentState;
-      const toState: AgentState = 'QUICK_PROFILE';
-      const ctx: AnalyticsContext = {
-        brief_id: headers.brief_id,
-        trace_id: headers.trace_id,
-        aurora_uid: headers.aurora_uid,
-        lang: toLangPref(language),
-        state: fromState,
-      };
-      emitAgentStateEntered({ ...ctx, state: toState }, { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: msg.slice(0, 120) });
-      setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
-      setQuickProfileStep('skin_feel');
-      setQuickProfileDraft({});
-      setAgentStateSafe(toState);
-      setInput('');
-      return;
-    }
-
-    const inferred = inferTextExplicitTransition(msg, language);
-    if (inferred) {
-      const fromState = agentState;
-      const validation = validateRequestedTransition({
-        from_state: fromState,
-        trigger_source: 'text_explicit',
-        trigger_id: inferred.trigger_id,
-        requested_next_state: inferred.requested_next_state,
-      });
-
-      if (validation.ok && validation.next_state !== fromState) {
-        const toState = validation.next_state;
+      if (pendingRecoGoalOther) {
+        const fromState = agentState;
+        const validation = validateRequestedTransition({
+          from_state: fromState,
+          trigger_source: 'text_explicit',
+          trigger_id: 'reco_goal_other',
+          requested_next_state: 'RECO_GATE',
+        });
+        const resolvedNextState: AgentState = validation.ok ? validation.next_state : fromState;
+        const requestedTransition =
+          validation.ok
+            ? {
+                trigger_source: 'text_explicit' as const,
+                trigger_id: 'reco_goal_other',
+                requested_next_state: resolvedNextState,
+              }
+            : null;
         const ctx: AnalyticsContext = {
           brief_id: headers.brief_id,
           trace_id: headers.trace_id,
@@ -10861,38 +10974,108 @@ export default function BffChat() {
           lang: toLangPref(language),
           state: fromState,
         };
-        emitAgentStateEntered(
-          { ...ctx, state: toState },
-          { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: inferred.trigger_id },
-        );
-        if (toState === 'RECO_GATE') {
-          emitUiRecosRequested({ ...ctx, state: toState }, { entry_point: 'text_explicit', prior_value_moment: null });
+
+        if (resolvedNextState !== fromState) {
+          emitAgentStateEntered(
+            { ...ctx, state: resolvedNextState },
+            { state_name: resolvedNextState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: 'reco_goal_other' },
+          );
+          if (resolvedNextState === 'RECO_GATE') {
+            emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'text_explicit', prior_value_moment: null });
+          }
+          setAgentStateSafe(resolvedNextState);
         }
-        setAgentStateSafe(toState);
+
+        setPendingRecoGoalOther(false);
         setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
         setInput('');
         await sendChat(msg, undefined, {
           client_state: fromState,
-          requested_transition: {
-            trigger_source: 'text_explicit',
-            trigger_id: inferred.trigger_id,
-            requested_next_state: toState,
-          },
+          ...(requestedTransition ? { requested_transition: requestedTransition } : {}),
         });
         return;
       }
-    }
 
-    if (agentState === 'QUICK_PROFILE') {
-      setAgentStateSafe('IDLE_CHAT');
-    }
+      const isTextExplicitQuickProfile = (() => {
+        const t = msg.trim().toLowerCase();
+        if (!t) return false;
+        if (t.includes('quick profile') || t.includes('30-sec quick profile') || t.includes('30 sec quick profile')) return true;
+        if (t.includes('快速画像')) return true;
+        if (t.includes('30秒') && t.includes('画像')) return true;
+        if (t.includes('30秒快速画像') || t.includes('30 秒快速画像')) return true;
+        return false;
+      })();
 
-    setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
-    setInput('');
+      if (isTextExplicitQuickProfile) {
+        const fromState = agentState;
+        const toState: AgentState = 'QUICK_PROFILE';
+        const ctx: AnalyticsContext = {
+          brief_id: headers.brief_id,
+          trace_id: headers.trace_id,
+          aurora_uid: headers.aurora_uid,
+          lang: toLangPref(language),
+          state: fromState,
+        };
+        emitAgentStateEntered({ ...ctx, state: toState }, { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: msg.slice(0, 120) });
+        setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+        setQuickProfileStep('skin_feel');
+        setQuickProfileDraft({});
+        setAgentStateSafe(toState);
+        setInput('');
+        return;
+      }
 
-    await sendChat(msg);
+      const inferred = inferTextExplicitTransition(msg, language);
+      if (inferred) {
+        const fromState = agentState;
+        const validation = validateRequestedTransition({
+          from_state: fromState,
+          trigger_source: 'text_explicit',
+          trigger_id: inferred.trigger_id,
+          requested_next_state: inferred.requested_next_state,
+        });
+
+        if (validation.ok && validation.next_state !== fromState) {
+          const toState = validation.next_state;
+          const ctx: AnalyticsContext = {
+            brief_id: headers.brief_id,
+            trace_id: headers.trace_id,
+            aurora_uid: headers.aurora_uid,
+            lang: toLangPref(language),
+            state: fromState,
+          };
+          emitAgentStateEntered(
+            { ...ctx, state: toState },
+            { state_name: toState, from_state: fromState, trigger_source: 'text_explicit', trigger_id: inferred.trigger_id },
+          );
+          if (toState === 'RECO_GATE') {
+            emitUiRecosRequested({ ...ctx, state: toState }, { entry_point: 'text_explicit', prior_value_moment: null });
+          }
+          setAgentStateSafe(toState);
+          setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+          setInput('');
+          await sendChat(msg, undefined, {
+            client_state: fromState,
+            requested_transition: {
+              trigger_source: 'text_explicit',
+              trigger_id: inferred.trigger_id,
+              requested_next_state: toState,
+            },
+          });
+          return;
+        }
+      }
+
+      if (agentState === 'QUICK_PROFILE') {
+        setAgentStateSafe('IDLE_CHAT');
+      }
+
+      setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), { id: nextId(), role: 'user', kind: 'text', content: msg }]);
+      setInput('');
+
+      await sendChat(msg);
     },
-    [agentState, headers, language, runProductDeepScan, sendChat, setAgentStateSafe],
+    [agentState, headers, language, pendingRecoGoalOther, runProductDeepScan, sendChat, setAgentStateSafe],
   );
 
   const onSubmit = useCallback(async () => {
@@ -10918,9 +11101,10 @@ export default function BffChat() {
         if (qpQuestionId === 'skip') return 'IDLE_CHAT';
         if (qpQuestionId === 'opt_in_more' && qpAnswer === 'no') return 'IDLE_CHAT';
         if (qpQuestionId === 'rx_flag') return 'IDLE_CHAT';
-        return nextAgentStateForChip(id) ?? fromState;
+        return nextAgentStateForChip(effectiveActionId) ?? fromState;
       })();
       const toState = requestedToState;
+      const transitionTriggerId = effectiveActionId || id;
 
       const ctx: AnalyticsContext = {
         brief_id: headers.brief_id,
@@ -11037,17 +11221,17 @@ export default function BffChat() {
         const validation = validateRequestedTransition({
           from_state: fromState,
           trigger_source: 'chip',
-          trigger_id: id,
+          trigger_id: transitionTriggerId,
           requested_next_state: toState,
         });
         const resolvedNextState: AgentState = validation.ok ? validation.next_state : 'IDLE_CHAT';
         if (!validation.ok) {
-          console.warn('[StateMachine] soft fallback on chip transition', { chipId: id, fromState, reason: validation.reason });
+          console.warn('[StateMachine] soft fallback on chip transition', { chipId: transitionTriggerId, fromState, reason: validation.reason });
         }
-        requestedTransition = { trigger_source: 'chip', trigger_id: id, requested_next_state: resolvedNextState };
+        requestedTransition = { trigger_source: 'chip', trigger_id: transitionTriggerId, requested_next_state: resolvedNextState };
         emitAgentStateEntered(
           { ...ctx, state: resolvedNextState },
-          { state_name: resolvedNextState, from_state: fromState, trigger_source: 'chip', trigger_id: id },
+          { state_name: resolvedNextState, from_state: fromState, trigger_source: 'chip', trigger_id: transitionTriggerId },
         );
         if (resolvedNextState === 'RECO_GATE') {
           emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'chip', prior_value_moment: null });
@@ -11150,17 +11334,67 @@ export default function BffChat() {
       }
 
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+      const activeProfile = profileSnapshot ?? bootstrapInfo?.profile ?? null;
+      const existingRecoGoal = getPrimaryResolvedRecoGoal(activeProfile);
+      const isGenericRecoAction = effectiveActionId === 'chip.start.reco_products' || effectiveActionId === 'chip_get_recos';
+      const isRecoGoalOtherSelection = String((chipData as any).reco_goal || '').trim().toLowerCase() === 'other';
+      let outgoingActionId = actionIdOverride || chip.chip_id;
+      let outgoingChipData: Record<string, unknown> = chipData;
+
+      if (isRecoGoalOtherSelection) {
+        pendingActionAfterDiagnosisRef.current = null;
+        setPendingRecoGoalOther(true);
+        setItems((prev) => [
+          ...prev,
+          { id: nextId(), role: 'assistant', kind: 'text', content: buildRecoGoalOtherPrompt(language) },
+        ]);
+        return;
+      }
+
+      if (isGenericRecoAction && !hasResolvedRecoGoalInChipData(chipData)) {
+        if (existingRecoGoal) {
+          outgoingActionId = 'chip.start.reco_products';
+          outgoingChipData = buildGoalfulRecoActionData({
+            language,
+            baseData: chipData,
+            goal: existingRecoGoal,
+            triggerSource: 'reco_goal_profile',
+          });
+          setPendingRecoGoalOther(false);
+        } else {
+          pendingActionAfterDiagnosisRef.current = null;
+          setPendingRecoGoalOther(false);
+          setItems((prev) => [
+            ...prev,
+            { id: nextId(), role: 'assistant', kind: 'text', content: buildRecoGoalClarificationText(language) },
+            { id: nextId(), role: 'assistant', kind: 'chips', chips: buildRecoGoalClarificationChips(language) },
+          ]);
+          return;
+        }
+      } else {
+        setPendingRecoGoalOther(false);
+      }
+
+      const actionPayloadData =
+        outgoingActionId !== chip.chip_id
+          ? { ...outgoingChipData, chip_id: chip.chip_id }
+          : outgoingChipData;
 
       // If the user explicitly requests product recommendations but lacks a minimal profile,
       // the backend will gate. Remember this intent so we can resume recommendations
       // immediately after the user completes the diagnosis card.
-      if (id === 'chip.start.reco_products' || id === 'chip_get_recos') {
-        const { score } = profileRecoCompleteness(profileSnapshot ?? bootstrapInfo?.profile ?? null);
+      if (outgoingActionId === 'chip.start.reco_products' || outgoingActionId === 'chip_get_recos') {
+        const outgoingProfilePatch = asObject((outgoingChipData as any).profile_patch) || asObject((outgoingChipData as any).profilePatch);
+        const recoProfileForCompleteness =
+          outgoingProfilePatch
+            ? { ...(activeProfile || {}), ...outgoingProfilePatch }
+            : activeProfile;
+        const { score } = profileRecoCompleteness(recoProfileForCompleteness);
         if (score < 3) {
           pendingActionAfterDiagnosisRef.current = {
-            action_id: chip.chip_id,
+            action_id: outgoingActionId,
             kind: 'chip',
-            data: chip.data,
+            data: actionPayloadData,
           };
         } else {
           pendingActionAfterDiagnosisRef.current = null;
@@ -11234,15 +11468,10 @@ export default function BffChat() {
         return;
       }
 
-      const actionPayloadData =
-        actionIdOverride && actionIdOverride !== chip.chip_id
-          ? { ...chipData, chip_id: chip.chip_id }
-          : chip.data;
-
       await sendChat(
         undefined,
         {
-          action_id: actionIdOverride || chip.chip_id,
+          action_id: outgoingActionId,
           kind: 'chip',
           data: actionPayloadData,
         },
@@ -11327,6 +11556,7 @@ export default function BffChat() {
     setAnalysisPhotoRefs([]);
     setSessionPhotos({});
     setBootstrapInfo(null);
+    setPendingRecoGoalOther(false);
     pendingActionAfterDiagnosisRef.current = null;
     sessionStartedEmittedRef.current = false;
     returnVisitEmittedRef.current = false;
