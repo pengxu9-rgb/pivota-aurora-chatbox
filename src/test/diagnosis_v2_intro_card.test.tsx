@@ -157,4 +157,43 @@ describe('DiagnosisV2IntroCard', () => {
     expect(screen.getByText('哪个部位？')).toBeInTheDocument();
     expect(screen.getByText('T区')).toBeInTheDocument();
   });
+
+  it('localizes english-only follow-up copy and option labels in CN language mode', () => {
+    const onAction = vi.fn();
+
+    render(
+      <DiagnosisV2IntroCard
+        language="CN"
+        onAction={onAction}
+        payload={{
+          goal_profile: { selected_goals: [], custom_input: '', constraints: [] },
+          is_cold_start: true,
+          question_strategy: 'default',
+          followup_questions: [],
+          actions: [],
+          sections: [
+            {
+              type: 'follow_up_questions',
+              questions: [
+                {
+                  id: 'q1',
+                  question: 'How sensitive does your skin feel lately?',
+                  options: [
+                    { id: 'low', label: 'Low' },
+                    { id: 'high', label: 'High' },
+                    'Not sure',
+                  ],
+                },
+              ],
+            },
+          ],
+        } as any}
+      />,
+    );
+
+    expect(screen.getByText('你的敏感程度？')).toBeInTheDocument();
+    expect(screen.getByText('低')).toBeInTheDocument();
+    expect(screen.getByText('高')).toBeInTheDocument();
+    expect(screen.getByText('不确定')).toBeInTheDocument();
+  });
 });

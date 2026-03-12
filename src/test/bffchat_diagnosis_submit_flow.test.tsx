@@ -114,6 +114,26 @@ describe('BffChat diagnosis submit flow', () => {
     expect(screen.queryByText('empty_state')).not.toBeInTheDocument();
   });
 
+  it('renders the diagnosis gate follow-up choices in Chinese when lang_pref=cn', async () => {
+    const mock = vi.mocked(bffJson);
+    window.localStorage.setItem('lang_pref', 'cn');
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat('/chat?chip_id=chip.start.diagnosis');
+
+    await screen.findByRole('button', { name: '深层补水' });
+
+    expect(screen.getByText('你的敏感程度？')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '低' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: '高' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始分析' })).toBeInTheDocument();
+  });
+
   it('opens the local photo prompt after goals are selected instead of sending another /v1/chat turn', async () => {
     const mock = vi.mocked(bffJson);
 

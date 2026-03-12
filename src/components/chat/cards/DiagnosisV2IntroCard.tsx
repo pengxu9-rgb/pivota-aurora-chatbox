@@ -21,6 +21,111 @@ const GOAL_PRESETS: DiagnosisV2GoalPreset[] = [
   'custom',
 ];
 
+const DIAGNOSIS_V2_OPTION_FALLBACK_ZH: Record<string, string> = {
+  low: '低',
+  medium: '中',
+  high: '高',
+  yes: '是',
+  no: '否',
+  unsure: '不确定',
+  not_sure: '不确定',
+  sensitive: '敏感',
+  normal: '一般',
+  resilient: '耐受',
+  morning: '早上',
+  afternoon: '下午',
+  evening: '晚上',
+  t_zone: 'T区',
+  cheeks: '脸颊',
+  forehead: '额头',
+  nose: '鼻子',
+  chin: '下巴',
+  jawline: '下颌线',
+};
+
+const DIAGNOSIS_V2_TEXT_FALLBACK_ZH: Record<string, string> = {
+  'low': '低',
+  'medium': '中',
+  'high': '高',
+  'yes': '是',
+  'no': '否',
+  'not sure': '不确定',
+  'sensitive': '敏感',
+  'normal': '一般',
+  'resilient': '耐受',
+  'morning': '早上',
+  'afternoon': '下午',
+  'evening': '晚上',
+  't-zone': 'T区',
+  'cheeks': '脸颊',
+  'forehead': '额头',
+  'nose': '鼻子',
+  'chin': '下巴',
+  'jawline': '下颌线',
+  'which area': '哪个部位？',
+  'which area bothers you most': '你最在意哪个部位？',
+  'when do your concerns usually flare up': '你的这些问题通常什么时候更明显？',
+};
+
+function normalizeDiagnosisV2Text(value: unknown): string {
+  return typeof value === 'string'
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/[?!.,:;'"`~()[\]{}]/g, '')
+        .replace(/\s+/g, ' ')
+    : '';
+}
+
+function localizeDiagnosisV2FallbackText(value: unknown, language: Language): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text || language !== 'CN') return text;
+
+  const normalized = normalizeDiagnosisV2Text(text);
+  if (!normalized) return text;
+  if (normalized.includes('how sensitive') && normalized.includes('skin')) {
+    return t('diagnosis.sensitivity.label', 'CN');
+  }
+
+  return DIAGNOSIS_V2_TEXT_FALLBACK_ZH[normalized] || text;
+}
+
+function localizeDiagnosisV2OptionLabel(option: unknown, language: Language): string {
+  if (typeof option === 'string') {
+    return localizeDiagnosisV2FallbackText(option, language);
+  }
+
+  if (option && typeof option === 'object') {
+    const raw = option as Record<string, unknown>;
+    const optionId = typeof raw.id === 'string'
+      ? raw.id.trim()
+      : typeof raw.value === 'string'
+        ? raw.value.trim()
+        : '';
+    const localized =
+      language === 'CN'
+        ? (raw.label_zh || raw.label_cn || raw.label || raw.label_en)
+        : (raw.label_en || raw.label || raw.label_zh || raw.label_cn);
+    const text = typeof localized === 'string' ? localized.trim() : '';
+    if (language !== 'CN') {
+      return text || String(raw.id || raw.value || '').trim();
+    }
+    const fallbackById = DIAGNOSIS_V2_OPTION_FALLBACK_ZH[normalizeDiagnosisV2Text(optionId)];
+    return fallbackById || localizeDiagnosisV2FallbackText(text, language) || String(raw.id || raw.value || '').trim();
+  }
+
+  return String(option ?? '');
+}
+
+function localizeDiagnosisV2Question(question: Record<string, unknown>, language: Language): string {
+  const localized =
+    language === 'CN'
+      ? (question.question_zh || question.question_cn || question.question || question.question_en)
+      : (question.question_en || question.question || question.question_zh || question.question_cn);
+  const text = typeof localized === 'string' ? localized.trim() : '';
+  return localizeDiagnosisV2FallbackText(text, language);
+}
+
 interface DiagnosisV2IntroCardProps {
   payload: DiagnosisV2IntroPayload & {
     goal_options?: Array<Record<string, unknown>>;
@@ -51,27 +156,19 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
     const rawOpts = Array.isArray(q?.options) ? q.options : [];
     const options = rawOpts.map((opt: any, oi: number) => {
       if (typeof opt === 'string') {
-        return { id: `opt_${qi}_${oi}`, label: opt };
+        return { id: `opt_${qi}_${oi}`, label: localizeDiagnosisV2OptionLabel(opt, language) };
       }
       if (opt && typeof opt === 'object') {
-        const localizedLabel =
-          language === 'CN'
-            ? (opt.label_zh || opt.label || opt.label_en)
-            : (opt.label_en || opt.label || opt.label_zh);
         return {
           id: opt.id || `opt_${qi}_${oi}`,
-          label: (typeof localizedLabel === 'string' && localizedLabel.trim()) ? localizedLabel.trim() : String(opt.id || opt.value || `Option ${oi + 1}`),
+          label: localizeDiagnosisV2OptionLabel(opt, language) || String(opt.id || opt.value || `Option ${oi + 1}`),
         };
       }
       return { id: `opt_${qi}_${oi}`, label: String(opt ?? '') };
     });
-    const questionText =
-      q?.question
-      || (language === 'CN' ? (q?.question_zh || q?.question_en) : (q?.question_en || q?.question_zh))
-      || '';
     return {
       id: q?.id || `fq_${qi}`,
-      question: typeof questionText === 'string' ? questionText : String(questionText),
+      question: localizeDiagnosisV2Question(q, language),
       options,
     };
   }) as DiagnosisV2FollowupQuestion[];
@@ -119,18 +216,21 @@ export function DiagnosisV2IntroCard({ payload, language, onAction }: DiagnosisV
   };
 
   const getGoalLabel = (goalId: string) => {
+    const translatedKey = t(`diagnosis_v2.goal.${goalId}`, language);
     if (dynamicGoalOptions.length > 0) {
       const matched = dynamicGoalOptions.find((option) => String(option?.id || '').trim() === goalId);
       if (matched) {
         const localized =
           language === 'CN'
-            ? matched.label_zh || matched.label || matched.label_en
-            : matched.label_en || matched.label || matched.label_zh;
-        if (typeof localized === 'string' && localized.trim()) return localized.trim();
+            ? matched.label_zh || matched.label_cn || matched.label || matched.label_en
+            : matched.label_en || matched.label || matched.label_zh || matched.label_cn;
+        if (typeof localized === 'string' && localized.trim()) {
+          const localizedText = language === 'CN' ? localizeDiagnosisV2FallbackText(localized, language) : localized.trim();
+          if (localizedText) return localizedText;
+        }
       }
     }
-    const key = `diagnosis_v2.goal.${goalId}` as const;
-    return t(key, language);
+    return translatedKey;
   };
 
   return (
