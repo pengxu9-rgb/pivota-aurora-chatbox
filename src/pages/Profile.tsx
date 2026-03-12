@@ -622,7 +622,7 @@ export default function Profile() {
               className="aurora-home-role-primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
               onClick={openProfileEditor}
             >
-              {isCN ? '编辑完整资料' : 'Edit full profile'}
+              {isCN ? '补充信息' : 'Additional info'}
             </button>
             <button
               type="button"
@@ -1034,7 +1034,7 @@ export default function Profile() {
           <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-[var(--aurora-shell-max)] overflow-hidden rounded-t-3xl border border-border/50 bg-card/90 shadow-elevated backdrop-blur-xl">
             <div className="flex max-h-[85vh] max-h-[85dvh] flex-col">
               <div className="flex items-center justify-between px-[var(--aurora-page-x)] pb-3 pt-4">
-                <div className="text-sm font-semibold text-foreground">{isCN ? '编辑肤况资料' : 'Edit skin profile'}</div>
+                <div className="text-sm font-semibold text-foreground">{isCN ? '补充信息' : 'Additional info'}</div>
                 <button
                   className="aurora-home-role-icon inline-flex h-9 w-9 items-center justify-center rounded-full border"
                   onClick={() => setSkinEditorOpen(false)}
@@ -1045,51 +1045,6 @@ export default function Profile() {
               </div>
               <div className="flex-1 overflow-y-auto px-[var(--aurora-page-x)] pb-[calc(env(safe-area-inset-bottom)+16px)]">
                 <div className="profile-sheet-compact space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      {isCN ? '肤质' : 'Skin type'}
-                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.skinType} onChange={(e) => setSkinDraft((p) => ({ ...p, skinType: e.target.value }))}>
-                        <option value="">{isCN ? '未选择' : '—'}</option>
-                        <option value="oily">{isCN ? '油性' : 'oily'}</option>
-                        <option value="dry">{isCN ? '干性' : 'dry'}</option>
-                        <option value="combination">{isCN ? '混合' : 'combination'}</option>
-                        <option value="normal">{isCN ? '中性' : 'normal'}</option>
-                        <option value="sensitive">{isCN ? '敏感' : 'sensitive'}</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      {isCN ? '敏感程度' : 'Sensitivity'}
-                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.sensitivity} onChange={(e) => setSkinDraft((p) => ({ ...p, sensitivity: e.target.value }))}>
-                        <option value="">{isCN ? '未选择' : '—'}</option>
-                        <option value="low">{isCN ? '低' : 'low'}</option>
-                        <option value="medium">{isCN ? '中' : 'medium'}</option>
-                        <option value="high">{isCN ? '高' : 'high'}</option>
-                      </select>
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      {isCN ? '屏障状态' : 'Barrier status'}
-                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.barrierStatus} onChange={(e) => setSkinDraft((p) => ({ ...p, barrierStatus: e.target.value }))}>
-                        <option value="">{isCN ? '未选择' : '—'}</option>
-                        <option value="healthy">{isCN ? '稳定' : 'healthy'}</option>
-                        <option value="impaired">{isCN ? '不稳定/刺痛' : 'impaired'}</option>
-                        <option value="unknown">{isCN ? '不确定' : 'unknown'}</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      {isCN ? '预算' : 'Budget'}
-                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.budgetTier} onChange={(e) => setSkinDraft((p) => ({ ...p, budgetTier: e.target.value }))}>
-                        <option value="">{isCN ? '未选择' : '—'}</option>
-                        <option value="¥200">¥200</option>
-                        <option value="¥500">¥500</option>
-                        <option value="¥1000+">¥1000+</option>
-                        <option value="不确定">{isCN ? '不确定' : 'Not sure'}</option>
-                      </select>
-                    </label>
-                  </div>
-
                   <div className="grid grid-cols-2 gap-2">
                     <label className="space-y-1 text-[11px] text-muted-foreground">
                       {isCN ? '年龄段' : 'Age band'}
@@ -1105,33 +1060,14 @@ export default function Profile() {
                       </select>
                     </label>
                     <label className="space-y-1 text-[11px] text-muted-foreground">
-                      {isCN ? '孕期状态' : 'Pregnancy status'}
-                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.pregnancy_status} onChange={(e) => setSkinDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}>
-                        <option value="unknown">{isCN ? '未知/不填' : 'Unknown'}</option>
-                        <option value="not_pregnant">{isCN ? '未怀孕' : 'Not pregnant'}</option>
-                        <option value="pregnant">{isCN ? '怀孕中' : 'Pregnant'}</option>
-                        <option value="trying">{isCN ? '备孕中' : 'Trying'}</option>
+                      {isCN ? '预算' : 'Budget'}
+                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.budgetTier} onChange={(e) => setSkinDraft((p) => ({ ...p, budgetTier: e.target.value }))}>
+                        <option value="">{isCN ? '未选择' : '—'}</option>
+                        <option value="¥200">¥200</option>
+                        <option value="¥500">¥500</option>
+                        <option value="¥1000+">¥1000+</option>
+                        <option value="不确定">{isCN ? '不确定' : 'Not sure'}</option>
                       </select>
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      {isCN ? '哺乳状态' : 'Lactation status'}
-                      <select className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground" value={skinDraft.lactation_status} onChange={(e) => setSkinDraft((p) => ({ ...p, lactation_status: e.target.value }))}>
-                        <option value="unknown">{isCN ? '未知/不填' : 'Unknown'}</option>
-                        <option value="not_lactating">{isCN ? '不哺乳' : 'Not lactating'}</option>
-                        <option value="lactating">{isCN ? '哺乳中' : 'Lactating'}</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1 text-[11px] text-muted-foreground">
-                      {isCN ? '高风险用药（可选）' : 'High-risk meds (optional)'}
-                      <input
-                        className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                        value={skinDraft.high_risk_medications_text}
-                        onChange={(e) => setSkinDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
-                        placeholder={isCN ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
-                      />
                     </label>
                   </div>
 
@@ -1146,37 +1082,13 @@ export default function Profile() {
                   </label>
 
                   <label className="space-y-1 text-[11px] text-muted-foreground">
-                    {isCN ? '目标（可多选）' : 'Goals (multi-select)'}
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        ['acne', isCN ? '控痘' : 'Acne'],
-                        ['redness', isCN ? '泛红/敏感' : 'Redness'],
-                        ['dark_spots', isCN ? '淡斑/痘印' : 'Dark spots'],
-                        ['dehydration', isCN ? '补水' : 'Hydration'],
-                        ['pores', isCN ? '毛孔' : 'Pores'],
-                        ['wrinkles', isCN ? '抗老' : 'Anti-aging'],
-                      ].map(([key, label]) => {
-                        const selected = skinDraft.goals.includes(key);
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            className={cn(
-                              'rounded-xl border border-border/60 px-3 py-1.5 text-[13px] font-medium',
-                              selected ? 'aurora-home-role-primary' : 'bg-background/60 text-foreground',
-                            )}
-                            onClick={() =>
-                              setSkinDraft((p) => ({
-                                ...p,
-                                goals: selected ? p.goals.filter((g) => g !== key) : [...p.goals, key],
-                              }))
-                            }
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {isCN ? '高风险用药（可选）' : 'High-risk meds (optional)'}
+                    <input
+                      className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                      value={skinDraft.high_risk_medications_text}
+                      onChange={(e) => setSkinDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
+                      placeholder={isCN ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
+                    />
                   </label>
 
                   <div className="flex gap-2 pt-2">

@@ -7297,15 +7297,9 @@ export default function BffChat() {
   const [dupeDraft, setDupeDraft] = useState({ original: '' });
 
   const [profileDraft, setProfileDraft] = useState({
-    skinType: '',
-    sensitivity: '',
-    barrierStatus: '',
-    goals: [] as string[],
     region: '',
     budgetTier: '',
     age_band: 'unknown',
-    pregnancy_status: 'unknown',
-    lactation_status: 'unknown',
     high_risk_medications_text: '',
   });
 
@@ -8395,15 +8389,9 @@ export default function BffChat() {
       .map((item) => asString(item))
       .filter(Boolean) as string[];
     setProfileDraft({
-      skinType: asString(p?.skinType) ?? '',
-      sensitivity: asString(p?.sensitivity) ?? '',
-      barrierStatus: asString(p?.barrierStatus) ?? '',
-      goals: (asArray(p?.goals).map((g) => asString(g)).filter(Boolean) as string[]) ?? [],
       region: asString(p?.region) ?? '',
       budgetTier: asString(p?.budgetTier) ?? '',
       age_band: asString((p as any)?.age_band) ?? 'unknown',
-      pregnancy_status: asString((p as any)?.pregnancy_status) ?? 'unknown',
-      lactation_status: asString((p as any)?.lactation_status) ?? 'unknown',
       high_risk_medications_text: meds.join(', '),
     });
   }, [profileSheetOpen, bootstrapInfo, profileSnapshot]);
@@ -11656,7 +11644,7 @@ export default function BffChat() {
           </Sheet>
           <Sheet
             open={profileSheetOpen}
-            title={language === 'CN' ? '编辑肤况资料' : 'Edit profile'}
+            title={language === 'CN' ? '补充信息' : 'Additional info'}
             onClose={() => setProfileSheetOpen(false)}
             onOpenMenu={() => {
               setProfileSheetOpen(false);
@@ -11664,69 +11652,6 @@ export default function BffChat() {
             }}
           >
             <div className="profile-sheet-compact space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '肤质' : 'Skin type'}
-                  <select
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
-                    value={profileDraft.skinType}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, skinType: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="oily">{language === 'CN' ? '油性' : 'oily'}</option>
-                    <option value="dry">{language === 'CN' ? '干性' : 'dry'}</option>
-                    <option value="combination">{language === 'CN' ? '混合' : 'combination'}</option>
-                    <option value="normal">{language === 'CN' ? '中性' : 'normal'}</option>
-                    <option value="sensitive">{language === 'CN' ? '敏感' : 'sensitive'}</option>
-                  </select>
-                </label>
-
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '敏感程度' : 'Sensitivity'}
-                  <select
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
-                    value={profileDraft.sensitivity}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, sensitivity: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="low">{language === 'CN' ? '低' : 'low'}</option>
-                    <option value="medium">{language === 'CN' ? '中' : 'medium'}</option>
-                    <option value="high">{language === 'CN' ? '高' : 'high'}</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '屏障状态' : 'Barrier status'}
-                  <select
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
-                    value={profileDraft.barrierStatus}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, barrierStatus: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="healthy">{language === 'CN' ? '稳定' : 'healthy'}</option>
-                    <option value="impaired">{language === 'CN' ? '不稳定/刺痛' : 'impaired'}</option>
-                    <option value="unknown">{language === 'CN' ? '不确定' : 'unknown'}</option>
-                  </select>
-                </label>
-
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '预算' : 'Budget'}
-                  <select
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
-                    value={profileDraft.budgetTier}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, budgetTier: e.target.value }))}
-                  >
-                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
-                    <option value="¥200">¥200</option>
-                    <option value="¥500">¥500</option>
-                    <option value="¥1000+">¥1000+</option>
-                    <option value="不确定">{language === 'CN' ? '不确定' : 'Not sure'}</option>
-                  </select>
-                </label>
-              </div>
-
               <div className="grid grid-cols-2 gap-2">
                 <label className="space-y-1 text-[11px] text-muted-foreground">
                   {language === 'CN' ? '年龄段' : 'Age band'}
@@ -11747,41 +11672,18 @@ export default function BffChat() {
                 </label>
 
                 <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '孕期状态' : 'Pregnancy status'}
+                  {language === 'CN' ? '预算' : 'Budget'}
                   <select
                     className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
-                    value={profileDraft.pregnancy_status}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, pregnancy_status: e.target.value }))}
+                    value={profileDraft.budgetTier}
+                    onChange={(e) => setProfileDraft((p) => ({ ...p, budgetTier: e.target.value }))}
                   >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
-                    <option value="not_pregnant">{language === 'CN' ? '未怀孕' : 'Not pregnant'}</option>
-                    <option value="pregnant">{language === 'CN' ? '怀孕中' : 'Pregnant'}</option>
-                    <option value="trying">{language === 'CN' ? '备孕中' : 'Trying'}</option>
+                    <option value="">{language === 'CN' ? '未选择' : '—'}</option>
+                    <option value="¥200">¥200</option>
+                    <option value="¥500">¥500</option>
+                    <option value="¥1000+">¥1000+</option>
+                    <option value="不确定">{language === 'CN' ? '不确定' : 'Not sure'}</option>
                   </select>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '哺乳状态' : 'Lactation status'}
-                  <select
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground"
-                    value={profileDraft.lactation_status}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, lactation_status: e.target.value }))}
-                  >
-                    <option value="unknown">{language === 'CN' ? '未知/不填' : 'Unknown'}</option>
-                    <option value="not_lactating">{language === 'CN' ? '不哺乳' : 'Not lactating'}</option>
-                    <option value="lactating">{language === 'CN' ? '哺乳中' : 'Lactating'}</option>
-                  </select>
-                </label>
-                <label className="space-y-1 text-[11px] text-muted-foreground">
-                  {language === 'CN' ? '高风险用药（可选）' : 'High-risk meds (optional)'}
-                  <input
-                    className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                    value={profileDraft.high_risk_medications_text}
-                    onChange={(e) => setProfileDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
-                    placeholder={language === 'CN' ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
-                  />
                 </label>
               </div>
 
@@ -11796,34 +11698,13 @@ export default function BffChat() {
               </label>
 
               <label className="space-y-1 text-[11px] text-muted-foreground">
-                {language === 'CN' ? '目标（可多选）' : 'Goals (multi-select)'}
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    ['acne', language === 'CN' ? '控痘' : 'Acne'],
-                    ['redness', language === 'CN' ? '泛红/敏感' : 'Redness'],
-                    ['dark_spots', language === 'CN' ? '淡斑/痘印' : 'Dark spots'],
-                    ['dehydration', language === 'CN' ? '补水' : 'Hydration'],
-                    ['pores', language === 'CN' ? '毛孔' : 'Pores'],
-                    ['wrinkles', language === 'CN' ? '抗老' : 'Anti-aging'],
-                  ].map(([key, label]) => {
-                    const selected = profileDraft.goals.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`chip-button profile-chip ${selected ? 'chip-button-primary' : ''}`}
-                        onClick={() =>
-                          setProfileDraft((p) => ({
-                            ...p,
-                            goals: selected ? p.goals.filter((g) => g !== key) : [...p.goals, key],
-                          }))
-                        }
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {language === 'CN' ? '高风险用药（可选）' : 'High-risk meds (optional)'}
+                <input
+                  className="h-9 w-full rounded-xl border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                  value={profileDraft.high_risk_medications_text}
+                  onChange={(e) => setProfileDraft((p) => ({ ...p, high_risk_medications_text: e.target.value }))}
+                  placeholder={language === 'CN' ? '如 isotretinoin，逗号分隔' : 'e.g., isotretinoin, comma-separated'}
+                />
               </label>
 
               <div className="dialog-choice-row">
