@@ -32,6 +32,9 @@ import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
 import { AuroraRoutineCard, type RoutineStep } from '@/components/aurora/cards/AuroraRoutineCard';
+import { RoutineProductAuditCard } from '@/components/aurora/cards/RoutineProductAuditCard';
+import { RoutineAdjustmentPlanCard } from '@/components/aurora/cards/RoutineAdjustmentPlanCard';
+import { RoutineRecommendationCard } from '@/components/aurora/cards/RoutineRecommendationCard';
 import { SkinIdentityCard } from '@/components/aurora/cards/SkinIdentityCard';
 import { IngredientReportCard, type IngredientReportQuestionSelection } from '@/components/aurora/cards/IngredientReportCard';
 import { extractExternalVerificationCitations } from '@/lib/auroraExternalVerification';
@@ -836,6 +839,9 @@ const iconForCard = (type: string): IconType => {
   if (t === 'ingredient_plan') return FlaskConical;
   if (t === 'ingredient_plan_v2') return FlaskConical;
   if (t === 'analysis_story_v2') return ListChecks;
+  if (t === 'routine_product_audit_v1') return Search;
+  if (t === 'routine_adjustment_plan_v1') return ListChecks;
+  if (t === 'routine_recommendation_v1') return Sparkles;
   if (t === 'routine_prompt') return Sparkles;
   if (t === 'confidence_notice') return AlertTriangle;
   if (t === 'recommendations') return Sparkles;
@@ -868,6 +874,9 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
   if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（个性化）' : 'Ingredient plan (personalized)';
   if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
+  if (key === 'routine_product_audit_v1') return language === 'CN' ? '当前产品拆解' : 'Your current products';
+  if (key === 'routine_adjustment_plan_v1') return language === 'CN' ? '先改什么' : 'What to change first';
+  if (key === 'routine_recommendation_v1') return language === 'CN' ? '如果要升级，先补这里' : 'If you upgrade, start here';
   if (key === 'routine_prompt') return language === 'CN' ? '补全 Routine' : 'Complete routine';
   if (key === 'confidence_notice') return language === 'CN' ? '置信度提示' : 'Confidence notice';
   if (key === 'recommendations') return language === 'CN' ? '产品推荐' : 'Product Recommendations';
@@ -5511,6 +5520,18 @@ function BffCardView({
 
   if (cardType === 'analysis_story_v2') {
     return <AnalysisStoryCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'routine_product_audit_v1') {
+    return <RoutineProductAuditCard payload={payload as Record<string, unknown>} language={language} />;
+  }
+
+  if (cardType === 'routine_adjustment_plan_v1') {
+    return <RoutineAdjustmentPlanCard payload={payload as Record<string, unknown>} language={language} />;
+  }
+
+  if (cardType === 'routine_recommendation_v1') {
+    return <RoutineRecommendationCard payload={payload as Record<string, unknown>} language={language} />;
   }
 
   if (cardType === 'routine_fit_summary') {
