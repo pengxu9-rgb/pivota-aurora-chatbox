@@ -343,7 +343,7 @@ const en = {
   'profile.profile_details': 'Profile details',
   'profile.profile_details_desc': 'Update your name and avatar for the left sidebar.',
   'profile.display_name': 'Display name',
-  'profile.display_name_placeholder': 'e.g. Peng',
+  'profile.display_name_placeholder': 'e.g. Adrian',
   'profile.avatar': 'Avatar',
   'profile.avatar_preview': 'Avatar preview',
   'profile.upload_avatar': 'Upload avatar',
