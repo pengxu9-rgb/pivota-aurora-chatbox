@@ -1,10 +1,16 @@
 import en, { type LocaleKeys } from './en';
+import de from './de';
+import fr from './fr';
+import ja from './ja';
 import zh from './zh';
 import type { Language } from '@/lib/types';
 
 const locales: Record<Language, Record<string, string>> = {
   EN: en,
   CN: zh,
+  FR: fr,
+  DE: de,
+  JA: ja,
 };
 
 export type { LocaleKeys };
@@ -24,4 +30,4 @@ export function t(key: string, lang: Language, params?: Record<string, string | 
   return text;
 }
 
-export { en, zh };
+export { de, en, fr, ja, zh };

@@ -5,6 +5,14 @@ export function t(key: string, lang: Language, params?: Record<string, string | 
   return translate(key, lang, params);
 }
 
+export function isChineseLanguage(lang: Language): lang is 'CN' {
+  return lang === 'CN';
+}
+
+export function pickLocalizedText<T>(lang: Language, copy: { en: T; cn: T }): T {
+  return isChineseLanguage(lang) ? copy.cn : copy.en;
+}
+
 export function getMarketLabel(market: Market, lang: Language): string {
   return translate(`market.${market}`, lang);
 }

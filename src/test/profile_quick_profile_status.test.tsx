@@ -136,7 +136,9 @@ describe('Profile quick profile status', () => {
     await screen.findByRole('button', { name: 'Start quick profile' });
     expect(screen.queryByRole('button', { name: 'Sign in to sync profile' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to Chinese' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Select language' }), {
+      target: { value: 'cn' },
+    });
     await screen.findByRole('button', { name: '开始快速画像' });
 
     fireEvent.click(screen.getByRole('button', { name: '开始快速画像' }));

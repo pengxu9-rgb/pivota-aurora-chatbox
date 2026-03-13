@@ -12803,7 +12803,7 @@ export default function BffChat() {
             style={{ height: 'var(--aurora-chat-control-size)', width: 'var(--aurora-chat-control-size)' }}
             onClick={handlePickPhoto}
             disabled={isLoading}
-            title={language === 'CN' ? '上传照片' : 'Upload photo'}
+            title={t('bffchat.composer.upload_photo', language)}
           >
             <Camera className="h-[var(--aurora-chat-control-icon-size)] w-[var(--aurora-chat-control-icon-size)]" />
           </button>
@@ -12812,7 +12812,7 @@ export default function BffChat() {
             style={{ height: 'var(--aurora-chat-control-size)', fontSize: 'var(--aurora-chat-input-font-size)' }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={language === 'EN' ? 'Ask a question… (or paste a product link)' : '输入问题…（或粘贴产品链接）'}
+            placeholder={t('bffchat.composer.placeholder', language)}
             disabled={isLoading}
           />
           <button
