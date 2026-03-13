@@ -18,7 +18,7 @@ export type FlowState =
   | 'P1_PRODUCT_ANALYZING'
   | 'P2_PRODUCT_RESULT';
 
-export type Language = 'EN' | 'CN';
+export type Language = 'EN' | 'CN' | 'FR' | 'DE' | 'JA';
 export type Mode = 'demo' | 'live';
 export type Market = 'US' | 'EU' | 'UK' | 'Canada' | 'Singapore' | 'Global';
 export type BudgetTier = '$' | '$$' | '$$$';
