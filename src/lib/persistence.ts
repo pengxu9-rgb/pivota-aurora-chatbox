@@ -4,6 +4,7 @@ const UID_KEY = 'aurora_uid';
 const LEGACY_UID_KEY = 'pivota_aurora_uid_v1';
 const LANG_PREF_KEY = 'lang_pref';
 const LEGACY_LANG_PREF_KEY = 'pivota_aurora_lang_pref_v1';
+const ACCOUNT_LANG_PREF_KEY_PREFIX = 'pivota_aurora_account_lang_pref_v1:';
 const LANG_REPLY_MODE_KEY = 'lang_reply_mode';
 const LANG_MISMATCH_HINT_MUTED_UNTIL_KEY = 'lang_mismatch_hint_muted_until';
 const CHAT_KEY = 'pivota_aurora_chat_state_v1';
@@ -18,13 +19,47 @@ export type PersistedChatState = {
   messages: Message[];
 };
 
-export type LangPref = 'en' | 'cn';
+export type LangPref = 'en' | 'cn' | 'fr' | 'de' | 'ja';
 export type LangReplyMode = 'ui_lock' | 'auto_follow_input';
 
 let memoryUid: string | null = null;
 let memoryLangPref: LangPref | null = null;
 
+export const isLangPref = (value: unknown): value is LangPref =>
+  value === 'en' || value === 'cn' || value === 'fr' || value === 'de' || value === 'ja';
+
+const normalizeStoredLangPref = (value: unknown): LangPref | null => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  if (isLangPref(normalized)) return normalized;
+  if (normalized === 'zh') return 'cn';
+  if (raw === 'EN' || raw === 'FR' || raw === 'DE' || raw === 'JA') return normalized as LangPref;
+  if (raw === 'CN' || raw === 'ZH') return 'cn';
+  return null;
+};
+
+export const toUiLanguage = (pref: LangPref): Language => {
+  switch (pref) {
+    case 'cn':
+      return 'CN';
+    case 'fr':
+      return 'FR';
+    case 'de':
+      return 'DE';
+    case 'ja':
+      return 'JA';
+    default:
+      return 'EN';
+  }
+};
+
+export const toBackendLanguage = (language: Language): 'EN' | 'CN' => (language === 'CN' ? 'CN' : 'EN');
+
+export const toBackendLangPref = (pref: LangPref): 'en' | 'cn' => (pref === 'cn' ? 'cn' : 'en');
+
 const isBrowser = () => typeof window !== 'undefined';
+const normalizeAccountEmail = (email: string) => String(email || '').trim().toLowerCase();
 
 const safeStorageGet = (key: string): string | null => {
   if (!isBrowser()) return null;
@@ -63,13 +98,16 @@ const safeJsonParse = <T>(raw: string): T | undefined => {
   }
 };
 
-const inferBrowserLangPref = (): LangPref => {
-  if (!isBrowser()) return 'en';
-  const nav = window.navigator;
-  const preferred =
-    (Array.isArray(nav.languages) && typeof nav.languages[0] === 'string' ? nav.languages[0] : '') ||
-    (typeof nav.language === 'string' ? nav.language : '');
-  return /^zh\b/i.test(String(preferred || '').trim()) ? 'cn' : 'en';
+const getStoredLangPref = (): LangPref | null => {
+  const stored = normalizeStoredLangPref(safeStorageGet(LANG_PREF_KEY));
+  if (stored) return stored;
+
+  const legacy = normalizeStoredLangPref(safeStorageGet(LEGACY_LANG_PREF_KEY));
+  if (legacy) {
+    safeStorageSet(LANG_PREF_KEY, legacy);
+    return legacy;
+  }
+  return memoryLangPref;
 };
 
 export const getOrCreateAuroraUid = (): string => {
@@ -109,24 +147,7 @@ export const getAuroraUid = (): string | undefined => {
 };
 
 export const getLangPref = (): LangPref => {
-  const stored = safeStorageGet(LANG_PREF_KEY);
-  if (stored === 'en' || stored === 'cn') return stored;
-
-  const legacy = safeStorageGet(LEGACY_LANG_PREF_KEY);
-  if (legacy === 'en' || legacy === 'cn') {
-    safeStorageSet(LANG_PREF_KEY, legacy);
-    return legacy;
-  }
-  if (legacy === 'EN') {
-    safeStorageSet(LANG_PREF_KEY, 'en');
-    return 'en';
-  }
-  if (legacy === 'CN') {
-    safeStorageSet(LANG_PREF_KEY, 'cn');
-    return 'cn';
-  }
-  if (memoryLangPref) return memoryLangPref;
-  return inferBrowserLangPref();
+  return getStoredLangPref() ?? 'en';
 };
 
 export const setLangPref = (lang: LangPref) => {
@@ -134,7 +155,7 @@ export const setLangPref = (lang: LangPref) => {
   const stored = safeStorageSet(LANG_PREF_KEY, lang);
   if (stored) {
     // Best-effort: keep legacy key for older builds.
-    safeStorageSet(LEGACY_LANG_PREF_KEY, lang === 'cn' ? 'CN' : 'EN');
+    safeStorageSet(LEGACY_LANG_PREF_KEY, toBackendLanguage(toUiLanguage(lang)));
   }
   if (isBrowser()) {
     try {
@@ -143,6 +164,20 @@ export const setLangPref = (lang: LangPref) => {
       // ignore
     }
   }
+};
+
+export const hasExplicitLangPref = (): boolean => getStoredLangPref() != null;
+
+export const getAccountLangPref = (email: string): LangPref | null => {
+  const normalizedEmail = normalizeAccountEmail(email);
+  if (!normalizedEmail) return null;
+  return normalizeStoredLangPref(safeStorageGet(`${ACCOUNT_LANG_PREF_KEY_PREFIX}${normalizedEmail}`));
+};
+
+export const setAccountLangPref = (email: string, lang: LangPref): void => {
+  const normalizedEmail = normalizeAccountEmail(email);
+  if (!normalizedEmail) return;
+  safeStorageSet(`${ACCOUNT_LANG_PREF_KEY_PREFIX}${normalizedEmail}`, lang);
 };
 
 export const getLangReplyMode = (): LangReplyMode => {
@@ -219,4 +254,9 @@ export const clearPersistedChatState = () => {
   } catch {
     // ignore
   }
+};
+
+export const __resetPersistenceMemoryForTests = () => {
+  memoryUid = null;
+  memoryLangPref = null;
 };

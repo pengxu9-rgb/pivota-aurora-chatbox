@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { HelpCircle, KeyRound, LogIn, LogOut, Mail, Menu, Shield, User } from 'lucide-react';
+import { ChevronDown, HelpCircle, KeyRound, LogIn, LogOut, Mail, Menu, Shield, User } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 
 import type { MobileShellContext } from '@/layouts/MobileShell';
@@ -11,6 +11,7 @@ import { buildFullProfileDraft, buildProfileUpdatePatch, type FullProfileDraft }
 import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import { isLangPref, type LangPref } from '@/lib/persistence';
 import { X } from 'lucide-react';
 
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
@@ -19,6 +20,14 @@ const MAX_DISPLAY_NAME_LEN = 40;
 const MAX_AVATAR_FILE_BYTES = 8 * 1024 * 1024;
 const AVATAR_OUTPUT_MAX_SIDE = 320;
 const AVATAR_OUTPUT_QUALITY = 0.86;
+const LANGUAGE_OPTIONS: LangPref[] = ['en', 'cn', 'fr', 'de', 'ja'];
+const LANGUAGE_NAME_KEYS: Record<LangPref, string> = {
+  en: 'profile.lang_name_en',
+  cn: 'profile.lang_name_cn',
+  fr: 'profile.lang_name_fr',
+  de: 'profile.lang_name_de',
+  ja: 'profile.lang_name_ja',
+};
 
 const passwordSetFlagKey = (email: string) => `${PASSWORD_SET_FLAG_KEY_PREFIX}${email.trim().toLowerCase()}`;
 
@@ -119,7 +128,6 @@ export default function Profile() {
   const { openSidebar, startChat, openComposer } = useOutletContext<MobileShellContext>();
 
   const { language: lang, langPref, setLanguage, t } = useLanguage();
-  const isCN = lang === 'CN';
   const [authSession, setAuthSession] = useState<AuroraAuthSession | null>(() => loadAuroraAuthSession());
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
   const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
@@ -141,9 +149,22 @@ export default function Profile() {
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const accountSectionRef = useRef<HTMLDivElement | null>(null);
 
-  const toggleLang = useCallback(() => {
-    setLanguage(langPref === 'cn' ? 'en' : 'cn');
-  }, [langPref, setLanguage]);
+  const languageOptions = useMemo(
+    () =>
+      LANGUAGE_OPTIONS.map((value) => ({
+        value,
+        name: t(LANGUAGE_NAME_KEYS[value]),
+      })),
+    [t],
+  );
+
+  const handleLanguageChange = useCallback(
+    (nextValue: string) => {
+      if (!isLangPref(nextValue) || nextValue === langPref) return;
+      setLanguage(nextValue);
+    },
+    [langPref, setLanguage],
+  );
 
   const resetAuthUi = useCallback((nextEmail = '') => {
     setAuthMode('code');
@@ -509,15 +530,22 @@ export default function Profile() {
           <Menu className="h-[18px] w-[18px]" />
         </button>
         <div className="ios-page-title">{t('profile.title')}</div>
-        <button
-          type="button"
-          onClick={toggleLang}
-          className="ios-nav-button min-w-[66px] text-[12px] font-semibold"
-          aria-label={isCN ? t('profile.switch_to_en') : t('profile.switch_to_cn')}
-          title={isCN ? t('profile.switch_to_en') : t('profile.switch_to_cn')}
-        >
-          {isCN ? t('profile.lang_label_cn') : t('profile.lang_label_en')}
-        </button>
+        <div className="relative">
+          <select
+            className="ios-nav-button min-w-[112px] appearance-none bg-transparent pl-3 pr-8 text-[12px] font-semibold"
+            aria-label={t('profile.select_language')}
+            title={t('profile.select_language')}
+            value={langPref}
+            onChange={(e) => handleLanguageChange(e.target.value)}
+          >
+            {languageOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 opacity-70" />
+        </div>
       </div>
 
       <div ref={accountSectionRef} className="ios-panel mt-4">

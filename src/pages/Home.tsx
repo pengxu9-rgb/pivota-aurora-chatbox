@@ -5,6 +5,10 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { listActivity, type ActivityItem } from '@/lib/activityApi';
 import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  openActivityItem,
+  prioritizeRecentActivity,
+} from '@/lib/activityPresentation';
 import { cn } from '@/lib/utils';
 
 export default function Home() {
@@ -17,10 +21,10 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     setRecentLoading(true);
-    void listActivity(language, { limit: 3 })
+    void listActivity(language, { limit: 10 })
       .then((response) => {
         if (cancelled) return;
-        setRecentActivity(Array.isArray(response?.items) ? response.items : []);
+        setRecentActivity(prioritizeRecentActivity(Array.isArray(response?.items) ? response.items : [], 3));
       })
       .catch(() => {
         if (cancelled) return;
@@ -219,7 +223,7 @@ export default function Home() {
                 key={String(item.activity_id || `${item.event_type}_${item.occurred_at_ms}`)}
                 type="button"
                 className="w-full rounded-2xl px-3 py-2.5 text-left hover:bg-[hsl(var(--aurora-home-primary)/0.06)]"
-                onClick={() => openActivityDeeplink(item.deeplink, navigate)}
+                onClick={() => openActivityItem(item, navigate)}
               >
                 <div className="text-[14px] font-semibold text-[hsl(var(--aurora-home-foreground))]">{formatActivityTitle(item, t)}</div>
                 <div className="mt-0.5 text-[12px] text-[hsl(var(--aurora-home-muted-foreground))]">
@@ -262,21 +266,6 @@ export default function Home() {
 }
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
-
-function openActivityDeeplink(deeplink: string | null | undefined, navigate: (to: string) => void) {
-  const target = String(deeplink || '').trim();
-  if (!target) {
-    navigate('/activity');
-    return;
-  }
-  if (target.startsWith('/')) {
-    navigate(target);
-    return;
-  }
-  if (/^https?:\/\//i.test(target) && typeof window !== 'undefined') {
-    window.open(target, '_blank', 'noopener,noreferrer');
-  }
-}
 
 function formatActivityTitle(item: ActivityItem, t: TFn): string {
   const keyMap: Record<string, string> = {

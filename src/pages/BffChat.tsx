@@ -7817,6 +7817,8 @@ export default function BffChat() {
         trace_id: String(sp.get('trace_id') || '').trim(),
         q: String(sp.get('q') || '').trim(),
         chip_id: String(sp.get('chip_id') || '').trim(),
+        activity_id: String(sp.get('activity_id') || '').trim(),
+        artifact_id: String(sp.get('artifact_id') || '').trim(),
         open: (
           openRaw === 'photo' || openRaw === 'routine' || openRaw === 'auth' || openRaw === 'checkin' || openRaw === 'profile'
             ? openRaw
@@ -7824,7 +7826,15 @@ export default function BffChat() {
         ) as DeepLinkOpen | null,
       };
     } catch {
-      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null };
+      return {
+        brief_id: '',
+        trace_id: '',
+        q: '',
+        chip_id: '',
+        activity_id: '',
+        artifact_id: '',
+        open: null as DeepLinkOpen | null,
+      };
     }
   }, [location.search]);
   const initialAuthSessionRef = useRef<{ loaded: boolean; value: ReturnType<typeof loadAuroraAuthSession> }>({
@@ -7856,7 +7866,12 @@ export default function BffChat() {
     };
   });
   const [sessionState, setSessionState] = useState<string>('idle');
-  const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(null);
+  const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(() => {
+    const next: Record<string, unknown> = {};
+    if (searchParams.artifact_id) next.latest_artifact_id = searchParams.artifact_id;
+    if (searchParams.activity_id) next.source_activity_id = searchParams.activity_id;
+    return Object.keys(next).length ? next : null;
+  });
   const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
   const agentStateRef = useRef<AgentState>('IDLE_CHAT');
   useEffect(() => {
@@ -7945,6 +7960,22 @@ export default function BffChat() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    if (!searchParams.artifact_id && !searchParams.activity_id) return;
+    setSessionMeta((prev) => {
+      const base = asObject(prev) || {};
+      return {
+        ...base,
+        ...(searchParams.artifact_id ? { latest_artifact_id: searchParams.artifact_id } : {}),
+        ...(searchParams.activity_id ? { source_activity_id: searchParams.activity_id } : {}),
+      };
+    });
+  }, [searchParams.activity_id, searchParams.artifact_id]);
 
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
@@ -12803,7 +12834,7 @@ export default function BffChat() {
             style={{ height: 'var(--aurora-chat-control-size)', width: 'var(--aurora-chat-control-size)' }}
             onClick={handlePickPhoto}
             disabled={isLoading}
-            title={language === 'CN' ? '上传照片' : 'Upload photo'}
+            title={t('bffchat.composer.upload_photo', language)}
           >
             <Camera className="h-[var(--aurora-chat-control-icon-size)] w-[var(--aurora-chat-control-icon-size)]" />
           </button>
@@ -12812,7 +12843,7 @@ export default function BffChat() {
             style={{ height: 'var(--aurora-chat-control-size)', fontSize: 'var(--aurora-chat-input-font-size)' }}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={language === 'EN' ? 'Ask a question… (or paste a product link)' : '输入问题…（或粘贴产品链接）'}
+            placeholder={t('bffchat.composer.placeholder', language)}
             disabled={isLoading}
           />
           <button
