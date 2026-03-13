@@ -11554,7 +11554,7 @@ export default function BffChat() {
   );
 
   const deepLinkChip = useCallback(
-    (chipId: string): SuggestedChip => {
+    (chipId: string, replyTextOverride?: string): SuggestedChip => {
       const id = String(chipId || '').trim();
       const isCN = language === 'CN';
       const labelMap: Record<string, { EN: string; CN: string }> = {
@@ -11568,6 +11568,7 @@ export default function BffChat() {
         chip_get_recos: { EN: 'Recommend products', CN: '产品推荐' },
         'chip.start.routine': { EN: 'Build an AM/PM routine', CN: '生成早晚护肤 routine' },
         'chip.start.dupes': { EN: 'Find dupes / alternatives', CN: '找平替/替代品' },
+        'chip.aurora.next_action.deep_dive_skin': { EN: 'Continue from my saved analysis', CN: '继续这次分析结果' },
         'chip.start.ingredients.entry': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
         'chip.start.ingredients': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
       };
@@ -11582,8 +11583,12 @@ export default function BffChat() {
           EN: 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
           CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
         },
+        'chip.aurora.next_action.deep_dive_skin': {
+          EN: 'Continue from my saved skin analysis. Do not ask me to restate my goals. Tell me the next best steps.',
+          CN: '基于我保存的 skin analysis 继续，不要让我重复目标，直接告诉我下一步该怎么做。',
+        },
       };
-      const reply_text = (replyTextMap[id]?.[isCN ? 'CN' : 'EN'] ?? label).slice(0, 160);
+      const reply_text = (asString(replyTextOverride) || (replyTextMap[id]?.[isCN ? 'CN' : 'EN'] ?? label)).slice(0, 220);
       return {
         chip_id: id,
         label,
@@ -11750,7 +11755,7 @@ export default function BffChat() {
 
     const run = async () => {
       if (searchParams.chip_id) {
-        await onChip(deepLinkChip(searchParams.chip_id));
+        await onChip(deepLinkChip(searchParams.chip_id, searchParams.q));
         return;
       }
       if (searchParams.q) {
