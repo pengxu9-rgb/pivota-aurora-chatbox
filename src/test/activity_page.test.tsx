@@ -22,9 +22,13 @@ vi.mock('@/lib/activityApi', () => ({
   listActivity: vi.fn(),
 }));
 
-vi.mock('@/lib/persistence', () => ({
-  getLangPref: () => 'en',
-}));
+vi.mock('@/lib/persistence', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/persistence')>('@/lib/persistence');
+  return {
+    ...actual,
+    getLangPref: () => 'en',
+  };
+});
 
 import ActivityPage from '@/pages/Activity';
 import { listActivity } from '@/lib/activityApi';
