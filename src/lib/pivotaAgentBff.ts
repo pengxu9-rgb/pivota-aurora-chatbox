@@ -3,6 +3,7 @@ import type { ChatIntroHintV1 } from './chatCardsTypes';
 import { toBackendLanguage } from './persistence';
 import type { Language as UiLanguage } from './types';
 import { requestWithTimeout } from '@/utils/requestWithTimeout';
+import { syncAuroraAuthSessionFromResponse } from './auth';
 
 /** Backend language headers are still binary until the service expands beyond EN/CN. */
 export type Language = 'EN' | 'CN';
@@ -200,6 +201,7 @@ export const bffJson = async <TResponse>(
       : await fetch(requestUrl, requestInit);
 
   const body = await safeReadJson(res);
+  syncAuroraAuthSessionFromResponse(body, { fallbackToken: headers.auth_token ?? null });
   if (!res.ok) {
     throw new PivotaAgentBffError(`Request failed: ${res.status} ${res.statusText}`, res.status, body);
   }
@@ -361,6 +363,7 @@ export const bffChatStream = async (
           break;
         case 'result':
           sawResult = true;
+          syncAuroraAuthSessionFromResponse(data, { fallbackToken: headers.auth_token ?? null });
           callbacks.onResult(data as SSEResultEvent);
           break;
         case 'error': {
