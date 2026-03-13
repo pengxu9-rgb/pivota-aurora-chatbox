@@ -30,20 +30,26 @@ vi.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock('@/lib/travelPlansApi', () => ({
-  getTravelPlanById: vi.fn(),
-  archiveTravelPlan: vi.fn(),
-  updateTravelPlan: vi.fn(),
-}));
+vi.mock('@/lib/travelPlansApi', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/travelPlansApi')>('@/lib/travelPlansApi');
+  return {
+    ...actual,
+    getTravelPlanById: vi.fn(),
+    archiveTravelPlan: vi.fn(),
+    updateTravelPlan: vi.fn(),
+  };
+});
 
 import PlanDetails from '@/pages/PlanDetails';
 import { toast } from '@/components/ui/use-toast';
-import { archiveTravelPlan, getTravelPlanById } from '@/lib/travelPlansApi';
+import { PivotaAgentBffError } from '@/lib/pivotaAgentBff';
+import { archiveTravelPlan, getTravelPlanById, updateTravelPlan } from '@/lib/travelPlansApi';
 
 function makePlan(overrides: Partial<TravelPlanCardModel> = {}): TravelPlanCardModel {
   return {
     trip_id: overrides.trip_id ?? 'trip_1',
     destination: overrides.destination ?? 'Paris',
+    departure_region: overrides.departure_region ?? 'San Francisco',
     start_date: overrides.start_date ?? '2099-02-01',
     end_date: overrides.end_date ?? '2099-02-05',
     created_at_ms: overrides.created_at_ms ?? 1,
@@ -64,6 +70,7 @@ describe('PlanDetails behavior', () => {
       plan: makePlan(),
       summary: {
         active_trip_id: 'trip_1',
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
@@ -71,7 +78,16 @@ describe('PlanDetails behavior', () => {
       plan: makePlan({ status: 'archived', is_archived: true }),
       summary: {
         active_trip_id: null,
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 0, completed: 0, archived: 1 },
+      },
+    });
+    vi.mocked(updateTravelPlan).mockResolvedValue({
+      plan: makePlan({ destination: 'Paris Updated' }),
+      summary: {
+        active_trip_id: 'trip_1',
+        home_region: 'San Francisco',
+        counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
   });
@@ -95,6 +111,7 @@ describe('PlanDetails behavior', () => {
       plan: makePlan({ trip_id: 'trip_deep', destination: 'Seoul' }),
       summary: {
         active_trip_id: 'trip_deep',
+        home_region: 'San Francisco',
         counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
       },
     });
@@ -105,8 +122,24 @@ describe('PlanDetails behavior', () => {
     expect(getTravelPlanById).toHaveBeenCalledWith('EN', 'trip_deep');
   });
 
-  it('opens chat only when Open in chat is clicked', async () => {
-    routeState = { plan: makePlan({ trip_id: 'trip_chat', destination: 'London' }) };
+  it('opens chat only when Open in chat is clicked and includes session patch', async () => {
+    routeState = {
+      plan: makePlan({
+        trip_id: 'trip_chat',
+        destination: 'London',
+        destination_place: {
+          label: 'London, England, United Kingdom',
+          canonical_name: 'London',
+          latitude: 51.50853,
+          longitude: -0.12574,
+          country_code: 'GB',
+          country: 'United Kingdom',
+          admin1: 'England',
+          timezone: 'Europe/London',
+          resolution_source: 'auto_resolved',
+        },
+      }),
+    };
     routeParams = { tripId: 'trip_chat' };
 
     render(<PlanDetails />);
@@ -120,6 +153,18 @@ describe('PlanDetails behavior', () => {
       expect.objectContaining({
         kind: 'query',
         title: 'Travel skincare: London',
+        session_patch: expect.objectContaining({
+          profile: expect.objectContaining({
+            travel_plan: expect.objectContaining({
+              trip_id: 'trip_chat',
+              departure_region: 'San Francisco',
+              destination_place: expect.objectContaining({
+                canonical_name: 'London',
+                timezone: 'Europe/London',
+              }),
+            }),
+          }),
+        }),
       }),
     );
   });
@@ -163,5 +208,107 @@ describe('PlanDetails behavior', () => {
     expect(endDateInput.closest('.travel-date-grid')).toBe(dateGrid);
     expect(startDateInput.className).toContain('travel-date-input');
     expect(endDateInput.className).toContain('travel-date-input');
+  });
+
+  it('retries update after destination ambiguity selection', async () => {
+    routeState = { plan: makePlan({ trip_id: 'trip_ambiguous', destination: 'Paris' }) };
+    routeParams = { tripId: 'trip_ambiguous' };
+    vi.mocked(updateTravelPlan)
+      .mockRejectedValueOnce(
+        new PivotaAgentBffError('Request failed: 409 Conflict', 409, {
+          error: 'DESTINATION_AMBIGUOUS',
+          field: 'destination',
+          normalized_query: 'Paris',
+          candidates: [
+            {
+              label: 'Paris, Ile-de-France, France',
+              canonical_name: 'Paris',
+              latitude: 48.85341,
+              longitude: 2.3488,
+              country_code: 'FR',
+              country: 'France',
+              admin1: 'Ile-de-France',
+              timezone: 'Europe/Paris',
+            },
+            {
+              label: 'Paris, Texas, United States',
+              canonical_name: 'Paris',
+              latitude: 33.66094,
+              longitude: -95.55551,
+              country_code: 'US',
+              country: 'United States',
+              admin1: 'Texas',
+              timezone: 'America/Chicago',
+            },
+          ],
+        }) as never,
+      )
+      .mockResolvedValueOnce({
+        plan: makePlan({
+          trip_id: 'trip_ambiguous',
+          destination: 'Paris, Ile-de-France, France',
+          destination_place: {
+            label: 'Paris, Ile-de-France, France',
+            canonical_name: 'Paris',
+            latitude: 48.85341,
+            longitude: 2.3488,
+            country_code: 'FR',
+            country: 'France',
+            admin1: 'Ile-de-France',
+            timezone: 'Europe/Paris',
+            resolution_source: 'user_selected',
+          },
+        }),
+        summary: {
+          active_trip_id: 'trip_ambiguous',
+          home_region: 'San Francisco',
+          counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 },
+        },
+      });
+
+    render(<PlanDetails />);
+    await screen.findByText('Paris');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('Confirm destination')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Paris, Ile-de-France, France/i }));
+
+    await waitFor(() => {
+      expect(updateTravelPlan).toHaveBeenCalledTimes(2);
+    });
+    expect(vi.mocked(updateTravelPlan).mock.calls[1]?.[2]).toEqual(
+      expect.objectContaining({
+        destination: 'Paris',
+        departure_region: 'San Francisco',
+        destination_place: expect.objectContaining({
+          canonical_name: 'Paris',
+          resolution_source: 'user_selected',
+          timezone: 'Europe/Paris',
+        }),
+      }),
+    );
+    await screen.findByText('Paris, Ile-de-France, France');
+  });
+
+  it('blocks open in chat until departure is added', async () => {
+    routeState = {
+      plan: makePlan({
+        trip_id: 'trip_missing_departure',
+        destination: 'London',
+        departure_region: '',
+      }),
+    };
+    routeParams = { tripId: 'trip_missing_departure' };
+
+    render(<PlanDetails />);
+    await screen.findByText('London');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in chat' }));
+
+    expect(outletContext.startChat).not.toHaveBeenCalled();
+    expect(screen.getByText('Needs departure')).toBeInTheDocument();
+    expect(screen.getAllByText('Add the departure location first before starting this travel analysis.')[0]).toBeInTheDocument();
   });
 });

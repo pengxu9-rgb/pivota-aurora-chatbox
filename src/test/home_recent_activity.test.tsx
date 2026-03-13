@@ -42,12 +42,21 @@ describe('Home recent activity', () => {
     vi.mocked(listActivity).mockResolvedValueOnce({
       items: [
         {
-          activity_id: 'act_1',
+          activity_id: 'act_chat',
           event_type: 'chat_started',
           payload: { entry: 'home' },
           deeplink: '/chat',
           source: 'mobile_shell',
           occurred_at_ms: Date.now(),
+        },
+        {
+          activity_id: 'act_1',
+          event_type: 'tracker_logged',
+          payload: { date: '2099-03-01' },
+          deeplink: '/chat?open=checkin',
+          source: 'tracker',
+          occurred_at_ms: Date.now() - 1000,
+          detail_available: true,
         },
       ],
       next_cursor: null,
@@ -55,9 +64,9 @@ describe('Home recent activity', () => {
 
     render(<Home />);
 
-    expect(await screen.findByText('Started a chat')).toBeInTheDocument();
+    expect(await screen.findByText('Logged a check-in')).toBeInTheDocument();
     await waitFor(() => {
-      expect(listActivity).toHaveBeenCalledWith('EN', { limit: 3 });
+      expect(listActivity).toHaveBeenCalledWith('EN', { limit: 10 });
     });
   });
 
@@ -80,5 +89,27 @@ describe('Home recent activity', () => {
     fireEvent.click(screen.getByRole('button', { name: 'See all' }));
     expect(mockNavigate).toHaveBeenCalledWith('/activity');
     expect(outletContext.openComposer).not.toHaveBeenCalled();
+  });
+
+  it('opens activity detail instead of deeplink when detail is available', async () => {
+    vi.mocked(listActivity).mockResolvedValueOnce({
+      items: [
+        {
+          activity_id: 'act_1',
+          event_type: 'skin_analysis',
+          payload: { used_photos: true },
+          deeplink: '/chat?brief_id=brief_1',
+          source: 'analysis_skin',
+          occurred_at_ms: Date.now(),
+          detail_available: true,
+        },
+      ],
+      next_cursor: null,
+    });
+
+    render(<Home />);
+    fireEvent.click(await screen.findByText('Completed skin analysis'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/activity/act_1');
   });
 });

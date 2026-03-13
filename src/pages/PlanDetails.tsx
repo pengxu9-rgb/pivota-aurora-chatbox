@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   ArrowLeft,
@@ -11,19 +11,24 @@ import {
 } from 'lucide-react';
 import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 
+import { DestinationDisambiguationDialog } from '@/components/travel/DestinationDisambiguationDialog';
 import { toast } from '@/components/ui/use-toast';
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { getLangPref } from '@/lib/persistence';
 import type { Language } from '@/lib/pivotaAgentBff';
 import {
   archiveTravelPlan,
+  getDestinationAmbiguityPayload,
   getTravelPlanById,
   updateTravelPlan,
+  type DestinationPlace,
   type TravelPlanCardModel,
+  type UpdateTravelPlanInput,
 } from '@/lib/travelPlansApi';
 
 type EditDraft = {
   destination: string;
+  departure_region: string;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio: string;
@@ -32,6 +37,13 @@ type EditDraft = {
 
 type PlanDetailsRouteState = {
   plan?: TravelPlanCardModel | null;
+};
+
+type PendingDestinationSelection = {
+  field: 'destination' | 'departure';
+  normalizedQuery: string;
+  candidates: DestinationPlace[];
+  payload: UpdateTravelPlanInput;
 };
 
 const normalizeRatio = (raw: string): number | null => {
@@ -44,6 +56,7 @@ const normalizeRatio = (raw: string): number | null => {
 
 const makeDraftFromPlan = (plan: TravelPlanCardModel | null): EditDraft => ({
   destination: String(plan?.destination || ''),
+  departure_region: String(plan?.departure_region || ''),
   start_date: String(plan?.start_date || ''),
   end_date: String(plan?.end_date || ''),
   indoor_outdoor_ratio:
@@ -54,8 +67,8 @@ const makeDraftFromPlan = (plan: TravelPlanCardModel | null): EditDraft => ({
 });
 
 const buildValidationError = (draft: EditDraft, language: Language): string | null => {
-  if (!draft.destination.trim() || !draft.start_date || !draft.end_date) {
-    return language === 'CN' ? '请先填写目的地与日期。' : 'Please fill destination and dates first.';
+  if (!draft.destination.trim() || !draft.departure_region.trim() || !draft.start_date || !draft.end_date) {
+    return language === 'CN' ? '请先填写出发地、目的地与日期。' : 'Please fill departure, destination, and dates first.';
   }
   if (draft.start_date > draft.end_date) {
     return language === 'CN' ? '开始日期不能晚于结束日期。' : 'Start date cannot be after end date.';
@@ -97,6 +110,40 @@ const getTimingLabel = (plan: TravelPlanCardModel, language: Language): string =
 
 const formatDateRange = (plan: TravelPlanCardModel): string => `${plan.start_date} - ${plan.end_date}`;
 
+const buildMissingDepartureMessage = (language: Language): string =>
+  language === 'CN'
+    ? '请先补充出发地，再开始这次旅行护肤分析。'
+    : 'Add the departure location first before starting this travel analysis.';
+
+const buildPlanChatQuery = (plan: TravelPlanCardModel, language: Language): string => {
+  const departureRegion = String(plan.departure_region || '').trim();
+  if (language === 'CN') {
+    return `请根据我的旅行计划给我一套护肤建议。出发地：${departureRegion}；目的地：${plan.destination}；日期：${plan.start_date} 到 ${plan.end_date}。`;
+  }
+  return `Please build a skincare travel plan for a trip from ${departureRegion} to ${plan.destination} from ${plan.start_date} to ${plan.end_date}.`;
+};
+
+const buildTravelPlanSessionPatch = (plan: TravelPlanCardModel): Record<string, unknown> | undefined => {
+  const destination = String(plan.destination || '').trim();
+  const departureRegion = String(plan.departure_region || '').trim();
+  const startDate = String(plan.start_date || '').trim();
+  const endDate = String(plan.end_date || '').trim();
+  if (!destination || !departureRegion || !startDate || !endDate) return undefined;
+
+  const travelPlan: Record<string, unknown> = {
+    trip_id: plan.trip_id,
+    destination,
+    departure_region: departureRegion,
+    start_date: startDate,
+    end_date: endDate,
+  };
+  if (plan.destination_place && typeof plan.destination_place === 'object') travelPlan.destination_place = plan.destination_place;
+  if (plan.departure_place && typeof plan.departure_place === 'object') travelPlan.departure_place = plan.departure_place;
+  if (Number.isFinite(Number(plan.indoor_outdoor_ratio))) travelPlan.indoor_outdoor_ratio = Number(plan.indoor_outdoor_ratio);
+  if (typeof plan.itinerary === 'string' && plan.itinerary.trim()) travelPlan.itinerary = plan.itinerary.trim();
+  return { profile: { travel_plan: travelPlan } };
+};
+
 export default function PlanDetails() {
   const { startChat } = useOutletContext<MobileShellContext>();
   const navigate = useNavigate();
@@ -118,6 +165,8 @@ export default function PlanDetails() {
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [pendingDestinationSelection, setPendingDestinationSelection] = useState<PendingDestinationSelection | null>(null);
+  const [selectingDestination, setSelectingDestination] = useState(false);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<EditDraft>(makeDraftFromPlan(initialPlan));
 
@@ -164,6 +213,34 @@ export default function PlanDetails() {
     navigate('/plans');
   };
 
+  const handleUpdateSuccess = useCallback(
+    (response: Awaited<ReturnType<typeof updateTravelPlan>>) => {
+      const nextPlan = response.plan ?? null;
+      setPlan(nextPlan);
+      setDraft(makeDraftFromPlan(nextPlan));
+      setEditing(false);
+      setPendingDestinationSelection(null);
+      toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
+    },
+    [language],
+  );
+
+  const maybeHandleDestinationAmbiguity = useCallback(
+    (err: unknown, payload: UpdateTravelPlanInput): boolean => {
+      const ambiguity = getDestinationAmbiguityPayload(err);
+      if (!ambiguity) return false;
+      setPendingDestinationSelection({
+        field: ambiguity.field,
+        normalizedQuery: ambiguity.normalized_query || (ambiguity.field === 'departure' ? draft.departure_region.trim() : draft.destination.trim()),
+        candidates: ambiguity.candidates,
+        payload,
+      });
+      setError('');
+      return true;
+    },
+    [draft.departure_region, draft.destination],
+  );
+
   const onSaveEdit = async () => {
     if (!plan || !tripId) return;
     setError('');
@@ -173,24 +250,23 @@ export default function PlanDetails() {
       return;
     }
 
+    const payload: UpdateTravelPlanInput = {
+      destination: draft.destination.trim(),
+      departure_region: draft.departure_region.trim(),
+      start_date: draft.start_date,
+      end_date: draft.end_date,
+      ...(normalizeRatio(draft.indoor_outdoor_ratio) != null
+        ? { indoor_outdoor_ratio: normalizeRatio(draft.indoor_outdoor_ratio) as number }
+        : { indoor_outdoor_ratio: undefined }),
+      ...(draft.itinerary.trim() ? { itinerary: draft.itinerary.trim().slice(0, 1200) } : { itinerary: '' }),
+    };
+
     try {
       setSaving(true);
-      const response = await updateTravelPlan(language, tripId, {
-        destination: draft.destination.trim(),
-        start_date: draft.start_date,
-        end_date: draft.end_date,
-        ...(normalizeRatio(draft.indoor_outdoor_ratio) != null
-          ? { indoor_outdoor_ratio: normalizeRatio(draft.indoor_outdoor_ratio) as number }
-          : { indoor_outdoor_ratio: undefined }),
-        ...(draft.itinerary.trim() ? { itinerary: draft.itinerary.trim().slice(0, 1200) } : { itinerary: '' }),
-      });
-
-      const nextPlan = response.plan ?? null;
-      setPlan(nextPlan);
-      setDraft(makeDraftFromPlan(nextPlan));
-      setEditing(false);
-      toast({ title: language === 'CN' ? '计划已更新' : 'Plan updated' });
+      const response = await updateTravelPlan(language, tripId, payload);
+      handleUpdateSuccess(response);
     } catch (err) {
+      if (maybeHandleDestinationAmbiguity(err, payload)) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
@@ -224,19 +300,46 @@ export default function PlanDetails() {
 
   const onOpenInChat = () => {
     if (!plan) return;
-    const query =
-      language === 'CN'
-        ? `请根据我在 ${plan.destination}（${plan.start_date} 到 ${plan.end_date}）的行程，给我一套护肤建议。`
-        : `Please build a skincare travel plan for ${plan.destination} from ${plan.start_date} to ${plan.end_date}.`;
-
+    if (!String(plan.departure_region || '').trim()) {
+      setError(buildMissingDepartureMessage(language));
+      return;
+    }
+    setError('');
     startChat({
       kind: 'query',
       title: language === 'CN' ? `旅行护肤：${plan.destination}` : `Travel skincare: ${plan.destination}`,
-      query,
+      query: buildPlanChatQuery(plan, language),
+      ...(buildTravelPlanSessionPatch(plan) ? { session_patch: buildTravelPlanSessionPatch(plan) } : {}),
     });
   };
 
+  const submitDestinationSelection = async (candidate: DestinationPlace) => {
+    if (!pendingDestinationSelection || !tripId) return;
+    const resolvedCandidate: DestinationPlace = {
+      ...candidate,
+      resolution_source: 'user_selected',
+    };
+    const payload: UpdateTravelPlanInput = {
+      ...pendingDestinationSelection.payload,
+      ...(pendingDestinationSelection.field === 'departure'
+        ? { departure_place: resolvedCandidate }
+        : { destination_place: resolvedCandidate }),
+    };
+
+    try {
+      setSelectingDestination(true);
+      const response = await updateTravelPlan(language, tripId, payload);
+      handleUpdateSuccess(response);
+    } catch (err) {
+      if (maybeHandleDestinationAmbiguity(err, payload)) return;
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSelectingDestination(false);
+    }
+  };
+
   const checklist = Array.isArray(plan?.prep_checklist) ? plan.prep_checklist : [];
+  const departureLabel = String(plan?.departure_region || '').trim();
 
   return (
     <div className="ios-page">
@@ -277,6 +380,16 @@ export default function PlanDetails() {
                   <span>{formatDateRange(plan)}</span>
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">{getTimingLabel(plan, language)}</div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5" />
+                  <span>
+                    {departureLabel
+                      ? language === 'CN'
+                        ? `出发地：${departureLabel}`
+                        : `Departure: ${departureLabel}`
+                      : buildMissingDepartureMessage(language)}
+                  </span>
+                </div>
               </div>
               <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                 {getStatusLabel(plan.status, language)}
@@ -311,6 +424,13 @@ export default function PlanDetails() {
                 </ul>
               )}
             </div>
+
+            {!departureLabel ? (
+              <div className="mt-3 rounded-2xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                <div className="font-semibold">{language === 'CN' ? 'Needs departure' : 'Needs departure'}</div>
+                <div className="mt-1">{buildMissingDepartureMessage(language)}</div>
+              </div>
+            ) : null}
 
             <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button
@@ -366,11 +486,25 @@ export default function PlanDetails() {
                   </div>
                 </label>
 
+                <label className="block">
+                  <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '出发地' : 'Departure'}</div>
+                  <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/60 px-3 py-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={draft.departure_region}
+                      onChange={(e) => setDraft((prev) => ({ ...prev, departure_region: e.target.value }))}
+                      className="h-6 w-full bg-transparent text-sm text-foreground outline-none"
+                    />
+                  </div>
+                </label>
+
                 <div className="travel-date-grid">
                   <label className="block">
                     <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '开始日期' : 'Start date'}</div>
                     <input
                       type="date"
+                      aria-label="Start date"
                       value={draft.start_date}
                       onChange={(e) => setDraft((prev) => ({ ...prev, start_date: e.target.value }))}
                       className="travel-date-input h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
@@ -380,6 +514,7 @@ export default function PlanDetails() {
                     <div className="mb-1 text-xs text-muted-foreground">{language === 'CN' ? '结束日期' : 'End date'}</div>
                     <input
                       type="date"
+                      aria-label="End date"
                       value={draft.end_date}
                       onChange={(e) => setDraft((prev) => ({ ...prev, end_date: e.target.value }))}
                       className="travel-date-input h-10 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground outline-none"
@@ -430,6 +565,21 @@ export default function PlanDetails() {
           {!editing && error ? <div className="mt-3 text-xs text-red-500">{error}</div> : null}
         </>
       )}
+
+      <DestinationDisambiguationDialog
+        open={Boolean(pendingDestinationSelection)}
+        language={language}
+        field={pendingDestinationSelection?.field || 'destination'}
+        normalizedQuery={pendingDestinationSelection?.normalizedQuery || ''}
+        candidates={pendingDestinationSelection?.candidates || []}
+        submitting={selectingDestination}
+        onSelect={(candidate) => {
+          void submitDestinationSelection(candidate);
+        }}
+        onOpenChange={(open) => {
+          if (!open && !selectingDestination) setPendingDestinationSelection(null);
+        }}
+      />
     </div>
   );
 }

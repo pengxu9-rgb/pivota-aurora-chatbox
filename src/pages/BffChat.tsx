@@ -121,6 +121,12 @@ import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/li
 import { parseChatResponseV1 } from '@/lib/chatCardsParser';
 import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
 import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
+import {
+  getComparableDisplayName,
+  isComparableProductLike,
+  looksLikeSelfRef,
+  unwrapProductLike,
+} from '@/lib/dupeCompareGuards';
 import { toast } from '@/components/ui/use-toast';
 import { ProductSearchInput, type ResolvedProduct } from '@/components/ui/ProductSearchInput';
 import {
@@ -190,6 +196,24 @@ type DiagnosisV2AuthResumeState = {
   customInput?: string;
   userText?: string;
 };
+
+type ChatRequestMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+const CHAT_CONTEXT_MESSAGE_LIMIT = 10;
+
+function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
+  const messages: ChatRequestMessage[] = [];
+  for (const item of items) {
+    if (!item || item.kind !== 'text') continue;
+    const content = String(item.content || '').trim();
+    if (!content) continue;
+    messages.push({ role: item.role, content });
+  }
+  return messages.slice(-CHAT_CONTEXT_MESSAGE_LIMIT);
+}
 
 type ProductAlternativeTrackItem = {
   candidate: Record<string, unknown>;
@@ -1241,6 +1265,11 @@ const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
   /^internal_/i,
   /^skin_fit\.profile\./i,
   /^raw\./i,
+  /^anchor_filtered_/i,
+  /^competitor_recall_/i,
+  /^catalog_ann_/i,
+  /^catalog_source_/i,
+  /^resolver_/i,
 ];
 
 const USER_VISIBLE_MISSING_INFO_CODES = new Set([
@@ -1253,6 +1282,10 @@ const USER_VISIBLE_MISSING_INFO_CODES = new Set([
   'incidecoder_fetch_failed',
   'incidecoder_unverified_not_persisted',
   'version_verification_needed',
+  'llm_verification_used',
+  'retail_source_no_match',
+  'retail_source_used',
+  'ingredient_concentration_unknown',
 ]);
 
 const isInternalMissingInfoCode = (code: string): boolean => {
@@ -1336,7 +1369,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
-const CHAT_TIMEOUT_MS = 15000;
+const CHAT_TIMEOUT_MS = 30000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
 const RECO_ALTERNATIVES_LAZY_TIMEOUT_MS = 8000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
@@ -1842,13 +1875,19 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
       EN: 'INCIDecoder result was not cross-validated and was blocked from KB persistence',
     },
     version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
+    retail_source_no_match: { CN: '零售平台未匹配到对应产品', EN: 'Retail cross-check did not find a matching product' },
+    retail_source_used: { CN: '已使用零售平台补充成分证据', EN: 'Retail source was used for ingredient evidence' },
+    ingredient_concentration_unknown: { CN: '成分浓度未披露', EN: 'Ingredient concentrations are not disclosed' },
+    llm_verification_used: { CN: '已使用 AI 知识库交叉验证成分', EN: 'AI knowledge was used to cross-verify ingredients' },
     'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
     'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
     'skin_fit.profile.barrierStatus': { CN: '未提供屏障状态', EN: 'Barrier status was not provided' },
   };
   if (map[c]?.[language]) return map[c][language];
   if (isInternalMissingInfoCode(c)) return '';
-  return c;
+  return c
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
 const NON_SKINCARE_ALTERNATIVE_RE = /\b(brush|applicator|blender|tool|comb|razor|shaver|makeup\s*brush)\b/i;
@@ -4775,7 +4814,7 @@ function BffCardView({
             if (!issue) return null;
             return {
               issue,
-              status: ['confirmed', 'possible', 'unknown'].includes(status) ? status : 'unknown',
+              status: ['confirmed', 'possible'].includes(status) ? status : 'possible',
               what_to_do: whatToDo,
             };
           })
@@ -5589,7 +5628,7 @@ function BffCardView({
                   {v4Watchouts.map((w, i) => (
                     <div key={`watchout_${i}_${w.issue}`} className="rounded-xl border border-border/40 bg-background/70 p-2">
                       <div className="flex items-start gap-2">
-                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : w.status === 'possible' ? 'text-orange-500' : 'text-slate-400'}`}>
+                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : 'text-orange-500'}`}>
                           {watchoutStatusIcon(w.status)}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -5600,14 +5639,11 @@ function BffCardView({
                         </div>
                         <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                           w.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
-                          w.status === 'possible' ? 'bg-orange-100 text-orange-600' :
-                          'bg-slate-100 text-slate-500'
+                          'bg-orange-100 text-orange-600'
                         }`}>
                           {w.status === 'confirmed'
                             ? (language === 'CN' ? '已确认' : 'Confirmed')
-                            : w.status === 'possible'
-                              ? (language === 'CN' ? '可能' : 'Possible')
-                              : (language === 'CN' ? '未知' : 'Unknown')}
+                            : (language === 'CN' ? '可能' : 'Possible')}
                         </span>
                       </div>
                     </div>
@@ -6107,7 +6143,10 @@ function BffCardView({
 
                               {(originalForCompare || (cUrl && onOpenPdp)) ? (
                                 <div className="mt-2 flex flex-wrap gap-2">
-                                  {originalForCompare ? (
+                                  {originalForCompare
+                                  && isComparableProductLike(originalForCompare)
+                                  && isComparableProductLike(candidate)
+                                  && !looksLikeSelfRef(originalForCompare, candidate) ? (
                                     <button
                                       type="button"
                                       className="chip-button"
@@ -6306,18 +6345,19 @@ function BffCardView({
         const originalRaw = asObject((payload as any).original) || asObject((payload as any).original_product) || asObject((payload as any).originalProduct);
         const dupeRaw = asObject((payload as any).dupe) || asObject((payload as any).dupe_product) || asObject((payload as any).dupeProduct);
         const similarity = asNumber((payload as any).similarity);
-        const compareQuality = (asString((payload as any).compare_quality || (payload as any).compareQuality) || 'full').toLowerCase();
-        const limitedReasonToken = asString((payload as any).limited_reason || (payload as any).limitedReason) || null;
+        const compareQuality = String(asString((payload as any).compare_quality || (payload as any).compareQuality) || 'full').toLowerCase();
+        const limitedReasonCode = String(asString((payload as any).limited_reason || (payload as any).limitedReason) || '').toLowerCase();
         const isLimitedCompare = compareQuality === 'limited';
         const limitedReason = (() => {
-          if (!limitedReasonToken) return null;
-          const token = String(limitedReasonToken).trim().toLowerCase();
-          if (token === 'tradeoffs_detail_missing') {
+          if (limitedReasonCode === 'tradeoffs_detail_missing') {
             return language === 'CN'
               ? '缺少可用的取舍细节。请提供更明确的平替链接或完整产品名后重试。'
               : 'Tradeoff detail is missing. Provide a clearer dupe link or full product name and compare again.';
           }
-          return limitedReasonToken;
+          if (!limitedReasonCode) return null;
+          return language === 'CN'
+            ? '这组对比当前只有简版结果；补充更明确的商品信息后可提升取舍细节。'
+            : 'Comparison details are limited for this pair. Provide clearer product information to improve tradeoffs.';
         })();
 
         const tradeoffs = uniqueStrings((payload as any).tradeoffs);
@@ -6493,6 +6533,8 @@ export default function BffChat() {
         trace_id: String(sp.get('trace_id') || '').trim(),
         q: String(sp.get('q') || '').trim(),
         chip_id: String(sp.get('chip_id') || '').trim(),
+        activity_id: String(sp.get('activity_id') || '').trim(),
+        artifact_id: String(sp.get('artifact_id') || '').trim(),
         open: (
           openRaw === 'photo' ||
           openRaw === 'routine' ||
@@ -6506,9 +6548,21 @@ export default function BffChat() {
         diagnosis_goals: diagnosisGoals,
       };
     } catch {
-      return { brief_id: '', trace_id: '', q: '', chip_id: '', open: null as DeepLinkOpen | null, diagnosis_goals: [] as string[] };
+      return {
+        brief_id: '',
+        trace_id: '',
+        q: '',
+        chip_id: '',
+        activity_id: '',
+        artifact_id: '',
+        open: null as DeepLinkOpen | null,
+        diagnosis_goals: [] as string[],
+      };
     }
   }, [location.search]);
+  const pendingLocationSessionProfilePatchRef = useRef<Record<string, unknown> | null>(
+    asObject((location.state as any)?.session_patch?.profile) || null,
+  );
 
   const [language, setLanguage] = useState<UiLanguage>(initialLanguage);
   const [langReplyMode, setLangReplyModeState] = useState<LangReplyMode>(() => getLangReplyMode());
@@ -6524,7 +6578,12 @@ export default function BffChat() {
     };
   });
   const [sessionState, setSessionState] = useState<string>('idle');
-  const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(null);
+  const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(() => {
+    const next: Record<string, unknown> = {};
+    if (searchParams.artifact_id) next.latest_artifact_id = searchParams.artifact_id;
+    if (searchParams.activity_id) next.source_activity_id = searchParams.activity_id;
+    return Object.keys(next).length ? next : null;
+  });
   const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
   const agentStateRef = useRef<AgentState>('IDLE_CHAT');
   useEffect(() => {
@@ -6560,6 +6619,7 @@ export default function BffChat() {
   });
   const [input, setInput] = useState('');
   const [items, setItems] = useState<ChatItem[]>([]);
+  const itemsRef = useRef<ChatItem[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [routineFormBusy, setRoutineFormBusy] = useState(false);
@@ -6577,6 +6637,22 @@ export default function BffChat() {
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Record<string, unknown> | null>(null);
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    if (!searchParams.artifact_id && !searchParams.activity_id) return;
+    setSessionMeta((prev) => {
+      const base = asObject(prev) || {};
+      return {
+        ...base,
+        ...(searchParams.artifact_id ? { latest_artifact_id: searchParams.artifact_id } : {}),
+        ...(searchParams.activity_id ? { source_activity_id: searchParams.activity_id } : {}),
+      };
+    });
+  }, [searchParams.activity_id, searchParams.artifact_id]);
 
   const shop = useShop();
   const cartCount = Math.max(0, Number(shop.cart?.item_count) || 0);
@@ -8157,14 +8233,17 @@ export default function BffChat() {
           state: sessionState,
           profileSnapshot,
           bootstrapProfile: bootstrapInfo?.profile ?? null,
+          sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
           sessionMeta,
         });
+        const priorMessages = buildChatRequestMessages(itemsRef.current);
         const body: Record<string, unknown> = {
           session,
           ...(message ? { message } : {}),
           ...(action ? { action } : {}),
           language,
           client_state: normalizeAgentState(opts?.client_state ?? agentState),
+          ...(priorMessages.length ? { messages: priorMessages } : {}),
           ...(opts?.requested_transition ? { requested_transition: opts.requested_transition } : {}),
           ...(debug ? { debug: true } : {}),
           ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
@@ -8180,6 +8259,7 @@ export default function BffChat() {
         const parsedV1 = parseChatResponseV1(bodyRaw);
         if (parsedV1) {
           applyChatResponseV1(parsedV1);
+          pendingLocationSessionProfilePatchRef.current = null;
           return;
         }
 
@@ -8187,6 +8267,7 @@ export default function BffChat() {
         const env = asObject(bodyRaw);
         if (env && typeof env.request_id === 'string' && Array.isArray(env.cards)) {
           applyEnvelope(env as V1Envelope);
+          pendingLocationSessionProfilePatchRef.current = null;
           return;
         }
 
@@ -9242,16 +9323,34 @@ export default function BffChat() {
       }
 
       if (actionId === 'dupe_compare') {
-        const original = data?.original && typeof data.original === 'object' ? data.original : null;
-        const dupe = data?.dupe && typeof data.dupe === 'object' ? data.dupe : null;
-        if (!original || !dupe) return;
+        const original = unwrapProductLike(data?.original);
+        const dupe = unwrapProductLike(data?.dupe);
+        if (!isComparableProductLike(original)) {
+          setError(
+            language === 'CN'
+              ? '目标商品信息不足，暂时无法对比。'
+              : 'Need a clearer target product before comparing.',
+          );
+          return;
+        }
+        if (!isComparableProductLike(dupe)) {
+          setError(
+            language === 'CN'
+              ? '候选商品信息不足，暂时无法对比。'
+              : 'Candidate details are incomplete, so compare is unavailable.',
+          );
+          return;
+        }
+        if (looksLikeSelfRef(original, dupe)) {
+          setError(
+            language === 'CN'
+              ? '这是同一款商品，无法做平替对比。'
+              : 'This candidate is the same product, so compare is unavailable.',
+          );
+          return;
+        }
 
-        const dupeName =
-          typeof (dupe as any)?.display_name === 'string'
-            ? String((dupe as any).display_name).trim()
-            : typeof (dupe as any)?.name === 'string'
-              ? String((dupe as any).name).trim()
-              : '';
+        const dupeName = getComparableDisplayName(dupe);
         setItems((prev) => [
           ...prev,
           {

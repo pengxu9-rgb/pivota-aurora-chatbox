@@ -1,10 +1,27 @@
-import { bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
+import { PivotaAgentBffError, bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
 
 export type TravelPlanStatus = 'upcoming' | 'in_trip' | 'completed' | 'archived';
+
+export type DestinationPlace = {
+  label: string;
+  canonical_name: string;
+  latitude: number;
+  longitude: number;
+  country_code?: string | null;
+  country?: string | null;
+  admin1?: string | null;
+  timezone?: string | null;
+  resolution_source?: 'auto_resolved' | 'user_selected';
+};
+
+export type TravelPlaceField = 'destination' | 'departure';
 
 export type TravelPlanCardModel = {
   trip_id: string;
   destination: string;
+  destination_place?: DestinationPlace | null;
+  departure_region?: string | null;
+  departure_place?: DestinationPlace | null;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio?: number;
@@ -21,6 +38,7 @@ export type TravelPlanCardModel = {
 
 export type TravelPlansSummary = {
   active_trip_id: string | null;
+  home_region?: string | null;
   counts: {
     in_trip: number;
     upcoming: number;
@@ -36,6 +54,9 @@ export type TravelPlansListResponse = {
 
 export type CreateTravelPlanInput = {
   destination: string;
+  destination_place?: DestinationPlace;
+  departure_region: string;
+  departure_place?: DestinationPlace;
   start_date: string;
   end_date: string;
   indoor_outdoor_ratio?: number;
@@ -49,6 +70,13 @@ export type UpdateTravelPlanInput = Partial<CreateTravelPlanInput> & {
 export type TravelPlanMutationResponse = {
   plan: TravelPlanCardModel | null;
   summary: TravelPlansSummary;
+};
+
+export type DestinationAmbiguityResponse = {
+  error: 'DESTINATION_AMBIGUOUS' | 'DEPARTURE_AMBIGUOUS';
+  field: TravelPlaceField;
+  normalized_query: string;
+  candidates: DestinationPlace[];
 };
 
 const withQuery = (path: string, query: Record<string, string>) => {
@@ -110,4 +138,28 @@ export const getTravelPlanById = async (
   return bffJson<TravelPlanMutationResponse>(`/v1/travel-plans/${encodeURIComponent(tripId)}`, headers, {
     method: 'GET',
   });
+};
+
+export const getDestinationAmbiguityPayload = (error: unknown): DestinationAmbiguityResponse | null => {
+  if (!(error instanceof PivotaAgentBffError)) return null;
+  if (error.status !== 409) return null;
+  const body = error.responseBody;
+  if (!body || typeof body !== 'object') return null;
+  const errorCode = String((body as { error?: string }).error || '').trim().toUpperCase();
+  if (errorCode !== 'DESTINATION_AMBIGUOUS' && errorCode !== 'DEPARTURE_AMBIGUOUS') return null;
+  const candidates = Array.isArray((body as { candidates?: unknown[] }).candidates)
+    ? ((body as { candidates: unknown[] }).candidates as DestinationPlace[])
+    : [];
+  return {
+    error: errorCode as DestinationAmbiguityResponse['error'],
+    field:
+      String((body as { field?: string }).field || '').trim().toLowerCase() === 'departure'
+        ? 'departure'
+        : 'destination',
+    normalized_query:
+      typeof (body as { normalized_query?: string }).normalized_query === 'string'
+        ? (body as { normalized_query: string }).normalized_query
+        : '',
+    candidates,
+  };
 };

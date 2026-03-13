@@ -68,7 +68,7 @@ const QUICK_ACTIONS: QuickAction[] = [
 ];
 
 export type ChatStartIntent =
-  | { kind: 'query'; title?: string; query: string }
+  | { kind: 'query'; title?: string; query: string; session_patch?: Record<string, unknown> }
   | { kind: 'chip'; title: string; chip_id: string; open?: 'photo' | 'routine' }
   | { kind: 'open'; title: string; open: 'photo' | 'routine' };
 
