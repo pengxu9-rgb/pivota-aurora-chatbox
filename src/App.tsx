@@ -15,6 +15,7 @@ import Profile from "./pages/Profile";
 import Plans from "./pages/Plans";
 import PlanDetails from "./pages/PlanDetails";
 import ActivityPage from "./pages/Activity";
+import ActivityDetailPage from "./pages/ActivityDetail";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ const App = () => (
               <Route path="/explore" element={<Explore />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/activity" element={<ActivityPage />} />
+              <Route path="/activity/:activityId" element={<ActivityDetailPage />} />
             </Route>
             <Route path="/chat" element={<BffChat />} />
             {/* Back-compat aliases for older travel plan URLs */}

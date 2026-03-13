@@ -9,6 +9,13 @@ export type ActivityEventType =
   | 'travel_plan_updated'
   | 'travel_plan_archived';
 
+export type ActivityKind =
+  | 'chat_started'
+  | 'skin_analysis'
+  | 'tracker_logged'
+  | 'profile_updated'
+  | 'travel_plan';
+
 export type ActivityItem = {
   activity_id: string | null;
   event_type: ActivityEventType | string;
@@ -17,11 +24,31 @@ export type ActivityItem = {
   source: string;
   occurred_at_ms: number;
   created_at?: string;
+  activity_kind?: ActivityKind | null;
+  detail_available?: boolean;
 };
 
 export type ActivityListResponse = {
   items: ActivityItem[];
   next_cursor: string | null;
+};
+
+export type ActivityDetailAction = {
+  action_id: string;
+  deeplink: string;
+  label: string;
+  variant?: 'primary' | 'secondary' | string;
+};
+
+export type ActivityDetail = {
+  kind: ActivityKind;
+  snapshot: Record<string, unknown>;
+  actions: ActivityDetailAction[];
+};
+
+export type ActivityDetailResponse = {
+  item: ActivityItem;
+  detail: ActivityDetail;
 };
 
 export type ActivityLogInput = {
@@ -62,5 +89,15 @@ export const logActivity = async (
       ...input,
       payload: input.payload && typeof input.payload === 'object' ? input.payload : {},
     }),
+  });
+};
+
+export const getActivityDetail = async (
+  language: Language,
+  activityId: string,
+): Promise<ActivityDetailResponse> => {
+  const headers = makeDefaultHeaders(language);
+  return bffJson<ActivityDetailResponse>(`/v1/activity/${encodeURIComponent(activityId)}`, headers, {
+    method: 'GET',
   });
 };

@@ -44,6 +44,7 @@ describe('Activity page', () => {
           deeplink: '/plans/trip_tokyo',
           source: 'travel_plans',
           occurred_at_ms: Date.now(),
+          detail_available: true,
         },
       ],
       next_cursor: null,
@@ -67,6 +68,7 @@ describe('Activity page', () => {
             deeplink: '/chat',
             source: 'mobile_shell',
             occurred_at_ms: Date.now(),
+            detail_available: true,
           },
         ],
         next_cursor: 'cursor_1',
@@ -80,6 +82,7 @@ describe('Activity page', () => {
             deeplink: '/chat',
             source: 'tracker',
             occurred_at_ms: Date.now() - 1000,
+            detail_available: true,
           },
         ],
         next_cursor: null,
@@ -96,7 +99,7 @@ describe('Activity page', () => {
     });
   });
 
-  it('opens deeplink when activity item is clicked', async () => {
+  it('opens activity detail when activity item is clicked', async () => {
     vi.mocked(listActivity).mockResolvedValueOnce({
       items: [
         {
@@ -106,6 +109,7 @@ describe('Activity page', () => {
           deeplink: '/plans/trip_paris',
           source: 'travel_plans',
           occurred_at_ms: Date.now(),
+          detail_available: true,
         },
       ],
       next_cursor: null,
@@ -114,6 +118,6 @@ describe('Activity page', () => {
     render(<ActivityPage />);
     fireEvent.click(await screen.findByText('Updated a travel plan'));
 
-    expect(navigateMock).toHaveBeenCalledWith('/plans/trip_paris');
+    expect(navigateMock).toHaveBeenCalledWith('/activity/act_1');
   });
 });
