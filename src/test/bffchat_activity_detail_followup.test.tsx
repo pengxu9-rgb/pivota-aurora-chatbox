@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@/test/testProviders';
+import { fireEvent, render, screen, waitFor } from '@/test/testProviders';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -88,5 +88,73 @@ describe('BffChat activity detail follow-up deeplink', () => {
     );
     expect(body.session?.meta?.latest_artifact_id).toBe('da_saved_1');
     expect(body.session?.meta?.source_activity_id).toBe('act_saved_1');
+  });
+
+  it('keeps saved analysis follow-up session meta on the next free-text turn', async () => {
+    const mock = vi.mocked(bffJson);
+    let chatCallCount = 0;
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+      if (path === '/v1/chat') {
+        chatCallCount += 1;
+        if (chatCallCount === 1) {
+          return Promise.resolve(makeEnvelope({
+            session_patch: {
+              meta: {
+                latest_artifact_id: 'da_saved_1',
+                source_activity_id: 'act_saved_1',
+                analysis_context: {
+                  followup_mode: 'saved_analysis',
+                  analysis_origin: 'photo',
+                  analysis_story_snapshot: {
+                    schema_version: 'aurora.analysis_story.v2',
+                    priority_findings: [{ title: 'Recurring breakouts' }],
+                    confidence_overall: { level: 'high', score: 0.86 },
+                    ui_card_v1: { headline: 'Focus on clearing recurring breakouts first' },
+                  },
+                },
+              },
+            },
+          }));
+        }
+        return Promise.resolve(makeEnvelope());
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    const view = render(
+      <MemoryRouter
+        initialEntries={[
+          '/chat?chip_id=chip.aurora.next_action.deep_dive_skin&q=Continue%20from%20my%20saved%20skin%20analysis.&artifact_id=da_saved_1&activity_id=act_saved_1',
+        ]}
+      >
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByPlaceholderText(/ask a question/i);
+    await waitFor(() => expect(getChatBodies(mock)).toHaveLength(1));
+
+    const input = screen.getByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'solve my acne problems' } });
+    const submit = view.container.querySelector('form button[type="submit"]');
+    expect(submit).toBeTruthy();
+    fireEvent.click(submit as HTMLButtonElement);
+
+    await waitFor(() => expect(getChatBodies(mock)).toHaveLength(2));
+
+    const [, secondBody] = getChatBodies(mock);
+    expect(secondBody.message).toBe('solve my acne problems');
+    expect(secondBody.session?.meta?.latest_artifact_id).toBe('da_saved_1');
+    expect(secondBody.session?.meta?.source_activity_id).toBe('act_saved_1');
+    expect(secondBody.session?.meta?.analysis_context?.followup_mode).toBe('saved_analysis');
+    expect(secondBody.session?.meta?.analysis_context?.analysis_origin).toBe('photo');
+    expect(secondBody.session?.meta?.analysis_context?.analysis_story_snapshot?.ui_card_v1?.headline).toBe(
+      'Focus on clearing recurring breakouts first',
+    );
   });
 });
