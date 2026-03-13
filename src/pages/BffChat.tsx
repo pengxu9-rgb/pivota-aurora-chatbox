@@ -121,12 +121,6 @@ import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/li
 import { parseChatResponseV1 } from '@/lib/chatCardsParser';
 import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
 import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
-import {
-  getComparableDisplayName,
-  isComparableProductLike,
-  looksLikeSelfRef,
-  unwrapProductLike,
-} from '@/lib/dupeCompareGuards';
 import { toast } from '@/components/ui/use-toast';
 import { ProductSearchInput, type ResolvedProduct } from '@/components/ui/ProductSearchInput';
 import {
@@ -1265,11 +1259,6 @@ const INTERNAL_MISSING_INFO_PATTERNS: RegExp[] = [
   /^internal_/i,
   /^skin_fit\.profile\./i,
   /^raw\./i,
-  /^anchor_filtered_/i,
-  /^competitor_recall_/i,
-  /^catalog_ann_/i,
-  /^catalog_source_/i,
-  /^resolver_/i,
 ];
 
 const USER_VISIBLE_MISSING_INFO_CODES = new Set([
@@ -1282,10 +1271,6 @@ const USER_VISIBLE_MISSING_INFO_CODES = new Set([
   'incidecoder_fetch_failed',
   'incidecoder_unverified_not_persisted',
   'version_verification_needed',
-  'llm_verification_used',
-  'retail_source_no_match',
-  'retail_source_used',
-  'ingredient_concentration_unknown',
 ]);
 
 const isInternalMissingInfoCode = (code: string): boolean => {
@@ -1369,7 +1354,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
-const CHAT_TIMEOUT_MS = 30000;
+const CHAT_TIMEOUT_MS = 15000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
 const RECO_ALTERNATIVES_LAZY_TIMEOUT_MS = 8000;
 const MIN_ACTIONABLE_NOTICE_LEN = 18;
@@ -1875,19 +1860,13 @@ function labelMissing(code: string, language: 'EN' | 'CN') {
       EN: 'INCIDecoder result was not cross-validated and was blocked from KB persistence',
     },
     version_verification_needed: { CN: '需核对地区/批次版本差异', EN: 'Version/region verification is still needed' },
-    retail_source_no_match: { CN: '零售平台未匹配到对应产品', EN: 'Retail cross-check did not find a matching product' },
-    retail_source_used: { CN: '已使用零售平台补充成分证据', EN: 'Retail source was used for ingredient evidence' },
-    ingredient_concentration_unknown: { CN: '成分浓度未披露', EN: 'Ingredient concentrations are not disclosed' },
-    llm_verification_used: { CN: '已使用 AI 知识库交叉验证成分', EN: 'AI knowledge was used to cross-verify ingredients' },
     'skin_fit.profile.skinType': { CN: '未提供肤质信息', EN: 'Skin type was not provided' },
     'skin_fit.profile.sensitivity': { CN: '未提供敏感度信息', EN: 'Sensitivity was not provided' },
     'skin_fit.profile.barrierStatus': { CN: '未提供屏障状态', EN: 'Barrier status was not provided' },
   };
   if (map[c]?.[language]) return map[c][language];
   if (isInternalMissingInfoCode(c)) return '';
-  return c
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  return c;
 }
 
 const NON_SKINCARE_ALTERNATIVE_RE = /\b(brush|applicator|blender|tool|comb|razor|shaver|makeup\s*brush)\b/i;
@@ -4814,7 +4793,7 @@ function BffCardView({
             if (!issue) return null;
             return {
               issue,
-              status: ['confirmed', 'possible'].includes(status) ? status : 'possible',
+              status: ['confirmed', 'possible', 'unknown'].includes(status) ? status : 'unknown',
               what_to_do: whatToDo,
             };
           })
@@ -5628,7 +5607,7 @@ function BffCardView({
                   {v4Watchouts.map((w, i) => (
                     <div key={`watchout_${i}_${w.issue}`} className="rounded-xl border border-border/40 bg-background/70 p-2">
                       <div className="flex items-start gap-2">
-                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : 'text-orange-500'}`}>
+                        <span className={`mt-0.5 shrink-0 text-sm ${w.status === 'confirmed' ? 'text-amber-600' : w.status === 'possible' ? 'text-orange-500' : 'text-slate-400'}`}>
                           {watchoutStatusIcon(w.status)}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -5639,11 +5618,14 @@ function BffCardView({
                         </div>
                         <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                           w.status === 'confirmed' ? 'bg-amber-100 text-amber-700' :
-                          'bg-orange-100 text-orange-600'
+                          w.status === 'possible' ? 'bg-orange-100 text-orange-600' :
+                          'bg-slate-100 text-slate-500'
                         }`}>
                           {w.status === 'confirmed'
                             ? (language === 'CN' ? '已确认' : 'Confirmed')
-                            : (language === 'CN' ? '可能' : 'Possible')}
+                            : w.status === 'possible'
+                              ? (language === 'CN' ? '可能' : 'Possible')
+                              : (language === 'CN' ? '未知' : 'Unknown')}
                         </span>
                       </div>
                     </div>
@@ -6143,10 +6125,7 @@ function BffCardView({
 
                               {(originalForCompare || (cUrl && onOpenPdp)) ? (
                                 <div className="mt-2 flex flex-wrap gap-2">
-                                  {originalForCompare
-                                  && isComparableProductLike(originalForCompare)
-                                  && isComparableProductLike(candidate)
-                                  && !looksLikeSelfRef(originalForCompare, candidate) ? (
+                                  {originalForCompare ? (
                                     <button
                                       type="button"
                                       className="chip-button"
@@ -9323,34 +9302,16 @@ export default function BffChat() {
       }
 
       if (actionId === 'dupe_compare') {
-        const original = unwrapProductLike(data?.original);
-        const dupe = unwrapProductLike(data?.dupe);
-        if (!isComparableProductLike(original)) {
-          setError(
-            language === 'CN'
-              ? '目标商品信息不足，暂时无法对比。'
-              : 'Need a clearer target product before comparing.',
-          );
-          return;
-        }
-        if (!isComparableProductLike(dupe)) {
-          setError(
-            language === 'CN'
-              ? '候选商品信息不足，暂时无法对比。'
-              : 'Candidate details are incomplete, so compare is unavailable.',
-          );
-          return;
-        }
-        if (looksLikeSelfRef(original, dupe)) {
-          setError(
-            language === 'CN'
-              ? '这是同一款商品，无法做平替对比。'
-              : 'This candidate is the same product, so compare is unavailable.',
-          );
-          return;
-        }
+        const original = data?.original && typeof data.original === 'object' ? data.original : null;
+        const dupe = data?.dupe && typeof data.dupe === 'object' ? data.dupe : null;
+        if (!original || !dupe) return;
 
-        const dupeName = getComparableDisplayName(dupe);
+        const dupeName =
+          typeof (dupe as any)?.display_name === 'string'
+            ? String((dupe as any).display_name).trim()
+            : typeof (dupe as any)?.name === 'string'
+              ? String((dupe as any).name).trim()
+              : '';
         setItems((prev) => [
           ...prev,
           {
