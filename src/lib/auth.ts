@@ -4,6 +4,14 @@ export type AuroraAuthSession = {
   expires_at?: string | null;
 };
 
+export type AuroraResponseAuthMeta = {
+  state: 'authenticated' | 'invalid';
+  user: {
+    email: string | null;
+  };
+  expires_at: string | null;
+};
+
 const STORAGE_KEY = 'pivota_aurora_auth_session_v1';
 export const AURORA_AUTH_SESSION_CHANGED_EVENT = 'aurora_auth_session_changed';
 
@@ -23,6 +31,10 @@ function safeJsonParse(value: string): unknown {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 function isExpired(expiresAt: string | null | undefined): boolean {
   const v = String(expiresAt || '').trim();
   if (!v) return false;
@@ -31,35 +43,63 @@ function isExpired(expiresAt: string | null | undefined): boolean {
   return ts <= Date.now();
 }
 
-export function loadAuroraAuthSession(): AuroraAuthSession | null {
+function normalizeAuroraAuthSession(value: unknown): AuroraAuthSession | null {
+  if (!isRecord(value)) return null;
+  const token = typeof value.token === 'string' ? value.token.trim() : '';
+  const email = typeof value.email === 'string' ? value.email.trim() : '';
+  const expires_at =
+    typeof value.expires_at === 'string' ? value.expires_at.trim() : value.expires_at == null ? null : null;
+  if (!token || !email) return null;
+  return { token, email, expires_at };
+}
+
+function readStoredAuroraAuthSession(options: { enforceExpiry?: boolean } = {}): AuroraAuthSession | null {
+  const enforceExpiry = options.enforceExpiry !== false;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = safeJsonParse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    const token = typeof (parsed as any).token === 'string' ? (parsed as any).token.trim() : '';
-    const email = typeof (parsed as any).email === 'string' ? (parsed as any).email.trim() : '';
-    const expires_at =
-      typeof (parsed as any).expires_at === 'string' ? (parsed as any).expires_at.trim() : (parsed as any).expires_at == null ? null : null;
-    if (!token || !email) return null;
-    if (isExpired(expires_at)) {
+    const session = normalizeAuroraAuthSession(safeJsonParse(raw));
+    if (!session) return null;
+    if (enforceExpiry && isExpired(session.expires_at)) {
       window.localStorage.removeItem(STORAGE_KEY);
       return null;
     }
-    return { token, email, expires_at };
+    return session;
   } catch {
     return null;
   }
 }
 
+function sameAuroraAuthSession(a: AuroraAuthSession | null, b: AuroraAuthSession | null): boolean {
+  if (!a || !b) return a === b;
+  return a.token === b.token && a.email === b.email && (a.expires_at || null) === (b.expires_at || null);
+}
+
+function normalizeAuroraResponseAuthMeta(value: unknown): AuroraResponseAuthMeta | null {
+  if (!isRecord(value)) return null;
+  const state = value.state === 'authenticated' || value.state === 'invalid' ? value.state : null;
+  const user = isRecord(value.user) ? value.user : {};
+  const email = typeof user.email === 'string' ? user.email.trim() : user.email == null ? null : null;
+  const expires_at = typeof value.expires_at === 'string' ? value.expires_at.trim() : value.expires_at == null ? null : null;
+  if (!state) return null;
+  return {
+    state,
+    user: { email },
+    expires_at,
+  };
+}
+
+export function loadAuroraAuthSession(): AuroraAuthSession | null {
+  return readStoredAuroraAuthSession();
+}
+
 export function saveAuroraAuthSession(session: AuroraAuthSession): void {
   try {
-    if (!session || typeof session !== 'object') return;
-    const token = String(session.token || '').trim();
-    const email = String(session.email || '').trim();
-    const expires_at = session.expires_at == null ? null : String(session.expires_at).trim();
-    if (!token || !email) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, email, expires_at }));
+    const nextSession = normalizeAuroraAuthSession(session);
+    if (!nextSession) return;
+    const currentSession = readStoredAuroraAuthSession({ enforceExpiry: false });
+    if (sameAuroraAuthSession(currentSession, nextSession)) return;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSession));
     dispatchAuthChange();
   } catch {
     // ignore
@@ -68,10 +108,36 @@ export function saveAuroraAuthSession(session: AuroraAuthSession): void {
 
 export function clearAuroraAuthSession(): void {
   try {
+    const hadSession = window.localStorage.getItem(STORAGE_KEY) != null;
     window.localStorage.removeItem(STORAGE_KEY);
-    dispatchAuthChange();
+    if (hadSession) dispatchAuthChange();
   } catch {
     // ignore
   }
 }
 
+export function syncAuroraAuthSessionFromResponse(
+  response: unknown,
+  options: { fallbackToken?: string | null } = {},
+): void {
+  const root = isRecord(response) ? response : null;
+  const meta = root && isRecord(root.meta) ? root.meta : null;
+  const authMeta = normalizeAuroraResponseAuthMeta(meta && meta.auth);
+  if (!authMeta) return;
+
+  if (authMeta.state === 'invalid') {
+    clearAuroraAuthSession();
+    return;
+  }
+
+  const currentSession = readStoredAuroraAuthSession({ enforceExpiry: false });
+  const token = String(options.fallbackToken || currentSession?.token || '').trim();
+  const email = String(authMeta.user.email || currentSession?.email || '').trim();
+  if (!token || !email) return;
+
+  saveAuroraAuthSession({
+    token,
+    email,
+    expires_at: authMeta.expires_at,
+  });
+}

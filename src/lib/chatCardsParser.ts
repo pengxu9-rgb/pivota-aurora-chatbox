@@ -180,6 +180,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
   const opsRaw = asRecord(root.ops) || {};
   const safetyRaw = asRecord(root.safety) || {};
   const telemetryRaw = asRecord(root.telemetry) || {};
+  const metaRaw = asRecord(root.meta) || undefined;
   const legacySessionPatch = asRecord(root.session_patch) || undefined;
 
   const riskLevelRaw = asString(safetyRaw.risk_level).toLowerCase();
@@ -266,6 +267,7 @@ export const parseChatResponseV1 = (input: unknown): ChatResponseV1 | null => {
         : {}),
       ...(telemetryResolutionSource ? { language_resolution_source: telemetryResolutionSource } : {}),
     },
+    ...(metaRaw ? { meta: metaRaw } : {}),
     ...(legacySessionPatch ? { legacy_session_patch: legacySessionPatch } : {}),
   };
 };
@@ -378,5 +380,6 @@ export const chatResponseV1ToEnvelope = (response: ChatResponseV1): V1Envelope =
     cards,
     session_patch: sessionPatch,
     events,
+    ...(response.meta ? { meta: response.meta } : {}),
   };
 };

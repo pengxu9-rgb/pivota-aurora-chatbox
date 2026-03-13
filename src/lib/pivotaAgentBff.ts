@@ -1,6 +1,7 @@
 import { getOrCreateAuroraUid } from './persistence';
 import type { ChatIntroHintV1 } from './chatCardsTypes';
 import { requestWithTimeout } from '@/utils/requestWithTimeout';
+import { syncAuroraAuthSessionFromResponse } from './auth';
 
 export type Language = 'EN' | 'CN';
 
@@ -196,6 +197,7 @@ export const bffJson = async <TResponse>(
       : await fetch(requestUrl, requestInit);
 
   const body = await safeReadJson(res);
+  syncAuroraAuthSessionFromResponse(body, { fallbackToken: headers.auth_token ?? null });
   if (!res.ok) {
     throw new PivotaAgentBffError(`Request failed: ${res.status} ${res.statusText}`, res.status, body);
   }
@@ -357,6 +359,7 @@ export const bffChatStream = async (
           break;
         case 'result':
           sawResult = true;
+          syncAuroraAuthSessionFromResponse(data, { fallbackToken: headers.auth_token ?? null });
           callbacks.onResult(data as SSEResultEvent);
           break;
         case 'error': {
