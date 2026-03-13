@@ -5,6 +5,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import type { MobileShellContext } from '@/layouts/MobileShell';
 import { listActivity, type ActivityItem } from '@/lib/activityApi';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { openActivityItem } from '@/lib/activityPresentation';
 
 const PAGE_SIZE = 20;
 
@@ -94,7 +95,7 @@ export default function ActivityPage() {
                 key={String(item.activity_id || `${item.event_type}_${item.occurred_at_ms}`)}
                 type="button"
                 className="flex w-full items-center justify-between gap-3 rounded-[22px] border border-[hsl(var(--aurora-home-border)/0.72)] bg-[hsl(var(--aurora-home-card)/var(--aurora-home-glass-alpha))] px-4 py-3 text-left shadow-card"
-                onClick={() => openActivityDeeplink(item.deeplink, navigate)}
+                onClick={() => openActivityItem(item, navigate)}
               >
                 <div className="min-w-0">
                   <div className="truncate text-[14px] font-semibold text-[hsl(var(--aurora-home-foreground))]">{formatActivityTitle(item, t)}</div>
@@ -120,19 +121,6 @@ export default function ActivityPage() {
     </div>
   );
 }
-
-function openActivityDeeplink(deeplink: string | null | undefined, navigate: (to: string) => void) {
-  const target = String(deeplink || '').trim();
-  if (!target) return;
-  if (target.startsWith('/')) {
-    navigate(target);
-    return;
-  }
-  if (/^https?:\/\//i.test(target) && typeof window !== 'undefined') {
-    window.open(target, '_blank', 'noopener,noreferrer');
-  }
-}
-
 function formatActivityTitle(item: ActivityItem, t: TFn): string {
   const keyMap: Record<string, string> = {
     chat_started: 'home.activity.chat_started',
