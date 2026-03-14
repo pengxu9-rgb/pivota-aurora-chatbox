@@ -53,7 +53,7 @@ describe('BffChat activity detail follow-up deeplink', () => {
     }
   });
 
-  it('converts activity deep links into explicit deep_dive_skin actions with artifact context', async () => {
+  it('converts activity deep links into explicit solution_next_steps actions with artifact context', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
@@ -68,7 +68,7 @@ describe('BffChat activity detail follow-up deeplink', () => {
     render(
       <MemoryRouter
         initialEntries={[
-          '/chat?chip_id=chip.aurora.next_action.deep_dive_skin&q=Continue%20from%20my%20saved%20skin%20analysis.%20Do%20not%20ask%20me%20to%20restate%20my%20goals.&artifact_id=da_saved_1&activity_id=act_saved_1',
+          '/chat?chip_id=chip.aurora.next_action.solution_next_steps&q=Continue%20from%20my%20saved%20skin%20analysis.%20Do%20not%20ask%20me%20to%20restate%20my%20goals.&artifact_id=da_saved_1&activity_id=act_saved_1',
         ]}
       >
         <ShopProvider>
@@ -86,7 +86,7 @@ describe('BffChat activity detail follow-up deeplink', () => {
 
     const [body] = getChatBodies(mock);
     expect(body.message).toBeUndefined();
-    expect(body.action?.action_id).toBe('chip.aurora.next_action.deep_dive_skin');
+    expect(body.action?.action_id).toBe('chip.aurora.next_action.solution_next_steps');
     expect(body.action?.data?.reply_text).toBe(
       'Continue from my saved skin analysis. Do not ask me to restate my goals.',
     );
@@ -131,7 +131,7 @@ describe('BffChat activity detail follow-up deeplink', () => {
     const view = render(
       <MemoryRouter
         initialEntries={[
-          '/chat?chip_id=chip.aurora.next_action.deep_dive_skin&q=Continue%20from%20my%20saved%20skin%20analysis.&artifact_id=da_saved_1&activity_id=act_saved_1',
+          '/chat?chip_id=chip.aurora.next_action.solution_next_steps&q=Continue%20from%20my%20saved%20skin%20analysis.&artifact_id=da_saved_1&activity_id=act_saved_1',
         ]}
       >
         <ShopProvider>
@@ -227,7 +227,7 @@ describe('BffChat activity detail follow-up deeplink', () => {
     const view = render(
       <MemoryRouter
         initialEntries={[
-          '/chat?chip_id=chip.aurora.next_action.deep_dive_skin&q=Continue%20from%20my%20saved%20skin%20analysis.&artifact_id=da_saved_1&activity_id=act_saved_1',
+          '/chat?chip_id=chip.aurora.next_action.solution_next_steps&q=Continue%20from%20my%20saved%20skin%20analysis.&artifact_id=da_saved_1&activity_id=act_saved_1',
         ]}
       >
         <ShopProvider>

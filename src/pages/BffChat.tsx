@@ -10682,7 +10682,10 @@ export default function BffChat() {
         return;
       }
 
-      if (actionId === 'chip.aurora.next_action.deep_dive_skin') {
+      if (
+        actionId === 'chip.aurora.next_action.deep_dive_skin' ||
+        actionId === 'chip.aurora.next_action.solution_next_steps'
+      ) {
         const replyText =
           asString(data?.reply_text) ||
           (language === 'CN' ? '深入了解我的皮肤状态' : 'Tell me more about my skin');
@@ -11426,7 +11429,9 @@ export default function BffChat() {
         return;
       }
 
-      const shouldDeferImmediateUserEcho = effectiveActionId === 'chip.aurora.next_action.deep_dive_skin';
+      const shouldDeferImmediateUserEcho =
+        effectiveActionId === 'chip.aurora.next_action.deep_dive_skin' ||
+        effectiveActionId === 'chip.aurora.next_action.solution_next_steps';
       if (!shouldDeferImmediateUserEcho) {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
       }
@@ -11563,10 +11568,19 @@ export default function BffChat() {
         return;
       }
 
-      if (effectiveActionId === 'chip.aurora.next_action.deep_dive_skin') {
+      if (
+        effectiveActionId === 'chip.aurora.next_action.deep_dive_skin' ||
+        effectiveActionId === 'chip.aurora.next_action.solution_next_steps'
+      ) {
         const replyText =
           fallbackReplyText ||
-          (language === 'CN' ? '基于我保存的 skin analysis 继续。' : 'Continue from my saved skin analysis.');
+          (
+            effectiveActionId === 'chip.aurora.next_action.solution_next_steps'
+              ? (language === 'CN'
+                  ? '基于我保存的 skin analysis 继续，不要让我重复目标，直接告诉我下一步该怎么做。'
+                  : 'Continue from my saved skin analysis. Do not ask me to restate my goals. Tell me the next best steps.')
+              : (language === 'CN' ? '基于我保存的 skin analysis 继续。' : 'Continue from my saved skin analysis.')
+          );
         const photoRefs = getSanitizedAnalysisPhotos();
         const analysisStorySnapshot = getLatestAnalysisStorySnapshot();
         const analysisContext: ChatSessionAnalysisContext = {
@@ -11654,6 +11668,7 @@ export default function BffChat() {
         'chip.start.routine': { EN: 'Build an AM/PM routine', CN: '生成早晚护肤 routine' },
         'chip.start.dupes': { EN: 'Find dupes / alternatives', CN: '找平替/替代品' },
         'chip.aurora.next_action.deep_dive_skin': { EN: 'Continue from my saved analysis', CN: '继续这次分析结果' },
+        'chip.aurora.next_action.solution_next_steps': { EN: 'Continue from my saved analysis', CN: '继续这次分析结果' },
         'chip.start.ingredients.entry': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
         'chip.start.ingredients': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
       };
@@ -11669,6 +11684,10 @@ export default function BffChat() {
           CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
         },
         'chip.aurora.next_action.deep_dive_skin': {
+          EN: 'Continue from my saved skin analysis. Do not ask me to restate my goals. Tell me the next best steps.',
+          CN: '基于我保存的 skin analysis 继续，不要让我重复目标，直接告诉我下一步该怎么做。',
+        },
+        'chip.aurora.next_action.solution_next_steps': {
           EN: 'Continue from my saved skin analysis. Do not ask me to restate my goals. Tell me the next best steps.',
           CN: '基于我保存的 skin analysis 继续，不要让我重复目标，直接告诉我下一步该怎么做。',
         },
