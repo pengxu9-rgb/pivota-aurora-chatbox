@@ -11385,7 +11385,10 @@ export default function BffChat() {
         return;
       }
 
-      setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+      const shouldDeferImmediateUserEcho = effectiveActionId === 'chip.aurora.next_action.deep_dive_skin';
+      if (!shouldDeferImmediateUserEcho) {
+        setItems((prev) => [...stripReturnWelcome(prev), userItem]);
+      }
       const activeProfile = profileSnapshot ?? bootstrapInfo?.profile ?? null;
       const existingRecoGoal = getPrimaryResolvedRecoGoal(activeProfile);
       const isGenericRecoAction = effectiveActionId === 'chip.start.reco_products' || effectiveActionId === 'chip_get_recos';

@@ -82,6 +82,7 @@ describe('BffChat activity detail follow-up deeplink', () => {
     expect(
       screen.getByText('Continue from my saved skin analysis. Do not ask me to restate my goals.'),
     ).toBeInTheDocument();
+    expect(screen.queryByText('Continue from my saved analysis')).not.toBeInTheDocument();
 
     const [body] = getChatBodies(mock);
     expect(body.message).toBeUndefined();
@@ -141,6 +142,7 @@ describe('BffChat activity detail follow-up deeplink', () => {
 
     await screen.findByPlaceholderText(/ask a question/i);
     await waitFor(() => expect(getChatBodies(mock)).toHaveLength(1));
+    expect(screen.queryByText('Continue from my saved analysis')).not.toBeInTheDocument();
 
     const input = screen.getByPlaceholderText(/ask a question/i);
     fireEvent.change(input, { target: { value: 'solve my acne problems' } });
