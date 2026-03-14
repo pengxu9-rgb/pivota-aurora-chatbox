@@ -87,7 +87,7 @@ describe('AnalysisSummaryCard routine expert rendering', () => {
     expect(screen.queryByRole('button', { name: '先继续下一步' })).not.toBeInTheDocument();
 
     fireEvent.click(recommendations);
-    expect(onAction).toHaveBeenCalledWith('analysis_continue');
+    expect(onAction).toHaveBeenCalledWith('analysis_continue', undefined);
     fireEvent.click(addProducts);
     expect(onAction).toHaveBeenCalledWith('analysis_review_products');
   });

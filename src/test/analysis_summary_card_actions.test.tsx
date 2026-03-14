@@ -31,7 +31,7 @@ describe('AnalysisSummaryCard actions', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'See product recommendations' }));
-    expect(onAction).toHaveBeenCalledWith('analysis_continue');
+    expect(onAction).toHaveBeenCalledWith('analysis_continue', undefined);
 
     fireEvent.click(screen.getByRole('button', { name: 'Add AM/PM products (more accurate)' }));
     expect(onAction).toHaveBeenCalledWith('analysis_review_products');
@@ -51,5 +51,45 @@ describe('AnalysisSummaryCard actions', () => {
     );
 
     expect(screen.queryByRole('button', { name: 'Add AM/PM products (more accurate)' })).toBeNull();
+  });
+
+  it('supports saved-analysis follow-up overrides for title and product CTA', () => {
+    const onAction = vi.fn();
+    render(
+      <AnalysisSummaryCard
+        payload={{
+          ...basePayload,
+          title: 'Acne next steps from your saved analysis',
+          subtitle: 'Based on your saved photo analysis',
+          key_takeaways_title: 'What to focus on now',
+          plan_title: 'How to approach acne next',
+          hide_quick_check: true,
+          hide_tuning_actions: true,
+          primary_cta_label: 'See acne-safe product recommendations',
+          primary_action_id: 'analysis_continue_products',
+          primary_action_data: {
+            reply_text: 'Based on my saved skin analysis, recommend acne-safe products for me.',
+            include_alternatives: true,
+            profile_patch: { goals: ['acne'] },
+          },
+        }}
+        onAction={onAction}
+        language="EN"
+      />,
+    );
+
+    expect(screen.getByText('Acne next steps from your saved analysis')).toBeInTheDocument();
+    expect(screen.getByText('Based on your saved photo analysis')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'What to focus on now' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'How to approach acne next' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: 'Quick check' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Make gentler' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'See acne-safe product recommendations' }));
+    expect(onAction).toHaveBeenCalledWith('analysis_continue_products', {
+      reply_text: 'Based on my saved skin analysis, recommend acne-safe products for me.',
+      include_alternatives: true,
+      profile_patch: { goals: ['acne'] },
+    });
   });
 });

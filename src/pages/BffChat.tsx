@@ -5482,6 +5482,7 @@ function BffCardView({
   }
 
   if (cardType === 'analysis_summary') {
+    const rawPayload = payload as Record<string, unknown>;
     const analysisObj = asObject((payload as any).analysis) || {};
     const featuresRaw = asArray((analysisObj as any).features).map((v) => asObject(v)).filter(Boolean) as Array<Record<string, unknown>>;
     const features = featuresRaw
@@ -5511,6 +5512,19 @@ function BffCardView({
           photos_provided: photosProvided,
           photo_qc: photoQc,
           analysis_source: analysisSource,
+          used_photos: (rawPayload as any).used_photos === true,
+          title: asString((rawPayload as any).title) || undefined,
+          subtitle: asString((rawPayload as any).subtitle) || undefined,
+          key_takeaways_title: asString((rawPayload as any).key_takeaways_title) || undefined,
+          plan_title: asString((rawPayload as any).plan_title) || undefined,
+          quick_check_title: asString((rawPayload as any).quick_check_title) || undefined,
+          quick_check_question: asString((rawPayload as any).quick_check_question) || undefined,
+          caution_text: asString((rawPayload as any).caution_text) || undefined,
+          hide_quick_check: (rawPayload as any).hide_quick_check === true,
+          hide_tuning_actions: (rawPayload as any).hide_tuning_actions === true,
+          primary_cta_label: asString((rawPayload as any).primary_cta_label) || undefined,
+          primary_action_id: asString((rawPayload as any).primary_action_id) || undefined,
+          primary_action_data: asObject((rawPayload as any).primary_action_data) || undefined,
         }}
         onAction={(id, data) => onAction(id, data)}
         language={language}
@@ -10718,7 +10732,7 @@ export default function BffChat() {
                 : 'Make it simpler'
               : null;
 
-      if (actionId === 'analysis_continue') {
+      if (actionId === 'analysis_continue' || actionId === 'analysis_continue_products') {
         // Explicitly request recommendations via a chip trigger so the backend
         // can safely allow recommendation cards (no accidental auto-push).
         const fromState = agentState;
@@ -10749,18 +10763,45 @@ export default function BffChat() {
         if (resolvedNextState === 'RECO_GATE') {
           emitUiRecosRequested({ ...ctx, state: resolvedNextState }, { entry_point: 'action', prior_value_moment: 'analysis_summary' });
         }
+        const primaryActionData =
+          data && typeof data === 'object' && !Array.isArray(data)
+            ? data as Record<string, unknown>
+            : {};
+        const userVisibleText =
+          actionId === 'analysis_continue_products'
+            ? asString((primaryActionData as any).user_text) || (language === 'CN' ? '查看产品推荐' : 'See product recommendations')
+            : t('s5.btn.continue', language);
         setItems((prev) => [
           ...prev,
-          { id: nextId(), role: 'user', kind: 'text', content: t('s5.btn.continue', language) },
+          { id: nextId(), role: 'user', kind: 'text', content: userVisibleText },
         ]);
-        await sendChat(undefined, {
-          action_id: 'chip.action.reco_routine',
-          kind: 'chip',
-          data: {
-            reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
-            include_alternatives: true,
-          },
-        }, {
+        const recoAction =
+          actionId === 'analysis_continue_products'
+            ? {
+                action_id: 'chip.start.reco_products',
+                kind: 'chip' as const,
+                data: {
+                  ...primaryActionData,
+                  reply_text:
+                    asString((primaryActionData as any).reply_text) ||
+                    (language === 'CN'
+                      ? '基于当前分析，给我产品推荐。'
+                      : 'Based on this analysis, recommend products for me.'),
+                  include_alternatives:
+                    typeof (primaryActionData as any).include_alternatives === 'boolean'
+                      ? (primaryActionData as any).include_alternatives
+                      : true,
+                },
+              }
+            : {
+                action_id: 'chip.action.reco_routine',
+                kind: 'chip' as const,
+                data: {
+                  reply_text: language === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine',
+                  include_alternatives: true,
+                },
+              };
+        await sendChat(undefined, recoAction, {
           client_state: fromState,
           requested_transition: { trigger_source: 'action', trigger_id: actionId, requested_next_state: resolvedNextState },
         });

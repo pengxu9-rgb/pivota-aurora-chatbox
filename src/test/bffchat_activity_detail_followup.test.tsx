@@ -162,4 +162,99 @@ describe('BffChat activity detail follow-up deeplink', () => {
       'Focus on clearing recurring breakouts first',
     );
   });
+
+  it('routes saved-analysis follow-up product CTA into chip.start.reco_products', async () => {
+    const mock = vi.mocked(bffJson);
+    let chatCallCount = 0;
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+      if (path === '/v1/chat') {
+        chatCallCount += 1;
+        if (chatCallCount === 1) {
+          return Promise.resolve(makeEnvelope({
+            session_patch: {
+              meta: {
+                latest_artifact_id: 'da_saved_1',
+                source_activity_id: 'act_saved_1',
+                analysis_context: {
+                  followup_mode: 'saved_analysis',
+                  analysis_origin: 'photo',
+                  analysis_story_snapshot: {
+                    schema_version: 'aurora.analysis_story.v2',
+                    priority_findings: [{ title: 'Recurring breakouts' }],
+                    confidence_overall: { level: 'high', score: 0.86 },
+                  },
+                },
+              },
+            },
+          }));
+        }
+        if (chatCallCount === 2) {
+          return Promise.resolve(makeEnvelope({
+            cards: [{
+              card_id: 'saved_analysis_next_steps_req',
+              type: 'analysis_summary',
+              payload: {
+                title: 'Acne next steps from your saved analysis',
+                subtitle: 'Based on your saved photo analysis',
+                key_takeaways_title: 'What to focus on now',
+                plan_title: 'How to approach acne next',
+                hide_quick_check: true,
+                hide_tuning_actions: true,
+                primary_cta_label: 'See acne-safe product recommendations',
+                primary_action_id: 'analysis_continue_products',
+                primary_action_data: {
+                  reply_text: 'Based on my saved skin analysis, recommend acne-safe products for me.',
+                  include_alternatives: true,
+                  profile_patch: { goals: ['acne'] },
+                },
+                analysis: {
+                  features: [{ observation: 'Priority ingredients: salicylic acid, azelaic acid', confidence: 'pretty_sure' }],
+                  strategy: '1) Keep barrier support.\n2) Add one acne active.\n3) Move into products.',
+                  needs_risk_check: false,
+                },
+              },
+            }],
+          }));
+        }
+        return Promise.resolve(makeEnvelope());
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    const view = render(
+      <MemoryRouter
+        initialEntries={[
+          '/chat?chip_id=chip.aurora.next_action.deep_dive_skin&q=Continue%20from%20my%20saved%20skin%20analysis.&artifact_id=da_saved_1&activity_id=act_saved_1',
+        ]}
+      >
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByPlaceholderText(/ask a question/i);
+    await waitFor(() => expect(getChatBodies(mock)).toHaveLength(1));
+
+    const input = screen.getByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'solve my acne problems' } });
+    const submit = view.container.querySelector('form button[type="submit"]');
+    expect(submit).toBeTruthy();
+    fireEvent.click(submit as HTMLButtonElement);
+
+    await screen.findByRole('button', { name: 'See acne-safe product recommendations' });
+    fireEvent.click(screen.getByRole('button', { name: 'See acne-safe product recommendations' }));
+
+    await waitFor(() => expect(getChatBodies(mock)).toHaveLength(3));
+    const [, , thirdBody] = getChatBodies(mock);
+    expect(thirdBody.action?.action_id).toBe('chip.start.reco_products');
+    expect(thirdBody.action?.kind).toBe('chip');
+    expect(thirdBody.action?.data?.reply_text).toBe(
+      'Based on my saved skin analysis, recommend acne-safe products for me.',
+    );
+    expect(thirdBody.action?.data?.profile_patch).toEqual({ goals: ['acne'] });
+  });
 });

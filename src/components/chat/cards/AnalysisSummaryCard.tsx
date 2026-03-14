@@ -10,6 +10,18 @@ type Props = {
     photo_qc?: string[];
     analysis_source?: string;
     used_photos?: boolean;
+    title?: string;
+    subtitle?: string;
+    key_takeaways_title?: string;
+    plan_title?: string;
+    quick_check_title?: string;
+    quick_check_question?: string;
+    caution_text?: string;
+    hide_quick_check?: boolean;
+    hide_tuning_actions?: boolean;
+    primary_cta_label?: string;
+    primary_action_id?: string;
+    primary_action_data?: Record<string, any>;
   };
   onAction: (actionId: string, data?: Record<string, any>) => void;
   language: Language;
@@ -245,6 +257,8 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
 
   const lowConfidence = Boolean(payload.low_confidence);
   const photosProvided = Boolean(payload.photos_provided);
+  const hideQuickCheck = payload.hide_quick_check === true;
+  const hideTuningActions = payload.hide_tuning_actions === true;
   const photoQc = useMemo(
     () => (Array.isArray(payload.photo_qc) ? payload.photo_qc.map((v) => String(v || '').trim()).filter(Boolean) : []),
     [payload.photo_qc],
@@ -253,11 +267,11 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
 
   const copy = useMemo(
     () => ({
-      title: language === 'CN' ? '肤况总结' : 'Skin summary',
-      keyTakeaways: language === 'CN' ? '关键问题' : 'Key takeaways',
-      next7Days: language === 'CN' ? '未来 7 天计划' : 'Next 7 days plan',
-      quickCheck: language === 'CN' ? '快速确认' : 'Quick check',
-      quickCheckQuestion: language === 'CN' ? '最近是否有刺痛或泛红？' : 'Any stinging or redness recently?',
+      title: payload.title || (language === 'CN' ? '肤况总结' : 'Skin summary'),
+      keyTakeaways: payload.key_takeaways_title || (language === 'CN' ? '关键问题' : 'Key takeaways'),
+      next7Days: payload.plan_title || (language === 'CN' ? '未来 7 天计划' : 'Next 7 days plan'),
+      quickCheck: payload.quick_check_title || (language === 'CN' ? '快速确认' : 'Quick check'),
+      quickCheckQuestion: payload.quick_check_question || (language === 'CN' ? '最近是否有刺痛或泛红？' : 'Any stinging or redness recently?'),
       phase1: language === 'CN' ? 'Phase 1（1-14 天）' : 'Phase 1 (Days 1-14)',
       phase2: language === 'CN' ? 'Phase 2（3-6 周）' : 'Phase 2 (Weeks 3-6)',
       upgradePath: language === 'CN' ? '第 2-4 周升级路径' : 'Week 2-4 upgrade path',
@@ -269,12 +283,12 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
       stop: language === 'CN' ? '停止条件' : 'Stop conditions',
       yes: language === 'CN' ? '是' : 'Yes',
       no: language === 'CN' ? '否' : 'No',
-      caution:
-        language === 'CN'
+      caution: payload.caution_text || (language === 'CN'
           ? '如出现刺痛或泛红，先极简护理并暂停强活性。'
-          : 'If you feel stinging or see redness, keep it minimal and pause strong actives.',
+          : 'If you feel stinging or see redness, keep it minimal and pause strong actives.'),
+      primaryCtaLabel: payload.primary_cta_label || (language === 'CN' ? '查看产品推荐' : 'See product recommendations'),
     }),
-    [language],
+    [language, payload.caution_text, payload.key_takeaways_title, payload.plan_title, payload.primary_cta_label, payload.quick_check_question, payload.quick_check_title, payload.title],
   );
 
   const takeaways = useMemo(() => {
@@ -386,14 +400,14 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
 
   const subtitle = useMemo(
     () =>
-      describePhotoBasis({
+      payload.subtitle || describePhotoBasis({
         photosProvided,
         photoQc,
         analysisSource: payload.analysis_source,
         usedPhotos: payload.used_photos,
         language,
       }),
-    [language, payload.analysis_source, payload.used_photos, photoQc, photosProvided],
+    [language, payload.analysis_source, payload.subtitle, payload.used_photos, photoQc, photosProvided],
   );
 
   return (
@@ -493,71 +507,73 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
           </section>
         ) : null}
 
-        <section aria-labelledby="quick-check">
-          <h3 id="quick-check" className="text-sm font-semibold text-slate-900">
-            {copy.quickCheck}
-          </h3>
+        {!hideQuickCheck ? (
+          <section aria-labelledby="quick-check">
+            <h3 id="quick-check" className="text-sm font-semibold text-slate-900">
+              {copy.quickCheck}
+            </h3>
 
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-sm text-slate-700">{primaryQuestion}</p>
-            <div
-              className="inline-flex shrink-0 overflow-hidden rounded-full border border-slate-200 bg-white"
-              role="group"
-              aria-label="Quick check options"
-            >
-              <button
-                type="button"
-                className={`px-3 py-1 text-xs font-semibold transition-colors ${
-                  quickCheck === 'yes' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50'
-                }`}
-                aria-pressed={quickCheck === 'yes'}
-                onClick={() => toggleQuick('yes')}
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-sm text-slate-700">{primaryQuestion}</p>
+              <div
+                className="inline-flex shrink-0 overflow-hidden rounded-full border border-slate-200 bg-white"
+                role="group"
+                aria-label="Quick check options"
               >
-                {copy.yes}
-              </button>
-              <button
-                type="button"
-                className={`px-3 py-1 text-xs font-semibold transition-colors ${
-                  quickCheck === 'no' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50'
-                }`}
-                aria-pressed={quickCheck === 'no'}
-                onClick={() => toggleQuick('no')}
-              >
-                {copy.no}
-              </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1 text-xs font-semibold transition-colors ${
+                    quickCheck === 'yes' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                  aria-pressed={quickCheck === 'yes'}
+                  onClick={() => toggleQuick('yes')}
+                >
+                  {copy.yes}
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1 text-xs font-semibold transition-colors ${
+                    quickCheck === 'no' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                  aria-pressed={quickCheck === 'no'}
+                  onClick={() => toggleQuick('no')}
+                >
+                  {copy.no}
+                </button>
+              </div>
             </div>
-          </div>
 
-          {routineExpert && quickCheck && conditionalFollowups.length ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="text-xs font-semibold text-slate-900">{copy.conditional}</div>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                {conditionalFollowups.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+            {routineExpert && quickCheck && conditionalFollowups.length ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-semibold text-slate-900">{copy.conditional}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                  {conditionalFollowups.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
-          {routineExpert && quickCheck && !conditionalFollowups.length && routineExpert.ask_3_questions.length > 1 ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="text-xs font-semibold text-slate-900">{copy.ask3}</div>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                {routineExpert.ask_3_questions.slice(1).map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </section>
+            {routineExpert && quickCheck && !conditionalFollowups.length && routineExpert.ask_3_questions.length > 1 ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-semibold text-slate-900">{copy.ask3}</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                  {routineExpert.ask_3_questions.slice(1).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <footer className="space-y-3">
           <button
             type="button"
             className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-            onClick={() => onAction('analysis_continue')}
+            onClick={() => onAction(payload.primary_action_id || 'analysis_continue', payload.primary_action_data)}
           >
-            {language === 'CN' ? '查看产品推荐' : 'See product recommendations'}
+            {copy.primaryCtaLabel}
           </button>
           {lowConfidence ? (
             <button
@@ -569,22 +585,24 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
             </button>
           ) : null}
 
-          <div className="flex items-center justify-center gap-3">
-            <button
-              type="button"
-              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              onClick={() => onAction('analysis_gentler')}
-            >
-              {language === 'CN' ? '更温和' : 'Make gentler'}
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              onClick={() => onAction('analysis_simple')}
-            >
-              {language === 'CN' ? '更简单' : 'Keep simple'}
-            </button>
-          </div>
+          {!hideTuningActions ? (
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => onAction('analysis_gentler')}
+              >
+                {language === 'CN' ? '更温和' : 'Make gentler'}
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                onClick={() => onAction('analysis_simple')}
+              >
+                {language === 'CN' ? '更简单' : 'Keep simple'}
+              </button>
+            </div>
+          ) : null}
         </footer>
       </div>
     </article>
