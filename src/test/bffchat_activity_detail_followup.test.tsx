@@ -79,6 +79,9 @@ describe('BffChat activity detail follow-up deeplink', () => {
 
     await screen.findByPlaceholderText(/ask a question/i);
     await waitFor(() => expect(getChatBodies(mock)).toHaveLength(1));
+    expect(
+      screen.getByText('Continue from my saved skin analysis. Do not ask me to restate my goals.'),
+    ).toBeInTheDocument();
 
     const [body] = getChatBodies(mock);
     expect(body.message).toBeUndefined();

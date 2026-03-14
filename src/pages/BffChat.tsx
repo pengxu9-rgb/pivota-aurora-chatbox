@@ -11519,6 +11519,45 @@ export default function BffChat() {
         return;
       }
 
+      if (effectiveActionId === 'chip.aurora.next_action.deep_dive_skin') {
+        const replyText =
+          fallbackReplyText ||
+          (language === 'CN' ? '基于我保存的 skin analysis 继续。' : 'Continue from my saved skin analysis.');
+        const photoRefs = getSanitizedAnalysisPhotos();
+        const analysisStorySnapshot = getLatestAnalysisStorySnapshot();
+        const analysisContext: ChatSessionAnalysisContext = {
+          analysis_origin: photoRefs.length > 0 ? 'photo' : 'profile',
+          use_photo: photoRefs.length > 0,
+          ...(photoRefs.length > 0 ? { photo_refs: photoRefs } : {}),
+          source_card_type: 'analysis_story_v2',
+          ...(analysisStorySnapshot ? { analysis_story_snapshot: analysisStorySnapshot } : {}),
+        };
+        const actionPayloadDataWithAnalysis: Record<string, unknown> = {
+          ...(actionPayloadData && typeof actionPayloadData === 'object' ? actionPayloadData : {}),
+          analysis_origin: analysisContext.analysis_origin,
+          use_photo: analysisContext.use_photo === true,
+          ...(Array.isArray(analysisContext.photo_refs) ? { photo_refs: analysisContext.photo_refs } : {}),
+          source_card_type: 'analysis_story_v2',
+          ...(analysisStorySnapshot ? { analysis_story_snapshot: analysisStorySnapshot } : {}),
+          reply_text: replyText,
+        };
+        setItems((prev) => [...stripReturnWelcome(prev), { id: nextId(), role: 'user', kind: 'text', content: replyText }]);
+        await sendChat(
+          undefined,
+          {
+            action_id: effectiveActionId,
+            kind: 'chip',
+            data: actionPayloadDataWithAnalysis,
+          },
+          {
+            client_state: fromState,
+            requested_transition: requestedTransition,
+            analysisContext,
+          },
+        );
+        return;
+      }
+
       if (isV2FreeformFallback) {
         await sendChat(fallbackReplyText, undefined, {
           client_state: fromState,
@@ -11548,6 +11587,8 @@ export default function BffChat() {
       runLowConfidenceSkinAnalysis,
       sendChat,
       authSession,
+      getLatestAnalysisStorySnapshot,
+      getSanitizedAnalysisPhotos,
       persistQuickProfilePatch,
       setAgentStateSafe,
     ]
