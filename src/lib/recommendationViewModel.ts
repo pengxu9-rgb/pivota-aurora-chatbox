@@ -48,6 +48,13 @@ export type ProductExampleDiscoveryVm = {
   label: string;
   searchQuery: string;
   searchTitle: string | null;
+  queryLadder: Array<{
+    query: string;
+    targetStepFamily: string | null;
+    allowExternalSeed: boolean;
+    externalSeedStrategy: string | null;
+    productOnly: boolean;
+  }>;
 };
 
 export type IngredientActionVm = {

@@ -2465,6 +2465,12 @@ export function RecommendationsCard({
     limit?: number;
     preferBrand?: string | null;
     uiSurface?: string | null;
+    allowExternalSeed?: boolean;
+    externalSeedStrategy?: string | null;
+    productOnly?: boolean;
+    queryIndex?: number | null;
+    queryTotal?: number | null;
+    targetStepFamily?: string | null;
     clarificationSlot?: string | null;
     clarificationAnswer?: string | null;
     slotState?: ProductSearchSlotState | null;
@@ -4497,6 +4503,12 @@ function BffCardView({
     limit?: number;
     preferBrand?: string | null;
     uiSurface?: string | null;
+    allowExternalSeed?: boolean;
+    externalSeedStrategy?: string | null;
+    productOnly?: boolean;
+    queryIndex?: number | null;
+    queryTotal?: number | null;
+    targetStepFamily?: string | null;
     clarificationSlot?: string | null;
     clarificationAnswer?: string | null;
     slotState?: ProductSearchSlotState | null;
@@ -12010,6 +12022,12 @@ export default function BffChat() {
       limit,
       preferBrand,
       uiSurface,
+      allowExternalSeed,
+      externalSeedStrategy,
+      productOnly,
+      queryIndex,
+      queryTotal,
+      targetStepFamily,
       clarificationSlot,
       clarificationAnswer,
       slotState,
@@ -12018,6 +12036,12 @@ export default function BffChat() {
       limit?: number;
       preferBrand?: string | null;
       uiSurface?: string | null;
+      allowExternalSeed?: boolean;
+      externalSeedStrategy?: string | null;
+      productOnly?: boolean;
+      queryIndex?: number | null;
+      queryTotal?: number | null;
+      targetStepFamily?: string | null;
       clarificationSlot?: string | null;
       clarificationAnswer?: string | null;
       slotState?: ProductSearchSlotState | null;
@@ -12050,6 +12074,12 @@ export default function BffChat() {
               fast_mode: 'true',
             }
           : {}),
+        ...(allowExternalSeed !== undefined ? { allow_external_seed: allowExternalSeed ? 'true' : 'false' } : {}),
+        ...(externalSeedStrategy ? { external_seed_strategy: externalSeedStrategy } : {}),
+        ...(productOnly !== undefined ? { product_only: productOnly ? 'true' : 'false' } : {}),
+        ...(queryIndex != null ? { query_index: String(Math.max(0, Math.trunc(Number(queryIndex) || 0))) } : {}),
+        ...(queryTotal != null ? { query_total: String(Math.max(0, Math.trunc(Number(queryTotal) || 0))) } : {}),
+        ...(targetStepFamily ? { target_step_family: targetStepFamily } : {}),
         ...(clarificationSlot ? { clarification_slot: clarificationSlot } : {}),
         ...(clarificationAnswer ? { clarification_answer: clarificationAnswer } : {}),
         ...(slotState &&
