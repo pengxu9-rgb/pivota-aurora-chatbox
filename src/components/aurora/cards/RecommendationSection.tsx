@@ -294,6 +294,9 @@ function ProductMatchList({
   topProducts,
   moreProducts,
   emptyMessage,
+  productExamples,
+  productExamplesLabel,
+  productExamplesNote,
   externalSearchCtas,
   language,
   onOpenProduct,
@@ -308,6 +311,9 @@ function ProductMatchList({
   topProducts: ProductCardVm[];
   moreProducts: ProductCardVm[];
   emptyMessage: string | null;
+  productExamples: string[];
+  productExamplesLabel?: string | null;
+  productExamplesNote?: string | null;
   externalSearchCtas: { title: string; url: string }[];
   language: Language;
   onOpenProduct?: OpenProductFn;
@@ -323,10 +329,11 @@ function ProductMatchList({
   if (!productsEnabled) return null;
 
   const hasProducts = topProducts.length > 0;
+  const hasProductExamples = productExamples.length > 0;
   const visibleMoreProducts = expandedProductsEnabled ? moreProducts : [];
   const hasExternalSearch = externalSearchCtas.length > 0;
 
-  if (!hasProducts && !emptyMessage && !hasExternalSearch) return null;
+  if (!hasProducts && !hasProductExamples && !emptyMessage && !hasExternalSearch) return null;
 
   return (
     <div className="mt-3 space-y-2" data-testid="reco-product-match-list">
@@ -360,6 +367,28 @@ function ProductMatchList({
               />
             );
           })}
+        </div>
+      ) : hasProductExamples ? (
+        <div
+          className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground"
+          data-testid="ingredient-guidance-product-examples"
+        >
+          <div className="text-[11px] font-semibold text-foreground">
+            {productExamplesLabel || (language === 'CN' ? '示例产品类型' : 'Example product types')}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {productExamples.map((example) => (
+              <span
+                key={example}
+                className="rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground"
+              >
+                {example}
+              </span>
+            ))}
+          </div>
+          {productExamplesNote ? (
+            <div className="mt-2 text-[11px] text-muted-foreground">{productExamplesNote}</div>
+          ) : null}
         </div>
       ) : (
         <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
@@ -548,6 +577,9 @@ function IngredientActionCard({
         topProducts={vm.topProducts}
         moreProducts={vm.moreProducts}
         emptyMessage={vm.productsEmptyMessage}
+        productExamples={vm.productExamples}
+        productExamplesLabel={vm.productExamplesLabel}
+        productExamplesNote={vm.productExamplesNote}
         externalSearchCtas={vm.externalSearchCtas}
         language={language}
         onOpenProduct={onOpenProduct}
