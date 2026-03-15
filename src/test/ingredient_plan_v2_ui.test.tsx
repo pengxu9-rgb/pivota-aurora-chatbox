@@ -71,7 +71,11 @@ describe('ingredient_plan_v2 rich product UI', () => {
     expect(screen.queryByText('https://example.com/pdp')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /view product: niacinamide serum/i }));
-    expect(openSpy).toHaveBeenCalledWith('https://example.com/pdp', '_blank', 'noopener,noreferrer');
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://agent.pivota.cc/products/prod_1?entry=aurora_chatbox',
+      '_blank',
+      'noopener,noreferrer',
+    );
 
     openSpy.mockRestore();
   });
@@ -281,8 +285,8 @@ describe('ingredient_plan_v2 rich product UI', () => {
     });
   });
 
-  it('opens external redirect urls for guidance-only discovery rows without internal pdp hints', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as unknown as Window));
+  it('opens internal PDPs for guidance-only discovery rows when product_id and merchant_id are present', async () => {
+    const onOpenPdp = vi.fn();
     const resolveProductsSearch = vi.fn().mockResolvedValueOnce({
       products: [
         {
@@ -302,6 +306,7 @@ describe('ingredient_plan_v2 rich product UI', () => {
         language="EN"
         analyticsCtx={analyticsCtx}
         cardId="card_v2_ui_guidance_external_redirect"
+        onOpenPdp={onOpenPdp}
         resolveProductsSearch={resolveProductsSearch}
         payload={{
           schema_version: 'aurora.ingredient_plan.v2',
@@ -320,6 +325,79 @@ describe('ingredient_plan_v2 rich product UI', () => {
                 example_product_discovery_items: [
                   {
                     id: 'example_drawer_external_1',
+                    label: 'ceramide cream',
+                    search_query: 'moisturizer barrier repair ceramide',
+                    search_title: 'Ceramide cream',
+                    query_ladder: [
+                      {
+                        query: 'moisturizer barrier repair ceramide',
+                        target_step_family: 'moisturizer',
+                        allow_external_seed: true,
+                        external_seed_strategy: 'supplement_internal_first',
+                        product_only: true,
+                      },
+                    ],
+                  },
+                ],
+                note: 'Tap a product type to browse top matching products.',
+                competitors: [],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /browse product type: ceramide cream/i }));
+    expect(await screen.findByText('Rose Ceramide Cream')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /view product/i }));
+    expect(onOpenPdp).toHaveBeenCalledWith({
+      url: 'https://agent.pivota.cc/products/ext_rose_1?merchant_id=external_seed&entry=aurora_chatbox',
+      title: 'Pixi Rose Ceramide Cream',
+    });
+  });
+
+  it('falls back to external redirect when guidance-only discovery rows have no stable internal identity', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ closed: false } as unknown as Window));
+    const resolveProductsSearch = vi.fn().mockResolvedValueOnce({
+      products: [
+        {
+          brand: 'Pixi',
+          title: 'Rose Ceramide Cream',
+          category: 'Moisturizer',
+          external_redirect_url: 'https://redirect.example.com/rose-ceramide-cream',
+        },
+      ],
+    });
+
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_guidance_external_fallback"
+        resolveProductsSearch={resolveProductsSearch}
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'ceramide',
+              ingredient_name: 'Ceramides',
+              priority_score_0_100: 72,
+              priority_level: 'high',
+              why: ['Rule signal: barrier support'],
+              usage_guidance: ['AM/PM'],
+              products: {
+                mode: 'guidance_only',
+                example_product_types: ['ceramide cream'],
+                example_product_discovery_items: [
+                  {
+                    id: 'example_drawer_external_fallback_1',
                     label: 'ceramide cream',
                     search_query: 'moisturizer barrier repair ceramide',
                     search_title: 'Ceramide cream',

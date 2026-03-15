@@ -5,7 +5,7 @@ import type {
   PhotoModulesExternalSearchCta,
   PhotoModulesIssue,
 } from '@/lib/photoModulesContract';
-import { buildPdpUrl, extractPdpTargetFromProductGroupId } from '@/lib/pivotaShop';
+import { resolvePreferredProductOpenUrl } from '@/lib/productOpenTargets';
 import type { Language } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -411,17 +411,7 @@ function deriveProductTags(product: PhotoModulesProduct, language: Language): st
 }
 
 function productOpenUrl(product: PhotoModulesProduct): string | null {
-  const url = (product.product_url || '').trim();
-  if (url && /^https?:\/\//i.test(url)) return url;
-  if (product.canonical_product_ref?.product_id) {
-    return buildPdpUrl({
-      product_id: product.canonical_product_ref.product_id,
-      merchant_id: product.canonical_product_ref.merchant_id || undefined,
-    });
-  }
-  const targetFromGroup = extractPdpTargetFromProductGroupId(product.product_group_id);
-  if (targetFromGroup?.product_id) return buildPdpUrl(targetFromGroup);
-  return null;
+  return resolvePreferredProductOpenUrl(product);
 }
 
 export function mapProductCard(product: PhotoModulesProduct, language: Language): ProductCardVm {

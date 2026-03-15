@@ -111,6 +111,7 @@ import {
 } from '@/lib/persistence';
 import { isPhotoUsableForDiagnosis, normalizePhotoQcStatus } from '@/lib/photoQc';
 import { buildGoogleSearchFallbackUrl, normalizeOutboundFallbackUrl } from '@/lib/externalSearchFallback';
+import { readProductRefTarget, resolveProductOpenTargets } from '@/lib/productOpenTargets';
 import { parseChatResponseV1 } from '@/lib/chatCardsParser';
 import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
 import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
@@ -1642,12 +1643,7 @@ function cleanTravelLookupText(value: unknown): string | null {
 }
 
 function readTravelLookupRefTarget(raw: unknown): { product_id: string; merchant_id?: string | null } | null {
-  const ref = asObject(raw);
-  if (!ref) return null;
-  const productId = asString((ref as any).product_id ?? (ref as any).productId)?.trim() || '';
-  const merchantId = asString((ref as any).merchant_id ?? (ref as any).merchantId)?.trim() || null;
-  if (!productId) return null;
-  return merchantId ? { product_id: productId, merchant_id: merchantId } : { product_id: productId };
+  return readProductRefTarget(raw);
 }
 
 function isInternalTravelLookupPdpUrl(rawUrl: string | null): boolean {
@@ -1666,6 +1662,7 @@ function isInternalTravelLookupPdpUrl(rawUrl: string | null): boolean {
 
 function buildTravelLookupOpenTarget(row: Record<string, unknown>, product: Product) {
   const source = asObject((row as any).product) || row;
+  const openTargets = resolveProductOpenTargets(source);
   const pdpOpen =
     asObject((source as any).pdp_open) ||
     asObject((source as any).pdpOpen) ||
@@ -1675,25 +1672,14 @@ function buildTravelLookupOpenTarget(row: Record<string, unknown>, product: Prod
   const pdpOpenExternal = asObject((pdpOpen as any)?.external) || null;
   const subject = asObject((pdpOpen as any)?.subject) || null;
 
-  const directUrlCandidates = [
-    asString((source as any).pdp_url),
-    asString((source as any).url),
-    asString((source as any).product_url),
-    asString((source as any).productUrl),
-    asString((source as any).purchase_path),
-    asString((source as any).purchasePath),
-    asString((pdpOpenExternal as any)?.url),
-  ]
-    .map((value) => normalizeOutboundFallbackUrl(String(value || '').trim()))
-    .filter((value): value is string => Boolean(value));
-
-  const directInternalUrl = directUrlCandidates.find((value) => isInternalTravelLookupPdpUrl(value)) || null;
-  const directExternalUrl = directUrlCandidates.find((value) => !isInternalTravelLookupPdpUrl(value)) || null;
+  const directInternalUrl = openTargets.internalUrl;
+  const directExternalUrl = openTargets.externalUrl;
 
   const directRef =
     readTravelLookupRefTarget((pdpOpen as any)?.product_ref) ||
     readTravelLookupRefTarget((source as any).product_ref) ||
     readTravelLookupRefTarget((source as any).canonical_product_ref) ||
+    openTargets.directRef ||
     null;
   const rawProductId = asString((source as any).product_id ?? (source as any).productId)?.trim() || null;
   const rawMerchantId = asString((source as any).merchant_id ?? (source as any).merchantId)?.trim() || null;
@@ -1713,6 +1699,7 @@ function buildTravelLookupOpenTarget(row: Record<string, unknown>, product: Prod
     asString((source as any).subjectProductGroupId) ||
     asString((source as any).product_group_id) ||
     asString((source as any).productGroupId) ||
+    openTargets.subjectProductGroupId ||
     null;
 
   const groupTarget = extractPdpTargetFromProductGroupId(subjectProductGroupId || null);

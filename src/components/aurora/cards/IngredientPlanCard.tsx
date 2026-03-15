@@ -25,7 +25,12 @@ import {
   type PriorityLabel,
 } from '@/lib/recommendationViewModel';
 import { buildGoogleSearchFallbackUrl } from '@/lib/externalSearchFallback';
-import { buildPdpUrl, extractPdpTargetFromProductGroupId, getPivotaShopBaseUrl } from '@/lib/pivotaShop';
+import { extractPdpTargetFromProductGroupId } from '@/lib/pivotaShop';
+import {
+  readProductRefTarget,
+  resolvePreferredProductOpenUrl,
+  resolveProductOpenTargets,
+} from '@/lib/productOpenTargets';
 import type { Language } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -411,51 +416,7 @@ function filterAndSortProductRows(rows: ProductLike[]): ProductLike[] {
   );
 }
 
-const readRefTarget = (raw: unknown): { product_id: string; merchant_id?: string } | null => {
-  const ref = asObject(raw);
-  if (!ref) return null;
-  const productId = asNonEmptyString(ref.product_id) || asNonEmptyString(ref.productId);
-  const merchantId = asNonEmptyString(ref.merchant_id) || asNonEmptyString(ref.merchantId);
-  if (!productId) return null;
-  return merchantId ? { product_id: productId, merchant_id: merchantId } : { product_id: productId };
-};
-
-const deriveInternalPdpUrlFromContract = (row: ProductLike): string => {
-  const rawMerchantId = asNonEmptyString(row.merchant_id);
-  const rawProductId = asNonEmptyString(row.product_id);
-  const rawRowRef =
-    rawProductId
-    && rawMerchantId
-    && String(rawMerchantId || '').trim().toLowerCase() !== 'external_seed'
-      ? { product_id: rawProductId, ...(rawMerchantId ? { merchant_id: rawMerchantId } : {}) }
-      : null;
-  const pdpOpen = asObject(row.pdp_open) || asObject((row as { pdpOpen?: unknown }).pdpOpen);
-  const directRef =
-    readRefTarget(pdpOpen?.product_ref) ||
-    readRefTarget(row.product_ref) ||
-    readRefTarget(row.canonical_product_ref) ||
-    rawRowRef;
-  if (directRef?.product_id) return safeUrl(buildPdpUrl(directRef));
-
-  const subject = asObject(pdpOpen?.subject);
-  const groupId =
-    asNonEmptyString(subject?.id) ||
-    asNonEmptyString(subject?.product_group_id) ||
-    asNonEmptyString(row.subject_product_group_id) ||
-    asNonEmptyString(row.product_group_id);
-  const targetFromGroup = extractPdpTargetFromProductGroupId(groupId);
-  return targetFromGroup?.product_id ? safeUrl(buildPdpUrl(targetFromGroup)) : '';
-};
-
-const productOpenUrl = (row: ProductLike): string =>
-  safeUrl(row.pdp_url) ||
-  deriveInternalPdpUrlFromContract(row) ||
-  safeUrl(row.external_redirect_url) ||
-  safeUrl(row.external_url) ||
-  safeUrl(row.url) ||
-  safeUrl(row.product_url) ||
-  safeUrl(row.purchase_path) ||
-  safeUrl(row.pdp_open?.external?.url);
+const productOpenUrl = (row: ProductLike): string => resolvePreferredProductOpenUrl(row) || '';
 
 function openWithAnchorFallback(url: string): { result: OpenResult; blockedReason?: string } {
   if (!url) return { result: 'blocked_invalid_url', blockedReason: 'invalid_url' };
@@ -473,36 +434,8 @@ function openWithAnchorFallback(url: string): { result: OpenResult; blockedReaso
   }
 }
 
-function isInternalShopPdpUrl(url: string): boolean {
-  const normalizedUrl = safeUrl(url);
-  if (!normalizedUrl) return false;
-  try {
-    const parsed = new URL(normalizedUrl);
-    const shopBase = new URL(getPivotaShopBaseUrl());
-    if (parsed.origin !== shopBase.origin) return false;
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    return segments.length === 2 && segments[0] === 'products' && Boolean(segments[1]);
-  } catch {
-    return false;
-  }
-}
-
 function resolveInternalDrawerUrl(product: PhotoModulesProduct): string {
-  const groupTarget = extractPdpTargetFromProductGroupId(product.product_group_id || null);
-  if (groupTarget?.product_id) return safeUrl(buildPdpUrl(groupTarget));
-
-  const canonicalRef = product.canonical_product_ref;
-  if (canonicalRef?.product_id) {
-    return safeUrl(
-      buildPdpUrl({
-        product_id: canonicalRef.product_id,
-        merchant_id: canonicalRef.merchant_id || product.merchant_id || null,
-      }),
-    );
-  }
-
-  const directUrl = safeUrl(product.product_url);
-  return isInternalShopPdpUrl(directUrl) ? directUrl : '';
+  return resolveProductOpenTargets(product).internalUrl || '';
 }
 
 const normalizeIntensityLevel = (token: string): 'gentle' | 'balanced' | 'active' => {
@@ -603,7 +536,7 @@ function toSyntheticProduct(
   language: Language,
 ): SyntheticPlanProduct {
   const title = asString(row.title || row.name) || (language === 'CN' ? '推荐商品' : 'Recommended product');
-  const refTarget = readRefTarget(row.product_ref) || readRefTarget(row.canonical_product_ref);
+  const refTarget = readProductRefTarget(row.product_ref) || readProductRefTarget(row.canonical_product_ref);
   const productId =
     asString(row.product_id) ||
     refTarget?.product_id ||
@@ -890,8 +823,9 @@ export function IngredientPlanCard({
     product: PhotoModulesProduct;
     productIndex: number;
   }) => {
-    const url = asString(product.product_url);
-    const drawerUrl = resolveInternalDrawerUrl(product);
+    const openTargets = resolveProductOpenTargets(product);
+    const url = openTargets.preferredUrl || '';
+    const drawerUrl = openTargets.internalUrl || '';
     const productId = asString(product.product_id) || null;
     const source = ((product as SyntheticPlanProduct).__planBucket || 'competitors') as ProductBucket;
     const title = [asString(product.brand), asString(product.title)].filter(Boolean).join(' ').trim() || asString(product.title);
@@ -1098,10 +1032,9 @@ export function IngredientPlanCard({
 
   const onOpenGuidanceDiscoveryProduct = useCallback(
     (product: ProductLike) => {
-      const url = productOpenUrl(product);
-      const drawerUrl = isInternalShopPdpUrl(url)
-        ? url
-        : resolveInternalDrawerUrl(product as unknown as PhotoModulesProduct);
+      const openTargets = resolveProductOpenTargets(product);
+      const url = openTargets.preferredUrl || '';
+      const drawerUrl = openTargets.internalUrl || '';
       const productId = asString(product.product_id) || null;
       const title = [asString(product.brand), asString(product.title || product.name)].filter(Boolean).join(' ').trim()
         || asString(product.title || product.name);

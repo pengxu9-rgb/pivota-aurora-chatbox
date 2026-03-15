@@ -71,11 +71,13 @@ describe('ingredient_plan_v2 open link behavior', () => {
     );
   });
 
-  it('shows disabled text when product URL is missing', () => {
+  it('treats a stable product_id as an internal PDP hint even when no external URL is present', () => {
+    const onOpenPdp = vi.fn();
     render(
       <IngredientPlanCard
         language="EN"
         cardId="plan_card_2"
+        onOpenPdp={onOpenPdp}
         payload={{
           targets: [
             {
@@ -90,7 +92,11 @@ describe('ingredient_plan_v2 open link behavior', () => {
       />,
     );
 
-    expect(screen.getByText('Link unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /view product: no url product/i }));
+    expect(onOpenPdp).toHaveBeenCalledWith({
+      url: 'https://agent.pivota.cc/products/prod_2?entry=aurora_chatbox',
+      title: 'No URL product',
+    });
   });
 
   it('opens internal PDPs in the shop drawer when an in-app opener is provided', () => {
