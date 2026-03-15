@@ -179,7 +179,7 @@ describe('BffChat diagnosis submit flow', () => {
     expect(chatCalls).toHaveLength(1);
   });
 
-  it('runs low-confidence analysis when the user skips the photo step', async () => {
+  it('runs low-confidence analysis with the selected diagnosis goal when the user skips the photo step', async () => {
     const mock = vi.mocked(bffJson);
 
     mock.mockImplementation((path: string) => {
@@ -239,8 +239,8 @@ describe('BffChat diagnosis submit flow', () => {
 
     renderChat('/chat?chip_id=chip.start.diagnosis');
 
-    await screen.findByRole('button', { name: 'Deep hydration' });
-    fireEvent.click(screen.getByRole('button', { name: 'Deep hydration' }));
+    await screen.findByRole('button', { name: 'Repair skin barrier' });
+    fireEvent.click(screen.getByRole('button', { name: 'Repair skin barrier' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Skip and continue' }));
 
@@ -255,6 +255,12 @@ describe('BffChat diagnosis submit flow', () => {
 
     const analysisCall = mock.mock.calls.find(([path]) => path === '/v1/analysis/skin');
     expect(analysisCall?.[2]).toMatchObject({ timeoutMs: 45000 });
+    const parsedBody = analysisCall?.[2]?.body ? JSON.parse(String(analysisCall[2].body)) : null;
+    expect(parsedBody).toMatchObject({
+      use_photo: false,
+      goal: 'barrier_repair',
+      diagnosis_goal: 'barrier_repair',
+    });
 
     const chatCalls = mock.mock.calls.filter(([path]) => path === '/v1/chat');
     expect(chatCalls).toHaveLength(1);
