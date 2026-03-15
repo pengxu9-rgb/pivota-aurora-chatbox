@@ -44,6 +44,8 @@ type ProductLike = {
   currency?: string;
   price_tier?: string;
   pdp_url?: string;
+  external_url?: string;
+  external_redirect_url?: string;
   url?: string;
   product_url?: string;
   purchase_path?: string;
@@ -419,9 +421,18 @@ const readRefTarget = (raw: unknown): { product_id: string; merchant_id?: string
 };
 
 const deriveInternalPdpUrlFromContract = (row: ProductLike): string => {
+  const rawMerchantId = asNonEmptyString(row.merchant_id);
+  const rawProductId = asNonEmptyString(row.product_id);
+  const rawRowRef =
+    rawProductId && String(rawMerchantId || '').trim().toLowerCase() !== 'external_seed'
+      ? { product_id: rawProductId, ...(rawMerchantId ? { merchant_id: rawMerchantId } : {}) }
+      : null;
   const pdpOpen = asObject(row.pdp_open) || asObject((row as { pdpOpen?: unknown }).pdpOpen);
   const directRef =
-    readRefTarget(pdpOpen?.product_ref) || readRefTarget(row.product_ref) || readRefTarget(row.canonical_product_ref);
+    readRefTarget(pdpOpen?.product_ref) ||
+    readRefTarget(row.product_ref) ||
+    readRefTarget(row.canonical_product_ref) ||
+    rawRowRef;
   if (directRef?.product_id) return safeUrl(buildPdpUrl(directRef));
 
   const subject = asObject(pdpOpen?.subject);
@@ -436,10 +447,12 @@ const deriveInternalPdpUrlFromContract = (row: ProductLike): string => {
 
 const productOpenUrl = (row: ProductLike): string =>
   safeUrl(row.pdp_url) ||
+  deriveInternalPdpUrlFromContract(row) ||
+  safeUrl(row.external_redirect_url) ||
+  safeUrl(row.external_url) ||
   safeUrl(row.url) ||
   safeUrl(row.product_url) ||
   safeUrl(row.purchase_path) ||
-  deriveInternalPdpUrlFromContract(row) ||
   safeUrl(row.pdp_open?.external?.url);
 
 function openWithAnchorFallback(url: string): { result: OpenResult; blockedReason?: string } {
