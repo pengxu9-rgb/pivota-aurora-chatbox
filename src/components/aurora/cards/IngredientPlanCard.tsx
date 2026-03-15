@@ -105,15 +105,20 @@ type ProductDiscoveryLike = {
   label?: string;
   search_query?: string;
   search_title?: string;
+  query_ladder_steps?: unknown;
   query_ladder?: unknown;
 };
 
 type ProductDiscoveryQueryStepLike = {
   query?: string;
+  intent_strength?: string;
   target_step_family?: string;
+  source_policy?: string;
   allow_external_seed?: boolean;
   external_seed_strategy?: string;
   product_only?: boolean;
+  stop_on_success?: boolean;
+  decision_mode?: string;
 };
 
 type PlanVariant = 'v1' | 'v2';
@@ -137,6 +142,9 @@ type ResolveProductsSearchFn = (args: {
   queryIndex?: number | null;
   queryTotal?: number | null;
   targetStepFamily?: string | null;
+  queryStepStrength?: 'strong_goal_family' | 'supportive_family' | 'generic_family' | null;
+  decisionMode?: 'guidance_only' | null;
+  sourcePolicy?: 'internal_first_then_external_supplement' | null;
   clarificationSlot?: string | null;
   clarificationAnswer?: string | null;
   slotState?: Record<string, unknown> | null;
@@ -171,6 +179,26 @@ const asNumber = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const normalizeGuidanceIntentStrength = (value: unknown): 'strong_goal_family' | 'supportive_family' | 'generic_family' | null => {
+  const token = asString(value).toLowerCase();
+  if (token === 'strong_goal_family' || token === 'supportive_family' || token === 'generic_family') {
+    return token;
+  }
+  return null;
+};
+
+const normalizeGuidanceDecisionMode = (value: unknown): 'guidance_only' | null => {
+  const token = asString(value).toLowerCase();
+  if (token === 'guidance_only' || token === 'guidance-only') return 'guidance_only';
+  return null;
+};
+
+const normalizeGuidanceSourcePolicy = (value: unknown): 'internal_first_then_external_supplement' | null => {
+  const token = asString(value).toLowerCase().replace(/[\s-]+/g, '_');
+  if (token === 'internal_first_then_external_supplement') return 'internal_first_then_external_supplement';
+  return null;
+};
+
 const asProductDiscoveryRows = (value: unknown): ProductDiscoveryLike[] =>
   asArray(value)
     .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as ProductDiscoveryLike) : null))
@@ -187,24 +215,43 @@ const asProductDiscoveryQuerySteps = (
     const step = row as ProductDiscoveryQueryStepLike;
     const query = asString(step.query);
     if (!query) continue;
-    const key = query.toLowerCase();
+    const intentStrength = normalizeGuidanceIntentStrength(step.intent_strength);
+    const sourcePolicy =
+      normalizeGuidanceSourcePolicy(step.source_policy) ||
+      (step.allow_external_seed === true ? 'internal_first_then_external_supplement' : null);
+    const decisionMode = normalizeGuidanceDecisionMode(step.decision_mode) || 'guidance_only';
+    const key = JSON.stringify([
+      query.toLowerCase(),
+      intentStrength || '',
+      asNonEmptyString(step.target_step_family) || '',
+      sourcePolicy || '',
+      decisionMode || '',
+    ]);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({
       query,
+      intentStrength,
       targetStepFamily: asNonEmptyString(step.target_step_family),
+      sourcePolicy,
       allowExternalSeed: step.allow_external_seed === true,
       externalSeedStrategy: asNonEmptyString(step.external_seed_strategy),
       productOnly: step.product_only !== false,
+      stopOnSuccess: step.stop_on_success !== false,
+      decisionMode,
     });
   }
   if (!out.length && fallbackQuery) {
     out.push({
       query: fallbackQuery,
+      intentStrength: null,
       targetStepFamily: null,
+      sourcePolicy: 'internal_first_then_external_supplement',
       allowExternalSeed: false,
       externalSeedStrategy: null,
       productOnly: true,
+      stopOnSuccess: true,
+      decisionMode: 'guidance_only',
     });
   }
   return out;
@@ -273,7 +320,7 @@ const asProductExampleDiscoveryItems = (value: unknown, fallbackExamples: string
       label,
       searchQuery,
       searchTitle: asNonEmptyString(row.search_title) || label,
-      queryLadder: asProductDiscoveryQuerySteps(row.query_ladder, searchQuery),
+      queryLadder: asProductDiscoveryQuerySteps(row.query_ladder_steps || row.query_ladder, searchQuery),
     });
     if (out.length >= max) return out;
   }
@@ -291,7 +338,17 @@ const asProductExampleDiscoveryItems = (value: unknown, fallbackExamples: string
       label,
       searchQuery: label,
       searchTitle: label,
-      queryLadder: asProductDiscoveryQuerySteps([], label),
+      queryLadder: asProductDiscoveryQuerySteps([
+        {
+          query: label,
+          allow_external_seed: true,
+          external_seed_strategy: 'supplement_internal_first',
+          product_only: true,
+          source_policy: 'internal_first_then_external_supplement',
+          decision_mode: 'guidance_only',
+          stop_on_success: true,
+        },
+      ], label),
     });
     if (out.length >= max) break;
   }
@@ -736,6 +793,42 @@ function extractProductsSearchRows(response: unknown): ProductLike[] {
   return filterAndSortProductRows(rows).slice(0, 8);
 }
 
+function extractProductsSearchDecision(response: unknown): {
+  satisfied: boolean;
+  stepSuccessClass: string | null;
+  clarificationSuppressed: boolean;
+  legacyFallbackSuppressed: boolean;
+  hasClarification: boolean;
+} {
+  const root = asObject(response) || {};
+  const metadata =
+    asObject((root as any).metadata) ||
+    asObject((root as any).data?.metadata) ||
+    asObject((root as any).payload?.metadata) ||
+    asObject((root as any).result?.metadata);
+  const searchDecision =
+    asObject((metadata as any)?.search_decision) ||
+    asObject((root as any).search_decision) ||
+    {};
+  const successContractResult = asObject((searchDecision as any).success_contract_result);
+  const clarification =
+    asObject((root as any).clarification) ||
+    asObject((root as any).data?.clarification) ||
+    asObject((root as any).payload?.clarification) ||
+    asObject((root as any).result?.clarification);
+  return {
+    satisfied: successContractResult?.satisfied === true,
+    stepSuccessClass: asNonEmptyString((searchDecision as any).step_success_class),
+    clarificationSuppressed:
+      (searchDecision as any).clarification_suppressed === true ||
+      (metadata as any)?.clarification_suppressed === true,
+    legacyFallbackSuppressed:
+      (searchDecision as any).legacy_fallback_suppressed === true ||
+      (metadata as any)?.legacy_fallback_suppressed === true,
+    hasClarification: Boolean(clarification?.question),
+  };
+}
+
 function pickDiscoveryImageUrl(product: ProductLike): string {
   return safeUrl(product.image_url) || safeUrl(product.thumb_url);
 }
@@ -978,20 +1071,33 @@ export function IngredientPlanCard({
         for (let index = 0; index < queryLadder.length; index += 1) {
           const step = queryLadder[index];
           try {
+            const allowExternalSeed =
+              step.sourcePolicy === 'internal_first_then_external_supplement'
+                ? true
+                : step.allowExternalSeed;
+            const externalSeedStrategy =
+              step.sourcePolicy === 'internal_first_then_external_supplement'
+                ? (step.externalSeedStrategy || 'supplement_internal_first')
+                : step.externalSeedStrategy;
             const response = await resolveProductsSearch({
               query: step.query,
               limit: 8,
               uiSurface: 'ingredient_plan_guidance_only',
-              allowExternalSeed: step.allowExternalSeed,
-              externalSeedStrategy: step.externalSeedStrategy,
+              allowExternalSeed,
+              externalSeedStrategy,
               productOnly: step.productOnly,
               queryIndex: index,
               queryTotal: queryLadder.length,
               targetStepFamily: step.targetStepFamily,
+              queryStepStrength: step.intentStrength,
+              decisionMode: step.decisionMode || 'guidance_only',
+              sourcePolicy: step.sourcePolicy,
             });
             if (discoveryReqRef.current !== reqId) return;
+            const searchDecision = extractProductsSearchDecision(response);
             const rows = extractProductsSearchRows(response);
-            if (rows.length > 0) {
+            const stepSucceeded = searchDecision.satisfied || Boolean(searchDecision.stepSuccessClass);
+            if (rows.length > 0 && stepSucceeded) {
               setGuidanceDiscovery({
                 open: true,
                 item,
@@ -1000,6 +1106,9 @@ export function IngredientPlanCard({
                 error: null,
               });
               return;
+            }
+            if (searchDecision.hasClarification || searchDecision.clarificationSuppressed || searchDecision.legacyFallbackSuppressed) {
+              continue;
             }
           } catch {
             lastError =

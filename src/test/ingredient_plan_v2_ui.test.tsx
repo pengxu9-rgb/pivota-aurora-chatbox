@@ -179,7 +179,30 @@ describe('ingredient_plan_v2 rich product UI', () => {
     const onOpenPdp = vi.fn();
     const resolveProductsSearch = vi
       .fn()
-      .mockResolvedValueOnce({ products: [] })
+      .mockResolvedValueOnce({
+        products: [
+          {
+            product_id: 'generic_cleanser_1',
+            merchant_id: 'merch_noise',
+            brand: 'Brand N',
+            title: 'Ceramide Face Cleanser',
+            category: 'Cleanser',
+          },
+        ],
+        metadata: {
+          search_decision: {
+            decision_mode: 'guidance_only',
+            query_step_strength: 'strong_goal_family',
+            step_success_class: null,
+            success_contract_result: {
+              applied: true,
+              satisfied: false,
+              step_success_class: null,
+              failure_class: 'generic_family_only',
+            },
+          },
+        },
+      })
       .mockResolvedValueOnce({
         products: [
           {
@@ -190,6 +213,19 @@ describe('ingredient_plan_v2 rich product UI', () => {
             category: 'Moisturizer',
           },
         ],
+        metadata: {
+          search_decision: {
+            decision_mode: 'guidance_only',
+            query_step_strength: 'strong_goal_family',
+            step_success_class: 'strong_goal_family',
+            success_contract_result: {
+              applied: true,
+              satisfied: true,
+              step_success_class: 'strong_goal_family',
+              failure_class: null,
+            },
+          },
+        },
       });
 
     render(
@@ -218,21 +254,30 @@ describe('ingredient_plan_v2 rich product UI', () => {
                   {
                     id: 'example_drawer_1',
                     label: 'ceramide cream',
-                    search_query: 'barrier repair ceramide cream face skincare',
+                    search_query: 'ceramide barrier moisturizer',
                     search_title: 'Ceramide cream',
-                    query_ladder: [
+                    query_ladder_steps: [
                       {
-                        query: 'ceramide cream',
+                        query: 'ceramide barrier moisturizer',
+                        intent_strength: 'strong_goal_family',
                         target_step_family: 'moisturizer',
-                        allow_external_seed: false,
-                        product_only: true,
-                      },
-                      {
-                        query: 'barrier repair moisturizer',
-                        target_step_family: 'moisturizer',
+                        source_policy: 'internal_first_then_external_supplement',
                         allow_external_seed: true,
                         external_seed_strategy: 'supplement_internal_first',
                         product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
+                      },
+                      {
+                        query: 'barrier repair ceramide moisturizer',
+                        intent_strength: 'strong_goal_family',
+                        target_step_family: 'moisturizer',
+                        source_policy: 'internal_first_then_external_supplement',
+                        allow_external_seed: true,
+                        external_seed_strategy: 'supplement_internal_first',
+                        product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
                       },
                     ],
                   },
@@ -255,19 +300,23 @@ describe('ingredient_plan_v2 rich product UI', () => {
     expect(resolveProductsSearch).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        query: 'ceramide cream',
+        query: 'ceramide barrier moisturizer',
         uiSurface: 'ingredient_plan_guidance_only',
-        allowExternalSeed: false,
+        allowExternalSeed: true,
+        externalSeedStrategy: 'supplement_internal_first',
         productOnly: true,
         queryIndex: 0,
         queryTotal: 2,
         targetStepFamily: 'moisturizer',
+        queryStepStrength: 'strong_goal_family',
+        decisionMode: 'guidance_only',
+        sourcePolicy: 'internal_first_then_external_supplement',
       }),
     );
     expect(resolveProductsSearch).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        query: 'barrier repair moisturizer',
+        query: 'barrier repair ceramide moisturizer',
         uiSurface: 'ingredient_plan_guidance_only',
         allowExternalSeed: true,
         externalSeedStrategy: 'supplement_internal_first',
@@ -275,6 +324,9 @@ describe('ingredient_plan_v2 rich product UI', () => {
         queryIndex: 1,
         queryTotal: 2,
         targetStepFamily: 'moisturizer',
+        queryStepStrength: 'strong_goal_family',
+        decisionMode: 'guidance_only',
+        sourcePolicy: 'internal_first_then_external_supplement',
       }),
     );
 
@@ -298,6 +350,19 @@ describe('ingredient_plan_v2 rich product UI', () => {
           external_redirect_url: 'https://redirect.example.com/rose-ceramide-cream',
         },
       ],
+      metadata: {
+        search_decision: {
+          decision_mode: 'guidance_only',
+          query_step_strength: 'strong_goal_family',
+          step_success_class: 'strong_goal_family',
+          success_contract_result: {
+            applied: true,
+            satisfied: true,
+            step_success_class: 'strong_goal_family',
+            failure_class: null,
+          },
+        },
+      },
     });
 
     render(
@@ -328,13 +393,17 @@ describe('ingredient_plan_v2 rich product UI', () => {
                     label: 'ceramide cream',
                     search_query: 'moisturizer barrier repair ceramide',
                     search_title: 'Ceramide cream',
-                    query_ladder: [
+                    query_ladder_steps: [
                       {
                         query: 'moisturizer barrier repair ceramide',
+                        intent_strength: 'strong_goal_family',
                         target_step_family: 'moisturizer',
+                        source_policy: 'internal_first_then_external_supplement',
                         allow_external_seed: true,
                         external_seed_strategy: 'supplement_internal_first',
                         product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
                       },
                     ],
                   },
@@ -372,6 +441,19 @@ describe('ingredient_plan_v2 rich product UI', () => {
           external_redirect_url: 'https://redirect.example.com/rose-ceramide-cream',
         },
       ],
+      metadata: {
+        search_decision: {
+          decision_mode: 'guidance_only',
+          query_step_strength: 'strong_goal_family',
+          step_success_class: 'strong_goal_family',
+          success_contract_result: {
+            applied: true,
+            satisfied: true,
+            step_success_class: 'strong_goal_family',
+            failure_class: null,
+          },
+        },
+      },
     });
 
     render(
@@ -401,13 +483,17 @@ describe('ingredient_plan_v2 rich product UI', () => {
                     label: 'ceramide cream',
                     search_query: 'moisturizer barrier repair ceramide',
                     search_title: 'Ceramide cream',
-                    query_ladder: [
+                    query_ladder_steps: [
                       {
                         query: 'moisturizer barrier repair ceramide',
+                        intent_strength: 'strong_goal_family',
                         target_step_family: 'moisturizer',
+                        source_policy: 'internal_first_then_external_supplement',
                         allow_external_seed: true,
                         external_seed_strategy: 'supplement_internal_first',
                         product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
                       },
                     ],
                   },
@@ -440,8 +526,47 @@ describe('ingredient_plan_v2 rich product UI', () => {
   it('only shows Search online after the guidance-only query ladder is exhausted', async () => {
     const resolveProductsSearch = vi
       .fn()
-      .mockResolvedValueOnce({ products: [] })
-      .mockResolvedValueOnce({ products: [] });
+      .mockResolvedValueOnce({
+        products: [],
+        clarification: {
+          question: 'Do you have a brand preference?',
+          options: ['No brand preference'],
+          reason_code: 'CLARIFY_BRAND',
+        },
+        metadata: {
+          clarification_suppressed: true,
+          legacy_fallback_suppressed: true,
+          search_decision: {
+            decision_mode: 'guidance_only',
+            query_step_strength: 'strong_goal_family',
+            step_success_class: null,
+            clarification_suppressed: true,
+            legacy_fallback_suppressed: true,
+            success_contract_result: {
+              applied: true,
+              satisfied: false,
+              step_success_class: null,
+              failure_class: 'retrieval_direction_weak',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        products: [],
+        metadata: {
+          search_decision: {
+            decision_mode: 'guidance_only',
+            query_step_strength: 'supportive_family',
+            step_success_class: null,
+            success_contract_result: {
+              applied: true,
+              satisfied: false,
+              step_success_class: null,
+              failure_class: 'no_target_relevant_candidates',
+            },
+          },
+        },
+      });
 
     render(
       <IngredientPlanCard
@@ -468,21 +593,30 @@ describe('ingredient_plan_v2 rich product UI', () => {
                   {
                     id: 'example_drawer_2',
                     label: 'fragrance-free barrier moisturizer',
-                    search_query: 'fragrance-free barrier moisturizer',
+                    search_query: 'ceramide barrier moisturizer',
                     search_title: 'Fragrance-free barrier moisturizer',
-                    query_ladder: [
+                    query_ladder_steps: [
                       {
-                        query: 'fragrance-free barrier moisturizer',
+                        query: 'ceramide barrier moisturizer',
+                        intent_strength: 'strong_goal_family',
                         target_step_family: 'moisturizer',
-                        allow_external_seed: false,
-                        product_only: true,
-                      },
-                      {
-                        query: 'barrier repair moisturizer',
-                        target_step_family: 'moisturizer',
+                        source_policy: 'internal_first_then_external_supplement',
                         allow_external_seed: true,
                         external_seed_strategy: 'supplement_internal_first',
                         product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
+                      },
+                      {
+                        query: 'barrier repair moisturizer',
+                        intent_strength: 'supportive_family',
+                        target_step_family: 'moisturizer',
+                        source_policy: 'internal_first_then_external_supplement',
+                        allow_external_seed: true,
+                        external_seed_strategy: 'supplement_internal_first',
+                        product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
                       },
                     ],
                   },
@@ -502,8 +636,116 @@ describe('ingredient_plan_v2 rich product UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /browse product type: fragrance-free barrier moisturizer/i }));
 
     expect(await screen.findByText('No strong matches yet for this product type.')).toBeInTheDocument();
+    expect(screen.queryByText('Do you have a brand preference?')).not.toBeInTheDocument();
     expect(resolveProductsSearch).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('button', { name: /search online/i })).toBeInTheDocument();
+  });
+
+  it('preserves external supplement legacy ladder steps even when the query text is identical', async () => {
+    const resolveProductsSearch = vi
+      .fn()
+      .mockResolvedValueOnce({ products: [] })
+      .mockResolvedValueOnce({
+        products: [
+          {
+            product_id: 'ext_rose_1',
+            merchant_id: 'external_seed',
+            brand: 'Pixi',
+            title: 'Rose Ceramide Cream',
+            category: 'Moisturizer',
+          },
+        ],
+        metadata: {
+          search_decision: {
+            decision_mode: 'guidance_only',
+            query_step_strength: 'strong_goal_family',
+            step_success_class: 'strong_goal_family',
+            success_contract_result: {
+              applied: true,
+              satisfied: true,
+              step_success_class: 'strong_goal_family',
+              failure_class: null,
+            },
+          },
+        },
+      });
+
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_guidance_legacy_duplicate_steps"
+        resolveProductsSearch={resolveProductsSearch}
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'ceramide',
+              ingredient_name: 'Ceramides',
+              priority_score_0_100: 72,
+              priority_level: 'high',
+              why: ['Rule signal: barrier support'],
+              usage_guidance: ['AM/PM'],
+              products: {
+                mode: 'guidance_only',
+                example_product_types: ['ceramide cream'],
+                example_product_discovery_items: [
+                  {
+                    id: 'example_drawer_legacy_duplicate',
+                    label: 'ceramide cream',
+                    search_query: 'ceramide barrier moisturizer',
+                    search_title: 'Ceramide cream',
+                    query_ladder: [
+                      {
+                        query: 'ceramide barrier moisturizer',
+                        target_step_family: 'moisturizer',
+                        allow_external_seed: false,
+                        product_only: true,
+                        intent_strength: 'strong_goal_family',
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
+                      },
+                      {
+                        query: 'ceramide barrier moisturizer',
+                        target_step_family: 'moisturizer',
+                        allow_external_seed: true,
+                        external_seed_strategy: 'supplement_internal_first',
+                        product_only: true,
+                        intent_strength: 'strong_goal_family',
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
+                        source_policy: 'internal_first_then_external_supplement',
+                      },
+                    ],
+                  },
+                ],
+                note: 'Tap a product type to browse top matching products.',
+                competitors: [],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /browse product type: ceramide cream/i }));
+
+    expect(await screen.findByText('Rose Ceramide Cream')).toBeInTheDocument();
+    expect(resolveProductsSearch).toHaveBeenCalledTimes(2);
+    expect(resolveProductsSearch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        query: 'ceramide barrier moisturizer',
+        allowExternalSeed: true,
+        externalSeedStrategy: 'supplement_internal_first',
+        queryStepStrength: 'strong_goal_family',
+      }),
+    );
   });
 
   it('filters obvious makeup candidates out of skincare recommendations', () => {
