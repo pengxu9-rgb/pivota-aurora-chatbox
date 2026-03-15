@@ -6,6 +6,7 @@ import type {
   ConcernSummaryVm,
   IngredientActionVm,
   ModuleRecommendationVm,
+  ProductExampleDiscoveryVm,
   ProductCardVm,
 } from '@/lib/recommendationViewModel';
 import {
@@ -33,10 +34,18 @@ type OpenExternalSearchFn = (opts: {
   ctaIndex: number;
 }) => void;
 
+type OpenProductExampleFn = (opts: {
+  moduleId: string;
+  action: PhotoModulesAction;
+  item: ProductExampleDiscoveryVm;
+  itemIndex: number;
+}) => void;
+
 export type RecommendationSectionProps = {
   vm: ModuleRecommendationVm;
   language: Language;
   onOpenProduct?: OpenProductFn;
+  onOpenProductExample?: OpenProductExampleFn;
   onOpenExternalSearch?: OpenExternalSearchFn;
   productsEnabled?: boolean;
   expandedProductsEnabled?: boolean;
@@ -295,11 +304,13 @@ function ProductMatchList({
   moreProducts,
   emptyMessage,
   productExamples,
+  productExampleItems,
   productExamplesLabel,
   productExamplesNote,
   externalSearchCtas,
   language,
   onOpenProduct,
+  onOpenProductExample,
   moduleId,
   rawAction,
   productsEnabled,
@@ -312,11 +323,13 @@ function ProductMatchList({
   moreProducts: ProductCardVm[];
   emptyMessage: string | null;
   productExamples: string[];
+  productExampleItems: ProductExampleDiscoveryVm[];
   productExamplesLabel?: string | null;
   productExamplesNote?: string | null;
   externalSearchCtas: { title: string; url: string }[];
   language: Language;
   onOpenProduct?: OpenProductFn;
+  onOpenProductExample?: OpenProductExampleFn;
   moduleId: string;
   rawAction: PhotoModulesAction;
   productsEnabled: boolean;
@@ -377,14 +390,34 @@ function ProductMatchList({
             {productExamplesLabel || (language === 'CN' ? '示例产品类型' : 'Example product types')}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {productExamples.map((example) => (
-              <span
-                key={example}
-                className="rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground"
-              >
-                {example}
-              </span>
-            ))}
+            {productExampleItems.length > 0
+              ? productExampleItems.map((item, index) => (
+                  <button
+                    key={item.id || `${item.label}_${index}`}
+                    type="button"
+                    className="rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground transition hover:bg-muted/20 disabled:cursor-default disabled:opacity-80"
+                    onClick={() =>
+                      onOpenProductExample?.({
+                        moduleId,
+                        action: rawAction,
+                        item,
+                        itemIndex: index,
+                      })
+                    }
+                    disabled={!onOpenProductExample}
+                    aria-label={`${language === 'CN' ? '浏览产品类型' : 'Browse product type'}: ${item.label}`}
+                  >
+                    {item.label}
+                  </button>
+                ))
+              : productExamples.map((example) => (
+                  <span
+                    key={example}
+                    className="rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground"
+                  >
+                    {example}
+                  </span>
+                ))}
           </div>
           {productExamplesNote ? (
             <div className="mt-2 text-[11px] text-muted-foreground">{productExamplesNote}</div>
@@ -499,6 +532,7 @@ function IngredientActionCard({
   vm,
   language,
   onOpenProduct,
+  onOpenProductExample,
   moduleId,
   productsEnabled,
   expandedProductsEnabled,
@@ -509,6 +543,7 @@ function IngredientActionCard({
   vm: IngredientActionVm;
   language: Language;
   onOpenProduct?: OpenProductFn;
+  onOpenProductExample?: OpenProductExampleFn;
   moduleId: string;
   productsEnabled: boolean;
   expandedProductsEnabled: boolean;
@@ -578,11 +613,13 @@ function IngredientActionCard({
         moreProducts={vm.moreProducts}
         emptyMessage={vm.productsEmptyMessage}
         productExamples={vm.productExamples}
+        productExampleItems={vm.productExampleItems}
         productExamplesLabel={vm.productExamplesLabel}
         productExamplesNote={vm.productExamplesNote}
         externalSearchCtas={vm.externalSearchCtas}
         language={language}
         onOpenProduct={onOpenProduct}
+        onOpenProductExample={onOpenProductExample}
         moduleId={moduleId}
         rawAction={vm.rawAction}
         productsEnabled={productsEnabled}
@@ -609,6 +646,7 @@ export function RecommendationSection({
   vm,
   language,
   onOpenProduct,
+  onOpenProductExample,
   onOpenExternalSearch,
   productsEnabled = true,
   expandedProductsEnabled = true,
@@ -693,6 +731,7 @@ export function RecommendationSection({
             vm={action}
             language={language}
             onOpenProduct={onOpenProduct}
+            onOpenProductExample={onOpenProductExample}
             moduleId={vm.moduleId}
             productsEnabled={productsEnabled}
             expandedProductsEnabled={expandedProductsEnabled}

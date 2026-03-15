@@ -43,6 +43,13 @@ export type ProductCardVm = {
   raw: PhotoModulesProduct;
 };
 
+export type ProductExampleDiscoveryVm = {
+  id: string;
+  label: string;
+  searchQuery: string;
+  searchTitle: string | null;
+};
+
 export type IngredientActionVm = {
   ingredientId: string;
   ingredientName: string;
@@ -58,6 +65,7 @@ export type IngredientActionVm = {
   productsEmptyMessage: string | null;
   productsFilteredNote?: string | null;
   productExamples: string[];
+  productExampleItems: ProductExampleDiscoveryVm[];
   productExamplesLabel?: string | null;
   productExamplesNote?: string | null;
   externalSearchCtas: { title: string; url: string }[];
@@ -492,6 +500,7 @@ export function mapIngredientAction(
     productsEmptyMessage: emptyMessage,
     productsFilteredNote: null,
     productExamples: [],
+    productExampleItems: [],
     productExamplesLabel: null,
     productExamplesNote: null,
     externalSearchCtas: externalCtas,

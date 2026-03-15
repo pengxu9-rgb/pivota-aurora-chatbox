@@ -1,7 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ExternalLink, Loader2, Search, X } from 'lucide-react';
 
 import { RecommendationSection } from '@/components/aurora/cards/RecommendationSection';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
+  emitRecommendationDetailsSheetOpened,
   emitDiscoveryLinkOpenAttempt,
   emitDiscoveryLinkOpenResult,
   emitIngredientProductOpenAttempt,
@@ -17,10 +21,13 @@ import {
   filterAndRankProducts,
   mapProductCard,
   type ModuleRecommendationVm,
+  type ProductExampleDiscoveryVm,
   type PriorityLabel,
 } from '@/lib/recommendationViewModel';
+import { buildGoogleSearchFallbackUrl } from '@/lib/externalSearchFallback';
 import { buildPdpUrl, extractPdpTargetFromProductGroupId, getPivotaShopBaseUrl } from '@/lib/pivotaShop';
 import type { Language } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 type ProductLike = {
   product_id?: string;
@@ -28,9 +35,11 @@ type ProductLike = {
   title?: string;
   name?: string;
   brand?: string;
+  category?: string;
   source?: string;
   source_block?: string;
   why_match?: string;
+  description?: string;
   price?: unknown;
   currency?: string;
   price_tier?: string;
@@ -75,11 +84,20 @@ type IngredientTargetLike = {
   products?: {
     mode?: string;
     example_product_types?: unknown;
+    example_product_discovery_items?: unknown;
     note?: string;
     competitors?: ProductLike[];
     dupes?: ProductLike[];
   };
+  product_discovery_items?: unknown;
   product_examples?: unknown;
+};
+
+type ProductDiscoveryLike = {
+  id?: string;
+  label?: string;
+  search_query?: string;
+  search_title?: string;
 };
 
 type PlanVariant = 'v1' | 'v2';
@@ -92,6 +110,15 @@ type OpenResult =
   | 'blocked_invalid_url'
   | 'failed_unknown';
 type SyntheticPlanProduct = PhotoModulesProduct & { category?: string; __planBucket?: ProductBucket };
+type ResolveProductsSearchFn = (args: {
+  query: string;
+  limit?: number;
+  preferBrand?: string | null;
+  uiSurface?: string | null;
+  clarificationSlot?: string | null;
+  clarificationAnswer?: string | null;
+  slotState?: Record<string, unknown> | null;
+}) => Promise<any>;
 
 const PLAN_MODULE_ID = 'ingredient_plan_v2';
 
@@ -122,6 +149,11 @@ const asNumber = (value: unknown): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const asProductDiscoveryRows = (value: unknown): ProductDiscoveryLike[] =>
+  asArray(value)
+    .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as ProductDiscoveryLike) : null))
+    .filter(Boolean) as ProductDiscoveryLike[];
+
 const toStringList = (value: unknown, max = 3): string[] => {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -137,6 +169,26 @@ const toStringList = (value: unknown, max = 3): string[] => {
   return out;
 };
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mql = window.matchMedia(query);
+    const handler = (event: MediaQueryListEvent) => setMatches(event.matches);
+    setMatches(mql.matches);
+    mql.addEventListener?.('change', handler);
+    return () => {
+      mql.removeEventListener?.('change', handler);
+    };
+  }, [query]);
+
+  return matches;
+}
+
 const asTargets = (value: unknown): IngredientTargetLike[] =>
   asArray(value)
     .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as IngredientTargetLike) : null))
@@ -146,6 +198,48 @@ const asProductRows = (value: unknown): ProductLike[] =>
   asArray(value)
     .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as ProductLike) : null))
     .filter(Boolean) as ProductLike[];
+
+const asProductExampleDiscoveryItems = (value: unknown, fallbackExamples: string[], max = 3): ProductExampleDiscoveryVm[] => {
+  const out: ProductExampleDiscoveryVm[] = [];
+  const seen = new Set<string>();
+  const seenLabels = new Set<string>();
+
+  for (const row of asProductDiscoveryRows(value)) {
+    const label = asString(row.label);
+    const searchQuery = asString(row.search_query);
+    if (!label || !searchQuery) continue;
+    const key = `${label.toLowerCase()}::${searchQuery.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    seenLabels.add(label.toLowerCase());
+    out.push({
+      id: asString(row.id) || `example_${out.length + 1}`,
+      label,
+      searchQuery,
+      searchTitle: asNonEmptyString(row.search_title) || label,
+    });
+    if (out.length >= max) return out;
+  }
+
+  for (const example of fallbackExamples) {
+    const label = asString(example);
+    if (!label) continue;
+    if (seenLabels.has(label.toLowerCase())) continue;
+    const key = `${label.toLowerCase()}::${label.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    seenLabels.add(label.toLowerCase());
+    out.push({
+      id: `example_${out.length + 1}`,
+      label,
+      searchQuery: label,
+      searchTitle: label,
+    });
+    if (out.length >= max) break;
+  }
+
+  return out;
+};
 
 const safeUrl = (value: unknown): string => {
   const text = asString(value);
@@ -560,8 +654,16 @@ function buildRecommendationVm(
       const rawCompetitors = asProductRows(target.products?.competitors);
       const rawDupes = asProductRows(target.products?.dupes);
       const productExamples = toStringList(target.products?.example_product_types ?? target.product_examples, 3);
+      const productExampleItems = asProductExampleDiscoveryItems(
+        target.products?.example_product_discovery_items ?? target.product_discovery_items,
+        productExamples,
+        3,
+      );
       const productExamplesNote = asNonEmptyString(target.products?.note);
-      const guidanceOnly = asString(target.products?.mode).toLowerCase() === 'guidance_only' || productExamples.length > 0;
+      const guidanceOnly =
+        asString(target.products?.mode).toLowerCase() === 'guidance_only'
+        || productExampleItems.length > 0
+        || productExamples.length > 0;
       const filteredCompetitors = filterAndSortProductRows(rawCompetitors);
       const filteredDupes = filterAndSortProductRows(rawDupes);
       const guidanceText = guidance.join(language === 'CN' ? '；' : '; ');
@@ -593,7 +695,8 @@ function buildRecommendationVm(
             ? null
             : getProductsEmptyMessage(rawCompetitors.length + rawDupes.length > 0, language),
         productsFilteredNote: filteredCount > 0 ? filteredProductsLabel : null,
-        productExamples,
+        productExamples: productExampleItems.map((item) => item.label),
+        productExampleItems,
         productExamplesLabel: guidanceOnly
           ? (language === 'CN' ? '示例产品类型' : 'Example product types')
           : null,
@@ -621,6 +724,31 @@ function mapFooterExternalSearchCtas(payload: Record<string, unknown>): PhotoMod
     .filter(Boolean) as PhotoModulesExternalSearchCta[];
 }
 
+function extractProductsSearchRows(response: unknown): ProductLike[] {
+  const root = asObject(response);
+  if (!root) return [];
+  const rows = asProductRows(
+    root.products ||
+      root.data?.products ||
+      root.payload?.products ||
+      root.result?.products ||
+      [],
+  );
+  return filterAndSortProductRows(rows).slice(0, 8);
+}
+
+function pickDiscoveryImageUrl(product: ProductLike): string {
+  return safeUrl(product.image_url) || safeUrl(product.thumb_url);
+}
+
+type GuidanceDiscoveryState = {
+  open: boolean;
+  item: ProductExampleDiscoveryVm | null;
+  loading: boolean;
+  results: ProductLike[];
+  error: string | null;
+};
+
 export function IngredientPlanCard({
   payload,
   language,
@@ -628,6 +756,7 @@ export function IngredientPlanCard({
   analyticsCtx,
   cardId,
   onOpenPdp,
+  resolveProductsSearch,
 }: {
   payload: Record<string, unknown>;
   language: Language;
@@ -635,9 +764,19 @@ export function IngredientPlanCard({
   analyticsCtx?: AnalyticsContext;
   cardId?: string;
   onOpenPdp?: (args: { url: string; title?: string }) => void;
+  resolveProductsSearch?: ResolveProductsSearchFn;
 }) {
   const previewOnly = payload.preview_only === true;
   const resolvedVariant = variant || 'v2';
+  const isDesktop = useMediaQuery('(min-width: 768px)');
+  const discoveryReqRef = useRef(0);
+  const [guidanceDiscovery, setGuidanceDiscovery] = useState<GuidanceDiscoveryState>({
+    open: false,
+    item: null,
+    loading: false,
+    results: [],
+    error: null,
+  });
   const intensityObj = asObject(payload.intensity) || {};
   const intensityLevel = normalizeIntensityLevel(asString(intensityObj.level));
   const defaultIntensity = getIntensityCopy(intensityLevel, language);
@@ -753,6 +892,254 @@ export function IngredientPlanCard({
     }
   };
 
+  const openGuidanceDiscoveryFallback = useCallback(
+    (item: ProductExampleDiscoveryVm | null) => {
+      const query = asString(item?.searchQuery);
+      const url = buildGoogleSearchFallbackUrl(query, language);
+      if (!url) return;
+
+      if (analyticsCtx) {
+        emitDiscoveryLinkOpenAttempt(analyticsCtx, {
+          card_id: cardId ?? null,
+          source_card_type: 'ingredient_plan_v2',
+          source_bucket: 'guidance_only_product_type',
+          url,
+        });
+      }
+
+      const openResult = openWithAnchorFallback(url);
+
+      if (analyticsCtx) {
+        emitDiscoveryLinkOpenResult(analyticsCtx, {
+          card_id: cardId ?? null,
+          source_card_type: 'ingredient_plan_v2',
+          source_bucket: 'guidance_only_product_type',
+          url,
+          result: openResult.result,
+          blocked_reason: openResult.blockedReason ?? null,
+        });
+      }
+    },
+    [analyticsCtx, cardId, language],
+  );
+
+  const onOpenGuidanceDiscovery = useCallback(
+    async ({
+      item,
+    }: {
+      moduleId: string;
+      action: PhotoModulesAction;
+      item: ProductExampleDiscoveryVm;
+      itemIndex: number;
+    }) => {
+      if (!item?.searchQuery) return;
+      if (analyticsCtx) {
+        emitRecommendationDetailsSheetOpened(analyticsCtx, {
+          anchor_key: item.id || item.label,
+          source: 'ingredient_guidance_only',
+          track_count: 1,
+          item_count: 0,
+          search_query: item.searchQuery,
+        });
+      }
+
+      const reqId = discoveryReqRef.current + 1;
+      discoveryReqRef.current = reqId;
+      setGuidanceDiscovery({
+        open: true,
+        item,
+        loading: true,
+        results: [],
+        error: null,
+      });
+
+      if (!resolveProductsSearch) {
+        setGuidanceDiscovery({
+          open: true,
+          item,
+          loading: false,
+          results: [],
+          error: language === 'CN' ? '当前无法加载候选商品，请改用外部搜索。' : 'Unable to load product candidates right now. Try external search.',
+        });
+        return;
+      }
+
+      try {
+        const response = await resolveProductsSearch({
+          query: item.searchQuery,
+          limit: 8,
+          uiSurface: 'ingredient_plan_guidance_only',
+        });
+        if (discoveryReqRef.current !== reqId) return;
+        setGuidanceDiscovery({
+          open: true,
+          item,
+          loading: false,
+          results: extractProductsSearchRows(response),
+          error: null,
+        });
+      } catch {
+        if (discoveryReqRef.current !== reqId) return;
+        setGuidanceDiscovery({
+          open: true,
+          item,
+          loading: false,
+          results: [],
+          error: language === 'CN' ? '候选商品加载失败，请稍后重试。' : 'Unable to load product candidates. Please try again.',
+        });
+      }
+    },
+    [analyticsCtx, language, resolveProductsSearch],
+  );
+
+  const onOpenGuidanceDiscoveryProduct = useCallback(
+    (product: ProductLike) => {
+      const url = productOpenUrl(product);
+      const drawerUrl = isInternalShopPdpUrl(url)
+        ? url
+        : resolveInternalDrawerUrl(product as unknown as PhotoModulesProduct);
+      const productId = asString(product.product_id) || null;
+      const title = [asString(product.brand), asString(product.title || product.name)].filter(Boolean).join(' ').trim()
+        || asString(product.title || product.name);
+
+      if (analyticsCtx) {
+        emitIngredientProductOpenAttempt(analyticsCtx, {
+          card_id: cardId ?? null,
+          product_id: productId,
+          source_card_type: 'ingredient_plan_v2',
+          source_bucket: 'guidance_only_discovery',
+          url: url || null,
+        });
+      }
+
+      const openResult =
+        drawerUrl && onOpenPdp
+          ? (() => {
+              onOpenPdp({ url: drawerUrl, ...(title ? { title } : {}) });
+              return { result: 'success_shop_drawer' as const };
+            })()
+          : openWithAnchorFallback(url);
+
+      if (analyticsCtx) {
+        emitIngredientProductOpenResult(analyticsCtx, {
+          card_id: cardId ?? null,
+          product_id: productId,
+          source_card_type: 'ingredient_plan_v2',
+          source_bucket: 'guidance_only_discovery',
+          url: url || null,
+          result: openResult.result,
+          blocked_reason: openResult.blockedReason ?? null,
+        });
+      }
+    },
+    [analyticsCtx, cardId, onOpenPdp],
+  );
+
+  const guidanceDiscoveryTitle = language === 'CN' ? '浏览候选商品' : 'Browse matching products';
+  const guidanceDiscoveryBody = guidanceDiscovery.item ? (
+    <div className="space-y-3 px-4 pb-4">
+      <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
+        <div className="text-sm font-semibold text-foreground">
+          {guidanceDiscovery.item.searchTitle || guidanceDiscovery.item.label}
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {language === 'CN' ? '点击商品查看详情，或继续搜索更多结果。' : 'Tap a product to view details, or keep searching for more options.'}
+        </div>
+      </div>
+
+      {guidanceDiscovery.loading ? (
+        <div className="rounded-2xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+          <span className="inline-flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {language === 'CN' ? '正在加载候选商品…' : 'Loading matching products…'}
+          </span>
+        </div>
+      ) : guidanceDiscovery.error ? (
+        <div className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          <div>{guidanceDiscovery.error}</div>
+          <button
+            type="button"
+            className="chip-button"
+            onClick={() => openGuidanceDiscoveryFallback(guidanceDiscovery.item)}
+          >
+            <Search className="h-3.5 w-3.5" />
+            {language === 'CN' ? '改用外部搜索' : 'Search online'}
+          </button>
+        </div>
+      ) : guidanceDiscovery.results.length ? (
+        <div className="space-y-2">
+          {guidanceDiscovery.results.map((product, idx) => {
+            const title = asString(product.title || product.name);
+            const brand = asString(product.brand);
+            const imageUrl = pickDiscoveryImageUrl(product);
+            const openable = Boolean(productOpenUrl(product));
+            return (
+              <div
+                key={`${asString(product.product_id) || title || idx}`}
+                className="flex items-start gap-3 rounded-2xl border border-border/60 bg-background/70 p-3"
+              >
+                <div className="h-14 w-14 overflow-hidden rounded-xl border border-border/50 bg-muted/30">
+                  {imageUrl ? (
+                    <img src={imageUrl} alt={title || guidanceDiscovery.item?.label || 'product'} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-muted-foreground">
+                      {(brand || title || 'P').slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold leading-snug text-foreground">{title || guidanceDiscovery.item?.label}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    {[brand, asString(product.category)].filter(Boolean).join(' · ')}
+                  </div>
+                  {asString(product.description) ? (
+                    <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{asString(product.description)}</div>
+                  ) : null}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        'chip-button chip-button-primary',
+                        !openable && 'opacity-60',
+                      )}
+                      disabled={!openable}
+                      onClick={() => onOpenGuidanceDiscoveryProduct(product)}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      {language === 'CN' ? '查看商品' : 'View product'}
+                    </button>
+                    {idx === 0 ? (
+                      <button
+                        type="button"
+                        className="chip-button"
+                        onClick={() => openGuidanceDiscoveryFallback(guidanceDiscovery.item)}
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                        {language === 'CN' ? '更多搜索结果' : 'More search results'}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+          <div>{language === 'CN' ? '当前没有找到合适候选。' : 'No strong matches yet for this product type.'}</div>
+          <button
+            type="button"
+            className="chip-button"
+            onClick={() => openGuidanceDiscoveryFallback(guidanceDiscovery.item)}
+          >
+            <Search className="h-3.5 w-3.5" />
+            {language === 'CN' ? '改用外部搜索' : 'Search online'}
+          </button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3" data-testid="ingredient-plan-v2-card">
       {resolvedVariant === 'v2' && (intensityLabel || intensityExplanation || effectiveTier) ? (
@@ -781,6 +1168,7 @@ export function IngredientPlanCard({
         alwaysShowExternalSearchCtas
         footerExternalSearchCtas={footerExternalSearchCtas}
         onOpenProduct={onOpenProduct}
+        onOpenProductExample={onOpenGuidanceDiscovery}
         onOpenExternalSearch={onOpenExternalSearch}
       />
 
@@ -811,6 +1199,57 @@ export function IngredientPlanCard({
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {guidanceDiscovery.item ? (
+        isDesktop ? (
+          <Sheet open={guidanceDiscovery.open} onOpenChange={(open) => setGuidanceDiscovery((prev) => ({ ...prev, open }))}>
+            <SheetContent
+              side="right"
+              className="w-[460px] max-w-[92vw] overflow-y-auto"
+              aria-label={guidanceDiscoveryTitle}
+              aria-describedby={undefined}
+            >
+              <SheetHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <SheetTitle>{guidanceDiscoveryTitle}</SheetTitle>
+                  <button
+                    type="button"
+                    className="rounded-full border border-border/60 p-2 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
+                    onClick={() => setGuidanceDiscovery((prev) => ({ ...prev, open: false }))}
+                    aria-label={language === 'CN' ? '关闭' : 'Close'}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </SheetHeader>
+              {guidanceDiscoveryBody}
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <Drawer open={guidanceDiscovery.open} onOpenChange={(open) => setGuidanceDiscovery((prev) => ({ ...prev, open }))}>
+            <DrawerContent
+              className="max-h-[85dvh] rounded-t-3xl border border-border/60 bg-background/95"
+              aria-label={guidanceDiscoveryTitle}
+              aria-describedby={undefined}
+            >
+              <DrawerHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <DrawerTitle>{guidanceDiscoveryTitle}</DrawerTitle>
+                  <button
+                    type="button"
+                    className="rounded-full border border-border/60 p-2 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
+                    onClick={() => setGuidanceDiscovery((prev) => ({ ...prev, open: false }))}
+                    aria-label={language === 'CN' ? '关闭' : 'Close'}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </DrawerHeader>
+              <div className="overflow-y-auto pb-2">{guidanceDiscoveryBody}</div>
+            </DrawerContent>
+          </Drawer>
+        )
       ) : null}
     </div>
   );
