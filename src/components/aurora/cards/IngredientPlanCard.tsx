@@ -73,9 +73,13 @@ type IngredientTargetLike = {
   why?: unknown;
   usage_guidance?: unknown;
   products?: {
+    mode?: string;
+    example_product_types?: unknown;
+    note?: string;
     competitors?: ProductLike[];
     dupes?: ProductLike[];
   };
+  product_examples?: unknown;
 };
 
 type PlanVariant = 'v1' | 'v2';
@@ -555,6 +559,9 @@ function buildRecommendationVm(
       const usage = parseUsageGuidance(guidance, language);
       const rawCompetitors = asProductRows(target.products?.competitors);
       const rawDupes = asProductRows(target.products?.dupes);
+      const productExamples = toStringList(target.products?.example_product_types ?? target.product_examples, 3);
+      const productExamplesNote = asNonEmptyString(target.products?.note);
+      const guidanceOnly = asString(target.products?.mode).toLowerCase() === 'guidance_only' || productExamples.length > 0;
       const filteredCompetitors = filterAndSortProductRows(rawCompetitors);
       const filteredDupes = filterAndSortProductRows(rawDupes);
       const guidanceText = guidance.join(language === 'CN' ? '；' : '; ');
@@ -581,8 +588,16 @@ function buildRecommendationVm(
         },
         topProducts: top.map((product) => mapProductCard(product, language)),
         moreProducts: more.map((product) => mapProductCard(product, language)),
-        productsEmptyMessage: syntheticProducts.length > 0 ? null : getProductsEmptyMessage(rawCompetitors.length + rawDupes.length > 0, language),
+        productsEmptyMessage:
+          syntheticProducts.length > 0 || guidanceOnly
+            ? null
+            : getProductsEmptyMessage(rawCompetitors.length + rawDupes.length > 0, language),
         productsFilteredNote: filteredCount > 0 ? filteredProductsLabel : null,
+        productExamples,
+        productExamplesLabel: guidanceOnly
+          ? (language === 'CN' ? '示例产品类型' : 'Example product types')
+          : null,
+        productExamplesNote: guidanceOnly ? productExamplesNote : null,
         externalSearchCtas: [],
         rawAction,
       };

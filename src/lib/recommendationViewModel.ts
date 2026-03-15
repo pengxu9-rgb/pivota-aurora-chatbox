@@ -57,6 +57,9 @@ export type IngredientActionVm = {
   moreProducts: ProductCardVm[];
   productsEmptyMessage: string | null;
   productsFilteredNote?: string | null;
+  productExamples: string[];
+  productExamplesLabel?: string | null;
+  productExamplesNote?: string | null;
   externalSearchCtas: { title: string; url: string }[];
   rawAction: PhotoModulesAction;
 };
@@ -488,6 +491,9 @@ export function mapIngredientAction(
     moreProducts,
     productsEmptyMessage: emptyMessage,
     productsFilteredNote: null,
+    productExamples: [],
+    productExamplesLabel: null,
+    productExamplesNote: null,
     externalSearchCtas: externalCtas,
     rawAction: action,
   };
