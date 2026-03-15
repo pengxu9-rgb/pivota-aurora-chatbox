@@ -2013,6 +2013,18 @@ const normalizeRecoGoalToken = (raw: unknown): string => {
   return token;
 };
 
+const deriveDiagnosisGoalForAnalysis = (threadState: Record<string, unknown> | null | undefined): string => {
+  const state = threadState && typeof threadState === 'object' ? threadState : null;
+  if (!state) return '';
+  const selectedGoals = Array.isArray((state as any).diagnosis_goals) ? (state as any).diagnosis_goals : [];
+  for (const rawGoal of selectedGoals) {
+    const normalized = normalizeRecoGoalToken(rawGoal);
+    if (normalized) return normalized;
+  }
+  const customInput = asString((state as any).diagnosis_custom_input);
+  return customInput ? customInput.trim() : '';
+};
+
 const extractResolvedRecoGoals = (value: unknown): string[] => {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -10886,10 +10898,15 @@ export default function BffChat() {
     try {
       setSessionState('S4_ANALYSIS_LOADING');
       const requestHeaders = { ...headers, lang: language };
+      const diagnosisGoal = deriveDiagnosisGoalForAnalysis(threadStateRef.current);
+      const body: Record<string, unknown> = {
+        use_photo: false,
+        ...(diagnosisGoal ? { goal: diagnosisGoal, diagnosis_goal: diagnosisGoal } : {}),
+      };
       const env = await retryWithBackoff(
         () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
           method: 'POST',
-          body: JSON.stringify({ use_photo: false }),
+          body: JSON.stringify(body),
           timeoutMs: ANALYSIS_REQUEST_TIMEOUT_MS,
         }),
         { maxRetries: 1, baseDelayMs: 1500 },
