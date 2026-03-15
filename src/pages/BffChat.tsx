@@ -2458,6 +2458,9 @@ export function RecommendationsCard({
     queryIndex?: number | null;
     queryTotal?: number | null;
     targetStepFamily?: string | null;
+    queryStepStrength?: string | null;
+    decisionMode?: string | null;
+    sourcePolicy?: string | null;
     clarificationSlot?: string | null;
     clarificationAnswer?: string | null;
     slotState?: ProductSearchSlotState | null;
@@ -4496,6 +4499,9 @@ function BffCardView({
     queryIndex?: number | null;
     queryTotal?: number | null;
     targetStepFamily?: string | null;
+    queryStepStrength?: string | null;
+    decisionMode?: string | null;
+    sourcePolicy?: string | null;
     clarificationSlot?: string | null;
     clarificationAnswer?: string | null;
     slotState?: ProductSearchSlotState | null;
@@ -12015,6 +12021,9 @@ export default function BffChat() {
       queryIndex,
       queryTotal,
       targetStepFamily,
+      queryStepStrength,
+      decisionMode,
+      sourcePolicy,
       clarificationSlot,
       clarificationAnswer,
       slotState,
@@ -12029,6 +12038,9 @@ export default function BffChat() {
       queryIndex?: number | null;
       queryTotal?: number | null;
       targetStepFamily?: string | null;
+      queryStepStrength?: string | null;
+      decisionMode?: string | null;
+      sourcePolicy?: string | null;
       clarificationSlot?: string | null;
       clarificationAnswer?: string | null;
       slotState?: ProductSearchSlotState | null;
@@ -12067,6 +12079,9 @@ export default function BffChat() {
         ...(queryIndex != null ? { query_index: String(Math.max(0, Math.trunc(Number(queryIndex) || 0))) } : {}),
         ...(queryTotal != null ? { query_total: String(Math.max(0, Math.trunc(Number(queryTotal) || 0))) } : {}),
         ...(targetStepFamily ? { target_step_family: targetStepFamily } : {}),
+        ...(queryStepStrength ? { query_step_strength: queryStepStrength } : {}),
+        ...(decisionMode ? { decision_mode: decisionMode } : {}),
+        ...(sourcePolicy ? { source_policy: sourcePolicy } : {}),
         ...(clarificationSlot ? { clarification_slot: clarificationSlot } : {}),
         ...(clarificationAnswer ? { clarification_answer: clarificationAnswer } : {}),
         ...(slotState &&

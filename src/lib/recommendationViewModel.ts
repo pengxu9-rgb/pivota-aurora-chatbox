@@ -50,10 +50,14 @@ export type ProductExampleDiscoveryVm = {
   searchTitle: string | null;
   queryLadder: Array<{
     query: string;
+    intentStrength: 'strong_goal_family' | 'supportive_family' | 'generic_family' | null;
     targetStepFamily: string | null;
+    sourcePolicy: 'internal_first_then_external_supplement' | null;
     allowExternalSeed: boolean;
     externalSeedStrategy: string | null;
     productOnly: boolean;
+    stopOnSuccess: boolean;
+    decisionMode: 'guidance_only' | null;
   }>;
 };
 
