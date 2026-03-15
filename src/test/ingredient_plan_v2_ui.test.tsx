@@ -116,6 +116,47 @@ describe('ingredient_plan_v2 rich product UI', () => {
     openSpy.mockRestore();
   });
 
+  it('renders guidance-only example product types instead of empty product copy', () => {
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_guidance_only"
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'ceramide',
+              ingredient_name: 'Ceramides',
+              priority_score_0_100: 72,
+              priority_level: 'high',
+              why: ['Rule signal: barrier support'],
+              usage_guidance: ['AM/PM'],
+              products: {
+                mode: 'guidance_only',
+                example_product_types: ['ingredient-focused serum', 'fragrance-free moisturizer'],
+                note: 'Examples are product types, not selected SKUs.',
+                competitors: [],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('ingredient-guidance-product-examples')).toBeInTheDocument();
+    expect(screen.getByText('Example product types')).toBeInTheDocument();
+    expect(screen.getByText('ingredient-focused serum')).toBeInTheDocument();
+    expect(screen.getByText('fragrance-free moisturizer')).toBeInTheDocument();
+    expect(screen.getByText('Examples are product types, not selected SKUs.')).toBeInTheDocument();
+    expect(screen.queryByText('No strong product matches available at this time.')).not.toBeInTheDocument();
+  });
+
   it('filters obvious makeup candidates out of skincare recommendations', () => {
     render(
       <IngredientPlanCard
