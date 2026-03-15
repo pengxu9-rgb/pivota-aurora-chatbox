@@ -424,7 +424,9 @@ const deriveInternalPdpUrlFromContract = (row: ProductLike): string => {
   const rawMerchantId = asNonEmptyString(row.merchant_id);
   const rawProductId = asNonEmptyString(row.product_id);
   const rawRowRef =
-    rawProductId && String(rawMerchantId || '').trim().toLowerCase() !== 'external_seed'
+    rawProductId
+    && rawMerchantId
+    && String(rawMerchantId || '').trim().toLowerCase() !== 'external_seed'
       ? { product_id: rawProductId, ...(rawMerchantId ? { merchant_id: rawMerchantId } : {}) }
       : null;
   const pdpOpen = asObject(row.pdp_open) || asObject((row as { pdpOpen?: unknown }).pdpOpen);
