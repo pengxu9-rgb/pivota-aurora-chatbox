@@ -5662,6 +5662,7 @@ function BffCardView({
         analyticsCtx={analyticsCtx}
         cardId={card.card_id}
         onOpenPdp={onOpenPdp}
+        resolveProductsSearch={resolveProductsSearch}
       />
     );
   }

@@ -137,7 +137,21 @@ describe('ingredient_plan_v2 rich product UI', () => {
               products: {
                 mode: 'guidance_only',
                 example_product_types: ['ingredient-focused serum', 'fragrance-free moisturizer'],
-                note: 'Examples are product types, not selected SKUs.',
+                example_product_discovery_items: [
+                  {
+                    id: 'example_1',
+                    label: 'ingredient-focused serum',
+                    search_query: 'ceramide ingredient-focused serum skincare',
+                    search_title: 'Ingredient-focused serum',
+                  },
+                  {
+                    id: 'example_2',
+                    label: 'fragrance-free moisturizer',
+                    search_query: 'barrier repair ceramide fragrance-free moisturizer face skincare',
+                    search_title: 'Fragrance-free moisturizer',
+                  },
+                ],
+                note: 'Tap a product type to browse top matching products.',
                 competitors: [],
                 dupes: [],
               },
@@ -151,10 +165,84 @@ describe('ingredient_plan_v2 rich product UI', () => {
 
     expect(screen.getByTestId('ingredient-guidance-product-examples')).toBeInTheDocument();
     expect(screen.getByText('Example product types')).toBeInTheDocument();
-    expect(screen.getByText('ingredient-focused serum')).toBeInTheDocument();
-    expect(screen.getByText('fragrance-free moisturizer')).toBeInTheDocument();
-    expect(screen.getByText('Examples are product types, not selected SKUs.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /browse product type: ingredient-focused serum/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /browse product type: fragrance-free moisturizer/i })).toBeInTheDocument();
+    expect(screen.getByText('Tap a product type to browse top matching products.')).toBeInTheDocument();
     expect(screen.queryByText('No strong product matches available at this time.')).not.toBeInTheDocument();
+  });
+
+  it('opens a guidance-only discovery drawer and loads matching sku candidates', async () => {
+    const onOpenPdp = vi.fn();
+    const resolveProductsSearch = vi.fn().mockResolvedValue({
+      products: [
+        {
+          product_id: 'prod_ceramide_1',
+          merchant_id: 'external_seed',
+          brand: 'Brand C',
+          title: 'Ceramide Barrier Cream',
+          category: 'Moisturizer',
+          pdp_url: 'https://agent.pivota.cc/products/prod_ceramide_1?merchant_id=external_seed&entry=aurora_chatbox',
+        },
+      ],
+    });
+
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_guidance_drawer"
+        onOpenPdp={onOpenPdp}
+        resolveProductsSearch={resolveProductsSearch}
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'ceramide',
+              ingredient_name: 'Ceramides',
+              priority_score_0_100: 72,
+              priority_level: 'high',
+              why: ['Rule signal: barrier support'],
+              usage_guidance: ['AM/PM'],
+              products: {
+                mode: 'guidance_only',
+                example_product_types: ['ceramide cream'],
+                example_product_discovery_items: [
+                  {
+                    id: 'example_drawer_1',
+                    label: 'ceramide cream',
+                    search_query: 'barrier repair ceramide cream face skincare',
+                    search_title: 'Ceramide cream',
+                  },
+                ],
+                note: 'Tap a product type to browse top matching products.',
+                competitors: [],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /browse product type: ceramide cream/i }));
+
+    expect(resolveProductsSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'barrier repair ceramide cream face skincare',
+        uiSurface: 'ingredient_plan_guidance_only',
+      }),
+    );
+    expect(await screen.findByText('Ceramide Barrier Cream')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /view product/i }));
+    expect(onOpenPdp).toHaveBeenCalledWith({
+      url: 'https://agent.pivota.cc/products/prod_ceramide_1?merchant_id=external_seed&entry=aurora_chatbox',
+      title: 'Brand C Ceramide Barrier Cream',
+    });
   });
 
   it('filters obvious makeup candidates out of skincare recommendations', () => {
