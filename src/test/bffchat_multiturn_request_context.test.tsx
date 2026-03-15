@@ -143,4 +143,56 @@ describe('BffChat multi-turn request context', () => {
     expect(secondBody.message).toBe('Second question');
     expect(secondBody.messages).not.toContainEqual({ role: 'user', content: 'Second question' });
   });
+
+  it('hydrates latest_reco_context from bootstrap and forwards it in subsequent chat thread_state', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({
+          session_patch: {
+            state: {
+              latest_reco_context: {
+                reco_context_version: 'aurora.reco_context.v2',
+                reco_context_source: 'analysis_skin',
+                diagnosis_goal: 'barrier_repair',
+                target_step: 'moisturizer',
+                seed_terms: ['barrier_repair', 'ceramide', 'panthenol'],
+              },
+            },
+          },
+        }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(makeChatResponse({
+          request_id: 'req_chat_reco_ctx',
+          trace_id: 'trace_chat_reco_ctx',
+          assistant_text: 'reply',
+        }));
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      const bootstrapCalls = mock.mock.calls.filter((call) => call[0] === '/v1/session/bootstrap');
+      expect(bootstrapCalls.length).toBeGreaterThan(0);
+    }, { timeout: READY_TIMEOUT_MS });
+
+    await sendPrompt('Recommend a moisturizer for me');
+    await screen.findByText('reply');
+
+    const chatCall = mock.mock.calls.find((call) => call[0] === '/v1/chat');
+    expect(chatCall).toBeTruthy();
+    const chatBody = JSON.parse(typeof chatCall?.[2]?.body === 'string' ? chatCall[2].body : '{}');
+    expect(chatBody.thread_state?.latest_reco_context?.diagnosis_goal).toBe('barrier_repair');
+    expect(chatBody.thread_state?.latest_reco_context?.target_step).toBe('moisturizer');
+    expect(chatBody.thread_state?.latest_reco_context?.seed_terms).toEqual(expect.arrayContaining(['barrier_repair', 'ceramide']));
+  });
 });

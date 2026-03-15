@@ -7983,6 +7983,26 @@ export default function BffChat() {
     threadStateRef.current = next;
   }, []);
 
+  const applySessionPatchStateToThreadState = useCallback((sessionPatchRaw: unknown) => {
+    const sessionPatch =
+      sessionPatchRaw && typeof sessionPatchRaw === 'object' && !Array.isArray(sessionPatchRaw)
+        ? sessionPatchRaw as Record<string, unknown>
+        : null;
+    const statePatch =
+      sessionPatch && sessionPatch.state && typeof sessionPatch.state === 'object' && !Array.isArray(sessionPatch.state)
+        ? sessionPatch.state as Record<string, unknown>
+        : null;
+    if (!statePatch) return;
+    const next = { ...(threadStateRef.current || {}) };
+    let changed = false;
+    for (const [key, value] of Object.entries(statePatch)) {
+      if (!key || key.startsWith('_internal_')) continue;
+      next[key] = value;
+      changed = true;
+    }
+    if (changed) threadStateRef.current = next;
+  }, []);
+
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
@@ -8220,6 +8240,7 @@ export default function BffChat() {
       if (typeof next === 'string' && next.trim()) setSessionState(next.trim());
       const nextMeta = asObject(patch.meta);
       if (nextMeta) setSessionMeta(nextMeta);
+      applySessionPatchStateToThreadState(patch);
 
       const profilePatch = asObject(patch.profile);
       if (profilePatch) setProfileSnapshot(profilePatch);
@@ -8308,7 +8329,7 @@ export default function BffChat() {
         return [...base, ...nextItems];
       });
     }
-  }, [debug, headers.aurora_uid, headers.brief_id, headers.trace_id, language]);
+  }, [applySessionPatchStateToThreadState, debug, headers.aurora_uid, headers.brief_id, headers.trace_id, language]);
 
   const applyChatResponseV1 = useCallback(
     (response: ChatResponseV1) => {
@@ -8942,6 +8963,7 @@ export default function BffChat() {
       const requestHeaders = { ...headers, lang: language };
       const langPref = toLangPref(language);
       const env = await bffJson<V1Envelope>('/v1/session/bootstrap', requestHeaders, { method: 'GET' });
+      applySessionPatchStateToThreadState(env?.session_patch);
       const info = readBootstrapInfo(env);
       setBootstrapInfo(info);
       const profile = info?.profile;
@@ -9078,7 +9100,7 @@ export default function BffChat() {
     } finally {
       setChatBusy(false);
     }
-  }, [agentState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
+  }, [agentState, applySessionPatchStateToThreadState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
 
   const startNewChat = useCallback(() => {
     setError(null);
