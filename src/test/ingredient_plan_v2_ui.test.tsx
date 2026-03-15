@@ -748,6 +748,94 @@ describe('ingredient_plan_v2 rich product UI', () => {
     );
   });
 
+  it('accepts legacy valid_hit serum results when shared success contract is not yet applied', async () => {
+    const resolveProductsSearch = vi.fn().mockResolvedValueOnce({
+      products: [
+        {
+          product_id: 'serum_1',
+          merchant_id: 'external_seed',
+          brand: 'Winona',
+          title: 'Winona Soothing Repair Serum',
+          category: 'Serum',
+        },
+      ],
+      metadata: {
+        search_decision: {
+          decision_mode: 'guidance_only',
+          query_step_strength: 'supportive_family',
+          hit_quality: 'valid_hit',
+          exact_step_topk_count: 1,
+          same_family_topk_count: 1,
+          step_success_class: null,
+          success_contract_result: {
+            applied: false,
+            satisfied: false,
+            step_success_class: null,
+            failure_class: null,
+          },
+        },
+      },
+    });
+
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_guidance_serum_compat"
+        resolveProductsSearch={resolveProductsSearch}
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'panthenol',
+              ingredient_name: 'Panthenol (B5)',
+              priority_score_0_100: 72,
+              priority_level: 'high',
+              why: ['Rule signal: low_confidence_gentle_only'],
+              usage_guidance: ['AM/PM soothing support'],
+              products: {
+                mode: 'guidance_only',
+                example_product_types: ['panthenol serum'],
+                example_product_discovery_items: [
+                  {
+                    id: 'example_drawer_serum_compat',
+                    label: 'panthenol serum',
+                    search_query: 'panthenol serum',
+                    search_title: 'Panthenol serum',
+                    query_ladder_steps: [
+                      {
+                        query: 'panthenol serum',
+                        intent_strength: 'strong_goal_family',
+                        target_step_family: 'serum',
+                        source_policy: 'internal_first_then_external_supplement',
+                        allow_external_seed: true,
+                        external_seed_strategy: 'supplement_internal_first',
+                        product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
+                      },
+                    ],
+                  },
+                ],
+                note: 'Tap a product type to browse top matching products.',
+                competitors: [],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /browse product type: panthenol serum/i }));
+    expect(await screen.findByText('Winona Soothing Repair Serum')).toBeInTheDocument();
+    expect(screen.queryByText('No strong matches yet for this product type.')).not.toBeInTheDocument();
+  });
+
   it('filters obvious makeup candidates out of skincare recommendations', () => {
     render(
       <IngredientPlanCard

@@ -794,8 +794,11 @@ function extractProductsSearchRows(response: unknown): ProductLike[] {
 }
 
 function extractProductsSearchDecision(response: unknown): {
+  contractApplied: boolean;
   satisfied: boolean;
   stepSuccessClass: string | null;
+  hitQuality: string | null;
+  exactStepTopkCount: number;
   clarificationSuppressed: boolean;
   legacyFallbackSuppressed: boolean;
   hasClarification: boolean;
@@ -817,8 +820,11 @@ function extractProductsSearchDecision(response: unknown): {
     asObject((root as any).payload?.clarification) ||
     asObject((root as any).result?.clarification);
   return {
+    contractApplied: successContractResult?.applied === true,
     satisfied: successContractResult?.satisfied === true,
     stepSuccessClass: asNonEmptyString((searchDecision as any).step_success_class),
+    hitQuality: asNonEmptyString((searchDecision as any).hit_quality),
+    exactStepTopkCount: Math.max(0, Number((searchDecision as any).exact_step_topk_count || 0) || 0),
     clarificationSuppressed:
       (searchDecision as any).clarification_suppressed === true ||
       (metadata as any)?.clarification_suppressed === true,
@@ -1096,7 +1102,15 @@ export function IngredientPlanCard({
             if (discoveryReqRef.current !== reqId) return;
             const searchDecision = extractProductsSearchDecision(response);
             const rows = extractProductsSearchRows(response);
-            const stepSucceeded = searchDecision.satisfied || Boolean(searchDecision.stepSuccessClass);
+            const fallbackValidHitSuccess =
+              !searchDecision.contractApplied &&
+              searchDecision.hitQuality === 'valid_hit' &&
+              searchDecision.exactStepTopkCount > 0 &&
+              !searchDecision.hasClarification;
+            const stepSucceeded =
+              searchDecision.satisfied ||
+              Boolean(searchDecision.stepSuccessClass) ||
+              fallbackValidHitSuccess;
             if (rows.length > 0 && stepSucceeded) {
               setGuidanceDiscovery({
                 open: true,
