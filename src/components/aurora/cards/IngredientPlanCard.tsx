@@ -98,6 +98,15 @@ type ProductDiscoveryLike = {
   label?: string;
   search_query?: string;
   search_title?: string;
+  query_ladder?: unknown;
+};
+
+type ProductDiscoveryQueryStepLike = {
+  query?: string;
+  target_step_family?: string;
+  allow_external_seed?: boolean;
+  external_seed_strategy?: string;
+  product_only?: boolean;
 };
 
 type PlanVariant = 'v1' | 'v2';
@@ -115,6 +124,12 @@ type ResolveProductsSearchFn = (args: {
   limit?: number;
   preferBrand?: string | null;
   uiSurface?: string | null;
+  allowExternalSeed?: boolean;
+  externalSeedStrategy?: string | null;
+  productOnly?: boolean;
+  queryIndex?: number | null;
+  queryTotal?: number | null;
+  targetStepFamily?: string | null;
   clarificationSlot?: string | null;
   clarificationAnswer?: string | null;
   slotState?: Record<string, unknown> | null;
@@ -153,6 +168,40 @@ const asProductDiscoveryRows = (value: unknown): ProductDiscoveryLike[] =>
   asArray(value)
     .map((item) => (item && typeof item === 'object' && !Array.isArray(item) ? (item as ProductDiscoveryLike) : null))
     .filter(Boolean) as ProductDiscoveryLike[];
+
+const asProductDiscoveryQuerySteps = (
+  value: unknown,
+  fallbackQuery: string,
+): ProductExampleDiscoveryVm['queryLadder'] => {
+  const out: ProductExampleDiscoveryVm['queryLadder'] = [];
+  const seen = new Set<string>();
+  for (const row of asArray(value)) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    const step = row as ProductDiscoveryQueryStepLike;
+    const query = asString(step.query);
+    if (!query) continue;
+    const key = query.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      query,
+      targetStepFamily: asNonEmptyString(step.target_step_family),
+      allowExternalSeed: step.allow_external_seed === true,
+      externalSeedStrategy: asNonEmptyString(step.external_seed_strategy),
+      productOnly: step.product_only !== false,
+    });
+  }
+  if (!out.length && fallbackQuery) {
+    out.push({
+      query: fallbackQuery,
+      targetStepFamily: null,
+      allowExternalSeed: false,
+      externalSeedStrategy: null,
+      productOnly: true,
+    });
+  }
+  return out;
+};
 
 const toStringList = (value: unknown, max = 3): string[] => {
   const out: string[] = [];
@@ -217,6 +266,7 @@ const asProductExampleDiscoveryItems = (value: unknown, fallbackExamples: string
       label,
       searchQuery,
       searchTitle: asNonEmptyString(row.search_title) || label,
+      queryLadder: asProductDiscoveryQuerySteps(row.query_ladder, searchQuery),
     });
     if (out.length >= max) return out;
   }
@@ -234,6 +284,7 @@ const asProductExampleDiscoveryItems = (value: unknown, fallbackExamples: string
       label,
       searchQuery: label,
       searchTitle: label,
+      queryLadder: asProductDiscoveryQuerySteps([], label),
     });
     if (out.length >= max) break;
   }
@@ -933,11 +984,20 @@ export function IngredientPlanCard({
       itemIndex: number;
     }) => {
       if (!item?.searchQuery) return;
+      const queryLadder = Array.isArray(item.queryLadder) && item.queryLadder.length > 0
+        ? item.queryLadder
+        : [{
+            query: item.searchQuery,
+            targetStepFamily: null,
+            allowExternalSeed: false,
+            externalSeedStrategy: null,
+            productOnly: true,
+          }];
       if (analyticsCtx) {
         emitRecommendationDetailsSheetOpened(analyticsCtx, {
           anchor_key: item.id || item.label,
           source: 'ingredient_guidance_only',
-          track_count: 1,
+          track_count: queryLadder.length,
           item_count: 0,
           search_query: item.searchQuery,
         });
@@ -965,18 +1025,47 @@ export function IngredientPlanCard({
       }
 
       try {
-        const response = await resolveProductsSearch({
-          query: item.searchQuery,
-          limit: 8,
-          uiSurface: 'ingredient_plan_guidance_only',
-        });
+        let lastError: string | null = null;
+        for (let index = 0; index < queryLadder.length; index += 1) {
+          const step = queryLadder[index];
+          try {
+            const response = await resolveProductsSearch({
+              query: step.query,
+              limit: 8,
+              uiSurface: 'ingredient_plan_guidance_only',
+              allowExternalSeed: step.allowExternalSeed,
+              externalSeedStrategy: step.externalSeedStrategy,
+              productOnly: step.productOnly,
+              queryIndex: index,
+              queryTotal: queryLadder.length,
+              targetStepFamily: step.targetStepFamily,
+            });
+            if (discoveryReqRef.current !== reqId) return;
+            const rows = extractProductsSearchRows(response);
+            if (rows.length > 0) {
+              setGuidanceDiscovery({
+                open: true,
+                item,
+                loading: false,
+                results: rows,
+                error: null,
+              });
+              return;
+            }
+          } catch {
+            lastError =
+              language === 'CN'
+                ? '候选商品加载失败，请稍后重试。'
+                : 'Unable to load product candidates. Please try again.';
+          }
+        }
         if (discoveryReqRef.current !== reqId) return;
         setGuidanceDiscovery({
           open: true,
           item,
           loading: false,
-          results: extractProductsSearchRows(response),
-          error: null,
+          results: [],
+          error: lastError,
         });
       } catch {
         if (discoveryReqRef.current !== reqId) return;

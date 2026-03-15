@@ -264,6 +264,14 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
     [payload.photo_qc],
   );
   const routineExpert = useMemo(() => normalizeRoutineExpert(payload.analysis?.routine_expert), [payload.analysis?.routine_expert]);
+  const topLevelPrimaryQuestion = useMemo(
+    () => String(payload.primary_question || '').trim() || undefined,
+    [payload.primary_question],
+  );
+  const topLevelAsk3Questions = useMemo(
+    () => (isStringArray(payload.ask_3_questions) ? payload.ask_3_questions.slice(0, 3) : []),
+    [payload.ask_3_questions],
+  );
 
   const copy = useMemo(
     () => ({
@@ -373,14 +381,19 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
 
   const primaryQuestion = useMemo(() => {
     if (routineExpert?.primary_question?.trim()) return routineExpert.primary_question.trim();
+    if (topLevelPrimaryQuestion) return topLevelPrimaryQuestion;
     if (routineExpert?.ask_3_questions?.[0]) return routineExpert.ask_3_questions[0];
+    if (topLevelAsk3Questions[0]) return topLevelAsk3Questions[0];
     return copy.quickCheckQuestion;
-  }, [copy.quickCheckQuestion, routineExpert]);
+  }, [copy.quickCheckQuestion, routineExpert, topLevelAsk3Questions, topLevelPrimaryQuestion]);
 
   const conditionalFollowups = useMemo(() => {
-    if (!routineExpert) return [];
-    const fromConditional = Array.isArray(routineExpert.conditional_followups) ? routineExpert.conditional_followups : [];
-    const fallback = Array.isArray(routineExpert.ask_3_questions) ? routineExpert.ask_3_questions.slice(1) : [];
+    const fromConditional = routineExpert && Array.isArray(routineExpert.conditional_followups)
+      ? routineExpert.conditional_followups
+      : [];
+    const fallback = routineExpert
+      ? (Array.isArray(routineExpert.ask_3_questions) ? routineExpert.ask_3_questions.slice(1) : [])
+      : topLevelAsk3Questions;
     const merged = [...fromConditional, ...fallback].filter((line) => Boolean(String(line || '').trim()));
     const dedup: string[] = [];
     for (const line of merged) {
@@ -390,7 +403,7 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
       if (dedup.length >= 3) break;
     }
     return dedup;
-  }, [primaryQuestion, routineExpert]);
+  }, [primaryQuestion, routineExpert, topLevelAsk3Questions]);
 
   const toggleQuick = (value: 'yes' | 'no') => {
     const next = quickCheck === value ? null : value;
@@ -543,22 +556,13 @@ export function AnalysisSummaryCard({ payload, onAction, language }: Props) {
               </div>
             </div>
 
-            {routineExpert && quickCheck && conditionalFollowups.length ? (
+            {quickCheck && conditionalFollowups.length ? (
               <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-semibold text-slate-900">{copy.conditional}</div>
+                <div className="text-xs font-semibold text-slate-900">
+                  {routineExpert && routineExpert.conditional_followups.length > 0 ? copy.conditional : copy.ask3}
+                </div>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
                   {conditionalFollowups.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {routineExpert && quickCheck && !conditionalFollowups.length && routineExpert.ask_3_questions.length > 1 ? (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-semibold text-slate-900">{copy.ask3}</div>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                  {routineExpert.ask_3_questions.slice(1).map((line) => (
                     <li key={line}>{line}</li>
                   ))}
                 </ul>

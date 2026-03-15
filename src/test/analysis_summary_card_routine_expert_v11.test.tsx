@@ -10,6 +10,12 @@ const lowConfidencePayload = {
     strategy: 'Keep routine simple for 7 days.',
     needs_risk_check: false,
   },
+  primary_question: 'Which step feels most uncomfortable right now: cleanser, serum, or moisturizer?',
+  ask_3_questions: [
+    'Which step feels most uncomfortable right now: cleanser, serum, or moisturizer?',
+    'Did you start any new acids, retinoids, or exfoliants in the last 7 days?',
+    'Do richer repair creams usually feel soothing for you, or more likely to feel cloggy/irritating?',
+  ],
   session: {} as any,
   low_confidence: true,
   photos_provided: false,
@@ -80,6 +86,7 @@ describe('AnalysisSummaryCard routine expert rendering', () => {
     const onAction = vi.fn();
     render(<AnalysisSummaryCard payload={lowConfidencePayload as any} onAction={onAction} language="CN" />);
 
+    expect(screen.getByText('Which step feels most uncomfortable right now: cleanser, serum, or moisturizer?')).toBeInTheDocument();
     const recommendations = screen.getByRole('button', { name: '查看产品推荐' });
     const addProducts = screen.getByRole('button', { name: '填写 AM/PM 产品（更准）' });
     expect(recommendations).toBeInTheDocument();
@@ -90,6 +97,8 @@ describe('AnalysisSummaryCard routine expert rendering', () => {
     expect(onAction).toHaveBeenCalledWith('analysis_continue', undefined);
     fireEvent.click(addProducts);
     expect(onAction).toHaveBeenCalledWith('analysis_review_products');
+    fireEvent.click(screen.getByRole('button', { name: '是' }));
+    expect(screen.getByText('Did you start any new acids, retinoids, or exfoliants in the last 7 days?')).toBeInTheDocument();
   });
 
   it('renders routine-expert sections and reveals conditional followups after quick check', () => {
