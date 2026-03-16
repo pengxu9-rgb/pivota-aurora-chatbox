@@ -1368,17 +1368,7 @@ export function IngredientPlanCard({
               aria-describedby={undefined}
             >
               <SheetHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <SheetTitle>{guidanceDiscoveryTitle}</SheetTitle>
-                  <button
-                    type="button"
-                    className="rounded-full border border-border/60 p-2 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
-                    onClick={() => setGuidanceDiscovery((prev) => ({ ...prev, open: false }))}
-                    aria-label={language === 'CN' ? '关闭' : 'Close'}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
+                <SheetTitle>{guidanceDiscoveryTitle}</SheetTitle>
               </SheetHeader>
               {guidanceDiscoveryBody}
             </SheetContent>

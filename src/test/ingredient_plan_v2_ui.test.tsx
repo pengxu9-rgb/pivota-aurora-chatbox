@@ -294,6 +294,105 @@ describe('ingredient_plan_v2 rich product UI', () => {
     });
   });
 
+  it('shows a single close button in desktop guidance discovery sheet', async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(min-width: 768px)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as typeof window.matchMedia;
+
+    const resolveProductsSearch = vi.fn().mockResolvedValueOnce({
+      products: [
+        {
+          product_id: 'prod_ceramide_1',
+          merchant_id: 'merch_internal_1',
+          brand: 'Brand C',
+          title: 'Ceramide Barrier Cream',
+          category: 'Moisturizer',
+        },
+      ],
+      metadata: {
+        search_decision: {
+          decision_mode: 'guidance_only',
+          query_step_strength: 'strong_goal_family',
+          step_success_class: 'strong_goal_family',
+          success_contract_result: {
+            applied: true,
+            satisfied: true,
+            step_success_class: 'strong_goal_family',
+            failure_class: null,
+          },
+        },
+      },
+    });
+
+    render(
+      <IngredientPlanCard
+        variant="v2"
+        language="EN"
+        analyticsCtx={analyticsCtx}
+        cardId="card_v2_ui_guidance_desktop_close"
+        resolveProductsSearch={resolveProductsSearch}
+        payload={{
+          schema_version: 'aurora.ingredient_plan.v2',
+          intensity: { level: 'gentle', label: 'Gentle', explanation: 'Barrier-first.' },
+          targets: [
+            {
+              ingredient_id: 'ceramide',
+              ingredient_name: 'Ceramides',
+              priority_score_0_100: 72,
+              priority_level: 'high',
+              why: ['Rule signal: barrier support'],
+              usage_guidance: ['AM/PM'],
+              products: {
+                mode: 'guidance_only',
+                example_product_types: ['ceramide cream'],
+                example_product_discovery_items: [
+                  {
+                    id: 'example_drawer_desktop_1',
+                    label: 'ceramide cream',
+                    search_query: 'ceramide barrier moisturizer',
+                    search_title: 'Ceramide cream',
+                    query_ladder_steps: [
+                      {
+                        query: 'ceramide barrier moisturizer',
+                        intent_strength: 'strong_goal_family',
+                        target_step_family: 'moisturizer',
+                        source_policy: 'internal_first_then_external_supplement',
+                        allow_external_seed: true,
+                        external_seed_strategy: 'supplement_internal_first',
+                        product_only: true,
+                        stop_on_success: true,
+                        decision_mode: 'guidance_only',
+                      },
+                    ],
+                  },
+                ],
+                note: 'Tap a product type to browse top matching products.',
+                competitors: [],
+                dupes: [],
+              },
+            },
+          ],
+          avoid: [],
+          conflicts: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /browse product type: ceramide cream/i }));
+    expect(await screen.findByText('Ceramide Barrier Cream')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /close/i })).toHaveLength(1);
+
+    window.matchMedia = originalMatchMedia;
+  });
+
   it('opens internal PDPs for guidance-only discovery rows when product_id and merchant_id are present', async () => {
     const onOpenPdp = vi.fn();
     const resolveProductsSearch = vi.fn().mockResolvedValueOnce({
