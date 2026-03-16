@@ -1096,7 +1096,7 @@ export function IngredientPlanCard({
           limit: 8,
           uiSurface: 'ingredient_plan_guidance_only',
           executionMode:
-            targetStepFamily === 'moisturizer'
+            targetStepFamily === 'moisturizer' || targetStepFamily === 'serum'
               ? 'server_owned_ladder'
               : null,
           allowExternalSeed,
