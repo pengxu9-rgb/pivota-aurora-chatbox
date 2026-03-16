@@ -1386,6 +1386,7 @@ function toDiagnosisResult(profile: Record<string, unknown> | null): DiagnosisRe
 const VIEW_DETAILS_REQUEST_TIMEOUT_MS = 3500;
 const VIEW_DETAILS_RESOLVE_TIMEOUT_MS = 3500;
 const TRAVEL_PRODUCT_LOOKUP_TIMEOUT_MS = 10000;
+const GUIDANCE_DRAWER_TIMEOUT_MS = 5000;
 const PROFILE_UPDATE_TIMEOUT_MS = 4000;
 const CHAT_TIMEOUT_MS = 30000;
 const ROUTINE_CHAT_TIMEOUT_MS = 28000;
@@ -2452,6 +2453,7 @@ export function RecommendationsCard({
     limit?: number;
     preferBrand?: string | null;
     uiSurface?: string | null;
+    executionMode?: string | null;
     allowExternalSeed?: boolean;
     externalSeedStrategy?: string | null;
     productOnly?: boolean;
@@ -4493,6 +4495,7 @@ function BffCardView({
     limit?: number;
     preferBrand?: string | null;
     uiSurface?: string | null;
+    executionMode?: string | null;
     allowExternalSeed?: boolean;
     externalSeedStrategy?: string | null;
     productOnly?: boolean;
@@ -12015,6 +12018,7 @@ export default function BffChat() {
       limit,
       preferBrand,
       uiSurface,
+      executionMode,
       allowExternalSeed,
       externalSeedStrategy,
       productOnly,
@@ -12032,6 +12036,7 @@ export default function BffChat() {
       limit?: number;
       preferBrand?: string | null;
       uiSurface?: string | null;
+      executionMode?: string | null;
       allowExternalSeed?: boolean;
       externalSeedStrategy?: string | null;
       productOnly?: boolean;
@@ -12055,7 +12060,11 @@ export default function BffChat() {
           ? `${brand} ${q}`.trim()
           : q;
       const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), TRAVEL_PRODUCT_LOOKUP_TIMEOUT_MS);
+      const timeoutMs =
+        uiSurface === 'ingredient_plan_guidance_only'
+          ? GUIDANCE_DRAWER_TIMEOUT_MS
+          : TRAVEL_PRODUCT_LOOKUP_TIMEOUT_MS;
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
       const params = new URLSearchParams({
         query: queryWithHint,
         limit: String(requestedLimit),
@@ -12069,6 +12078,7 @@ export default function BffChat() {
           ? { session_id: headers.brief_id || headers.aurora_uid }
           : {}),
         ...(uiSurface ? { ui_surface: uiSurface } : {}),
+        ...(executionMode ? { execution_mode: executionMode } : {}),
         ...(uiSurface === 'travel_lookup'
           ? {
               allow_external_seed: 'true',

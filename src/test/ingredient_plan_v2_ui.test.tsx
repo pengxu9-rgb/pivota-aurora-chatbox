@@ -177,33 +177,7 @@ describe('ingredient_plan_v2 rich product UI', () => {
 
   it('opens a guidance-only discovery drawer and loads matching sku candidates', async () => {
     const onOpenPdp = vi.fn();
-    const resolveProductsSearch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        products: [
-          {
-            product_id: 'generic_cleanser_1',
-            merchant_id: 'merch_noise',
-            brand: 'Brand N',
-            title: 'Ceramide Face Cleanser',
-            category: 'Cleanser',
-          },
-        ],
-        metadata: {
-          search_decision: {
-            decision_mode: 'guidance_only',
-            query_step_strength: 'strong_goal_family',
-            step_success_class: null,
-            success_contract_result: {
-              applied: true,
-              satisfied: false,
-              step_success_class: null,
-              failure_class: 'generic_family_only',
-            },
-          },
-        },
-      })
-      .mockResolvedValueOnce({
+    const resolveProductsSearch = vi.fn().mockResolvedValueOnce({
         products: [
           {
             product_id: 'prod_ceramide_1',
@@ -297,32 +271,15 @@ describe('ingredient_plan_v2 rich product UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /browse product type: ceramide cream/i }));
 
     expect(await screen.findByText('Ceramide Barrier Cream')).toBeInTheDocument();
-    expect(resolveProductsSearch).toHaveBeenNthCalledWith(
-      1,
+    expect(resolveProductsSearch).toHaveBeenCalledTimes(1);
+    expect(resolveProductsSearch).toHaveBeenCalledWith(
       expect.objectContaining({
         query: 'ceramide barrier moisturizer',
         uiSurface: 'ingredient_plan_guidance_only',
+        executionMode: 'server_owned_ladder',
         allowExternalSeed: true,
         externalSeedStrategy: 'supplement_internal_first',
         productOnly: true,
-        queryIndex: 0,
-        queryTotal: 2,
-        targetStepFamily: 'moisturizer',
-        queryStepStrength: 'strong_goal_family',
-        decisionMode: 'guidance_only',
-        sourcePolicy: 'internal_first_then_external_supplement',
-      }),
-    );
-    expect(resolveProductsSearch).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        query: 'barrier repair ceramide moisturizer',
-        uiSurface: 'ingredient_plan_guidance_only',
-        allowExternalSeed: true,
-        externalSeedStrategy: 'supplement_internal_first',
-        productOnly: true,
-        queryIndex: 1,
-        queryTotal: 2,
         targetStepFamily: 'moisturizer',
         queryStepStrength: 'strong_goal_family',
         decisionMode: 'guidance_only',
@@ -550,22 +507,6 @@ describe('ingredient_plan_v2 rich product UI', () => {
             },
           },
         },
-      })
-      .mockResolvedValueOnce({
-        products: [],
-        metadata: {
-          search_decision: {
-            decision_mode: 'guidance_only',
-            query_step_strength: 'supportive_family',
-            step_success_class: null,
-            success_contract_result: {
-              applied: true,
-              satisfied: false,
-              step_success_class: null,
-              failure_class: 'no_target_relevant_candidates',
-            },
-          },
-        },
       });
 
     render(
@@ -637,15 +578,12 @@ describe('ingredient_plan_v2 rich product UI', () => {
 
     expect(await screen.findByText('No strong matches yet for this product type.')).toBeInTheDocument();
     expect(screen.queryByText('Do you have a brand preference?')).not.toBeInTheDocument();
-    expect(resolveProductsSearch).toHaveBeenCalledTimes(2);
+    expect(resolveProductsSearch).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: /search online/i })).toBeInTheDocument();
   });
 
-  it('preserves external supplement legacy ladder steps even when the query text is identical', async () => {
-    const resolveProductsSearch = vi
-      .fn()
-      .mockResolvedValueOnce({ products: [] })
-      .mockResolvedValueOnce({
+  it('preserves guidance query step metadata while using a single fast-path request', async () => {
+    const resolveProductsSearch = vi.fn().mockResolvedValueOnce({
         products: [
           {
             product_id: 'ext_rose_1',
@@ -736,11 +674,11 @@ describe('ingredient_plan_v2 rich product UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /browse product type: ceramide cream/i }));
 
     expect(await screen.findByText('Rose Ceramide Cream')).toBeInTheDocument();
-    expect(resolveProductsSearch).toHaveBeenCalledTimes(2);
-    expect(resolveProductsSearch).toHaveBeenNthCalledWith(
-      2,
+    expect(resolveProductsSearch).toHaveBeenCalledTimes(1);
+    expect(resolveProductsSearch).toHaveBeenCalledWith(
       expect.objectContaining({
         query: 'ceramide barrier moisturizer',
+        executionMode: 'server_owned_ladder',
         allowExternalSeed: true,
         externalSeedStrategy: 'supplement_internal_first',
         queryStepStrength: 'strong_goal_family',

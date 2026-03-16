@@ -136,6 +136,7 @@ type ResolveProductsSearchFn = (args: {
   limit?: number;
   preferBrand?: string | null;
   uiSurface?: string | null;
+  executionMode?: string | null;
   allowExternalSeed?: boolean;
   externalSeedStrategy?: string | null;
   productOnly?: boolean;
@@ -1073,71 +1074,67 @@ export function IngredientPlanCard({
       }
 
       try {
-        let lastError: string | null = null;
-        for (let index = 0; index < queryLadder.length; index += 1) {
-          const step = queryLadder[index];
-          try {
-            const allowExternalSeed =
-              step.sourcePolicy === 'internal_first_then_external_supplement'
-                ? true
-                : step.allowExternalSeed;
-            const externalSeedStrategy =
-              step.sourcePolicy === 'internal_first_then_external_supplement'
-                ? (step.externalSeedStrategy || 'supplement_internal_first')
-                : step.externalSeedStrategy;
-            const response = await resolveProductsSearch({
-              query: step.query,
-              limit: 8,
-              uiSurface: 'ingredient_plan_guidance_only',
-              allowExternalSeed,
-              externalSeedStrategy,
-              productOnly: step.productOnly,
-              queryIndex: index,
-              queryTotal: queryLadder.length,
-              targetStepFamily: step.targetStepFamily,
-              queryStepStrength: step.intentStrength,
-              decisionMode: step.decisionMode || 'guidance_only',
-              sourcePolicy: step.sourcePolicy,
-            });
-            if (discoveryReqRef.current !== reqId) return;
-            const searchDecision = extractProductsSearchDecision(response);
-            const rows = extractProductsSearchRows(response);
-            const fallbackValidHitSuccess =
-              !searchDecision.contractApplied &&
-              searchDecision.hitQuality === 'valid_hit' &&
-              searchDecision.exactStepTopkCount > 0 &&
-              !searchDecision.hasClarification;
-            const stepSucceeded =
-              searchDecision.satisfied ||
-              Boolean(searchDecision.stepSuccessClass) ||
-              fallbackValidHitSuccess;
-            if (rows.length > 0 && stepSucceeded) {
-              setGuidanceDiscovery({
-                open: true,
-                item,
-                loading: false,
-                results: rows,
-                error: null,
-              });
-              return;
-            }
-            if (searchDecision.hasClarification || searchDecision.clarificationSuppressed || searchDecision.legacyFallbackSuppressed) {
-              continue;
-            }
-          } catch {
-            lastError =
-              language === 'CN'
-                ? '候选商品加载失败，请稍后重试。'
-                : 'Unable to load product candidates. Please try again.';
-          }
-        }
+        const primaryStep =
+          queryLadder.find((step) => step.intentStrength === 'strong_goal_family') ||
+          queryLadder.find((step) => step.intentStrength === 'supportive_family') ||
+          queryLadder[0];
+        const targetStepFamily =
+          primaryStep?.targetStepFamily ||
+          queryLadder.find((step) => Boolean(step.targetStepFamily))?.targetStepFamily ||
+          null;
+        const sourcePolicy = primaryStep?.sourcePolicy || 'internal_first_then_external_supplement';
+        const allowExternalSeed =
+          sourcePolicy === 'internal_first_then_external_supplement'
+            ? true
+            : primaryStep?.allowExternalSeed;
+        const externalSeedStrategy =
+          sourcePolicy === 'internal_first_then_external_supplement'
+            ? (primaryStep?.externalSeedStrategy || 'supplement_internal_first')
+            : primaryStep?.externalSeedStrategy;
+        const response = await resolveProductsSearch({
+          query: item.searchQuery,
+          limit: 8,
+          uiSurface: 'ingredient_plan_guidance_only',
+          executionMode:
+            targetStepFamily === 'moisturizer'
+              ? 'server_owned_ladder'
+              : null,
+          allowExternalSeed,
+          externalSeedStrategy,
+          productOnly: primaryStep?.productOnly !== false,
+          targetStepFamily,
+          queryStepStrength: primaryStep?.intentStrength,
+          decisionMode: primaryStep?.decisionMode || 'guidance_only',
+          sourcePolicy,
+        });
         if (discoveryReqRef.current !== reqId) return;
+        const searchDecision = extractProductsSearchDecision(response);
+        const rows = extractProductsSearchRows(response);
+        const fallbackValidHitSuccess =
+          !searchDecision.contractApplied &&
+          searchDecision.hitQuality === 'valid_hit' &&
+          searchDecision.exactStepTopkCount > 0 &&
+          !searchDecision.hasClarification;
+        const stepSucceeded =
+          searchDecision.satisfied ||
+          Boolean(searchDecision.stepSuccessClass) ||
+          fallbackValidHitSuccess;
+        if (rows.length > 0 && stepSucceeded) {
+          setGuidanceDiscovery({
+            open: true,
+            item,
+            loading: false,
+            results: rows,
+            error: null,
+          });
+          return;
+        }
         setGuidanceDiscovery({
           open: true,
           item,
           loading: false,
           results: [],
-          error: lastError,
+          error: null,
         });
       } catch {
         if (discoveryReqRef.current !== reqId) return;
