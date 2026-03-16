@@ -91,6 +91,6 @@ describe('ingredient_plan_v2 card', () => {
     expect(screen.getByText('Competitor Serum A')).toBeInTheDocument();
     expect(screen.getByText('Competitor Serum B')).toBeInTheDocument();
     expect(screen.getByText('Dupe Serum C')).toBeInTheDocument();
-    expect(screen.getAllByText('Link unavailable').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /view product:/i })).toHaveLength(3);
   });
 });
