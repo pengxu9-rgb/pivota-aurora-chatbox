@@ -12065,6 +12065,9 @@ export default function BffChat() {
         lang: language === 'CN' ? 'cn' : 'en',
         source: 'aurora_chatbox',
         catalog_surface: 'beauty',
+        ...(headers.brief_id || headers.aurora_uid
+          ? { session_id: headers.brief_id || headers.aurora_uid }
+          : {}),
         ...(uiSurface ? { ui_surface: uiSurface } : {}),
         ...(uiSurface === 'travel_lookup'
           ? {

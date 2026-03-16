@@ -446,6 +446,7 @@ describe('BffChat env stress recommendation routing', () => {
         expect(url.searchParams.get('limit')).toBe('8');
         expect(url.searchParams.get('source')).toBe('aurora_chatbox');
         expect(url.searchParams.get('catalog_surface')).toBe('beauty');
+        expect(url.searchParams.get('session_id')).toBeTruthy();
         expect(url.searchParams.get('allow_external_seed')).toBe('true');
         expect(url.searchParams.get('external_seed_strategy')).toBe('unified_relevance');
         expect(url.searchParams.get('fast_mode')).toBe('true');
@@ -564,6 +565,7 @@ describe('BffChat env stress recommendation routing', () => {
         searchCallCount += 1;
         expect(url.searchParams.get('ui_surface')).toBe('travel_lookup');
         expect(url.searchParams.get('query')).toBe('Face SPF50+ PA++++ sunscreen');
+        expect(url.searchParams.get('session_id')).toBeTruthy();
         expect(url.searchParams.get('allow_external_seed')).toBe('true');
         expect(url.searchParams.get('external_seed_strategy')).toBe('unified_relevance');
         expect(url.searchParams.get('fast_mode')).toBe('true');
