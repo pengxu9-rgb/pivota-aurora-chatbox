@@ -871,6 +871,14 @@ describe('ingredient_plan_v2 rich product UI', () => {
     fireEvent.click(screen.getByRole('button', { name: /browse product type: panthenol serum/i }));
     expect(await screen.findByText('Winona Soothing Repair Serum')).toBeInTheDocument();
     expect(screen.queryByText('No strong matches yet for this product type.')).not.toBeInTheDocument();
+    expect(resolveProductsSearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'panthenol serum',
+        executionMode: 'server_owned_ladder',
+        targetStepFamily: 'serum',
+        queryStepStrength: 'strong_goal_family',
+      }),
+    );
   });
 
   it('filters obvious makeup candidates out of skincare recommendations', () => {
