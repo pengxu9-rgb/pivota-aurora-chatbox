@@ -30,6 +30,19 @@ describe('agentStateMachine: inferTextExplicitTransition', () => {
 });
 
 describe('agentStateMachine: validateRequestedTransition', () => {
+  it('allows chip.start.routine from IDLE_CHAT -> ROUTINE_INTAKE', () => {
+    const validation = validateRequestedTransition({
+      from_state: 'IDLE_CHAT',
+      trigger_source: 'chip',
+      trigger_id: 'chip.start.routine',
+      requested_next_state: 'ROUTINE_INTAKE',
+    });
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.next_state).toBe('ROUTINE_INTAKE');
+    }
+  });
+
   it('allows PRODUCT_LINK_EVAL -> RECO_GATE for text_explicit', () => {
     const validation = validateRequestedTransition({
       from_state: 'PRODUCT_LINK_EVAL',
@@ -97,16 +110,16 @@ describe('agentStateMachine: validateRequestedTransition', () => {
 });
 
 describe('agentStateMachine: chip.intake.* aliases', () => {
+  it('canonicalizes chip.start.routine to chip_start_routine', () => {
+    expect(canonicalizeChipId('chip.start.routine')).toBe('chip_start_routine');
+  });
+
   it('canonicalizes chip.intake.upload_photos to chip_intake_upload_photos', () => {
     expect(canonicalizeChipId('chip.intake.upload_photos')).toBe('chip_intake_upload_photos');
   });
 
   it('canonicalizes chip.intake.skip_analysis to chip_intake_skip_analysis', () => {
     expect(canonicalizeChipId('chip.intake.skip_analysis')).toBe('chip_intake_skip_analysis');
-  });
-
-  it('canonicalizes chip.start.routine to chip_eval_routine', () => {
-    expect(canonicalizeChipId('chip.start.routine')).toBe('chip_eval_routine');
   });
 
   it('canonicalizes chip.action.reco_routine to chip_eval_routine', () => {

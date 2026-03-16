@@ -31,7 +31,7 @@ export default function Routine() {
         <button
           type="button"
           className="aurora-home-role-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] font-semibold shadow-card active:scale-[0.99]"
-          onClick={() => startChat({ kind: 'open', title: t('composer.action.routine_builder'), open: 'routine' })}
+          onClick={() => startChat({ kind: 'chip', title: t('composer.action.routine_builder'), chip_id: 'chip.start.routine' })}
         >
           <Beaker className="h-4 w-4" />
           {t('routine.start_builder')}
