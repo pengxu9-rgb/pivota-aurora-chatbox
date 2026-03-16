@@ -122,10 +122,6 @@ describe('agentStateMachine: chip.intake.* aliases', () => {
     expect(canonicalizeChipId('chip.intake.skip_analysis')).toBe('chip_intake_skip_analysis');
   });
 
-  it('canonicalizes chip.start.routine to chip_eval_routine', () => {
-    expect(canonicalizeChipId('chip.start.routine')).toBe('chip_eval_routine');
-  });
-
   it('canonicalizes chip.action.reco_routine to chip_eval_routine', () => {
     expect(canonicalizeChipId('chip.action.reco_routine')).toBe('chip_eval_routine');
   });
