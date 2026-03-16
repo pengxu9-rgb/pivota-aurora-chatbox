@@ -171,7 +171,7 @@ export default function Home() {
             title={t('home.feature.daily_routine')}
             subtitle={t('home.feature.daily_routine_sub')}
             tone="indigo"
-            onClick={() => startChat({ kind: 'open', title: t('composer.action.routine_builder'), open: 'routine' })}
+            onClick={() => startChat({ kind: 'chip', title: t('composer.action.routine_builder'), chip_id: 'chip.start.routine' })}
           />
           <FeatureCard
             title={t('home.feature.plan_trip')}

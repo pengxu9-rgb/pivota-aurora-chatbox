@@ -50,7 +50,7 @@ const CHIP_ALIASES: Record<string, string> = {
   'chip.start.diagnosis': 'chip_start_diagnosis',
   'chip.start.evaluate': 'chip_eval_single_product',
   'chip.start.reco_products': 'chip_get_recos',
-  'chip.start.routine': 'chip_get_recos',
+  'chip.start.routine': 'chip_start_routine',
   'chip.action.reco_routine': 'chip_get_recos',
   'chip.intake.upload_photos': 'chip_intake_upload_photos',
   'chip.intake.skip_analysis': 'chip_intake_skip_analysis',
