@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearAuroraAuthSession,
   loadAuroraAuthSession,
+  loadAuroraAuthSessionForRevalidation,
   saveAuroraAuthSession,
   syncAuroraAuthSessionFromResponse,
 } from '@/lib/auth';
@@ -29,8 +30,8 @@ describe('Aurora auth session sync', () => {
 
   it('avoids duplicate dispatches, refreshes expiry, and clears invalid auth state', () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
-    const initialExpiry = '2026-03-13T10:00:00.000Z';
-    const refreshedExpiry = '2026-03-13T14:00:00.000Z';
+    const initialExpiry = '2099-03-13T10:00:00.000Z';
+    const refreshedExpiry = '2099-03-13T14:00:00.000Z';
 
     saveAuroraAuthSession({
       token: 'session_token',
@@ -89,8 +90,22 @@ describe('Aurora auth session sync', () => {
     expect(loadAuroraAuthSession()).toBeNull();
   });
 
+  it('keeps expired local auth available for startup revalidation', () => {
+    const expiredSession = {
+      token: 'expired_token',
+      email: 'expired@example.com',
+      expires_at: '2026-03-13T01:00:00.000Z',
+    };
+
+    window.localStorage.setItem('pivota_aurora_auth_session_v1', JSON.stringify(expiredSession));
+
+    expect(loadAuroraAuthSession()).toBeNull();
+    expect(loadAuroraAuthSessionForRevalidation()).toEqual(expiredSession);
+    expect(window.localStorage.getItem('pivota_aurora_auth_session_v1')).toBe(JSON.stringify(expiredSession));
+  });
+
   it('bffJson refreshes auth state on success responses', async () => {
-    const expiresAt = '2026-03-13T18:00:00.000Z';
+    const expiresAt = '2099-03-13T18:00:00.000Z';
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -159,7 +174,7 @@ describe('Aurora auth session sync', () => {
   });
 
   it('bffChatStream refreshes auth state from result events', async () => {
-    const expiresAt = '2026-03-13T20:00:00.000Z';
+    const expiresAt = '2099-03-13T20:00:00.000Z';
     const sseBody = [
       'event: thinking',
       'data: {"step":"routing","message":"Routing..."}',
@@ -219,7 +234,7 @@ describe('Aurora auth session sync', () => {
       auth: {
         state: 'authenticated',
         user: { email: 'parser@example.com' },
-        expires_at: '2026-03-13T22:00:00.000Z',
+        expires_at: '2099-03-13T22:00:00.000Z',
       },
     };
 

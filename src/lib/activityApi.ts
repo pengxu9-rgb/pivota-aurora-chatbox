@@ -1,4 +1,5 @@
 import { bffJson, makeDefaultHeaders, type Language } from '@/lib/pivotaAgentBff';
+import { loadAuroraAuthSessionForRevalidation } from '@/lib/auth';
 
 export type ActivityEventType =
   | 'chat_started'
@@ -71,11 +72,12 @@ export const listActivity = async (
   options: { limit?: number; cursor?: string | null; types?: ActivityEventType[] } = {},
 ): Promise<ActivityListResponse> => {
   const headers = makeDefaultHeaders(language);
+  const authToken = loadAuroraAuthSessionForRevalidation()?.token || undefined;
   const query: Record<string, string> = {};
   if (Number.isFinite(Number(options.limit))) query.limit = String(Math.trunc(Number(options.limit)));
   if (options.cursor && String(options.cursor).trim()) query.cursor = String(options.cursor).trim();
   if (Array.isArray(options.types) && options.types.length) query.types = options.types.join(',');
-  return bffJson<ActivityListResponse>(withQuery('/v1/activity', query), headers, { method: 'GET' });
+  return bffJson<ActivityListResponse>(withQuery('/v1/activity', query), { ...headers, auth_token: authToken }, { method: 'GET' });
 };
 
 export const logActivity = async (
@@ -83,7 +85,8 @@ export const logActivity = async (
   input: ActivityLogInput,
 ): Promise<{ ok: boolean; activity_id: string | null }> => {
   const headers = makeDefaultHeaders(language);
-  return bffJson<{ ok: boolean; activity_id: string | null }>('/v1/activity/log', headers, {
+  const authToken = loadAuroraAuthSessionForRevalidation()?.token || undefined;
+  return bffJson<{ ok: boolean; activity_id: string | null }>('/v1/activity/log', { ...headers, auth_token: authToken }, {
     method: 'POST',
     body: JSON.stringify({
       ...input,
