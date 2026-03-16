@@ -4,9 +4,10 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { BottomNav } from '@/components/mobile/BottomNav';
 import { ChatComposerDrawer, type ChatStartIntent } from '@/components/mobile/ChatComposerDrawer';
+import { loadAuroraAuthSessionForRevalidation } from '@/lib/auth';
 import { logActivity } from '@/lib/activityApi';
 import { loadChatHistory, upsertChatHistoryItem, type ChatHistoryItem } from '@/lib/chatHistory';
-import { makeDefaultHeaders } from '@/lib/pivotaAgentBff';
+import { bffJson, makeDefaultHeaders, type V1Envelope } from '@/lib/pivotaAgentBff';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 export type MobileShellContext = {
@@ -26,6 +27,23 @@ export default function MobileShell() {
   useEffect(() => {
     setHistory(loadChatHistory());
   }, []);
+
+  useEffect(() => {
+    const existingSession = loadAuroraAuthSessionForRevalidation();
+    const authToken = String(existingSession?.token || '').trim();
+    if (!authToken) return;
+
+    void bffJson<V1Envelope>(
+      '/v1/session/bootstrap',
+      {
+        ...makeDefaultHeaders(language),
+        auth_token: authToken,
+      },
+      { method: 'GET' },
+    ).catch(() => {
+      // Let request-layer auth sync clear or refresh local state without surfacing startup noise.
+    });
+  }, [language]);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 

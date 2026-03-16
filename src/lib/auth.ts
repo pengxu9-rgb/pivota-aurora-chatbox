@@ -60,10 +60,7 @@ function readStoredAuroraAuthSession(options: { enforceExpiry?: boolean } = {}):
     if (!raw) return null;
     const session = normalizeAuroraAuthSession(safeJsonParse(raw));
     if (!session) return null;
-    if (enforceExpiry && isExpired(session.expires_at)) {
-      window.localStorage.removeItem(STORAGE_KEY);
-      return null;
-    }
+    if (enforceExpiry && isExpired(session.expires_at)) return null;
     return session;
   } catch {
     return null;
@@ -91,6 +88,10 @@ function normalizeAuroraResponseAuthMeta(value: unknown): AuroraResponseAuthMeta
 
 export function loadAuroraAuthSession(): AuroraAuthSession | null {
   return readStoredAuroraAuthSession();
+}
+
+export function loadAuroraAuthSessionForRevalidation(): AuroraAuthSession | null {
+  return readStoredAuroraAuthSession({ enforceExpiry: false });
 }
 
 export function saveAuroraAuthSession(session: AuroraAuthSession): void {
