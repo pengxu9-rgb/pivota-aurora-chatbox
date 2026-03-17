@@ -470,6 +470,16 @@ const FF_SHOW_PASSIVE_GATES = (() => {
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
 })();
 
+const readBooleanEnvFlag = (rawValue: unknown, defaultValue: boolean): boolean => {
+  if (rawValue == null) return defaultValue;
+  const raw = String(rawValue).trim().toLowerCase();
+  if (!raw) return defaultValue;
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+};
+
+const isRoutineBuilderViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_ROUTINE_BUILDER_VIA_SKILL, true);
+
 const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
 
 const LANGUAGE_MISMATCH_HINT_SNOOZE_MS = 6 * 60 * 60 * 1000;
@@ -8873,8 +8883,8 @@ export default function BffChat() {
         'ingredient.report': 'chip.start.ingredients.entry',
         'reco.step_based': 'chip.start.reco_products',
         'routine.apply_blueprint': 'chip.start.routine',
-        'routine.intake_products': 'chip.start.routine',
-        'routine.audit_optimize': 'chip.start.routine',
+        'routine.intake_products': 'chip_update_products',
+        'routine.audit_optimize': 'chip_eval_routine',
         'product.analyze': 'chip.start.evaluate',
         'dupe.suggest': 'chip.start.dupes',
         'dupe.compare': 'chip.start.dupes',
@@ -8946,6 +8956,124 @@ export default function BffChat() {
       }
     },
     [applyThreadOps, language],
+  );
+
+  const openRoutineIntakeSheet = useCallback(() => {
+    setRoutineDraft(makeEmptyRoutineDraft());
+    setRoutineTab('am');
+    setRoutineSheetOpen(true);
+  }, []);
+
+  const runRoutineBuilderEntry = useCallback(
+    async (args?: { client_state?: AgentState; requested_transition?: RequestedTransition | null }) => {
+      if (!isRoutineBuilderViaSkillEnabled()) {
+        openRoutineIntakeSheet();
+        return;
+      }
+
+      setLoadingIntent('default');
+      setChatBusy(true);
+      setThinkingSteps([{
+        step: 'sim_0',
+        message: language === 'CN' ? '正在生成你的 routine...' : 'Building your routine...',
+        completed: false,
+      }]);
+      setStreamedText('');
+      setError(null);
+
+      try {
+        const requestHeaders = { ...headers, lang: language };
+        const session = buildChatSession({
+          state: sessionState,
+          profileSnapshot,
+          bootstrapProfile: bootstrapInfo?.profile ?? null,
+          sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+          sessionMeta,
+          analysisContext: null,
+        });
+        const priorMessages = buildChatRequestMessages(itemsRef.current);
+        const body: Record<string, unknown> = {
+          session,
+          action: {
+            action_id: 'chip.start.routine',
+            kind: 'chip',
+            data: {
+              reply_text: language === 'CN' ? '生成早晚护肤 routine' : 'Build an AM/PM routine',
+            },
+          },
+          language,
+          client_state: normalizeAgentState(args?.client_state ?? agentState),
+          ...(priorMessages.length ? { messages: priorMessages } : {}),
+          ...(args?.requested_transition ? { requested_transition: args.requested_transition } : {}),
+          ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+          ...(debug ? { debug: true } : {}),
+          ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+          ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
+        };
+
+        const bodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          timeoutMs: ROUTINE_CHAT_TIMEOUT_MS,
+        });
+        const parsedV1 = parseChatResponseV1(bodyRaw);
+        const legacyEnvelope =
+          !parsedV1
+          && bodyRaw
+          && typeof bodyRaw === 'object'
+          && !Array.isArray(bodyRaw)
+          && asString((bodyRaw as Record<string, unknown>).request_id)
+          && asString((bodyRaw as Record<string, unknown>).trace_id)
+            ? (bodyRaw as V1Envelope)
+            : null;
+        const v2Response = (() => {
+          if (parsedV1 || legacyEnvelope) return null;
+          const obj = asObject(bodyRaw);
+          if (!obj || !Array.isArray(obj.cards)) return null;
+          const hasV2Cards = (obj.cards as unknown[]).some(
+            (c) => c && typeof c === 'object' && typeof (c as Record<string, unknown>).card_type === 'string',
+          );
+          if (!hasV2Cards && (obj.cards as unknown[]).length > 0) return null;
+          return {
+            cards: obj.cards as Array<Record<string, unknown>>,
+            ops: asObject(obj.ops) || {},
+            next_actions: Array.isArray(obj.next_actions) ? obj.next_actions : [],
+          };
+        })();
+        const hasRoutineCard = Boolean(
+          v2Response && v2Response.cards.some((card) => String((card as any)?.card_type || '').trim().toLowerCase() === 'routine'),
+        );
+
+        if (!v2Response || !hasRoutineCard) {
+          openRoutineIntakeSheet();
+          return;
+        }
+
+        applyV2Response(v2Response);
+        pendingLocationSessionProfilePatchRef.current = null;
+      } catch {
+        openRoutineIntakeSheet();
+      } finally {
+        setChatBusy(false);
+        setLoadingIntent('default');
+        setThinkingSteps([]);
+        setStreamedText('');
+      }
+    },
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyV2Response,
+      bootstrapInfo?.profile,
+      debug,
+      headers,
+      language,
+      openRoutineIntakeSheet,
+      profileSnapshot,
+      sessionMeta,
+      sessionState,
+    ],
   );
 
   const tryApplyEnvelopeFromBffError = useCallback(
@@ -11551,23 +11679,22 @@ export default function BffChat() {
       }
 
       if (id === 'chip_update_products') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
 
       if (id === 'chip_eval_routine') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
 
-      if (id === 'chip.start.routine' || id === 'chip.action.reco_routine') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+      if (id === 'chip.start.routine') {
+        await runRoutineBuilderEntry({ client_state: fromState, requested_transition: requestedTransition });
+        return;
+      }
+
+      if (id === 'chip.action.reco_routine') {
+        openRoutineIntakeSheet();
         return;
       }
 
@@ -11595,9 +11722,7 @@ export default function BffChat() {
         return;
       }
       if (id === 'chip.intake.paste_routine') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
       if (id === 'chip.intake.skip_analysis') {
@@ -11687,10 +11812,12 @@ export default function BffChat() {
       bootstrapInfo?.profile,
       headers,
       language,
+      openRoutineIntakeSheet,
       profileSnapshot,
       quickProfileBusy,
       quickProfileDraft,
       runLowConfidenceSkinAnalysis,
+      runRoutineBuilderEntry,
       sendChat,
       authSession,
       getLatestAnalysisStorySnapshot,
