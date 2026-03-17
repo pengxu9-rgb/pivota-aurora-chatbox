@@ -212,6 +212,137 @@ describe('Routine entry stability', () => {
     expect(pickStep(pmSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
   });
 
+  it('renders routine preview after skin analysis and only deep-scans after explicit click', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_preview',
+            trace_id: 'trace_bootstrap_preview',
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/analysis/skin') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analysis_preview',
+            trace_id: 'trace_analysis_preview',
+            cards: [
+              {
+                card_id: 'analysis_preview_card',
+                type: 'analysis_summary',
+                payload: {
+                  analysis: {
+                    features: [{ observation: 'Barrier looks stressed', confidence: 'somewhat_sure' }],
+                    strategy: 'Keep it simple for 7 days.',
+                    needs_risk_check: false,
+                  },
+                  low_confidence: false,
+                  photos_provided: false,
+                  photo_qc: [],
+                  used_photos: false,
+                  analysis_source: 'rule_based',
+                },
+              },
+              {
+                card_id: 'routine_preview_card',
+                type: 'routine_products_preview',
+                payload: {
+                  contract: 'aurora.routine_products_preview.v1',
+                  groups: [
+                    {
+                      slot: 'am',
+                      title: 'AM routine',
+                      items: [
+                        {
+                          item_id: 'routine_preview_1',
+                          slot: 'am',
+                          step: 'cleanser',
+                          step_label: 'Cleanser',
+                          display_name: 'Biotherm Force Cleanser',
+                          product_text: 'Biotherm Force Cleanser',
+                          product_url: 'https://example.com/biotherm-force-cleanser',
+                          analysis_input: 'https://example.com/biotherm-force-cleanser',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/product/parse') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_product_parse_preview',
+            trace_id: 'trace_product_parse_preview',
+            cards: [
+              {
+                card_id: 'parse_card_preview',
+                type: 'product_parse',
+                payload: {
+                  product: {
+                    display_name: 'Biotherm Force Cleanser',
+                    name: 'Biotherm Force Cleanser',
+                    url: 'https://example.com/biotherm-force-cleanser',
+                  },
+                  confidence: 0.88,
+                  parse_source: 'heuristic_url',
+                },
+              },
+            ],
+          }),
+        );
+      }
+      if (path === '/v1/product/analyze') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_product_analyze_preview',
+            trace_id: 'trace_product_analyze_preview',
+            cards: [],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat?open=routine']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i), {
+      target: { value: 'Biotherm Force Cleanser' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & analyze/i }));
+
+    const previewButton = await screen.findByRole('button', { name: /Analyze this product/i });
+    expect(previewButton).toBeInTheDocument();
+
+    expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/parse')).toHaveLength(0);
+    expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/analyze')).toHaveLength(0);
+
+    fireEvent.click(previewButton);
+
+    await waitFor(() => {
+      expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/parse')).toHaveLength(1);
+      expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/analyze')).toHaveLength(1);
+    });
+  });
+
   it('retries skin analysis once after a transient network failure', async () => {
     const mock = vi.mocked(bffJson);
     let analysisAttempts = 0;

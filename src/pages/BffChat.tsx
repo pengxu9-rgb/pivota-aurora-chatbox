@@ -850,6 +850,7 @@ const iconForCard = (type: string): IconType => {
   if (t === 'ingredient_plan') return FlaskConical;
   if (t === 'ingredient_plan_v2') return FlaskConical;
   if (t === 'analysis_story_v2') return ListChecks;
+  if (t === 'routine_products_preview') return Search;
   if (t === 'routine_product_audit_v1') return Search;
   if (t === 'routine_adjustment_plan_v1') return ListChecks;
   if (t === 'routine_recommendation_v1') return Sparkles;
@@ -882,6 +883,7 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'ingredient_hub') return language === 'CN' ? '成分查询入口' : 'Ingredient hub';
   if (key === 'ingredient_goal_match') return language === 'CN' ? '按功效找成分' : 'Ingredient goal match';
   if (key === 'analysis_summary') return language === 'CN' ? '肤况分析（7 天策略）' : 'Skin assessment (7-day plan)';
+  if (key === 'routine_products_preview') return language === 'CN' ? '当前 routine 产品预览' : 'Current routine products';
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
   if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（个性化）' : 'Ingredient plan (personalized)';
   if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
@@ -4453,6 +4455,111 @@ export function RecommendationsCard({
   );
 }
 
+function RoutineProductsPreviewCardView({
+  payload,
+  language,
+  onAction,
+}: {
+  payload: Record<string, unknown>;
+  language: UiLanguage;
+  onAction: (actionId: string, data?: Record<string, any>) => void;
+}) {
+  const title =
+    asString((payload as any).title) ||
+    (language === 'CN' ? '识别到这些当前使用产品' : 'Products found in your current routine');
+  const subtitle =
+    asString((payload as any).subtitle) ||
+    (language === 'CN'
+      ? '主分析会先返回；单品 deep scan 改成按需点击。'
+      : 'The main skin summary returns first. Product deep scans are now on-demand.');
+  const groups = asArray((payload as any).groups)
+    .map((group) => asObject(group))
+    .filter(Boolean)
+    .map((group) => {
+      const slot = asString((group as any).slot).toLowerCase();
+      const items = asArray((group as any).items)
+        .map((item) => asObject(item))
+        .filter(Boolean);
+      return {
+        slot,
+        title:
+          asString((group as any).title) ||
+          (slot === 'pm' ? (language === 'CN' ? '夜间 PM' : 'PM routine') : language === 'CN' ? '早间 AM' : 'AM routine'),
+        items,
+      };
+    })
+    .filter((group) => group.items.length > 0);
+
+  if (!groups.length) return null;
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+      <div className="space-y-1">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        <div className="text-xs text-muted-foreground">{subtitle}</div>
+      </div>
+
+      {groups.map((group) => (
+        <div key={group.slot || group.title} className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{group.title}</div>
+          <div className="space-y-2">
+            {group.items.map((item, idx) => {
+              const displayName =
+                asString((item as any).display_name) ||
+                asString((item as any).product_text) ||
+                asString((item as any).product_url) ||
+                (language === 'CN' ? '未命名产品' : 'Unnamed product');
+              const stepLabel =
+                asString((item as any).step_label) ||
+                asString((item as any).step) ||
+                (language === 'CN' ? '步骤' : 'Step');
+              const productText = asString((item as any).product_text) || displayName;
+              const productUrl = asString((item as any).product_url);
+              const analysisInput = asString((item as any).analysis_input) || productUrl || productText;
+
+              return (
+                <div
+                  key={asString((item as any).item_id) || `${group.slot}_${idx}`}
+                  className="flex flex-col gap-2 rounded-2xl border border-border/50 bg-background/60 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-sm font-medium text-foreground">{displayName}</div>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="rounded-full border border-border/60 bg-muted/60 px-2 py-1">{stepLabel}</span>
+                      {productUrl ? <span className="truncate">{productUrl.replace(/^https?:\/\//i, '').slice(0, 56)}</span> : null}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={cn('chip-button chip-button-primary shrink-0', !analysisInput && 'pointer-events-none opacity-60')}
+                    disabled={!analysisInput}
+                    onClick={() =>
+                      onAction('routine_preview_product_analyze', {
+                        display_text: displayName,
+                        input_text: productText,
+                        product_url: productUrl || undefined,
+                        analysis_input: analysisInput,
+                        slot: asString((item as any).slot) || group.slot,
+                        step: asString((item as any).step),
+                        source_card_type: 'routine_products_preview',
+                        trigger_source: 'routine_intake',
+                      })
+                    }
+                  >
+                    <Search className="h-4 w-4" />
+                    {language === 'CN' ? '分析这件产品' : 'Analyze this product'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BffCardView({
   card,
   language,
@@ -5560,6 +5667,10 @@ function BffCardView({
         language={language}
       />
     );
+  }
+
+  if (cardType === 'routine_products_preview') {
+    return <RoutineProductsPreviewCardView payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
   if (cardType === 'analysis_story_v2') {
@@ -10126,11 +10237,26 @@ export default function BffChat() {
   );
 
   const runProductDeepScan = useCallback(
-    async (rawInput: string) => {
-      const inputText = String(rawInput || '').trim();
+    async (
+      rawInput:
+        | string
+        | {
+          displayText?: string;
+          inputText?: string;
+          productUrl?: string;
+        },
+    ) => {
+      const displayText =
+        typeof rawInput === 'string'
+          ? String(rawInput || '').trim()
+          : String(rawInput?.displayText || rawInput?.inputText || rawInput?.productUrl || '').trim();
+      const inputText =
+        typeof rawInput === 'string'
+          ? String(rawInput || '').trim()
+          : String(rawInput?.inputText || rawInput?.productUrl || rawInput?.displayText || '').trim();
       if (!inputText) return;
 
-      setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: inputText }]);
+      setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: displayText || inputText }]);
       setChatBusy(true);
       setError(null);
 
@@ -10138,7 +10264,13 @@ export default function BffChat() {
         setSessionState('P1_PRODUCT_ANALYZING');
 
         const requestHeaders = { ...headers, lang: language };
-        const asUrl = parseMaybeUrl(inputText);
+        const explicitUrl =
+          typeof rawInput === 'string'
+            ? ''
+            : /^https?:\/\/\S+/i.test(String(rawInput?.productUrl || '').trim())
+              ? String(rawInput?.productUrl || '').trim()
+              : '';
+        const asUrl = explicitUrl || parseMaybeUrl(inputText);
 
         const parseEnv = await bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
           method: 'POST',
@@ -10779,6 +10911,31 @@ export default function BffChat() {
         return;
       }
 
+      if (actionId === 'routine_preview_product_analyze') {
+        const displayText =
+          typeof data?.display_text === 'string'
+            ? data.display_text.trim()
+            : typeof data?.input_text === 'string'
+              ? data.input_text.trim()
+              : '';
+        const inputText =
+          typeof data?.input_text === 'string'
+            ? data.input_text.trim()
+            : typeof data?.analysis_input === 'string'
+              ? data.analysis_input.trim()
+              : displayText;
+        const productUrl = typeof data?.product_url === 'string' ? data.product_url.trim() : '';
+        const analysisInput = typeof data?.analysis_input === 'string' ? data.analysis_input.trim() : '';
+        const effectiveInput = analysisInput || productUrl || inputText;
+        if (!effectiveInput) return;
+        await runProductDeepScan({
+          displayText: displayText || inputText || effectiveInput,
+          inputText: inputText || effectiveInput,
+          productUrl: productUrl || undefined,
+        });
+        return;
+      }
+
       if (actionId === 'analysis_quick_check') {
         const value = typeof data?.value === 'string' ? data.value.trim().toLowerCase() : '';
         if (value !== 'yes' && value !== 'no') return;
@@ -11050,6 +11207,7 @@ export default function BffChat() {
       getSanitizedAnalysisPhotos,
       headers,
       language,
+      runProductDeepScan,
       sendChat,
       setAgentStateSafe,
       tryApplyEnvelopeFromBffError,
