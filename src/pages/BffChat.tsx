@@ -11614,6 +11614,9 @@ export default function BffChat() {
       const activeProfile = profileSnapshot ?? bootstrapInfo?.profile ?? null;
       const existingRecoGoal = getPrimaryResolvedRecoGoal(activeProfile);
       const isGenericRecoAction = effectiveActionId === 'chip.start.reco_products' || effectiveActionId === 'chip_get_recos';
+      const isCheckinRefreshRecoAction =
+        isGenericRecoAction &&
+        (fromState === 'CHECKIN_FLOW' || Boolean(asString((chipData as any)?.reco_refresh_reason)));
       const isRecoGoalOtherSelection = String((chipData as any).reco_goal || '').trim().toLowerCase() === 'other';
       let outgoingActionId = actionIdOverride || chip.chip_id;
       let outgoingChipData: Record<string, unknown> = chipData;
@@ -11628,7 +11631,7 @@ export default function BffChat() {
         return;
       }
 
-      if (isGenericRecoAction && !hasResolvedRecoGoalInChipData(chipData)) {
+      if (isGenericRecoAction && !hasResolvedRecoGoalInChipData(chipData) && !isCheckinRefreshRecoAction) {
         if (existingRecoGoal) {
           outgoingActionId = 'chip.start.reco_products';
           outgoingChipData = buildGoalfulRecoActionData({
