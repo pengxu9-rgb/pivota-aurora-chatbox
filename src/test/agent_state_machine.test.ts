@@ -94,6 +94,19 @@ describe('agentStateMachine: validateRequestedTransition', () => {
       expect(validation.next_state).toBe('RECO_GATE');
     }
   });
+
+  it('allows chip.start.reco_products from CHECKIN_FLOW -> RECO_GATE', () => {
+    const validation = validateRequestedTransition({
+      from_state: 'CHECKIN_FLOW',
+      trigger_source: 'chip',
+      trigger_id: 'chip.start.reco_products',
+      requested_next_state: 'RECO_GATE',
+    });
+    expect(validation.ok).toBe(true);
+    if (validation.ok) {
+      expect(validation.next_state).toBe('RECO_GATE');
+    }
+  });
 });
 
 describe('agentStateMachine: chip.intake.* aliases', () => {
