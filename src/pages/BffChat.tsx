@@ -132,6 +132,7 @@ import { useShop } from '@/contexts/shop';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
+import { ProductSearchInput, type ProductSearchFieldValue, type ResolvedProduct } from '@/components/ui/ProductSearchInput';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
 import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
@@ -277,15 +278,228 @@ function normalizeAlternativeDisplayCandidate(rawCandidate: Record<string, unkno
   };
 }
 
+type RoutineCoreSlot = 'cleanser' | 'treatment' | 'moisturizer' | 'spf';
+type RoutineExtraStep =
+  | 'toner'
+  | 'essence'
+  | 'serum'
+  | 'ampoule'
+  | 'spot_treatment'
+  | 'eye_cream'
+  | 'face_oil'
+  | 'mask'
+  | 'other';
+type RoutineFieldValue = ProductSearchFieldValue;
+type RoutineExtraRow = {
+  id: string;
+  step: RoutineExtraStep;
+  customStepLabel: string;
+  fieldValue: RoutineFieldValue;
+};
+
+const ROUTINE_MAX_EXTRA_ROWS_PER_SLOT = 4;
+const ROUTINE_EXTRA_STEP_OPTIONS: RoutineExtraStep[] = [
+  'toner',
+  'essence',
+  'serum',
+  'ampoule',
+  'spot_treatment',
+  'eye_cream',
+  'face_oil',
+  'mask',
+  'other',
+];
+
+const nextRoutineExtraId = (() => {
+  let n = 0;
+  return () => `routine_extra_${Date.now()}_${++n}`;
+})();
+
+const makeEmptyRoutineFieldValue = (): RoutineFieldValue => ({
+  text: '',
+  resolvedProduct: null,
+});
+
+const cloneResolvedRoutineProduct = (product: ResolvedProduct | null): ResolvedProduct | null =>
+  product
+    ? {
+        ...product,
+      }
+    : null;
+
+const cloneRoutineFieldValue = (value: RoutineFieldValue): RoutineFieldValue => ({
+  text: String(value?.text || ''),
+  resolvedProduct: cloneResolvedRoutineProduct(value?.resolvedProduct || null),
+});
+
+const makeRoutineResolvedProduct = (entry: { product?: unknown; product_id?: unknown; sku_id?: unknown }): ResolvedProduct | null => {
+  const productId = String(entry.product_id || entry.sku_id || '').trim();
+  const skuId = String(entry.sku_id || '').trim();
+  const displayName = String(entry.product || '').trim();
+  if (!productId && !skuId) return null;
+  return {
+    product_id: productId || skuId,
+    ...(skuId ? { sku_id: skuId } : {}),
+    ...(displayName ? { display_name: displayName, name: displayName } : {}),
+  };
+};
+
+const makeRoutineFieldValueFromEntry = (entry: {
+  product?: unknown;
+  product_id?: unknown;
+  sku_id?: unknown;
+}): RoutineFieldValue => ({
+  text: String(entry.product || '').trim(),
+  resolvedProduct: makeRoutineResolvedProduct(entry),
+});
+
+const makeRoutineExtraRow = (overrides?: Partial<RoutineExtraRow>): RoutineExtraRow => ({
+  id: overrides?.id || nextRoutineExtraId(),
+  step: overrides?.step || 'toner',
+  customStepLabel: String(overrides?.customStepLabel || ''),
+  fieldValue: overrides?.fieldValue ? cloneRoutineFieldValue(overrides.fieldValue) : makeEmptyRoutineFieldValue(),
+});
+
+const cloneRoutineExtraRow = (row: RoutineExtraRow): RoutineExtraRow =>
+  makeRoutineExtraRow({
+    step: row.step,
+    customStepLabel: row.customStepLabel,
+    fieldValue: row.fieldValue,
+  });
+
+const trimRoutineFieldText = (value: RoutineFieldValue | null | undefined): string => String(value?.text || '').trim();
+
+const hasRoutineFieldInput = (value: RoutineFieldValue | null | undefined): boolean => Boolean(trimRoutineFieldText(value));
+
+const normalizeRoutineCoreSlot = (value: unknown): RoutineCoreSlot | null => {
+  const token = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_');
+  if (!token) return null;
+  if (token.includes('cleanser') || token.includes('wash') || token.includes('clean')) return 'cleanser';
+  if (token.includes('spf') || token.includes('sunscreen') || token === 'sun') return 'spf';
+  if (token.includes('eye_cream') || token.includes('face_oil') || token.includes('mask')) return null;
+  if (token.includes('moistur') || token.includes('cream') || token.includes('lotion') || token.includes('gel') || token.includes('balm')) {
+    return 'moisturizer';
+  }
+  if (
+    token.includes('treatment') ||
+    token.includes('active') ||
+    token.includes('serum') ||
+    token.includes('toner') ||
+    token.includes('essence') ||
+    token.includes('ampoule') ||
+    token.includes('ampule') ||
+    token.includes('spot_treatment') ||
+    token.includes('spottreatment')
+  ) {
+    return 'treatment';
+  }
+  return null;
+};
+
+const normalizeRoutineExtraStep = (value: unknown): RoutineExtraStep | null => {
+  const token = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_');
+  if (!token) return null;
+  if (token === 'ampule') return 'ampoule';
+  if (token === 'spottreatment') return 'spot_treatment';
+  if (token === 'eyecream') return 'eye_cream';
+  if (token === 'faceoil' || token === 'oil') return 'face_oil';
+  if (ROUTINE_EXTRA_STEP_OPTIONS.includes(token as RoutineExtraStep)) return token as RoutineExtraStep;
+  return null;
+};
+
+const buildRoutineExtraRowFromEntry = (entry: { step?: unknown; step_label?: unknown; product?: unknown; product_id?: unknown; sku_id?: unknown }): RoutineExtraRow | null => {
+  const product = String(entry.product || '').trim();
+  if (!product) return null;
+  const normalizedExtraStep = normalizeRoutineExtraStep(entry.step);
+  const rawLabel = String(entry.step_label || entry.step || '').trim();
+  if (normalizedExtraStep) {
+    return makeRoutineExtraRow({
+      step: normalizedExtraStep,
+      customStepLabel: normalizedExtraStep === 'other' ? rawLabel : '',
+      fieldValue: makeRoutineFieldValueFromEntry(entry),
+    });
+  }
+  return makeRoutineExtraRow({
+    step: 'other',
+    customStepLabel: rawLabel,
+    fieldValue: makeRoutineFieldValueFromEntry(entry),
+  });
+};
+
+const getRoutineStepDisplayLabel = (step: string, language: UiLanguage, customStepLabel?: string): string => {
+  const customLabel = String(customStepLabel || '').trim();
+  if (step === 'other' && customLabel) return customLabel;
+  const key = String(step || '').trim().toLowerCase();
+  const map: Record<string, { en: string; zh: string }> = {
+    cleanser: { en: 'Cleanser', zh: '洁面' },
+    treatment: { en: 'Treatment', zh: '活性/精华' },
+    moisturizer: { en: 'Moisturizer', zh: '保湿' },
+    spf: { en: 'SPF', zh: '防晒' },
+    toner: { en: 'Toner', zh: '化妆水' },
+    essence: { en: 'Essence', zh: '精华水' },
+    serum: { en: 'Serum', zh: '精华' },
+    ampoule: { en: 'Ampoule', zh: '安瓶' },
+    spot_treatment: { en: 'Spot treatment', zh: '局部点涂' },
+    eye_cream: { en: 'Eye cream', zh: '眼霜' },
+    face_oil: { en: 'Face oil', zh: '护肤油' },
+    mask: { en: 'Mask', zh: '面膜' },
+    other: { en: 'Other', zh: '其他步骤' },
+  };
+  const labels = map[key];
+  if (labels) return language === 'CN' ? labels.zh : labels.en;
+  return customLabel || key;
+};
+
+const buildRoutinePayloadStep = (
+  step: string,
+  fieldValue: RoutineFieldValue,
+  customStepLabel?: string,
+): { step: string; product: string; product_id?: string; sku_id?: string; step_label?: string } | null => {
+  const product = trimRoutineFieldText(fieldValue);
+  if (!product) return null;
+  const resolvedProduct = fieldValue.resolvedProduct;
+  const productId = String(resolvedProduct?.product_id || '').trim();
+  const skuId = String(resolvedProduct?.sku_id || '').trim();
+  const stepLabel = String(customStepLabel || '').trim();
+  return {
+    step,
+    product: product.slice(0, 500),
+    ...(productId ? { product_id: productId } : {}),
+    ...(skuId ? { sku_id: skuId } : {}),
+    ...(stepLabel ? { step_label: stepLabel.slice(0, 120) } : {}),
+  };
+};
+
 export type RoutineDraft = {
-  am: { cleanser: string; treatment: string; moisturizer: string; spf: string };
-  pm: { cleanser: string; treatment: string; moisturizer: string };
+  am: Record<RoutineCoreSlot, RoutineFieldValue>;
+  pm: Record<Exclude<RoutineCoreSlot, 'spf'>, RoutineFieldValue>;
+  amExtra: RoutineExtraRow[];
+  pmExtra: RoutineExtraRow[];
   notes: string;
 };
 
 export const makeEmptyRoutineDraft = (): RoutineDraft => ({
-  am: { cleanser: '', treatment: '', moisturizer: '', spf: '' },
-  pm: { cleanser: '', treatment: '', moisturizer: '' },
+  am: {
+    cleanser: makeEmptyRoutineFieldValue(),
+    treatment: makeEmptyRoutineFieldValue(),
+    moisturizer: makeEmptyRoutineFieldValue(),
+    spf: makeEmptyRoutineFieldValue(),
+  },
+  pm: {
+    cleanser: makeEmptyRoutineFieldValue(),
+    treatment: makeEmptyRoutineFieldValue(),
+    moisturizer: makeEmptyRoutineFieldValue(),
+  },
+  amExtra: [],
+  pmExtra: [],
   notes: '',
 });
 
@@ -298,81 +512,112 @@ export const hasAnyRoutineDraftInput = (draft: RoutineDraft): boolean => {
     draft.pm.cleanser,
     draft.pm.treatment,
     draft.pm.moisturizer,
-    draft.notes,
+    ...draft.amExtra.map((row) => row.fieldValue),
+    ...draft.pmExtra.map((row) => row.fieldValue),
   ];
-  return values.some((v) => Boolean(String(v || '').trim()));
+  return values.some((value) => hasRoutineFieldInput(value)) || Boolean(String(draft.notes || '').trim());
 };
 
-const normalizeRoutineDraftStep = (value: unknown): keyof RoutineDraft['am'] | null => {
-  const token = String(value || '').trim().toLowerCase();
-  if (!token) return null;
-  if (token.includes('cleanser') || token.includes('wash') || token.includes('clean')) return 'cleanser';
-  if (token.includes('spf') || token.includes('sunscreen') || token.includes('sun')) return 'spf';
-  if (token.includes('moistur') || token.includes('cream') || token.includes('lotion')) return 'moisturizer';
-  if (token.includes('treatment') || token.includes('serum') || token.includes('toner') || token.includes('essence') || token.includes('active')) return 'treatment';
-  return null;
-};
+const hasRoutineDraftValidationError = (draft: RoutineDraft): boolean =>
+  [...draft.amExtra, ...draft.pmExtra].some(
+    (row) => row.step === 'other' && hasRoutineFieldInput(row.fieldValue) && !String(row.customStepLabel || '').trim(),
+  );
 
 export const buildRoutineDraftFromProfile = (value: unknown): RoutineDraft | null => {
   const parsed = parseCurrentRoutine(value);
   if (!parsed) return null;
 
   const draft = makeEmptyRoutineDraft();
-  for (const row of parsed.am) {
-    const slot = normalizeRoutineDraftStep(row?.step);
-    const product = String(row?.product || '').trim();
-    if (!slot || !product) continue;
-    draft.am[slot] = product;
-  }
-  for (const row of parsed.pm) {
-    const slot = normalizeRoutineDraftStep(row?.step);
-    const product = String(row?.product || '').trim();
-    if (!slot || !product || slot === 'spf') continue;
-    draft.pm[slot] = product;
-  }
+  const assignRows = (slot: 'am' | 'pm', rows: typeof parsed.am) => {
+    const extraKey = slot === 'am' ? 'amExtra' : 'pmExtra';
+    for (const row of rows) {
+      const product = String(row?.product || '').trim();
+      if (!product) continue;
+      const coreSlot = normalizeRoutineCoreSlot(row?.step);
+      if (coreSlot && !(slot === 'pm' && coreSlot === 'spf')) {
+        const currentField = slot === 'am' ? draft.am[coreSlot] : draft.pm[coreSlot as keyof typeof draft.pm];
+        if (!hasRoutineFieldInput(currentField)) {
+          const fieldValue = makeRoutineFieldValueFromEntry({
+            product: row?.product,
+            product_id: row?.product_id,
+            sku_id: row?.sku_id,
+          });
+          if (slot === 'am') draft.am[coreSlot] = fieldValue;
+          else draft.pm[coreSlot as keyof typeof draft.pm] = fieldValue;
+          continue;
+        }
+      }
+      if (draft[extraKey].length >= ROUTINE_MAX_EXTRA_ROWS_PER_SLOT) continue;
+      const extraRow = buildRoutineExtraRowFromEntry({
+        step: row?.step,
+        step_label: row?.step_label,
+        product: row?.product,
+        product_id: row?.product_id,
+        sku_id: row?.sku_id,
+      });
+      if (!extraRow) continue;
+      draft[extraKey].push(extraRow);
+    }
+  };
+
+  assignRows('am', parsed.am);
+  assignRows('pm', parsed.pm);
   draft.notes = String(parsed.notes || '').trim();
 
   return hasAnyRoutineDraftInput(draft) ? draft : null;
 };
 
 const hasAnyRoutineAmInput = (draft: RoutineDraft): boolean => {
-  const values = [draft.am.cleanser, draft.am.treatment, draft.am.moisturizer, draft.am.spf];
-  return values.some((v) => Boolean(String(v || '').trim()));
+  const values = [draft.am.cleanser, draft.am.treatment, draft.am.moisturizer, draft.am.spf, ...draft.amExtra.map((row) => row.fieldValue)];
+  return values.some((value) => hasRoutineFieldInput(value));
 };
 
 const copyRoutineAmToPm = (draft: RoutineDraft): RoutineDraft => ({
   ...draft,
   pm: {
     ...draft.pm,
-    cleanser: String(draft.am.cleanser || ''),
-    treatment: String(draft.am.treatment || ''),
-    moisturizer: String(draft.am.moisturizer || ''),
+    cleanser: cloneRoutineFieldValue(draft.am.cleanser),
+    treatment: cloneRoutineFieldValue(draft.am.treatment),
+    moisturizer: cloneRoutineFieldValue(draft.am.moisturizer),
   },
+  pmExtra: draft.amExtra.map((row) => cloneRoutineExtraRow(row)).slice(0, ROUTINE_MAX_EXTRA_ROWS_PER_SLOT),
 });
 
-const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
-  const am: Array<{ step: string; product: string }> = [];
-  const pm: Array<{ step: string; product: string }> = [];
+export const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
+  const am: Array<{ step: string; product: string; product_id?: string; sku_id?: string; step_label?: string }> = [];
+  const pm: Array<{ step: string; product: string; product_id?: string; sku_id?: string; step_label?: string }> = [];
 
-  const pushStep = (list: Array<{ step: string; product: string }>, step: string, value: string) => {
-    const v = String(value || '').trim();
-    if (!v) return;
-    list.push({ step, product: v.slice(0, 500) });
+  const pushStep = (
+    list: Array<{ step: string; product: string; product_id?: string; sku_id?: string; step_label?: string }>,
+    step: string,
+    value: RoutineFieldValue,
+    customStepLabel?: string,
+  ) => {
+    if (step === 'other' && !String(customStepLabel || '').trim()) return;
+    const payloadRow = buildRoutinePayloadStep(step, value, customStepLabel);
+    if (!payloadRow) return;
+    list.push(payloadRow);
   };
 
   pushStep(am, 'cleanser', draft.am.cleanser);
   pushStep(am, 'treatment', draft.am.treatment);
   pushStep(am, 'moisturizer', draft.am.moisturizer);
   pushStep(am, 'spf', draft.am.spf);
+  draft.amExtra.slice(0, ROUTINE_MAX_EXTRA_ROWS_PER_SLOT).forEach((row) => {
+    pushStep(am, row.step, row.fieldValue, row.step === 'other' ? row.customStepLabel : '');
+  });
 
   pushStep(pm, 'cleanser', draft.pm.cleanser);
   pushStep(pm, 'treatment', draft.pm.treatment);
   pushStep(pm, 'moisturizer', draft.pm.moisturizer);
+  draft.pmExtra.slice(0, ROUTINE_MAX_EXTRA_ROWS_PER_SLOT).forEach((row) => {
+    pushStep(pm, row.step, row.fieldValue, row.step === 'other' ? row.customStepLabel : '');
+  });
 
   const notes = String(draft.notes || '').trim();
 
   return {
-    schema_version: 'aurora.routine_intake.v1',
+    schema_version: 'aurora.routine_intake.v2',
     am,
     pm,
     ...(notes ? { notes: notes.slice(0, 1200) } : {}),
@@ -382,10 +627,10 @@ const buildCurrentRoutinePayloadFromDraft = (draft: RoutineDraft) => {
 const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) => {
   const lines: string[] = [];
 
-  const add = (label: string, value: string) => {
-    const v = String(value || '').trim();
+  const add = (label: string, value: RoutineFieldValue, customStepLabel?: string) => {
+    const v = trimRoutineFieldText(value);
     if (!v) return;
-    lines.push(`${label}: ${v}`);
+    lines.push(`${customStepLabel || label}: ${v}`);
   };
 
   lines.push('AM');
@@ -393,12 +638,14 @@ const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) =>
   add('Treatment', draft.am.treatment);
   add('Moisturizer', draft.am.moisturizer);
   add('SPF', draft.am.spf);
+  draft.amExtra.forEach((row) => add(getRoutineStepDisplayLabel(row.step, language, row.customStepLabel), row.fieldValue));
 
   lines.push('');
   lines.push('PM');
   add('Cleanser', draft.pm.cleanser);
   add('Treatment', draft.pm.treatment);
   add('Moisturizer', draft.pm.moisturizer);
+  draft.pmExtra.forEach((row) => add(getRoutineStepDisplayLabel(row.step, language, row.customStepLabel), row.fieldValue));
 
   const notes = String(draft.notes || '').trim();
   if (notes) {
@@ -408,6 +655,144 @@ const routineDraftToDisplayText = (draft: RoutineDraft, language: UiLanguage) =>
 
   return lines.join('\n').trim();
 };
+
+type RoutineProductSearchFn = (args: { query: string; limit?: number }) => Promise<unknown>;
+
+function RoutineSearchField({
+  label,
+  placeholder,
+  value,
+  onChange,
+  language,
+  disabled,
+  searchFn,
+}: {
+  label: string;
+  placeholder: string;
+  value: RoutineFieldValue;
+  onChange: (next: RoutineFieldValue) => void;
+  language: UiLanguage;
+  disabled: boolean;
+  searchFn?: RoutineProductSearchFn;
+}) {
+  return (
+    <label className="space-y-1 text-xs text-muted-foreground">
+      {label}
+      <ProductSearchInput
+        value={value}
+        onChange={onChange}
+        language={language}
+        placeholder={placeholder}
+        disabled={disabled}
+        searchFn={searchFn}
+      />
+    </label>
+  );
+}
+
+function RoutineExtraRowsEditor({
+  language,
+  slot,
+  rows,
+  disabled,
+  searchFn,
+  onRowsChange,
+}: {
+  language: UiLanguage;
+  slot: 'am' | 'pm';
+  rows: RoutineExtraRow[];
+  disabled: boolean;
+  searchFn?: RoutineProductSearchFn;
+  onRowsChange: (nextRows: RoutineExtraRow[]) => void;
+}) {
+  const updateRow = (rowId: string, updater: (row: RoutineExtraRow) => RoutineExtraRow) => {
+    onRowsChange(rows.map((row) => (row.id === rowId ? updater(row) : row)));
+  };
+
+  return (
+    <div className="mt-3 rounded-2xl border border-border/50 bg-background/30 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold text-foreground">
+          {language === 'CN' ? '追加步骤（最多 4 个）' : 'Extra steps (up to 4)'}
+        </div>
+        <button
+          type="button"
+          className="chip-button !px-3 !py-1.5 text-[11px]"
+          disabled={disabled || rows.length >= ROUTINE_MAX_EXTRA_ROWS_PER_SLOT}
+          onClick={() => onRowsChange([...rows, makeRoutineExtraRow()])}
+        >
+          {language === 'CN' ? '添加步骤' : 'Add step'}
+        </button>
+      </div>
+      {rows.length ? (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <div key={row.id} className="rounded-2xl border border-border/50 bg-background/60 p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <select
+                  className="h-9 min-w-0 flex-1 rounded-2xl border border-border/60 bg-background/70 px-3 text-sm text-foreground"
+                  value={row.step}
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const nextStep = e.target.value as RoutineExtraStep;
+                    updateRow(row.id, (current) => ({
+                      ...current,
+                      step: nextStep,
+                      customStepLabel: nextStep === 'other' ? current.customStepLabel : '',
+                    }));
+                  }}
+                >
+                  {ROUTINE_EXTRA_STEP_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {getRoutineStepDisplayLabel(option, language)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="chip-button !px-3 !py-1.5 text-[11px]"
+                  disabled={disabled}
+                  onClick={() => onRowsChange(rows.filter((candidate) => candidate.id !== row.id))}
+                >
+                  {language === 'CN' ? '删除' : 'Remove'}
+                </button>
+              </div>
+              {row.step === 'other' ? (
+                <label className="mb-2 block space-y-1 text-xs text-muted-foreground">
+                  {language === 'CN' ? '自定义步骤名' : 'Custom step'}
+                  <input
+                    className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
+                    value={row.customStepLabel}
+                    onChange={(e) => updateRow(row.id, (current) => ({ ...current, customStepLabel: e.target.value }))}
+                    placeholder={language === 'CN' ? '例如：导入精华 / 修护喷雾' : 'e.g., booster / recovery mist'}
+                    disabled={disabled}
+                  />
+                </label>
+              ) : null}
+              <RoutineSearchField
+                label={`${slot.toUpperCase()} ${getRoutineStepDisplayLabel(row.step, language, row.customStepLabel)}`}
+                placeholder={
+                  language === 'CN'
+                    ? '输入产品名或链接，也可手动保留纯文本'
+                    : 'Type a product name or link, or keep plain text'
+                }
+                value={row.fieldValue}
+                onChange={(next) => updateRow(row.id, (current) => ({ ...current, fieldValue: next }))}
+                language={language}
+                disabled={disabled}
+                searchFn={searchFn}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[11px] text-muted-foreground">
+          {language === 'CN' ? '例如 toner、essence、serum、face oil、mask。' : 'For example: toner, essence, serum, face oil, or mask.'}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const nextId = (() => {
   let n = 0;
@@ -11899,6 +12284,16 @@ export default function BffChat() {
     },
     [headers, language],
   );
+  const searchRoutineProducts = useCallback<RoutineProductSearchFn>(
+    ({ query, limit }) =>
+      resolveProductsSearch({
+        query,
+        limit,
+        uiSurface: 'routine_form',
+      }),
+    [resolveProductsSearch],
+  );
+
 
   return (
     <div className="chat-container">
@@ -12191,47 +12586,51 @@ export default function BffChat() {
                 {routineTab === 'am' ? (
                   <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
                     <div className="grid gap-2">
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '洁面' : 'Cleanser'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.cleanser}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
-                          disabled={routineFormBusy}
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.treatment}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
-                          disabled={routineFormBusy}
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.moisturizer}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
-                          disabled={routineFormBusy}
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.am.spf}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
-                          disabled={routineFormBusy}
-                        />
-                      </label>
+                      <RoutineSearchField
+                        label={language === 'CN' ? '洁面' : 'Cleanser'}
+                        placeholder={language === 'CN' ? '例如：CeraVe Foaming Cleanser / 链接' : 'e.g., CeraVe Foaming Cleanser / link'}
+                        value={routineDraft.am.cleanser}
+                        onChange={(next) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, cleanser: next } }))}
+                        language={language}
+                        disabled={routineFormBusy}
+                        searchFn={searchRoutineProducts}
+                      />
+                      <RoutineSearchField
+                        label={language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                        placeholder={language === 'CN' ? '例如：烟酰胺 / VC / 无' : 'e.g., niacinamide / vitamin C / none'}
+                        value={routineDraft.am.treatment}
+                        onChange={(next) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, treatment: next } }))}
+                        language={language}
+                        disabled={routineFormBusy}
+                        searchFn={searchRoutineProducts}
+                      />
+                      <RoutineSearchField
+                        label={language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                        placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                        value={routineDraft.am.moisturizer}
+                        onChange={(next) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, moisturizer: next } }))}
+                        language={language}
+                        disabled={routineFormBusy}
+                        searchFn={searchRoutineProducts}
+                      />
+                      <RoutineSearchField
+                        label={language === 'CN' ? '防晒 SPF（可选但推荐）' : 'SPF (optional but recommended)'}
+                        placeholder={language === 'CN' ? '例如：EltaMD UV Clear / 无' : 'e.g., EltaMD UV Clear / none'}
+                        value={routineDraft.am.spf}
+                        onChange={(next) => setRoutineDraft((prev) => ({ ...prev, am: { ...prev.am, spf: next } }))}
+                        language={language}
+                        disabled={routineFormBusy}
+                        searchFn={searchRoutineProducts}
+                      />
                     </div>
+                    <RoutineExtraRowsEditor
+                      language={language}
+                      slot="am"
+                      rows={routineDraft.amExtra}
+                      disabled={routineFormBusy}
+                      searchFn={searchRoutineProducts}
+                      onRowsChange={(nextRows) => setRoutineDraft((prev) => ({ ...prev, amExtra: nextRows }))}
+                    />
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-border/50 bg-background/40 p-3">
@@ -12249,37 +12648,42 @@ export default function BffChat() {
                       </button>
                     </div>
                     <div className="grid gap-2">
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '洁面' : 'Cleanser'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.pm.cleanser}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
-                          disabled={routineFormBusy}
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.pm.treatment}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
-                          disabled={routineFormBusy}
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-muted-foreground">
-                        {language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
-                        <input
-                          className="h-9 w-full rounded-2xl border border-border/60 bg-background/60 px-3 text-sm text-foreground"
-                          value={routineDraft.pm.moisturizer}
-                          onChange={(e) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: e.target.value } }))}
-                          placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
-                          disabled={routineFormBusy}
-                        />
-                      </label>
+                      <RoutineSearchField
+                        label={language === 'CN' ? '洁面' : 'Cleanser'}
+                        placeholder={language === 'CN' ? '例如：同 AM / 或不同产品' : 'e.g., same as AM / or different'}
+                        value={routineDraft.pm.cleanser}
+                        onChange={(next) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, cleanser: next } }))}
+                        language={language}
+                        disabled={routineFormBusy}
+                        searchFn={searchRoutineProducts}
+                      />
+                      <RoutineSearchField
+                        label={language === 'CN' ? '活性/精华（可选）' : 'Treatment/active (optional)'}
+                        placeholder={language === 'CN' ? '例如：Retinol / AHA/BHA / 无' : 'e.g., retinol / AHA/BHA / none'}
+                        value={routineDraft.pm.treatment}
+                        onChange={(next) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, treatment: next } }))}
+                        language={language}
+                        disabled={routineFormBusy}
+                        searchFn={searchRoutineProducts}
+                      />
+                      <RoutineSearchField
+                        label={language === 'CN' ? '保湿（可选）' : 'Moisturizer (optional)'}
+                        placeholder={language === 'CN' ? '例如：CeraVe PM / 无' : 'e.g., CeraVe PM / none'}
+                        value={routineDraft.pm.moisturizer}
+                        onChange={(next) => setRoutineDraft((prev) => ({ ...prev, pm: { ...prev.pm, moisturizer: next } }))}
+                        language={language}
+                        disabled={routineFormBusy}
+                        searchFn={searchRoutineProducts}
+                      />
                     </div>
+                    <RoutineExtraRowsEditor
+                      language={language}
+                      slot="pm"
+                      rows={routineDraft.pmExtra}
+                      disabled={routineFormBusy}
+                      searchFn={searchRoutineProducts}
+                      onRowsChange={(nextRows) => setRoutineDraft((prev) => ({ ...prev, pmExtra: nextRows }))}
+                    />
                   </div>
                 )}
 
@@ -12332,7 +12736,7 @@ export default function BffChat() {
                   <button
                     type="button"
                     className="chip-button chip-button-primary flex-1"
-                    disabled={routineFormBusy || !hasAnyRoutineDraftInput(routineDraft)}
+                    disabled={routineFormBusy || !hasAnyRoutineDraftInput(routineDraft) || hasRoutineDraftValidationError(routineDraft)}
                     onClick={() => {
                       const payload = buildCurrentRoutinePayloadFromDraft(routineDraft);
                       const text = routineDraftToDisplayText(routineDraft, language);

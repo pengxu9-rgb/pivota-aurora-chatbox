@@ -167,12 +167,105 @@ describe('Routine entry stability', () => {
     const pickStep = (steps: Array<Record<string, any>>, step: string) =>
       String(steps.find((entry) => String(entry.step || '').trim() === step)?.product || '');
 
+    expect(routine.schema_version).toBe('aurora.routine_intake.v2');
     expect(pickStep(amSteps, 'cleanser')).toBe('Biotherm Force Cleanser');
     expect(pickStep(amSteps, 'treatment')).toBe('SkinCeuticals C E Ferulic');
     expect(pickStep(amSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
     expect(pickStep(pmSteps, 'cleanser')).toBe('Biotherm Force Cleanser');
     expect(pickStep(pmSteps, 'treatment')).toBe('SkinCeuticals C E Ferulic');
     expect(pickStep(pmSteps, 'moisturizer')).toBe('Biotherm Aquasource Hydra Barrier Cream');
+  });
+
+  it('submits extra AM rows with preserved step labels to analysis payload', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_bootstrap_extra_rows',
+            trace_id: 'trace_bootstrap_extra_rows',
+            session_patch: {},
+          }),
+        );
+      }
+      if (path === '/v1/analysis/skin') {
+        return Promise.resolve(
+          makeEnvelope({
+            request_id: 'req_analysis_extra_rows',
+            trace_id: 'trace_analysis_extra_rows',
+            session_patch: {},
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat?open=routine']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Add your AM\/PM products/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/CeraVe Foaming Cleanser/i), {
+      target: { value: 'Gentle cleanser' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Add step/i }));
+
+    const comboboxes = screen.getAllByRole('combobox');
+    fireEvent.change(comboboxes[0], { target: { value: 'essence' } });
+
+    const extraInputsAfterFirstAdd = screen.getAllByPlaceholderText(/Type a product name or link, or keep plain text/i);
+    fireEvent.change(extraInputsAfterFirstAdd[0], {
+      target: { value: 'SK-II Facial Treatment Essence' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Add step/i }));
+
+    const updatedComboboxes = screen.getAllByRole('combobox');
+    fireEvent.change(updatedComboboxes[1], { target: { value: 'other' } });
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\., booster \/ recovery mist/i), {
+      target: { value: 'Peptide mist' },
+    });
+
+    const extraInputsAfterSecondAdd = screen.getAllByPlaceholderText(/Type a product name or link, or keep plain text/i);
+    fireEvent.change(extraInputsAfterSecondAdd[1], {
+      target: { value: 'Custom peptide mist' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save & analyze/i }));
+
+    await waitFor(() => {
+      const calls = mock.mock.calls.filter((call) => call[0] === '/v1/analysis/skin');
+      expect(calls).toHaveLength(1);
+    });
+
+    const analysisCall = mock.mock.calls.find((call) => call[0] === '/v1/analysis/skin');
+    const bodyRaw = String((analysisCall?.[2] as RequestInit | undefined)?.body || '{}');
+    const body = JSON.parse(bodyRaw) as Record<string, any>;
+    const routine = (body.currentRoutine || {}) as Record<string, any>;
+    const amSteps = Array.isArray(routine.am) ? routine.am : [];
+
+    expect(routine.schema_version).toBe('aurora.routine_intake.v2');
+    expect(amSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          step: 'essence',
+          product: 'SK-II Facial Treatment Essence',
+        }),
+        expect.objectContaining({
+          step: 'other',
+          step_label: 'Peptide mist',
+          product: 'Custom peptide mist',
+        }),
+      ]),
+    );
   });
 
   it('retries skin analysis once after a transient network failure', async () => {

@@ -1,5 +1,6 @@
 export type CurrentRoutineEntry = {
   step?: string | null;
+  step_label?: string | null;
   product?: string | null;
   product_id?: string | null;
   sku_id?: string | null;
@@ -52,6 +53,7 @@ const normalizeEntry = (entry: unknown): CurrentRoutineEntry | null => {
   if (!step && !product) return null;
   return {
     step: step ?? null,
+    step_label: asString(obj.step_label) ?? asString(obj.stepLabel) ?? asString(obj.original_step_label) ?? asString(obj.originalStepLabel) ?? null,
     product: product ?? null,
     product_id: asString(obj.product_id) ?? null,
     sku_id: asString(obj.sku_id) ?? null,
