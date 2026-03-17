@@ -93,7 +93,7 @@ describe('Routine entry stability', () => {
     expect(chatCalls).toHaveLength(0);
   });
 
-  it('opens the routine sheet when clicking the landing Build an AM/PM routine chip and does not send /v1/chat', async () => {
+  it('opens the routine sheet when clicking the landing Build an AM/PM routine chip after a non-routine /v1/chat fallback', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
@@ -106,7 +106,7 @@ describe('Routine entry stability', () => {
         );
       }
       if (path === '/v1/chat') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_chat_should_not_happen' }));
+        return Promise.resolve(makeEnvelope({ request_id: 'req_chat_fallback_to_sheet' }));
       }
       return Promise.resolve(makeEnvelope());
     });
@@ -127,7 +127,7 @@ describe('Routine entry stability', () => {
     });
 
     const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
-    expect(chatCalls).toHaveLength(0);
+    expect(chatCalls).toHaveLength(1);
   });
 
   it('fills PM fields from AM when tapping Same as AM and submits copied routine', async () => {
