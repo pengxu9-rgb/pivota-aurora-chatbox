@@ -188,8 +188,9 @@ const moduleSchema = z
         w: asPositiveInt,
         h: asPositiveInt,
       })
+      .nullable()
       .optional(),
-    module_pixels: z.array(z.number()).optional(),
+    module_pixels: z.array(z.number()).nullable().optional(),
     degraded_reason: z.string().trim().optional(),
     evidence_region_ids: z.array(asNonEmptyString).optional(),
   })
@@ -355,6 +356,7 @@ export type PhotoModulesProduct = {
   } | null;
   evidence: {
     evidence_grade: string | null;
+    ingredient_id: string | null;
   } | null;
   why_match: string;
   how_to_use: string;
@@ -430,6 +432,8 @@ export type NormalizePhotoModulesResult = {
   sanitizer_drops: PhotoModulesSanitizerDrop[];
 };
 
+type PlainRecord = Record<string, unknown>;
+
 const clamp01 = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
   if (value <= 0) return 0;
@@ -454,6 +458,51 @@ const toUniqueList = (values: Array<string | null | undefined>, max = 12): strin
     if (out.length >= max) break;
   }
   return out;
+};
+
+const asRecord = (value: unknown): PlainRecord | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as PlainRecord;
+};
+
+const asRecordArray = (value: unknown): PlainRecord[] =>
+  Array.isArray(value) ? value.map((item) => asRecord(item)).filter((item): item is PlainRecord => Boolean(item)) : [];
+
+const preprocessModuleActions = (module: PlainRecord): PlainRecord[] => {
+  const actions = asRecordArray(module.actions);
+  if (actions.length) return actions;
+
+  const topActions = asRecordArray(module.top_actions).map((action) => ({
+    ...action,
+    group: String(action.group || '').trim() || 'top',
+  }));
+  const moreActions = asRecordArray(module.more_actions).map((action) => ({
+    ...action,
+    group: String(action.group || '').trim() || 'more',
+  }));
+  return [...topActions, ...moreActions];
+};
+
+const preprocessPhotoModuleForParse = (moduleValue: unknown): PlainRecord => {
+  const module = asRecord(moduleValue) || {};
+  const maskGrid = asRecord(module.mask_grid);
+  const modulePixels = Array.isArray(module.module_pixels) ? module.module_pixels : undefined;
+
+  return {
+    ...module,
+    actions: preprocessModuleActions(module),
+    ...(maskGrid ? { mask_grid: maskGrid } : { mask_grid: undefined }),
+    ...(modulePixels ? { module_pixels: modulePixels } : { module_pixels: undefined }),
+  };
+};
+
+const preprocessPhotoModulesPayloadForParse = (value: unknown): unknown => {
+  const root = asRecord(value);
+  if (!root) return value;
+  return {
+    ...root,
+    modules: Array.isArray(root.modules) ? root.modules.map((module) => preprocessPhotoModuleForParse(module)) : root.modules,
+  };
 };
 
 const bboxFromPoints = (points: Point[]): Bbox => {
@@ -567,6 +616,72 @@ const firstNonEmpty = (...values: Array<string | undefined>): string | null => {
     if (current) return current;
   }
   return null;
+};
+
+const normalizeIngredientToken = (value: string | null | undefined): string =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+const normalizeExternalSearchCtas = (value: unknown): PhotoModulesExternalSearchCta[] =>
+  (Array.isArray(value) ? value : [])
+    .map((cta: any) => ({
+      title: firstNonEmpty(cta?.title, cta?.name, cta?.query) || '',
+      url: String(cta?.url || '').trim(),
+      source: String(cta?.source || '').trim(),
+      reason: String(cta?.reason || '').trim(),
+    }))
+    .filter((cta: PhotoModulesExternalSearchCta) => Boolean(cta.title || cta.url))
+    .slice(0, 6);
+
+const buildActionIngredientTokens = (action: RawAction): string[] =>
+  toUniqueList(
+    [
+      normalizeIngredientToken((action as any).ingredient_canonical_id),
+      normalizeIngredientToken(action.ingredient_id),
+      normalizeIngredientToken(action.ingredient_name),
+    ].filter(Boolean),
+    6,
+  );
+
+const matchFallbackProductsForAction = (
+  action: RawAction,
+  moduleProducts: PhotoModulesProduct[],
+): PhotoModulesProduct[] => {
+  if (!moduleProducts.length) return [];
+  const tokens = new Set(buildActionIngredientTokens(action));
+  if (!tokens.size) return [];
+
+  return moduleProducts
+    .filter((product) => {
+      const evidenceIngredient = normalizeIngredientToken(product.evidence?.ingredient_id || null);
+      if (evidenceIngredient && tokens.has(evidenceIngredient)) return true;
+
+      const whyTokens = [
+        normalizeIngredientToken(product.why_match),
+        normalizeIngredientToken(product.title),
+      ];
+      return whyTokens.some((token) => token && Array.from(tokens).some((needle) => token.includes(needle)));
+    })
+    .slice(0, 6);
+};
+
+const matchFallbackExternalSearchCtasForAction = (
+  action: RawAction,
+  moduleExternalSearchCtas: PhotoModulesExternalSearchCta[],
+): PhotoModulesExternalSearchCta[] => {
+  if (!moduleExternalSearchCtas.length) return [];
+  const tokens = new Set(buildActionIngredientTokens(action));
+  if (!tokens.size) return [];
+
+  return moduleExternalSearchCtas
+    .filter((cta) => {
+      const titleToken = normalizeIngredientToken(cta.title);
+      return titleToken && Array.from(tokens).some((needle) => titleToken.includes(needle) || needle.includes(titleToken));
+    })
+    .slice(0, 4);
 };
 
 const sanitizeBboxRegion = (region: RawRegion): { region: PhotoModulesRegion | null; drop?: PhotoModulesSanitizerDrop } => {
@@ -722,7 +837,23 @@ const defaultDoNotMix = (issueTypes: Array<(typeof ISSUE_TYPES)[number]>): strin
   return ['Patch test before introducing new actives together.'];
 };
 
-const normalizeAction = (action: RawAction): PhotoModulesAction => ({
+const normalizeAction = (
+  action: RawAction,
+  moduleProducts: PhotoModulesProduct[] = [],
+  moduleExternalSearchCtas: PhotoModulesExternalSearchCta[] = [],
+): PhotoModulesAction => {
+  const directProducts = (Array.isArray((action as any).products) ? (action as any).products : [])
+    .map((product: RawProduct) => normalizeProduct(product))
+    .filter((product: PhotoModulesProduct) => Boolean(product.title))
+    .slice(0, 6);
+  const fallbackProducts = directProducts.length ? [] : matchFallbackProductsForAction(action, moduleProducts);
+
+  const directExternalSearchCtas = normalizeExternalSearchCtas((action as any).external_search_ctas);
+  const fallbackExternalSearchCtas = directExternalSearchCtas.length
+    ? []
+    : matchFallbackExternalSearchCtasForAction(action, moduleExternalSearchCtas);
+
+  return ({
   action_type: 'ingredient',
   ingredient_id: action.ingredient_id,
   ingredient_canonical_id:
@@ -749,25 +880,19 @@ const normalizeAction = (action: RawAction): PhotoModulesAction => ({
   do_not_mix: toUniqueList(action.do_not_mix ?? [], 6).length
     ? toUniqueList(action.do_not_mix ?? [], 6)
     : defaultDoNotMix(action.evidence_issue_types),
-  products: (Array.isArray((action as any).products) ? (action as any).products : [])
-    .map((product: RawProduct) => normalizeProduct(product))
-    .filter((product: PhotoModulesProduct) => Boolean(product.title))
-    .slice(0, 6),
-  products_empty_reason: String((action as any).products_empty_reason || '').trim() || null,
-  external_search_ctas: (Array.isArray((action as any).external_search_ctas) ? (action as any).external_search_ctas : [])
-    .map((cta: any) => ({
-      title: firstNonEmpty(cta?.title, cta?.name, cta?.query) || '',
-      url: String(cta?.url || '').trim(),
-      source: String(cta?.source || '').trim(),
-      reason: String(cta?.reason || '').trim(),
-    }))
-    .filter((cta: PhotoModulesExternalSearchCta) => Boolean(cta.title || cta.url))
-    .slice(0, 6),
+  products: directProducts.length ? directProducts : fallbackProducts,
+  products_empty_reason:
+    String((action as any).products_empty_reason || '').trim() ||
+    (!directProducts.length && !fallbackProducts.length && (directExternalSearchCtas.length || fallbackExternalSearchCtas.length)
+      ? 'low_confidence_fallback_only'
+      : null),
+  external_search_ctas: directExternalSearchCtas.length ? directExternalSearchCtas : fallbackExternalSearchCtas,
   rec_debug:
     (action as any).rec_debug && typeof (action as any).rec_debug === 'object' && !Array.isArray((action as any).rec_debug)
       ? ((action as any).rec_debug as Record<string, unknown>)
       : null,
-});
+  });
+};
 
 const normalizeMaskGrid = (value: unknown): { w: number; h: number } | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -877,6 +1002,10 @@ const normalizeProduct = (product: RawProduct): PhotoModulesProduct => ({
     if (!evidenceGrade) return null;
     return {
       evidence_grade: String(evidenceGrade).trim().toUpperCase() || null,
+      ingredient_id: firstNonEmpty(
+        rawEvidence?.ingredient_id,
+        rawEvidence?.ingredientId,
+      ),
     };
   })(),
   why_match: String(product.why_match || '').trim(),
@@ -899,14 +1028,19 @@ const normalizeModule = (module: RawModule, validRegionIds: Set<string>): PhotoM
   const maskGrid = normalizeMaskGrid(module.mask_grid);
   const normalizedBox = module.box ? normalizeBbox(module.box) : null;
   const normalizedMaskRle = normalizeMaskRleNorm(module.mask_rle_norm, maskGrid);
+  const moduleProducts = (Array.isArray(module.products) ? module.products : [])
+    .map((product) => normalizeProduct(product))
+    .filter((product) => Boolean(product.title))
+    .slice(0, 6);
+  const moduleExternalSearchCtas = normalizeExternalSearchCtas((module as any).external_search_ctas);
   return {
     module_id: module.module_id,
     issues,
-    actions: module.actions.map((action) => normalizeAction(action)),
+    actions: module.actions.map((action) => normalizeAction(action, moduleProducts, moduleExternalSearchCtas)),
     module_rank_score: Number.isFinite(Number((module as any).module_rank_score))
       ? Number((module as any).module_rank_score)
       : null,
-    products: (Array.isArray(module.products) ? module.products : []).map((product) => normalizeProduct(product)).slice(0, 3),
+    products: moduleProducts.slice(0, 3),
     ...(normalizedBox ? { box: normalizedBox } : {}),
     ...(maskGrid ? { mask_grid: maskGrid } : {}),
     ...(normalizedMaskRle ? { mask_rle_norm: normalizedMaskRle } : {}),
@@ -1011,7 +1145,7 @@ const formatIssuePath = (path: Array<string | number>): string => {
 };
 
 export function normalizePhotoModulesUiModelV1(value: unknown): NormalizePhotoModulesResult {
-  const parsed = photoModulesPayloadSchema.safeParse(value);
+  const parsed = photoModulesPayloadSchema.safeParse(preprocessPhotoModulesPayloadForParse(value));
   if (!parsed.success) {
     return {
       model: null,

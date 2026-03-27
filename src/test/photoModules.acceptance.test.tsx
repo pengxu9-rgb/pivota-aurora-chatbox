@@ -417,4 +417,125 @@ describe('photo_modules_v1 acceptance', () => {
     expect(normalized.model).toBeNull();
     expect(normalized.errors.length).toBeGreaterThan(0);
   });
+
+  it('accepts live-style null mask fields without downgrading the card', () => {
+    const payload = buildValidPayload();
+    payload.modules = payload.modules.map((module) => ({
+      ...module,
+      mask_grid: null,
+      module_pixels: null,
+    }));
+
+    const normalized = normalizePhotoModulesUiModelV1(payload);
+    expect(normalized.errors).toEqual([]);
+    expect(normalized.model).not.toBeNull();
+  });
+
+  it('accepts live-style module payload drift and maps module-level product fallback to actions', () => {
+    const payload = buildValidPayload();
+    payload.modules = [
+      {
+        module_id: 'forehead',
+        issues: [
+          {
+            issue_type: 'tone',
+            severity_0_4: 3,
+            confidence_0_1: 0.74,
+            evidence_region_ids: ['reg_bbox_1'],
+            explanation_short: 'Tone unevenness is the top visible signal for the forehead.',
+          },
+        ],
+        top_actions: [
+          {
+            action_type: 'ingredient',
+            ingredient_id: 'niacinamide',
+            ingredient_canonical_id: 'niacinamide',
+            ingredient_name: 'Niacinamide',
+            why: 'Helps improve the appearance of uneven tone in highlighted areas.',
+            how_to_use: { time: 'AM_PM', frequency: 'daily', notes: 'Start low and slow.' },
+            cautions: [],
+            evidence_issue_types: ['tone'],
+            action_rank_score: 0.72,
+          },
+          {
+            action_type: 'ingredient',
+            ingredient_id: 'azelaic_acid',
+            ingredient_canonical_id: 'azelaic_acid',
+            ingredient_name: 'Azelaic Acid',
+            why: 'Can support visible redness and post-blemish tone concerns.',
+            how_to_use: { time: 'PM', frequency: '2-3x_week', notes: 'Keep frequency conservative.' },
+            cautions: [],
+            evidence_issue_types: ['tone'],
+            action_rank_score: 0.51,
+          },
+        ],
+        more_actions: [
+          {
+            action_type: 'ingredient',
+            ingredient_id: 'vitamin_c_gentle',
+            ingredient_canonical_id: 'ascorbic_acid',
+            ingredient_name: 'Gentle Vitamin C',
+            why: 'Supports visible brightness over time.',
+            how_to_use: { time: 'AM', frequency: 'daily', notes: 'Use under sunscreen.' },
+            cautions: [],
+            evidence_issue_types: ['tone'],
+            action_rank_score: 0.4,
+          },
+        ],
+        products: [
+          {
+            product_id: 'live_like_niacinamide',
+            merchant_id: 'external_seed',
+            name: 'Niacinamide 10% + Zinc 1%',
+            brand: 'The Ordinary',
+            why_match: 'Contains niacinamide; helps improve the appearance of uneven tone in highlighted areas.',
+            retrieval_source: 'external_seed',
+            retrieval_reason: 'external_seed_deterministic_ingredient_match',
+            evidence: { evidence_grade: 'C', ingredient_id: 'niacinamide' },
+            pdp_url: 'https://example.com/p/niacinamide',
+          },
+          {
+            product_id: 'live_like_vitc',
+            merchant_id: 'external_seed',
+            name: 'Banana Bright Vitamin C Serum',
+            brand: 'Olehenriksen',
+            why_match: 'Contains ascorbic_acid; helps improve the appearance of uneven tone in highlighted areas.',
+            retrieval_source: 'external_seed',
+            retrieval_reason: 'external_seed_deterministic_ingredient_match',
+            evidence: { evidence_grade: 'C', ingredient_id: 'ascorbic_acid' },
+            pdp_url: 'https://example.com/p/vitc',
+          },
+        ],
+        external_search_ctas: [
+          {
+            title: 'Azelaic Acid',
+            url: 'https://www.google.com/search?q=Azelaic%20Acid',
+            source: 'external',
+            reason: 'strict_filter_all_dropped_fallback',
+          },
+        ],
+        mask_grid: 64,
+        module_pixels: 287,
+      } as any,
+    ];
+
+    const normalized = normalizePhotoModulesUiModelV1(payload);
+    expect(normalized.errors).toEqual([]);
+    expect(normalized.model).not.toBeNull();
+
+    const module = normalized.model!.modules[0];
+    expect(module.actions).toHaveLength(3);
+    expect(module.mask_grid).toBeUndefined();
+    expect(module.module_pixels).toBeUndefined();
+
+    const niacinamideAction = module.actions.find((action) => action.ingredient_id === 'niacinamide');
+    const azelaicAction = module.actions.find((action) => action.ingredient_id === 'azelaic_acid');
+    const vitaminCAction = module.actions.find((action) => action.ingredient_id === 'vitamin_c_gentle');
+
+    expect(niacinamideAction?.products.map((product) => product.title)).toContain('Niacinamide 10% + Zinc 1%');
+    expect(vitaminCAction?.products.map((product) => product.title)).toContain('Banana Bright Vitamin C Serum');
+    expect(azelaicAction?.products).toEqual([]);
+    expect(azelaicAction?.external_search_ctas[0]?.title).toBe('Azelaic Acid');
+    expect(azelaicAction?.products_empty_reason).toBe('low_confidence_fallback_only');
+  });
 });
