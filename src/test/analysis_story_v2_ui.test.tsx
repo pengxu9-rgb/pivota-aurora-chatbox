@@ -23,13 +23,13 @@ describe('analysis_story_v2 ui', () => {
           skin_profile: {
             skin_type_tendency: 'combination',
             sensitivity_tendency: 'low',
-            current_strengths: ['low inflammation', 'small pores'],
+            current_strengths: ['Redness is most visible across the forehead.', 'small pores'],
           },
           priority_findings: [
             { title: 'Redness is most visible across the forehead.' },
             { title: 'Mild redness around cheek' },
           ],
-          target_state: ['More stable barrier and even tone'],
+          target_state: ['Photo review highlights forehead redness and under-eye texture first.', 'More stable barrier and even tone'],
           core_principles: ['Stability first'],
           am_plan: [{ step: 'Gentle cleanse', purpose: 'Reduce irritation' }],
           pm_plan: [{ step: 'Barrier moisturizer', purpose: 'Night recovery' }],
@@ -54,6 +54,7 @@ describe('analysis_story_v2 ui', () => {
     expect(screen.getByText('Priority findings')).toBeInTheDocument();
     expect(screen.getByText('Mild redness around cheek')).toBeInTheDocument();
     expect(screen.getAllByText('Redness is most visible across the forehead.')).toHaveLength(1);
+    expect(screen.getAllByText('Photo review highlights forehead redness and under-eye texture first.')).toHaveLength(1);
     expect(screen.getByText('AM plan')).toBeInTheDocument();
     expect(screen.getByText('PM plan')).toBeInTheDocument();
     expect(screen.queryByText('Add AM/PM routine')).not.toBeInTheDocument();
