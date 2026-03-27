@@ -12,6 +12,13 @@ describe('analysis_story_v2 ui', () => {
         language="EN"
         onAction={onAction}
         payload={{
+          ui_card_v1: {
+            headline: 'Photo review highlights forehead redness and under-eye texture first.',
+            key_points: ['Redness is most visible across the forehead.', 'Texture stands out more under the eyes.'],
+            actions_now: ['AM: Gentle cleanse', 'PM: Single core active (low frequency)'],
+            avoid_now: ['Do not stack multiple strong actives in the same night.'],
+            next_checkin: 'Week 1: retake the same angles in even lighting.',
+          },
           confidence_overall: { level: 'high', score: 0.82 },
           skin_profile: {
             skin_type_tendency: 'combination',
@@ -32,8 +39,14 @@ describe('analysis_story_v2 ui', () => {
       />,
     );
 
-    expect(screen.getByText('Personalized skin analysis')).toBeInTheDocument();
+    expect(screen.getByText('Skin analysis')).toBeInTheDocument();
+    expect(screen.getByText('Photo-led')).toBeInTheDocument();
+    expect(screen.getByText('Photo review highlights forehead redness and under-eye texture first.')).toBeInTheDocument();
     expect(screen.getByText('Confidence: High (82%)')).toBeInTheDocument();
+    expect(screen.getByText('What stands out')).toBeInTheDocument();
+    expect(screen.getByText('Do now')).toBeInTheDocument();
+    expect(screen.getByText('Hold for now')).toBeInTheDocument();
+    expect(screen.getByText('Next check-in')).toBeInTheDocument();
     expect(screen.getByText('Current profile')).toBeInTheDocument();
     expect(screen.getByText('Priority findings')).toBeInTheDocument();
     expect(screen.getByText('AM plan')).toBeInTheDocument();

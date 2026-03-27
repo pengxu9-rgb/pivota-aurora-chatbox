@@ -379,6 +379,20 @@ const getModuleLabel = (moduleId: string, language: Language): string => {
   return language === 'CN' ? moduleLabel.zh : moduleLabel.en;
 };
 
+const buildPhotoSummaryLine = (model: PhotoModulesUiModelV1, language: Language): string => {
+  const topModuleId = String(model.summary_v1?.top_module_id || '').trim();
+  const topIssueType = String(model.summary_v1?.top_issue_type || '').trim();
+  const moduleLabel = topModuleId ? getModuleLabel(topModuleId, language) : '';
+  const issueLabel = topIssueType ? getIssueLabel(topIssueType, language) : '';
+  if (moduleLabel && issueLabel) {
+    return language === 'CN' ? `当前优先关注：${moduleLabel} · ${issueLabel}` : `Current focus: ${moduleLabel} · ${issueLabel}`;
+  }
+  if (moduleLabel) {
+    return language === 'CN' ? `当前优先关注：${moduleLabel}` : `Current focus: ${moduleLabel}`;
+  }
+  return '';
+};
+
 const toPercent = (value: number) => `${Math.round(clamp01(value) * 100)}%`;
 
 const scoreIssue = (issue: PhotoModulesModule['issues'][number]): number => {
@@ -579,6 +593,8 @@ export function PhotoModulesCard({
     const desiredIssueType = issueExists ? selectedIssueType : pickTopIssueType(resolvedModule);
     if (desiredIssueType !== selectedIssueType) setSelectedIssueType(desiredIssueType);
   }, [defaultFocus.moduleId, model.modules, selectedIssueType, selectedModuleId]);
+
+  const headerSummary = useMemo(() => buildPhotoSummaryLine(model, language), [language, model]);
 
   useEffect(() => {
     if (!hasRenderableImage) {
@@ -1056,7 +1072,7 @@ export function PhotoModulesCard({
       <CardHeader className="space-y-2 p-4 pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold text-foreground">
-            {language === 'CN' ? '照片模块分析' : 'Photo Modules Analysis'}
+            {language === 'CN' ? '照片分析' : 'Photo analysis'}
           </div>
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span className="rounded-full border border-border/60 bg-muted/50 px-2 py-1">
@@ -1075,6 +1091,7 @@ export function PhotoModulesCard({
             ) : null}
           </div>
         </div>
+        {headerSummary ? <div className="text-sm text-foreground/90">{headerSummary}</div> : null}
         {model.photo_notice ? (
           <div className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             {model.photo_notice}
