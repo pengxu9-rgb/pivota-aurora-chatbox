@@ -25,7 +25,10 @@ describe('analysis_story_v2 ui', () => {
             sensitivity_tendency: 'low',
             current_strengths: ['low inflammation', 'small pores'],
           },
-          priority_findings: [{ title: 'Mild redness around cheek' }],
+          priority_findings: [
+            { title: 'Redness is most visible across the forehead.' },
+            { title: 'Mild redness around cheek' },
+          ],
           target_state: ['More stable barrier and even tone'],
           core_principles: ['Stability first'],
           am_plan: [{ step: 'Gentle cleanse', purpose: 'Reduce irritation' }],
@@ -49,6 +52,8 @@ describe('analysis_story_v2 ui', () => {
     expect(screen.getByText('Next check-in')).toBeInTheDocument();
     expect(screen.getByText('Current profile')).toBeInTheDocument();
     expect(screen.getByText('Priority findings')).toBeInTheDocument();
+    expect(screen.getByText('Mild redness around cheek')).toBeInTheDocument();
+    expect(screen.getAllByText('Redness is most visible across the forehead.')).toHaveLength(1);
     expect(screen.getByText('AM plan')).toBeInTheDocument();
     expect(screen.getByText('PM plan')).toBeInTheDocument();
     expect(screen.queryByText('Add AM/PM routine')).not.toBeInTheDocument();

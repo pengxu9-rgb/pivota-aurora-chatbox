@@ -126,7 +126,8 @@ export function AnalysisStoryCard({
   const photoLed = looksPhotoLed(root, headline);
   const confidenceOverall = formatConfidenceOverall(root.confidence_overall, language);
   const skinProfile = asObject(root.skin_profile);
-  const findingLines = asArray(root.priority_findings)
+  const keyPointKeys = keyPoints.map((item) => canonicalizeFindingText(item)).filter(Boolean);
+  const rawFindingLines = asArray(root.priority_findings)
     .map((item) => {
       const row = asObject(item);
       if (!row) return asString(item);
@@ -135,6 +136,17 @@ export function AnalysisStoryCard({
     .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 6);
+  const findingLines = rawFindingLines.filter((line) => {
+    const candidate = canonicalizeFindingText(line);
+    if (!candidate) return false;
+    return !keyPointKeys.some((keyPoint) => {
+      if (!keyPoint) return false;
+      if (candidate === keyPoint) return true;
+      if (candidate.length >= 12 && keyPoint.includes(candidate)) return true;
+      if (keyPoint.length >= 12 && candidate.includes(keyPoint)) return true;
+      return false;
+    });
+  });
   const priorityFindingKeys = findingLines
     .map((line) => canonicalizeFindingText(line))
     .filter(Boolean);
