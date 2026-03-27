@@ -456,13 +456,6 @@ const FF_RETURN_WELCOME = (() => {
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
 })();
 
-const FF_PHOTO_MODULES_CARD = (() => {
-  const raw = String(import.meta.env.VITE_DIAG_PHOTO_MODULES_CARD ?? 'true')
-    .trim()
-    .toLowerCase();
-  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
-})();
-
 const FF_SHOW_PASSIVE_GATES = (() => {
   const raw = String(import.meta.env.VITE_SHOW_PASSIVE_GATES ?? 'false')
     .trim()
@@ -5531,8 +5524,6 @@ function BffCardView({
   }
 
   if (cardType === 'photo_modules_v1') {
-    if (!FF_PHOTO_MODULES_CARD) return null;
-
     const safeAnalysisPhotoRefs = Array.isArray(analysisPhotoRefs) ? analysisPhotoRefs : [];
     const safeSessionPhotos = sessionPhotos && typeof sessionPhotos === 'object' ? sessionPhotos : {};
     const payloadWithSessionPhotoFallback = enrichPhotoModulesPayloadWithSessionPreview(
