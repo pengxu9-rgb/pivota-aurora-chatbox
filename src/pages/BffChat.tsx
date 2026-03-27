@@ -843,6 +843,8 @@ const iconForCard = (type: string): IconType => {
   if (t === 'ingredient_plan') return FlaskConical;
   if (t === 'ingredient_plan_v2') return FlaskConical;
   if (t === 'analysis_story_v2') return ListChecks;
+  if (t === 'returning_triage') return RefreshCw;
+  if (t === 'skin_progress') return Activity;
   if (t === 'routine_products_preview') return Search;
   if (t === 'routine_product_audit_v1') return Search;
   if (t === 'routine_adjustment_plan_v1') return ListChecks;
@@ -880,6 +882,8 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
   if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（个性化）' : 'Ingredient plan (personalized)';
   if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
+  if (key === 'returning_triage') return language === 'CN' ? '继续之前的诊断' : 'Continue your diagnosis';
+  if (key === 'skin_progress') return language === 'CN' ? '肌肤进展' : 'Skin progress';
   if (key === 'routine_product_audit_v1') return language === 'CN' ? '当前产品拆解' : 'Your current products';
   if (key === 'routine_adjustment_plan_v1') return language === 'CN' ? '先改什么' : 'What to change first';
   if (key === 'routine_recommendation_v1') return language === 'CN' ? '如果要升级，先补这里' : 'If you upgrade, start here';
@@ -4553,6 +4557,310 @@ function RoutineProductsPreviewCardView({
   );
 }
 
+const localizedCardActionField = (
+  row: Record<string, unknown> | null | undefined,
+  field: string,
+  language: 'EN' | 'CN',
+): string => {
+  const item = row && typeof row === 'object' ? row : null;
+  if (!item) return '';
+  const localizedKey = `${field}_${language === 'CN' ? 'zh' : 'en'}`;
+  return asString((item as any)[localizedKey]) || asString((item as any)[field]);
+};
+
+const renderTokenPills = (items: string[], tone: 'default' | 'subtle' = 'default') => {
+  const className =
+    tone === 'subtle'
+      ? 'rounded-full border border-border/50 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground'
+      : 'rounded-full border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-foreground/80';
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item) => (
+        <span key={item} className={className}>
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+function ReturningTriageCardView({
+  payload,
+  language,
+  onAction,
+}: {
+  payload: Record<string, unknown>;
+  language: UiLanguage;
+  onAction: (actionId: string, data?: Record<string, any>) => void;
+}) {
+  const sections = asArray((payload as any).sections).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+  const summarySection =
+    sections.find((section) => asString((section as any).kind) === 'previous_diagnosis_summary') || null;
+  const actionSection =
+    sections.find((section) => asString((section as any).kind) === 'returning_action_selection') || null;
+  const summaryText = asString((summarySection as any)?.summary_text);
+  const skinType = asString((summarySection as any)?.skin_type);
+  const goals = asArray((summarySection as any)?.goals).map((item) => asString(item)).filter(Boolean) as string[];
+  const concerns = asArray((summarySection as any)?.primary_concerns).map((item) => asString(item)).filter(Boolean) as string[];
+  const blueprintId = asString((summarySection as any)?.blueprint_id);
+  const actionRows = (
+    asArray((actionSection as any)?.options).length
+      ? asArray((actionSection as any)?.options)
+      : asArray((payload as any).actions)
+  )
+    .map((row) => asObject(row))
+    .filter(Boolean) as Array<Record<string, unknown>>;
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+      <div className="space-y-2">
+        <div className="text-sm font-semibold text-foreground">
+          {language === 'CN' ? '我们保留了你上次诊断的基线。' : 'We still have your previous diagnosis baseline.'}
+        </div>
+        {summaryText ? <div className="text-sm leading-6 text-foreground/90">{summaryText}</div> : null}
+        <div className="flex flex-wrap gap-2">
+          {skinType ? (
+            <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+              {language === 'CN' ? `肤质：${skinType}` : `Skin type: ${skinType}`}
+            </span>
+          ) : null}
+          {blueprintId ? (
+            <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+              {language === 'CN' ? `基线：${blueprintId}` : `Baseline: ${blueprintId}`}
+            </span>
+          ) : null}
+        </div>
+        {goals.length ? (
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '当前目标' : 'Current goals'}</div>
+            {renderTokenPills(goals.slice(0, 4))}
+          </div>
+        ) : null}
+        {concerns.length ? (
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '重点问题' : 'Top concerns'}</div>
+            {renderTokenPills(concerns.slice(0, 4), 'subtle')}
+          </div>
+        ) : null}
+      </div>
+
+      {actionRows.length ? (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {language === 'CN' ? '接下来做什么' : 'What to do next'}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {actionRows.map((row, idx) => {
+              const actionId = asString((row as any).action_id) || asString((row as any).id);
+              if (!actionId) return null;
+              const label = localizedCardActionField(row, 'label', language === 'CN' ? 'CN' : 'EN');
+              const description = localizedCardActionField(row, 'description', language === 'CN' ? 'CN' : 'EN');
+              const targetSkillId = asString((row as any).target_skill_id);
+              const actionType = asString((row as any).action) || asString((row as any).type);
+              return (
+                <button
+                  key={`${actionId}_${idx}`}
+                  type="button"
+                  aria-label={label}
+                  className="rounded-2xl border border-border/60 bg-background/90 p-3 text-left transition hover:border-foreground/20 hover:bg-muted/30"
+                  onClick={() =>
+                    onAction(actionId, {
+                      reply_text: label,
+                      trigger_source: 'returning_triage',
+                      source_card_type: 'returning_triage',
+                      ...(actionType ? { action_type: actionType } : {}),
+                      ...(targetSkillId ? { target_skill_id: targetSkillId } : {}),
+                    })
+                  }
+                >
+                  <div className="text-sm font-medium text-foreground">{label}</div>
+                  {description ? <div className="mt-1 text-xs leading-5 text-muted-foreground">{description}</div> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SkinProgressCardView({
+  payload,
+  language,
+  onAction,
+}: {
+  payload: Record<string, unknown>;
+  language: UiLanguage;
+  onAction: (actionId: string, data?: Record<string, any>) => void;
+}) {
+  const sections = asArray((payload as any).sections).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+  const baselineSection = sections.find((section) => asString((section as any).kind) === 'progress_baseline') || null;
+  const deltaSection = sections.find((section) => asString((section as any).kind) === 'progress_delta') || null;
+  const highlightsSection = sections.find((section) => asString((section as any).kind) === 'progress_highlights') || null;
+  const recommendationSection = sections.find((section) => asString((section as any).kind) === 'progress_recommendation') || null;
+  const overallTrend = String(asString((deltaSection as any)?.overall_trend) || '').toLowerCase();
+  const confidence = Number((deltaSection as any)?.confidence);
+  const checkinsAnalyzed = Number((deltaSection as any)?.checkins_analyzed);
+  const concernDeltas = asArray((deltaSection as any)?.concern_deltas)
+    .map((row) => asObject(row))
+    .filter(Boolean) as Array<Record<string, unknown>>;
+  const improvements = asArray((highlightsSection as any)?.improvements).map((item) => asString(item)).filter(Boolean) as string[];
+  const regressions = asArray((highlightsSection as any)?.regressions).map((item) => asString(item)).filter(Boolean) as string[];
+  const stable = asArray((highlightsSection as any)?.stable).map((item) => asString(item)).filter(Boolean) as string[];
+  const recommendationText =
+    localizedCardActionField(recommendationSection, 'text', language === 'CN' ? 'CN' : 'EN') ||
+    asString((recommendationSection as any)?.text_en) ||
+    asString((recommendationSection as any)?.text_zh);
+  const skinType = asString((baselineSection as any)?.skin_type);
+  const goals = asArray((baselineSection as any)?.goals).map((item) => asString(item)).filter(Boolean) as string[];
+  const concerns = asArray((baselineSection as any)?.primary_concerns).map((item) => asString(item)).filter(Boolean) as string[];
+  const actionRows = asArray((payload as any).actions).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+
+  const trendLabel =
+    overallTrend === 'improving'
+      ? language === 'CN'
+        ? '整体在改善'
+        : 'Overall improving'
+      : overallTrend === 'worsening'
+        ? language === 'CN'
+          ? '有部分回退'
+          : 'Some regression detected'
+        : language === 'CN'
+          ? '整体相对稳定'
+          : 'Overall stable';
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-border/60 bg-background/90 px-2 py-1 text-xs font-medium text-foreground">
+          {trendLabel}
+        </span>
+        {Number.isFinite(confidence) ? (
+          <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+            {language === 'CN' ? `置信度 ${Math.round(confidence * 100)}%` : `Confidence ${Math.round(confidence * 100)}%`}
+          </span>
+        ) : null}
+        {Number.isFinite(checkinsAnalyzed) && checkinsAnalyzed > 0 ? (
+          <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+            {language === 'CN' ? `已分析 ${checkinsAnalyzed} 次打卡` : `${checkinsAnalyzed} check-ins analyzed`}
+          </span>
+        ) : null}
+        {skinType ? (
+          <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+            {language === 'CN' ? `肤质：${skinType}` : `Skin type: ${skinType}`}
+          </span>
+        ) : null}
+      </div>
+
+      {goals.length ? (
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '跟踪目标' : 'Tracked goals'}</div>
+          {renderTokenPills(goals.slice(0, 4))}
+        </div>
+      ) : null}
+
+      {concerns.length ? (
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '重点问题' : 'Top concerns'}</div>
+          {renderTokenPills(concerns.slice(0, 4), 'subtle')}
+        </div>
+      ) : null}
+
+      {concernDeltas.length ? (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {language === 'CN' ? '变化摘要' : 'Change summary'}
+          </div>
+          <ul className="space-y-2 text-sm text-foreground">
+            {concernDeltas.slice(0, 4).map((row, idx) => {
+              const concern = asString((row as any).concern) || asString((row as any).label);
+              const note =
+                localizedCardActionField(row, 'note', language === 'CN' ? 'CN' : 'EN') ||
+                localizedCardActionField(row, 'summary', language === 'CN' ? 'CN' : 'EN');
+              return (
+                <li key={`${concern || 'delta'}_${idx}`} className="rounded-2xl border border-border/50 bg-background/80 p-3">
+                  <div className="text-sm font-medium text-foreground">{concern || (language === 'CN' ? '单项变化' : 'Concern change')}</div>
+                  {note ? <div className="mt-1 text-xs leading-5 text-muted-foreground">{note}</div> : null}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {improvements.length || regressions.length || stable.length ? (
+        <div className="grid gap-3 md:grid-cols-3">
+          {improvements.length ? (
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <div className="text-xs font-semibold text-emerald-700">{language === 'CN' ? '改善' : 'Improvements'}</div>
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {improvements.slice(0, 3).map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {regressions.length ? (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="text-xs font-semibold text-amber-700">{language === 'CN' ? '需要注意' : 'Watchouts'}</div>
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {regressions.slice(0, 3).map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {stable.length ? (
+            <div className="rounded-2xl border border-border/50 bg-muted/30 p-3">
+              <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '保持稳定' : 'Stable'}</div>
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {stable.slice(0, 3).map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {recommendationText ? (
+        <div className="rounded-2xl border border-border/60 bg-background/90 p-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {language === 'CN' ? '当前建议' : 'Recommendation now'}
+          </div>
+          <div className="mt-2 text-sm leading-6 text-foreground/90">{recommendationText}</div>
+        </div>
+      ) : null}
+
+      {actionRows.length ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {actionRows.map((row, idx) => {
+            const actionId = asString((row as any).action_id) || asString((row as any).id);
+            if (!actionId) return null;
+            const label = localizedCardActionField(row, 'label', language === 'CN' ? 'CN' : 'EN');
+            const targetSkillId = asString((row as any).target_skill_id);
+            const actionType = asString((row as any).action) || asString((row as any).type);
+            return (
+              <button
+                key={`${actionId}_${idx}`}
+                type="button"
+                aria-label={label}
+                className="rounded-2xl border border-border/60 bg-background/90 p-3 text-left transition hover:border-foreground/20 hover:bg-muted/30"
+                onClick={() =>
+                  onAction(actionId, {
+                    reply_text: label,
+                    trigger_source: 'skin_progress',
+                    source_card_type: 'skin_progress',
+                    ...(actionType ? { action_type: actionType } : {}),
+                    ...(targetSkillId ? { target_skill_id: targetSkillId } : {}),
+                  })
+                }
+              >
+                <div className="text-sm font-medium text-foreground">{label}</div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BffCardView({
   card,
   language,
@@ -5581,6 +5889,14 @@ function BffCardView({
 
   if (cardType === 'ingredient_goal_match') {
     return <IngredientGoalMatchCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'returning_triage') {
+    return <ReturningTriageCardView payload={(asObject(payload) ?? {}) as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'skin_progress') {
+    return <SkinProgressCardView payload={(asObject(payload) ?? {}) as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
   if (cardType === 'diagnosis_gate') {
@@ -8645,8 +8961,12 @@ export default function BffChat() {
           ...(card.subtitle ? { subtitle: card.subtitle } : {}),
           priority: card.priority,
           tags: card.tags,
-          sections: card.sections,
-          actions: card.actions,
+          sections: Array.isArray(card.sections) && card.sections.length
+            ? card.sections
+            : asArray((card as any)?.payload?.sections),
+          actions: Array.isArray(card.actions) && card.actions.length
+            ? card.actions
+            : asArray((card as any)?.payload?.actions),
           safety: response.safety,
           telemetry: response.telemetry,
         },

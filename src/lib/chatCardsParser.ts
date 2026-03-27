@@ -36,6 +36,8 @@ const CARD_TYPES = new Set([
   'diagnosis_gate',
   'analysis_summary',
   'analysis_story_v2',
+  'returning_triage',
+  'skin_progress',
   'routine_fit_summary',
   'confidence_notice',
   'budget_gate',
@@ -51,6 +53,8 @@ const fallbackTitleForType = (type: string): string => {
   if (token === 'diagnosis_gate') return 'Quick skin profile first';
   if (token === 'analysis_summary') return 'Skin assessment';
   if (token === 'analysis_story_v2') return 'Analysis story';
+  if (token === 'returning_triage') return 'Continue your diagnosis';
+  if (token === 'skin_progress') return 'Skin progress';
   if (token === 'routine_fit_summary') return 'Routine fit';
   if (token === 'confidence_notice') return 'Confidence notice';
   if (token === 'budget_gate') return 'Budget';
@@ -118,14 +122,16 @@ const normalizeCard = (raw: unknown, fallbackId: string): ChatCardV1 | null => {
   const priority = Number.isFinite(priorityRaw) ? Math.max(1, Math.min(3, Math.trunc(priorityRaw))) : 2;
   const subtitle = asString(row.subtitle) || undefined;
   const tags = asStringArray(row.tags, 8);
-  const sections = asArray(row.sections)
+  const payload = asRecord(row.payload) || undefined;
+  const sectionSource = asArray(row.sections).length ? row.sections : payload?.sections;
+  const actionSource = asArray(row.actions).length ? row.actions : payload?.actions;
+  const sections = asArray(sectionSource)
     .map((section) => asRecord(section))
     .filter(Boolean) as Array<Record<string, unknown>>;
-  const actions = asArray(row.actions)
+  const actions = asArray(actionSource)
     .map((action, idx) => normalizeCardAction(action, `${id}_action_${idx + 1}`))
     .filter(Boolean)
     .map(({ _id: _ignored, ...action }) => action) as ChatCardV1['actions'];
-  const payload = asRecord(row.payload) || undefined;
 
   return {
     id: id.slice(0, 120),

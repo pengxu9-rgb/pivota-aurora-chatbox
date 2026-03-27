@@ -1574,6 +1574,204 @@ describe('BffChat /v1/chat ChatCards v1 handling', () => {
     expect(screen.getByText('What should I adjust first?')).toBeInTheDocument();
   });
 
+  it('renders returning_triage cards through BffChat and routes action clicks back to chat', async () => {
+    const mock = vi.mocked(bffJson);
+    let chatTurns = 0;
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        chatTurns += 1;
+        if (chatTurns === 1) {
+          return Promise.resolve(
+            makeV1Response({
+              assistant_text: 'Returning diagnosis detected.',
+              cards: [
+                {
+                  id: 'returning_triage_1',
+                  type: 'returning_triage',
+                  priority: 1,
+                  title: 'Continue your diagnosis',
+                  tags: [],
+                  sections: [],
+                  actions: [],
+                  payload: {
+                    sections: [
+                      {
+                        kind: 'previous_diagnosis_summary',
+                        skin_type: 'oily',
+                        goals: ['acne', 'hydration'],
+                        primary_concerns: ['breakouts', 'dehydration'],
+                        blueprint_id: 'bp_123',
+                        summary_text: 'Your previous baseline pointed to oily, acne-prone skin with hydration as a secondary goal.',
+                      },
+                    ],
+                    actions: [
+                      {
+                        action_id: 'chip.action.check_progress',
+                        label_en: 'Check my progress',
+                        label_zh: '查看我的进展',
+                        description_en: 'Compare recent check-ins against your baseline.',
+                        description_zh: '对比最近的打卡变化和之前的基线。',
+                        action: 'navigate_skill',
+                        target_skill_id: 'diagnosis_v2.progress',
+                      },
+                    ],
+                  },
+                },
+              ],
+              telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.95, entities: [] },
+            }),
+          );
+        }
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Progress review opened.',
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.9, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'show my latest diagnosis summary' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    expect(await screen.findByRole('button', { name: 'Check my progress' })).toBeInTheDocument();
+    expect(screen.getByText('Skin type: oily')).toBeInTheDocument();
+    expect(screen.getByText('Current goals')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check my progress' }));
+
+    await screen.findByText('Progress review opened.');
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls).toHaveLength(2);
+      const lastBody = JSON.parse(String((chatCalls[1]?.[2] as any)?.body || '{}'));
+      expect(lastBody.action.action_id).toBe('chip.action.check_progress');
+      expect(lastBody.action.data).toMatchObject({
+        source_card_type: 'returning_triage',
+        trigger_source: 'returning_triage',
+        target_skill_id: 'diagnosis_v2.progress',
+      });
+    });
+  });
+
+  it('renders skin_progress cards through BffChat without falling back to raw json', async () => {
+    const mock = vi.mocked(bffJson);
+    let chatTurns = 0;
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        chatTurns += 1;
+        if (chatTurns === 1) {
+          return Promise.resolve(
+            makeV1Response({
+              assistant_text: 'Progress card ready.',
+              cards: [
+                {
+                  id: 'skin_progress_1',
+                  type: 'skin_progress',
+                  priority: 1,
+                  title: 'Skin progress',
+                  tags: [],
+                  sections: [],
+                  actions: [],
+                  payload: {
+                    sections: [
+                      {
+                        kind: 'progress_baseline',
+                        skin_type: 'combination',
+                        goals: ['redness', 'texture'],
+                        primary_concerns: ['redness'],
+                      },
+                      {
+                        kind: 'progress_delta',
+                        overall_trend: 'improving',
+                        confidence: 0.72,
+                        checkins_analyzed: 3,
+                        concern_deltas: [
+                          {
+                            concern: 'redness',
+                            note_en: 'Redness is trending down compared with your baseline.',
+                          },
+                        ],
+                      },
+                      {
+                        kind: 'progress_highlights',
+                        improvements: ['Redness is easing faster after flare-ups.'],
+                        regressions: ['Texture still spikes around the jawline.'],
+                        stable: ['Hydration remains stable.'],
+                      },
+                      {
+                        kind: 'progress_recommendation',
+                        text_en: 'Keep your current barrier-supportive routine and reassess after one more week.',
+                      },
+                    ],
+                    actions: [
+                      {
+                        action_id: 'chip.action.reassess',
+                        label_en: 'Re-assess my skin now',
+                        action: 'navigate_skill',
+                        target_skill_id: 'diagnosis_v2.answer',
+                      },
+                    ],
+                  },
+                },
+              ],
+              telemetry: { intent: 'skin_progress', intent_confidence: 0.92, entities: [] },
+            }),
+          );
+        }
+        return Promise.resolve(
+          makeV1Response({
+            assistant_text: 'Reassessment launched.',
+            telemetry: { intent: 'skin_diagnosis', intent_confidence: 0.88, entities: [] },
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText(/ask a question/i);
+    fireEvent.change(input, { target: { value: 'show my latest progress summary' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    expect(await screen.findByRole('button', { name: 'Re-assess my skin now' })).toBeInTheDocument();
+    expect(screen.getByText('Overall improving')).toBeInTheDocument();
+    expect(screen.getByText('Redness is trending down compared with your baseline.')).toBeInTheDocument();
+    expect(screen.getByText('Keep your current barrier-supportive routine and reassess after one more week.')).toBeInTheDocument();
+    expect(screen.queryByText(/structured details/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Re-assess my skin now' }));
+    await screen.findByText('Reassessment launched.');
+    await waitFor(() => {
+      const chatCalls = mock.mock.calls.filter((call) => call[0] === '/v1/chat');
+      expect(chatCalls).toHaveLength(2);
+      const lastBody = JSON.parse(String((chatCalls[1]?.[2] as any)?.body || '{}'));
+      expect(lastBody.action.action_id).toBe('chip.action.reassess');
+      expect(lastBody.action.data).toMatchObject({
+        source_card_type: 'skin_progress',
+        trigger_source: 'skin_progress',
+      });
+    });
+  });
+
   it('maps analysis_optimize_existing next-step action to local routine-review flow without extra chat turn', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
