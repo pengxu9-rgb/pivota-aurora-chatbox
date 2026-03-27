@@ -62,6 +62,15 @@ const buildFindingLine = (item: Dict): string => {
   return text || asString(item.description);
 };
 
+const isNearDuplicate = (candidate: string, references: string[]): boolean =>
+  references.some((reference) => {
+    if (!reference) return false;
+    if (candidate === reference) return true;
+    if (candidate.length >= 12 && reference.includes(candidate)) return true;
+    if (reference.length >= 12 && candidate.includes(reference)) return true;
+    return false;
+  });
+
 const normalizeConfidenceLevelLabel = (rawLevel: string, language: Language): string => {
   const token = String(rawLevel || '').trim().toLowerCase();
   if (!token) return '';
@@ -126,7 +135,9 @@ export function AnalysisStoryCard({
   const photoLed = looksPhotoLed(root, headline);
   const confidenceOverall = formatConfidenceOverall(root.confidence_overall, language);
   const skinProfile = asObject(root.skin_profile);
+  const headlineKey = canonicalizeFindingText(headline);
   const keyPointKeys = keyPoints.map((item) => canonicalizeFindingText(item)).filter(Boolean);
+  const topSectionKeys = [headlineKey, ...keyPointKeys].filter(Boolean);
   const rawFindingLines = asArray(root.priority_findings)
     .map((item) => {
       const row = asObject(item);
@@ -139,13 +150,7 @@ export function AnalysisStoryCard({
   const findingLines = rawFindingLines.filter((line) => {
     const candidate = canonicalizeFindingText(line);
     if (!candidate) return false;
-    return !keyPointKeys.some((keyPoint) => {
-      if (!keyPoint) return false;
-      if (candidate === keyPoint) return true;
-      if (candidate.length >= 12 && keyPoint.includes(candidate)) return true;
-      if (keyPoint.length >= 12 && candidate.includes(keyPoint)) return true;
-      return false;
-    });
+    return !isNearDuplicate(candidate, topSectionKeys);
   });
   const priorityFindingKeys = findingLines
     .map((line) => canonicalizeFindingText(line))
@@ -153,13 +158,7 @@ export function AnalysisStoryCard({
   const currentStrengths = toStringList(skinProfile?.current_strengths, 8).filter((item) => {
     const candidate = canonicalizeFindingText(item);
     if (!candidate) return false;
-    return !priorityFindingKeys.some((findingKey) => {
-      if (!findingKey) return false;
-      if (candidate === findingKey) return true;
-      if (candidate.length >= 12 && findingKey.includes(candidate)) return true;
-      if (findingKey.length >= 12 && candidate.includes(findingKey)) return true;
-      return false;
-    });
+    return !isNearDuplicate(candidate, [...topSectionKeys, ...priorityFindingKeys]);
   });
   const profileBullets = toStringList(
     skinProfile
@@ -172,7 +171,11 @@ export function AnalysisStoryCard({
     8,
   );
 
-  const targetState = toStringList(root.target_state, 6);
+  const targetState = toStringList(root.target_state, 6).filter((item) => {
+    const candidate = canonicalizeFindingText(item);
+    if (!candidate) return false;
+    return !isNearDuplicate(candidate, [...topSectionKeys, ...priorityFindingKeys]);
+  });
   const principles = toStringList(root.core_principles, 8);
   const amPlan = toPlanLines(root.am_plan, 8);
   const pmPlan = toPlanLines(root.pm_plan, 8);
