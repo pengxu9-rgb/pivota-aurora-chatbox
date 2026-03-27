@@ -19,6 +19,8 @@ import type {
 } from '@/lib/photoModulesContract';
 import {
   filterAndRankProducts,
+  getIssueTypeLabel,
+  getModuleAreaLabel,
   mapProductCard,
   type ModuleRecommendationVm,
   type ProductExampleDiscoveryVm,
@@ -86,6 +88,12 @@ type IngredientTargetLike = {
   display_name?: string;
   priority_level?: string;
   priority_score_0_100?: number;
+  source_module_ids?: unknown;
+  source_issue_types?: unknown;
+  recommendation_mode?: string;
+  strict_product_count?: number;
+  why_match_short?: unknown;
+  presentation_bucket?: string;
   why?: unknown;
   usage_guidance?: unknown;
   products?: {
@@ -93,6 +101,8 @@ type IngredientTargetLike = {
     example_product_types?: unknown;
     example_product_discovery_items?: unknown;
     note?: string;
+    external_search_ctas?: unknown;
+    products_empty_reason?: string;
     competitors?: ProductLike[];
     dupes?: ProductLike[];
   };
@@ -587,6 +597,98 @@ function getProductsEmptyMessage(hasCandidates: boolean, language: Language): st
     : 'Only skincare-relevant candidates were kept, but none were strong enough to display.';
 }
 
+function getStrictMatchMissMessage(language: Language): string {
+  return language === 'CN'
+    ? '当前还没有确认到与该问题严格匹配的商品，请先使用下方搜索兜底。'
+    : 'No strict product match was confirmed for this finding yet. Use the search fallback below.';
+}
+
+function normalizePresentationBucket(value: unknown): 'photo_derived' | 'supporting_context' | 'baseline_support' {
+  const token = asString(value).toLowerCase();
+  if (token === 'photo_derived' || token === 'supporting_context' || token === 'baseline_support') {
+    return token;
+  }
+  return 'baseline_support';
+}
+
+function dedupeTextLines(values: Array<string | null | undefined>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const text = asString(value);
+    if (!text) continue;
+    const key = normalizeDedupKey(text);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+function mapTargetExternalSearchCtas(value: unknown): PhotoModulesExternalSearchCta[] {
+  return asArray(value)
+    .map((row) => {
+      const objectRow = asObject(row);
+      if (!objectRow) return null;
+      const title = asString(objectRow.title || objectRow.name);
+      const url = safeUrl(objectRow.url || objectRow.product_url || objectRow.pdp_url || objectRow.external_url);
+      if (!title || !url) return null;
+      return {
+        title,
+        url,
+        source: asString(objectRow.source),
+        reason: asString(objectRow.reason || objectRow.source_block),
+      };
+    })
+    .filter(Boolean) as PhotoModulesExternalSearchCta[];
+}
+
+function buildTargetConcernChips(target: IngredientTargetLike, language: Language): string[] {
+  return toStringList(target.source_issue_types, 3).map((issueType) => getIssueTypeLabel(issueType, language));
+}
+
+function buildTargetAreaLabel(target: IngredientTargetLike, language: Language): string | null {
+  const labels = toStringList(target.source_module_ids, 3).map((moduleId) => getModuleAreaLabel(moduleId, language));
+  if (!labels.length) return null;
+  return language === 'CN' ? `对应区域：${labels.join('、')}` : `Observed on ${labels.join(', ')}`;
+}
+
+function buildPlanSections(targets: IngredientTargetLike[], language: Language): PlanSection[] {
+  const grouped = new Map<PlanSection['bucket'], IngredientTargetLike[]>();
+  for (const target of targets) {
+    const bucket = normalizePresentationBucket(target.presentation_bucket);
+    const rows = grouped.get(bucket) || [];
+    rows.push(target);
+    grouped.set(bucket, rows);
+  }
+
+  const labels =
+    language === 'CN'
+      ? {
+          photo_derived: '照片触发的针对性成分',
+          supporting_context: '补充支持成分',
+          baseline_support: '基础支持步骤',
+        }
+      : {
+          photo_derived: 'Photo-derived actives',
+          supporting_context: 'Supporting actives',
+          baseline_support: 'Baseline support',
+        };
+
+  const orderedBuckets: PlanSection['bucket'][] = ['photo_derived', 'supporting_context', 'baseline_support'];
+  return orderedBuckets
+    .map((bucket) => {
+      const rows = grouped.get(bucket) || [];
+      if (!rows.length) return null;
+      return {
+        bucket,
+        title: labels[bucket],
+        targets: rows,
+      };
+    })
+    .filter(Boolean) as PlanSection[];
+}
+
 function toSyntheticProduct(
   row: ProductLike,
   bucket: Exclude<ProductBucket, 'external_search_ctas'>,
@@ -646,7 +748,7 @@ function toSyntheticProduct(
   };
 }
 
-function buildSyntheticAction(target: IngredientTargetLike): PhotoModulesAction {
+function buildSyntheticAction(target: IngredientTargetLike, language: Language): PhotoModulesAction {
   const ingredientName =
     asString(target.ingredient_name) ||
     asString(target.ingredient) ||
@@ -658,9 +760,10 @@ function buildSyntheticAction(target: IngredientTargetLike): PhotoModulesAction 
   const guidanceText = guidanceList.join('; ');
   const filteredCompetitors = filterAndSortProductRows(asProductRows(target.products?.competitors));
   const filteredDupes = filterAndSortProductRows(asProductRows(target.products?.dupes));
+  const externalSearchCtas = mapTargetExternalSearchCtas(target.products?.external_search_ctas);
   const products = [
-    ...filteredCompetitors.map((row) => toSyntheticProduct(row, 'competitors', guidanceText, 'EN')),
-    ...filteredDupes.map((row) => toSyntheticProduct(row, 'dupes', guidanceText, 'EN')),
+    ...filteredCompetitors.map((row) => toSyntheticProduct(row, 'competitors', guidanceText, language)),
+    ...filteredDupes.map((row) => toSyntheticProduct(row, 'dupes', guidanceText, language)),
   ];
 
   return {
@@ -677,12 +780,12 @@ function buildSyntheticAction(target: IngredientTargetLike): PhotoModulesAction 
     cautions: [],
     action_rank_score: asNumber(target.priority_score_0_100),
     group: null,
-    evidence_issue_types: [],
+    evidence_issue_types: toStringList(target.source_issue_types, 3),
     timeline: '',
     do_not_mix: [],
     products,
-    products_empty_reason: null,
-    external_search_ctas: [],
+    products_empty_reason: asNonEmptyString(target.products?.products_empty_reason),
+    external_search_ctas: externalSearchCtas,
     rec_debug: null,
   };
 }
@@ -691,11 +794,13 @@ function buildRecommendationVm(
   payload: Record<string, unknown>,
   language: Language,
   filteredProductsLabel: string,
+  targetsOverride: IngredientTargetLike[] | null = null,
+  moduleId = PLAN_MODULE_ID,
 ): ModuleRecommendationVm {
-  const targets = asTargets(payload.targets);
+  const targets = targetsOverride || asTargets(payload.targets);
 
   return {
-    moduleId: PLAN_MODULE_ID,
+    moduleId,
     concernSummary: { primaryConcern: '', secondaryConcerns: [] },
     actions: targets.map((target, index) => {
       const ingredientName =
@@ -710,6 +815,7 @@ function buildRecommendationVm(
       const usage = parseUsageGuidance(guidance, language);
       const rawCompetitors = asProductRows(target.products?.competitors);
       const rawDupes = asProductRows(target.products?.dupes);
+      const externalSearchCtas = mapTargetExternalSearchCtas(target.products?.external_search_ctas);
       const productExamples = toStringList(target.products?.example_product_types ?? target.product_examples, 3);
       const productExampleItems = asProductExampleDiscoveryItems(
         target.products?.example_product_discovery_items ?? target.product_discovery_items,
@@ -717,6 +823,9 @@ function buildRecommendationVm(
         3,
       );
       const productExamplesNote = asNonEmptyString(target.products?.note);
+      const recommendationMode = asString(target.recommendation_mode).toLowerCase();
+      const strictProductCount = Math.max(0, Number(target.strict_product_count || 0) || 0);
+      const strictMatchMiss = asString(target.products?.products_empty_reason).toLowerCase() === 'strict_match_miss';
       const guidanceOnly =
         asString(target.products?.mode).toLowerCase() === 'guidance_only'
         || productExampleItems.length > 0
@@ -730,27 +839,46 @@ function buildRecommendationVm(
       ];
       const { top, more } = filterAndRankProducts(syntheticProducts);
       const filteredCount = rawCompetitors.length + rawDupes.length - syntheticProducts.length;
-      const rawAction = buildSyntheticAction(target);
+      const whySegments = dedupeTextLines([
+        asNonEmptyString(target.why_match_short),
+        ...toStringList(target.why, 3),
+      ]);
+      const rawAction = buildSyntheticAction(target, language);
+      const concernChips = buildTargetConcernChips(target, language);
+      const targetArea = buildTargetAreaLabel(target, language);
+      const evidenceLevel =
+        strictProductCount > 0
+          ? 'high'
+          : recommendationMode === 'strict_match' || recommendationMode === 'cta_only'
+            ? 'moderate'
+            : 'limited';
+      const productsEmptyMessage = strictMatchMiss
+        ? getStrictMatchMissMessage(language)
+        : syntheticProducts.length > 0 || guidanceOnly
+          ? null
+          : getProductsEmptyMessage(rawCompetitors.length + rawDupes.length > 0, language);
 
       return {
         ingredientId,
         ingredientName,
         priority: mapPlanPriority(asString(target.priority_level), score),
-        why: why.join(language === 'CN' ? '；' : '; '),
-        concernChips: [],
-        targetArea: null,
+        why: whySegments.join(language === 'CN' ? '；' : '; '),
+        concernChips,
+        targetArea,
         usage,
         cautions: [],
         evidence: {
-          label: '',
-          level: 'limited' as const,
+          label:
+            recommendationMode === 'cta_only'
+              ? language === 'CN'
+                ? '严格匹配缺失'
+                : 'Strict match miss'
+              : '',
+          level: evidenceLevel,
         },
         topProducts: top.map((product) => mapProductCard(product, language)),
         moreProducts: more.map((product) => mapProductCard(product, language)),
-        productsEmptyMessage:
-          syntheticProducts.length > 0 || guidanceOnly
-            ? null
-            : getProductsEmptyMessage(rawCompetitors.length + rawDupes.length > 0, language),
+        productsEmptyMessage,
         productsFilteredNote: filteredCount > 0 ? filteredProductsLabel : null,
         productExamples: productExampleItems.map((item) => item.label),
         productExampleItems,
@@ -758,7 +886,7 @@ function buildRecommendationVm(
           ? (language === 'CN' ? '示例产品类型' : 'Example product types')
           : null,
         productExamplesNote: guidanceOnly ? productExamplesNote : null,
-        externalSearchCtas: [],
+        externalSearchCtas: externalSearchCtas.map((cta) => ({ title: cta.title, url: cta.url })),
         rawAction,
       };
     }),
@@ -848,6 +976,12 @@ type GuidanceDiscoveryState = {
   error: string | null;
 };
 
+type PlanSection = {
+  bucket: 'photo_derived' | 'supporting_context' | 'baseline_support';
+  title: string;
+  targets: IngredientTargetLike[];
+};
+
 export function IngredientPlanCard({
   payload,
   language,
@@ -911,6 +1045,10 @@ export function IngredientPlanCard({
   const vm = useMemo(
     () => buildRecommendationVm(payload, language, labels.filteredProducts),
     [payload, language, labels.filteredProducts],
+  );
+  const planSections = useMemo(
+    () => buildPlanSections(asTargets(payload.targets), language),
+    [language, payload.targets],
   );
 
   const footerExternalSearchCtas = useMemo(() => mapFooterExternalSearchCtas(payload), [payload]);
@@ -1318,16 +1456,41 @@ export function IngredientPlanCard({
         <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">{labels.preview}</div>
       ) : null}
 
-      <RecommendationSection
-        vm={vm}
-        language={language}
-        showConcernSummary={false}
-        alwaysShowExternalSearchCtas
-        footerExternalSearchCtas={footerExternalSearchCtas}
-        onOpenProduct={onOpenProduct}
-        onOpenProductExample={onOpenGuidanceDiscovery}
-        onOpenExternalSearch={onOpenExternalSearch}
-      />
+      {planSections.length > 0 ? (
+        <div className="space-y-4">
+          {planSections.map((section, index) => (
+            <RecommendationSection
+              key={section.bucket}
+              title={section.title}
+              vm={buildRecommendationVm(
+                payload,
+                language,
+                labels.filteredProducts,
+                section.targets,
+                `${PLAN_MODULE_ID}_${section.bucket}`,
+              )}
+              language={language}
+              showConcernSummary={false}
+              alwaysShowExternalSearchCtas={section.bucket !== 'baseline_support'}
+              footerExternalSearchCtas={index === 0 ? footerExternalSearchCtas : []}
+              onOpenProduct={onOpenProduct}
+              onOpenProductExample={onOpenGuidanceDiscovery}
+              onOpenExternalSearch={onOpenExternalSearch}
+            />
+          ))}
+        </div>
+      ) : (
+        <RecommendationSection
+          vm={vm}
+          language={language}
+          showConcernSummary={false}
+          alwaysShowExternalSearchCtas
+          footerExternalSearchCtas={footerExternalSearchCtas}
+          onOpenProduct={onOpenProduct}
+          onOpenProductExample={onOpenGuidanceDiscovery}
+          onOpenExternalSearch={onOpenExternalSearch}
+        />
+      )}
 
       {avoid.length ? (
         <div className="space-y-2">

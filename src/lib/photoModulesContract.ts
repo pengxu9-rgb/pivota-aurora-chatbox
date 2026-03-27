@@ -239,6 +239,37 @@ const photoModulesPayloadSchema = z
         top_issue_confidence: z.number().nullable().optional(),
         top_action_ingredient_id: z.string().trim().nullable().optional(),
         top_product_id: z.string().trim().nullable().optional(),
+        top_findings: z
+          .array(
+            z.object({
+              module_id: z.enum(MODULE_IDS),
+              issue_type: z.enum(ISSUE_TYPES).nullable().optional(),
+              severity_0_4: z.number().nullable().optional(),
+              confidence_0_1: z.number().nullable().optional(),
+              confidence_bucket: z.enum(['low', 'medium', 'high']).nullable().optional(),
+              evidence_region_ids: z.array(asNonEmptyString).optional(),
+            }).passthrough(),
+          )
+          .optional(),
+        quality_caveats: z.array(z.string().trim()).optional(),
+        module_confidence_overview: z
+          .object({
+            high: z.number().optional(),
+            medium: z.number().optional(),
+            low: z.number().optional(),
+          })
+          .passthrough()
+          .optional(),
+        strict_match_coverage_overview: z
+          .object({
+            total_actions: z.number().optional(),
+            actions_with_strict_matches: z.number().optional(),
+            actions_cta_only: z.number().optional(),
+            actions_without_matches: z.number().optional(),
+            coverage_ratio: z.number().optional(),
+          })
+          .passthrough()
+          .optional(),
       })
       .passthrough()
       .optional(),
@@ -419,6 +450,27 @@ export type PhotoModulesUiModelV1 = {
     top_issue_confidence: number | null;
     top_action_ingredient_id: string | null;
     top_product_id: string | null;
+    top_findings: Array<{
+      module_id: (typeof MODULE_IDS)[number];
+      issue_type: (typeof ISSUE_TYPES)[number] | null;
+      severity_0_4: number | null;
+      confidence_0_1: number | null;
+      confidence_bucket: 'low' | 'medium' | 'high' | null;
+      evidence_region_ids: string[];
+    }>;
+    quality_caveats: string[];
+    module_confidence_overview: {
+      high: number;
+      medium: number;
+      low: number;
+    } | null;
+    strict_match_coverage_overview: {
+      total_actions: number;
+      actions_with_strict_matches: number;
+      actions_cta_only: number;
+      actions_without_matches: number;
+      coverage_ratio: number;
+    } | null;
   } | null;
   disclaimers: {
     non_medical: boolean;
@@ -1081,6 +1133,49 @@ const normalizeSummaryV1 = (payload: RawPayload): PhotoModulesUiModelV1['summary
       : null,
     top_action_ingredient_id: firstNonEmpty(String(rawSummary.top_action_ingredient_id || '').trim() || undefined),
     top_product_id: firstNonEmpty(String(rawSummary.top_product_id || '').trim() || undefined),
+    top_findings: Array.isArray(rawSummary.top_findings)
+      ? rawSummary.top_findings
+          .map((row: any) => {
+            const moduleIdToken = String(row?.module_id || '').trim();
+            const issueTypeToken = String(row?.issue_type || '').trim();
+            const moduleId = MODULE_IDS.includes(moduleIdToken as any) ? (moduleIdToken as (typeof MODULE_IDS)[number]) : null;
+            const issueType = ISSUE_TYPES.includes(issueTypeToken as any) ? (issueTypeToken as (typeof ISSUE_TYPES)[number]) : null;
+            if (!moduleId) return null;
+            return {
+              module_id: moduleId,
+              issue_type: issueType,
+              severity_0_4: Number.isFinite(Number(row?.severity_0_4)) ? Number(row.severity_0_4) : null,
+              confidence_0_1: Number.isFinite(Number(row?.confidence_0_1)) ? clampConfidence(Number(row.confidence_0_1)) : null,
+              confidence_bucket:
+                String(row?.confidence_bucket || '').trim().toLowerCase() === 'high'
+                || String(row?.confidence_bucket || '').trim().toLowerCase() === 'medium'
+                || String(row?.confidence_bucket || '').trim().toLowerCase() === 'low'
+                  ? (String(row.confidence_bucket).trim().toLowerCase() as 'low' | 'medium' | 'high')
+                  : null,
+              evidence_region_ids: toUniqueList(Array.isArray(row?.evidence_region_ids) ? row.evidence_region_ids : [], 6),
+            };
+          })
+          .filter(Boolean)
+      : [],
+    quality_caveats: toUniqueList(Array.isArray(rawSummary.quality_caveats) ? rawSummary.quality_caveats : [], 8),
+    module_confidence_overview:
+      rawSummary.module_confidence_overview && typeof rawSummary.module_confidence_overview === 'object'
+        ? {
+            high: Math.max(0, Number((rawSummary.module_confidence_overview as any).high || 0) || 0),
+            medium: Math.max(0, Number((rawSummary.module_confidence_overview as any).medium || 0) || 0),
+            low: Math.max(0, Number((rawSummary.module_confidence_overview as any).low || 0) || 0),
+          }
+        : null,
+    strict_match_coverage_overview:
+      rawSummary.strict_match_coverage_overview && typeof rawSummary.strict_match_coverage_overview === 'object'
+        ? {
+            total_actions: Math.max(0, Number((rawSummary.strict_match_coverage_overview as any).total_actions || 0) || 0),
+            actions_with_strict_matches: Math.max(0, Number((rawSummary.strict_match_coverage_overview as any).actions_with_strict_matches || 0) || 0),
+            actions_cta_only: Math.max(0, Number((rawSummary.strict_match_coverage_overview as any).actions_cta_only || 0) || 0),
+            actions_without_matches: Math.max(0, Number((rawSummary.strict_match_coverage_overview as any).actions_without_matches || 0) || 0),
+            coverage_ratio: clampConfidence(Number((rawSummary.strict_match_coverage_overview as any).coverage_ratio || 0)),
+          }
+        : null,
   };
 };
 

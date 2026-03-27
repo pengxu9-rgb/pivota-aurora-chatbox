@@ -44,6 +44,7 @@ type OpenProductExampleFn = (opts: {
 export type RecommendationSectionProps = {
   vm: ModuleRecommendationVm;
   language: Language;
+  title?: string | null;
   onOpenProduct?: OpenProductFn;
   onOpenProductExample?: OpenProductExampleFn;
   onOpenExternalSearch?: OpenExternalSearchFn;
@@ -645,6 +646,7 @@ function IngredientActionCard({
 export function RecommendationSection({
   vm,
   language,
+  title,
   onOpenProduct,
   onOpenProductExample,
   onOpenExternalSearch,
@@ -655,11 +657,12 @@ export function RecommendationSection({
   alwaysShowExternalSearchCtas = false,
   footerExternalSearchCtas = [],
 }: RecommendationSectionProps) {
+  const sectionTitle = title || (language === 'CN' ? '成分与产品推荐' : 'Ingredient & product recommendations');
   if (vm.actions.length === 0) {
     return (
       <div className="space-y-2">
         <div className="text-xs font-semibold text-muted-foreground">
-          {language === 'CN' ? '成分与产品推荐' : 'Ingredient & product recommendations'}
+          {sectionTitle}
         </div>
         <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
           {language === 'CN'
@@ -719,7 +722,7 @@ export function RecommendationSection({
   return (
     <div className="space-y-3" data-testid="recommendation-section">
       <div className="text-xs font-semibold text-muted-foreground">
-        {language === 'CN' ? '成分与产品推荐' : 'Ingredient & product recommendations'}
+        {sectionTitle}
       </div>
 
       {showConcernSummary ? <ConcernSummaryBanner summary={vm.concernSummary} language={language} /> : null}

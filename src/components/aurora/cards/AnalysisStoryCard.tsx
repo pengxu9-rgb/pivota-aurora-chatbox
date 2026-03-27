@@ -247,7 +247,7 @@ export function AnalysisStoryCard({
         </div>
       ) : null}
 
-      {profileBullets.length ? (
+      {!photoLed && profileBullets.length ? (
         <div>
           <div className="text-xs font-medium text-muted-foreground">
             {renderSectionTitle(language, 'Current profile', '当前画像')}
@@ -260,7 +260,7 @@ export function AnalysisStoryCard({
         </div>
       ) : null}
 
-      {findingLines.length ? (
+      {!photoLed && findingLines.length ? (
         <div>
           <div className="text-xs font-medium text-muted-foreground">
             {renderSectionTitle(language, 'Priority findings', '优先问题')}
@@ -273,7 +273,7 @@ export function AnalysisStoryCard({
         </div>
       ) : null}
 
-      {targetState.length ? (
+      {!photoLed && targetState.length ? (
         <div>
           <div className="text-xs font-medium text-muted-foreground">
             {renderSectionTitle(language, 'Target state', '目标状态')}

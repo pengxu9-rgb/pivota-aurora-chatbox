@@ -50,9 +50,10 @@ describe('analysis_story_v2 ui', () => {
     expect(screen.getByText('Do now')).toBeInTheDocument();
     expect(screen.getByText('Hold for now')).toBeInTheDocument();
     expect(screen.getByText('Next check-in')).toBeInTheDocument();
-    expect(screen.getByText('Current profile')).toBeInTheDocument();
-    expect(screen.getByText('Priority findings')).toBeInTheDocument();
-    expect(screen.getByText('Mild redness around cheek')).toBeInTheDocument();
+    expect(screen.queryByText('Current profile')).not.toBeInTheDocument();
+    expect(screen.queryByText('Priority findings')).not.toBeInTheDocument();
+    expect(screen.queryByText('Target state')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mild redness around cheek')).not.toBeInTheDocument();
     expect(screen.getAllByText('Redness is most visible across the forehead.')).toHaveLength(1);
     expect(screen.getAllByText('Photo review highlights forehead redness and under-eye texture first.')).toHaveLength(1);
     expect(screen.getByText('AM plan')).toBeInTheDocument();

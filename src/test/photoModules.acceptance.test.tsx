@@ -155,6 +155,32 @@ const buildValidPayload = () => ({
   summary_v1: {
     top_module_id: 'left_cheek',
     top_issue_type: 'redness',
+    top_findings: [
+      {
+        module_id: 'left_cheek',
+        issue_type: 'redness',
+        severity_0_4: 3,
+        confidence_0_1: 0.86,
+        confidence_bucket: 'high',
+        evidence_region_ids: ['reg_bbox_1'],
+      },
+      {
+        module_id: 'right_cheek',
+        issue_type: 'tone',
+        severity_0_4: 2,
+        confidence_0_1: 0.62,
+        confidence_bucket: 'medium',
+        evidence_region_ids: ['reg_bbox_2'],
+      },
+    ],
+    quality_caveats: ['photo_quality_degraded', 'shadow_confounded'],
+    strict_match_coverage_overview: {
+      total_actions: 2,
+      actions_with_strict_matches: 1,
+      actions_cta_only: 1,
+      actions_without_matches: 0,
+      coverage_ratio: 0.5,
+    },
   },
   disclaimers: {
     non_medical: true,
@@ -280,6 +306,9 @@ describe('photo_modules_v1 acceptance', () => {
 
     expect(screen.getByText('Photo analysis')).toBeInTheDocument();
     expect(screen.getByText('Current focus: Left cheek · Redness')).toBeInTheDocument();
+    expect(screen.getByText('Top findings')).toBeInTheDocument();
+    expect(screen.getByText('Photo quality is degraded, so conclusions stay conservative.')).toBeInTheDocument();
+    expect(screen.getByText('1/2 recommended actions already have strict product matches.')).toBeInTheDocument();
 
     const baseCanvas = screen.getByTestId('photo-modules-base-canvas');
     const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');
@@ -297,6 +326,8 @@ describe('photo_modules_v1 acceptance', () => {
 
     fireEvent.click(screen.getByTestId('photo-modules-module-left_cheek'));
     fireEvent.click(screen.getByTestId('photo-modules-issue-shine'));
+    expect(screen.getByText('Why it matters')).toBeInTheDocument();
+    expect(screen.getAllByText('Based on highlighted photo areas, shine appears elevated in this module.').length).toBeGreaterThan(1);
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-visible-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');

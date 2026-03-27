@@ -393,6 +393,42 @@ const buildPhotoSummaryLine = (model: PhotoModulesUiModelV1, language: Language)
   return '';
 };
 
+const explainQualityCaveat = (token: string, language: Language): string => {
+  const normalized = String(token || '').trim().toLowerCase();
+  if (normalized === 'photo_quality_degraded') {
+    return language === 'CN' ? '照片质量一般，结论会更保守。' : 'Photo quality is degraded, so conclusions stay conservative.';
+  }
+  if (normalized === 'photo_quality_failed') {
+    return language === 'CN' ? '照片质量不足，当前只保留低风险解读。' : 'Photo quality is too weak, so only low-risk interpretation is kept.';
+  }
+  if (normalized === 'glare_confounded') {
+    return language === 'CN' ? '反光会影响出油与色泽判断。' : 'Glare can distort shine and tone reads.';
+  }
+  if (normalized === 'shadow_confounded') {
+    return language === 'CN' ? '阴影会降低纹理和肤色判断稳定度。' : 'Shadows reduce confidence for texture and tone reads.';
+  }
+  if (normalized === 'filter_suspected') {
+    return language === 'CN' ? '疑似滤镜会降低颜色和质地判断可信度。' : 'Possible filtering lowers confidence in color and texture interpretation.';
+  }
+  if (normalized === 'blurred') {
+    return language === 'CN' ? '轻微模糊会削弱细节观察。' : 'Blur reduces detail-level confidence.';
+  }
+  return '';
+};
+
+const formatTopFindingSummary = (
+  finding: NonNullable<PhotoModulesUiModelV1['summary_v1']>['top_findings'][number],
+  language: Language,
+): string => {
+  const moduleLabel = getModuleLabel(finding.module_id, language);
+  const issueLabel = finding.issue_type ? getIssueLabel(finding.issue_type, language) : '';
+  const severityLabel = getSeverityLabel(Number(finding.severity_0_4 || 0), language);
+  const confidenceLabel = Number.isFinite(Number(finding.confidence_0_1))
+    ? `${Math.round(Math.max(0, Math.min(1, Number(finding.confidence_0_1))) * 100)}%`
+    : null;
+  return [moduleLabel, issueLabel, severityLabel, confidenceLabel].filter(Boolean).join(' · ');
+};
+
 const toPercent = (value: number) => `${Math.round(clamp01(value) * 100)}%`;
 
 const scoreIssue = (issue: PhotoModulesModule['issues'][number]): number => {
@@ -595,6 +631,14 @@ export function PhotoModulesCard({
   }, [defaultFocus.moduleId, model.modules, selectedIssueType, selectedModuleId]);
 
   const headerSummary = useMemo(() => buildPhotoSummaryLine(model, language), [language, model]);
+  const topFindingSummaries = useMemo(
+    () => (Array.isArray(model.summary_v1?.top_findings) ? model.summary_v1?.top_findings.slice(0, 3).map((finding) => formatTopFindingSummary(finding, language)).filter(Boolean) : []),
+    [language, model.summary_v1],
+  );
+  const qualityCaveats = useMemo(
+    () => (Array.isArray(model.summary_v1?.quality_caveats) ? model.summary_v1.quality_caveats.map((item) => explainQualityCaveat(item, language)).filter(Boolean) : []),
+    [language, model.summary_v1],
+  );
 
   useEffect(() => {
     if (!hasRenderableImage) {
@@ -679,6 +723,19 @@ export function PhotoModulesCard({
     if (!issue || !issue.evidence_region_ids.length) return null;
     return new Set(issue.evidence_region_ids);
   }, [selectedIssueType, selectedModule]);
+  const selectedIssue = useMemo(() => {
+    if (!selectedModule || !selectedIssueType) return null;
+    return selectedModule.issues.find((current) => current.issue_type === selectedIssueType) || null;
+  }, [selectedIssueType, selectedModule]);
+  const strictMatchCoverageSummary = useMemo(() => {
+    const coverage = model.summary_v1?.strict_match_coverage_overview;
+    if (!coverage || !Number.isFinite(Number(coverage.total_actions)) || Number(coverage.total_actions) <= 0) return null;
+    const strictMatches = Math.max(0, Number(coverage.actions_with_strict_matches || 0));
+    const totalActions = Math.max(0, Number(coverage.total_actions || 0));
+    return language === 'CN'
+      ? `${strictMatches}/${totalActions} 个推荐动作已有严格匹配商品。`
+      : `${strictMatches}/${totalActions} recommended actions already have strict product matches.`;
+  }, [language, model.summary_v1]);
 
   const issueSelectionActive = Boolean(selectedIssueType && issueEvidenceRegionIds && issueEvidenceRegionIds.size > 0);
   const issueSelectionUsesProxy = useMemo(() => {
@@ -1092,6 +1149,28 @@ export function PhotoModulesCard({
           </div>
         </div>
         {headerSummary ? <div className="text-sm text-foreground/90">{headerSummary}</div> : null}
+        {topFindingSummaries.length ? (
+          <div className="rounded-xl border border-border/60 bg-background/70 p-3">
+            <div className="text-xs font-semibold text-muted-foreground">
+              {language === 'CN' ? '重点发现' : 'Top findings'}
+            </div>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
+              {topFindingSummaries.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {qualityCaveats.length ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800">
+            {qualityCaveats[0]}
+          </div>
+        ) : null}
+        {strictMatchCoverageSummary ? (
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            {strictMatchCoverageSummary}
+          </div>
+        ) : null}
         {model.photo_notice ? (
           <div className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             {model.photo_notice}
@@ -1276,6 +1355,15 @@ export function PhotoModulesCard({
                 </div>
               )}
             </div>
+
+            {selectedIssue?.explanation_short ? (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '为什么重要' : 'Why it matters'}</div>
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-sm text-foreground/90">
+                  {selectedIssue.explanation_short}
+                </div>
+              </div>
+            ) : null}
 
             <RecommendationSection
               vm={applyRecommendationDisplayOptions(mapModuleToRecommendationVm(selectedModule, language), {
