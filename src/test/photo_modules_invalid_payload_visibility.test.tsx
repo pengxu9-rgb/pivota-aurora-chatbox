@@ -47,6 +47,81 @@ const invalidPhotoModulesCard = {
   },
 };
 
+const validPhotoModulesCard = {
+  card_id: 'photo_modules_valid',
+  type: 'photo_modules_v1',
+  payload: {
+    used_photos: true,
+    quality_grade: 'pass',
+    photo_notice: 'Photo evidence attached.',
+    face_crop: {
+      crop_id: 'crop_valid',
+      coord_space: 'orig_px_v1',
+      bbox_px: { x: 12, y: 18, w: 220, h: 220 },
+      orig_size_px: { w: 480, h: 480 },
+      render_size_px_hint: { w: 320, h: 320 },
+      crop_image_url: 'https://example.com/crop.png',
+      original_image_url: 'https://example.com/original.png',
+    },
+    regions: [
+      {
+        region_id: 'reg_1',
+        type: 'bbox',
+        issue_type: 'redness',
+        coord_space: 'face_crop_norm_v1',
+        bbox: { x: 0.18, y: 0.2, w: 0.22, h: 0.18 },
+        style: { intensity: 0.7, priority: 0.3, label_hint: 'redness' },
+      },
+    ],
+    modules: [
+      {
+        module_id: 'left_cheek',
+        issues: [
+          {
+            issue_type: 'redness',
+            severity_0_4: 3,
+            confidence_0_1: 0.84,
+            evidence_region_ids: ['reg_1'],
+            explanation_short: 'Redness is the top visible signal for this module.',
+          },
+        ],
+        actions: [],
+        products: [],
+      },
+    ],
+    summary_v1: {
+      top_module_id: 'left_cheek',
+      top_issue_type: 'redness',
+    },
+    disclaimers: {
+      non_medical: true,
+      seek_care_triggers: ['If redness worsens, seek professional care.'],
+    },
+  },
+};
+
+const analysisStoryCard = {
+  card_id: 'analysis_story_v2_valid',
+  type: 'analysis_story_v2',
+  payload: {
+    ui_card_v1: {
+      headline: 'Photo review highlights left cheek redness first.',
+      key_points: ['Redness is the top visible signal in the uploaded photo.'],
+      actions_now: ['AM: Gentle cleanse'],
+      avoid_now: ['Avoid stacking strong acids tonight.'],
+      next_checkin: 'Week 1: retake the same angle in even lighting.',
+    },
+    confidence_overall: { level: 'medium' },
+    priority_findings: [
+      {
+        priority: 1,
+        title: 'Redness remains the main visible issue.',
+        evidence_region_or_module: ['Left cheek'],
+      },
+    ],
+  },
+};
+
 const READY_TIMEOUT_MS = 5000;
 
 async function waitForEnabledComposer() {
@@ -136,5 +211,38 @@ describe('photo_modules invalid payload visibility', () => {
       expect(chatCalls.length).toBeGreaterThan(0);
     }, { timeout: READY_TIMEOUT_MS });
     expect(await screen.findByText(warningText, {}, { timeout: READY_TIMEOUT_MS })).toBeInTheDocument();
+  });
+
+  it('renders valid photo_modules_v1 together with analysis_story_v2 in chat history', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeEnvelope({
+            assistant_message: { content: 'photo analysis ready' },
+            cards: [validPhotoModulesCard, analysisStoryCard],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ShopProvider>
+          <BffChat />
+        </ShopProvider>
+      </MemoryRouter>,
+    );
+
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'show my photo analysis' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+
+    expect(await screen.findByText('Photo analysis', {}, { timeout: READY_TIMEOUT_MS })).toBeInTheDocument();
+    expect(await screen.findByText('Current focus: Left cheek · Redness', {}, { timeout: READY_TIMEOUT_MS })).toBeInTheDocument();
+    expect(await screen.findByText('Skin analysis', {}, { timeout: READY_TIMEOUT_MS })).toBeInTheDocument();
+    expect(await screen.findByText('Photo review highlights left cheek redness first.', {}, { timeout: READY_TIMEOUT_MS })).toBeInTheDocument();
   });
 });
