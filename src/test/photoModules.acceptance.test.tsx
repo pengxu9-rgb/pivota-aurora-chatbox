@@ -152,6 +152,10 @@ const buildValidPayload = () => ({
       products: [],
     },
   ],
+  summary_v1: {
+    top_module_id: 'left_cheek',
+    top_issue_type: 'redness',
+  },
   disclaimers: {
     non_medical: true,
     seek_care_triggers: ['If redness worsens, seek professional care.'],
@@ -273,6 +277,9 @@ describe('photo_modules_v1 acceptance', () => {
     expect(normalized.model).not.toBeNull();
 
     render(<PhotoModulesCard model={normalized.model!} language="EN" />);
+
+    expect(screen.getByText('Photo analysis')).toBeInTheDocument();
+    expect(screen.getByText('Current focus: Left cheek · Redness')).toBeInTheDocument();
 
     const baseCanvas = screen.getByTestId('photo-modules-base-canvas');
     const highlightCanvas = screen.getByTestId('photo-modules-highlight-canvas');

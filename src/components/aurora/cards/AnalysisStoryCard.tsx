@@ -93,6 +93,20 @@ const formatConfidenceOverall = (value: unknown, language: Language): string => 
   return '';
 };
 
+const looksPhotoLed = (root: Dict, headline: string): boolean => {
+  const headlineToken = headline.trim().toLowerCase();
+  if (headlineToken.includes('photo') || headlineToken.includes('photographed')) return true;
+
+  return asArray(root.priority_findings).some((item) => {
+    const row = asObject(item);
+    if (!row) return false;
+    const evidence = asArray(row.evidence_region_or_module)
+      .map((value) => asString(value))
+      .filter(Boolean);
+    return evidence.length > 0;
+  });
+};
+
 export function AnalysisStoryCard({
   payload,
   language,
@@ -103,6 +117,13 @@ export function AnalysisStoryCard({
   onAction?: (actionId: string, data?: Record<string, unknown>) => void;
 }) {
   const root = asObject(payload) || {};
+  const uiCard = asObject(root.ui_card_v1);
+  const headline = asString(uiCard?.headline);
+  const keyPoints = toStringList(uiCard?.key_points, 6);
+  const actionsNow = toStringList(uiCard?.actions_now, 6);
+  const avoidNow = toStringList(uiCard?.avoid_now, 6);
+  const nextCheckin = asString(uiCard?.next_checkin);
+  const photoLed = looksPhotoLed(root, headline);
   const confidenceOverall = formatConfidenceOverall(root.confidence_overall, language);
   const skinProfile = asObject(root.skin_profile);
   const findingLines = asArray(root.priority_findings)
@@ -149,15 +170,67 @@ export function AnalysisStoryCard({
   return (
     <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
       <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-        <div className="text-sm font-semibold text-foreground">
-          {renderSectionTitle(language, 'Personalized skin analysis', '个性化肤况分析')}
-        </div>
-        {confidenceOverall ? (
-          <div className="mt-1 text-xs text-muted-foreground">
-            {renderSectionTitle(language, `Confidence: ${confidenceOverall}`, `置信度：${confidenceOverall}`)}
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-foreground">{renderSectionTitle(language, 'Skin analysis', '肤况分析')}</div>
+            {headline ? <div className="mt-1 text-sm text-foreground/90">{headline}</div> : null}
           </div>
-        ) : null}
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            {photoLed ? (
+              <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
+                {renderSectionTitle(language, 'Photo-led', '照片主导')}
+              </span>
+            ) : null}
+            {confidenceOverall ? (
+              <span className="rounded-full border border-border/60 bg-background/80 px-2 py-1">
+                {renderSectionTitle(language, `Confidence: ${confidenceOverall}`, `置信度：${confidenceOverall}`)}
+              </span>
+            ) : null}
+          </div>
+        </div>
       </div>
+
+      {keyPoints.length ? (
+        <div>
+          <div className="text-xs font-medium text-muted-foreground">
+            {renderSectionTitle(language, 'What stands out', '重点观察')}
+          </div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+            {keyPoints.map((item) => (
+              <li key={`point_${item}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {actionsNow.length ? (
+        <div>
+          <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, 'Do now', '现在先做')}</div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+            {actionsNow.map((item) => (
+              <li key={`action_${item}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {avoidNow.length ? (
+        <div>
+          <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, 'Hold for now', '暂缓事项')}</div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-foreground">
+            {avoidNow.map((item) => (
+              <li key={`avoid_${item}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {nextCheckin ? (
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+          <div className="text-xs font-medium text-muted-foreground">{renderSectionTitle(language, 'Next check-in', '下次复查')}</div>
+          <div className="mt-1 text-sm text-foreground">{nextCheckin}</div>
+        </div>
+      ) : null}
 
       {profileBullets.length ? (
         <div>
