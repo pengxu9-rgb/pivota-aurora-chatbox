@@ -310,6 +310,24 @@ export const emitAuroraProductAnalysisDegraded = (
   } & Record<string, unknown>,
 ) => emitWithContext('aurora_product_analysis_degraded', ctx, props);
 
+export const emitAuroraSkillRouteResult = (
+  ctx: AnalyticsContext,
+  props: {
+    entry_source: string;
+    requested_skill: string;
+    route: 'skill' | 'legacy' | 'blocked';
+    accepted_card_types?: string[];
+    response_card_types?: string[];
+    request_id?: string | null;
+    bff_trace_id?: string | null;
+    fallback_used?: boolean;
+    fallback_reason?: string | null;
+    fallback_path?: string | null;
+    mainline_blocked?: boolean;
+    mainline_blocked_reason?: 'flag_disabled' | 'request_failed' | 'missing_expected_card' | 'apply_failed' | 'anchor_insufficient';
+  } & Record<string, unknown>,
+) => emitWithContext('aurora_skill_route_result', ctx, props);
+
 export const emitIngredientProductOpenAttempt = (
   ctx: AnalyticsContext,
   props: {
