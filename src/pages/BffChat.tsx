@@ -8404,12 +8404,36 @@ export default function BffChat() {
 
   const stripTransientDiagnosisCards = useCallback((prev: ChatItem[]) => {
     return prev.filter((item) => {
-      if (item.role !== 'assistant' || item.kind !== 'cards') return true;
-      const cards = Array.isArray(item.cards) ? item.cards : [];
-      return !cards.some((card) => {
-        const type = asString((card as any)?.type || (card as any)?.card_type).trim();
-        return type === 'diagnosis_gate' || type === 'diagnosis_v2_photo_prompt';
-      });
+      if (item.role !== 'assistant') return true;
+      if (item.kind === 'cards') {
+        const cards = Array.isArray(item.cards) ? item.cards : [];
+        return !cards.some((card) => {
+          const type = asString((card as any)?.type || (card as any)?.card_type).trim();
+          return type === 'diagnosis_gate' || type === 'diagnosis_v2_photo_prompt';
+        });
+      }
+      if (item.kind === 'chips') {
+        const chips = Array.isArray(item.chips) ? item.chips : [];
+        if (!chips.length) return true;
+        const isTransientDiagnosisChip = chips.every((chip) => {
+          const chipId = asString((chip as any)?.chip_id || (chip as any)?.action_id).trim().toLowerCase();
+          const label = asString((chip as any)?.label).trim().toLowerCase();
+          return (
+            chipId.includes('diagnosis')
+            || chipId.includes('photo')
+            || label.includes('skin diagnosis')
+            || label.includes('selfie')
+            || label.includes('goals and tap continue')
+            || label.includes('skip and continue')
+            || label.includes('开始皮肤诊断')
+            || label.includes('选择目标后继续')
+            || label.includes('拍照提升准确度')
+            || label.includes('跳过并继续')
+          );
+        });
+        return !isTransientDiagnosisChip;
+      }
+      return true;
     });
   }, []);
 

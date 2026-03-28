@@ -175,6 +175,7 @@ describe('BffChat diagnosis submit flow', () => {
     expect(screen.getByText('Skip diagnosis')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Choose your skincare goals' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start Analysis' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take a selfie for better analysis' })).not.toBeInTheDocument();
   });
 
   it('removes diagnosis cards before running low-confidence analysis after photo skip', async () => {
