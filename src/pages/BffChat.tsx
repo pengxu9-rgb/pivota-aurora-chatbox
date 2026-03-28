@@ -62,10 +62,9 @@ import {
   emitPdpOpenPath,
   emitRecommendationDetailsSheetOpened,
   emitAuroraEmptyRecommendationsContractViolation,
-  emitAuroraProductAnalysisDegraded,
   emitAuroraProductAlternativesFiltered,
   emitAuroraHowToLayerInlineOpened,
-  emitAuroraProductParseMissing,
+  emitAuroraSkillRouteResult,
   emitUiChipClicked,
   emitUiLanguageSwitched,
   emitUiOutboundOpened,
@@ -193,6 +192,56 @@ function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
     messages.push({ role: item.role, content });
   }
   return messages.slice(-CHAT_CONTEXT_MESSAGE_LIMIT);
+}
+
+function chatResponseHasCardType(bodyRaw: unknown, expectedTypes: string[]): boolean {
+  const lowered = new Set(expectedTypes.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+  if (lowered.size === 0) return false;
+
+  const parsedV1 = parseChatResponseV1(bodyRaw);
+  if (parsedV1) {
+    return parsedV1.cards.some((card) => lowered.has(String(card?.type || '').trim().toLowerCase()));
+  }
+
+  const root = asObject(bodyRaw);
+  const cards = Array.isArray(root?.cards) ? root.cards : [];
+  return cards.some((card) => {
+    const row = asObject(card);
+    if (!row) return false;
+    const cardType = String(row.card_type || row.type || '').trim().toLowerCase();
+    return lowered.has(cardType);
+  });
+}
+
+function readChatRouteMeta(bodyRaw: unknown): {
+  request_id: string | null;
+  trace_id: string | null;
+  card_types: string[];
+} {
+  const parsedV1 = parseChatResponseV1(bodyRaw);
+  if (parsedV1) {
+    return {
+      request_id: asString(parsedV1.request_id) || null,
+      trace_id: asString(parsedV1.trace_id) || null,
+      card_types: uniqueStrings(parsedV1.cards.map((card) => asString(card?.type)).filter(Boolean)),
+    };
+  }
+
+  const root = asObject(bodyRaw);
+  const cards = Array.isArray(root?.cards) ? root.cards : [];
+  return {
+    request_id: asString(root?.request_id) || null,
+    trace_id: asString(root?.trace_id) || null,
+    card_types: uniqueStrings(
+      cards
+        .map((card) => {
+          const row = asObject(card);
+          if (!row) return '';
+          return asString(row.card_type || row.type);
+        })
+        .filter(Boolean),
+    ),
+  };
 }
 
 type ProductAlternativeTrackItem = {
@@ -469,6 +518,15 @@ const readBooleanEnvFlag = (rawValue: unknown, defaultValue: boolean): boolean =
   if (!raw) return defaultValue;
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
 };
+
+const isProductAnalyzeViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_PRODUCT_ANALYZE_VIA_SKILL, true);
+
+const isDupeSearchViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_DUPE_SEARCH_VIA_SKILL, true);
+
+const isDupeCompareViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_DUPE_COMPARE_VIA_SKILL, true);
 
 const isRoutineBuilderViaSkillEnabled = (): boolean =>
   readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_ROUTINE_BUILDER_VIA_SKILL, true);
@@ -816,6 +874,7 @@ const getChipVisualRoles = (chips: SuggestedChip[]): ChipVisualRole[] => {
 };
 
 const CHAT_CARDS_V1_TYPES = new Set([
+  'empty_state',
   'product_verdict',
   'compatibility',
   'routine',
@@ -825,6 +884,64 @@ const CHAT_CARDS_V1_TYPES = new Set([
   'travel',
   'nudge',
 ]);
+
+type MainlineBlockedReason =
+  | 'flag_disabled'
+  | 'request_failed'
+  | 'missing_expected_card'
+  | 'apply_failed'
+  | 'anchor_insufficient';
+
+function buildMainlineBlockedChatPayload(args: {
+  language: UiLanguage;
+  requestedSkill: string;
+  entrySource: string;
+  reason: MainlineBlockedReason;
+  titleEn: string;
+  titleZh: string;
+  messageEn: string;
+  messageZh: string;
+}) {
+  const {
+    language,
+    requestedSkill,
+    entrySource,
+    reason,
+    titleEn,
+    titleZh,
+    messageEn,
+    messageZh,
+  } = args;
+
+  return {
+    cards: [
+      {
+        card_type: 'empty_state',
+        title: language === 'CN' ? titleZh : titleEn,
+        metadata: {
+          mainline_blocked: true,
+          mainline_blocked_reason: reason,
+          requested_skill: requestedSkill,
+          entry_source: entrySource,
+        },
+        sections: [
+          {
+            type: 'empty_state_message',
+            message_en: messageEn,
+            message_zh: messageZh,
+          },
+        ],
+      },
+    ],
+    ops: {
+      thread_ops: [],
+      profile_patch: {},
+      routine_patch: {},
+      experiment_events: [],
+    },
+    next_actions: [],
+  };
+}
 
 const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
@@ -9551,6 +9668,97 @@ export default function BffChat() {
     [applyChatResponseV1, applyEnvelope],
   );
 
+  const buildRouteAnalyticsContext = useCallback(
+    (): AnalyticsContext => ({
+      brief_id: headers.brief_id,
+      trace_id: headers.trace_id,
+      aurora_uid: headers.aurora_uid,
+      lang: toLangPref(language),
+      state: agentStateRef.current,
+    }),
+    [headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+  );
+
+  const applyChatPayload = useCallback(
+    (bodyRaw: unknown): boolean => {
+      const parsedV1 = parseChatResponseV1(bodyRaw);
+      const v2Response = (() => {
+        if (parsedV1) return null;
+        const obj = asObject(bodyRaw);
+        if (!obj || !Array.isArray(obj.cards)) return null;
+        const hasV2Cards = (obj.cards as unknown[]).some(
+          (c) => c && typeof c === 'object' && typeof (c as Record<string, unknown>).card_type === 'string',
+        );
+        if (!hasV2Cards && (obj.cards as unknown[]).length > 0) return null;
+        return {
+          cards: obj.cards as Array<Record<string, unknown>>,
+          ops: asObject(obj.ops) || {},
+          next_actions: Array.isArray(obj.next_actions) ? obj.next_actions : [],
+        };
+      })();
+      const legacyEnvelope =
+        !parsedV1
+        && !v2Response
+        && bodyRaw
+        && typeof bodyRaw === 'object'
+        && !Array.isArray(bodyRaw)
+        && asString((bodyRaw as Record<string, unknown>).request_id)
+        && asString((bodyRaw as Record<string, unknown>).trace_id)
+          ? (bodyRaw as V1Envelope)
+          : null;
+
+      if (!parsedV1 && !legacyEnvelope && !v2Response) return false;
+      if (parsedV1) applyChatResponseV1(parsedV1);
+      else if (legacyEnvelope) applyEnvelope(legacyEnvelope);
+      else if (v2Response) applyV2Response(v2Response);
+      return true;
+    },
+    [applyChatResponseV1, applyEnvelope, applyV2Response],
+  );
+
+  const applySkillMainlineBlockedState = useCallback(
+    (args: {
+      entrySource: string;
+      requestedSkill: string;
+      reason: MainlineBlockedReason;
+      acceptedCardTypes: string[];
+      messageEn: string;
+      messageZh: string;
+      titleEn: string;
+      titleZh: string;
+      requestId?: string | null;
+      traceId?: string | null;
+      responseCardTypes?: string[];
+    }) => {
+      const payload = buildMainlineBlockedChatPayload({
+        language,
+        requestedSkill: args.requestedSkill,
+        entrySource: args.entrySource,
+        reason: args.reason,
+        titleEn: args.titleEn,
+        titleZh: args.titleZh,
+        messageEn: args.messageEn,
+        messageZh: args.messageZh,
+      });
+      applyChatPayload(payload);
+      emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+        entry_source: args.entrySource,
+        requested_skill: args.requestedSkill,
+        route: 'blocked',
+        accepted_card_types: args.acceptedCardTypes,
+        response_card_types: args.responseCardTypes ?? ['empty_state'],
+        request_id: args.requestId ?? null,
+        bff_trace_id: args.traceId ?? null,
+        fallback_used: false,
+        fallback_reason: null,
+        fallback_path: null,
+        mainline_blocked: true,
+        mainline_blocked_reason: args.reason,
+      });
+    },
+    [applyChatPayload, buildRouteAnalyticsContext, language],
+  );
+
   const bootstrap = useCallback(async () => {
     setChatBusy(true);
     try {
@@ -10617,120 +10825,150 @@ export default function BffChat() {
               ? String(rawInput?.productUrl || '').trim()
               : '';
         const asUrl = explicitUrl || parseMaybeUrl(inputText);
-
-        const parseEnv = await bffJson<V1Envelope>('/v1/product/parse', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(asUrl ? { url: asUrl } : { text: inputText }),
-        });
-        const parseCard = Array.isArray(parseEnv.cards) ? parseEnv.cards.find((c) => c && c.type === 'product_parse') : null;
-        const parsePayload = parseCard && parseCard.payload && typeof parseCard.payload === 'object'
-          ? parseCard.payload as Record<string, unknown>
-          : null;
-        const parsedProduct = parsePayload && typeof parsePayload.product === 'object' && !Array.isArray(parsePayload.product)
-          ? parsePayload.product
-          : null;
-        const parseMissingReasons = uniqueStrings([
-          ...asArray(parsePayload?.missing_info).map((item) => asString(item)).filter(Boolean),
-          ...asArray(parseCard?.field_missing)
-            .map((item) => asObject(item))
-            .filter(Boolean)
-            .map((item) => asString((item as any).reason))
-            .filter(Boolean),
-        ]);
-        if (!parsedProduct) {
-          const analyticsCtx: AnalyticsContext = {
-            brief_id: headers.brief_id,
-            trace_id: headers.trace_id,
-            aurora_uid: headers.aurora_uid,
-            lang: toLangPref(language),
-            state: agentState,
-          };
-          emitAuroraProductParseMissing(analyticsCtx, {
-            request_id: asString(parseEnv?.request_id) || null,
-            bff_trace_id: asString(parseEnv?.trace_id) || null,
-            reason: parseMissingReasons[0] || 'upstream_missing_or_unstructured',
-            reasons: parseMissingReasons.slice(0, 6),
-          });
-        }
-        let parseEnvelopeApplied = false;
-        const analyzeBody = parsedProduct
-          ? asUrl
-            ? { product: parsedProduct, url: asUrl }
-            : { product: parsedProduct }
-          : asUrl
-            ? { url: asUrl }
-            : { name: inputText };
-
-        let analyzeEnv: V1Envelope;
-        try {
-          analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(analyzeBody),
-          });
-        } catch (err) {
-          if (!parseEnvelopeApplied) {
-            applyEnvelope(parseEnv);
-            parseEnvelopeApplied = true;
+        const skillProductAnchor = (() => {
+          const base: Record<string, unknown> = {};
+          if (asUrl) {
+            base.url = asUrl;
           }
-          throw err;
-        }
-        const analyzeCard = Array.isArray(analyzeEnv.cards) ? analyzeEnv.cards.find((c) => c && c.type === 'product_analysis') : null;
-        const analyzeAssessment =
-          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
-            ? asObject((analyzeCard.payload as any).assessment)
-            : null;
-        const analyzePayload =
-          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
-            ? (analyzeCard.payload as Record<string, unknown>)
-            : null;
-        const verdict = (asString((analyzeAssessment as any)?.verdict) || '').trim().toLowerCase();
-        const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
-        const analyzeMissingReasons = uniqueStrings([
-          ...asArray((analyzePayload as any)?.missing_info).map((item) => asString(item)).filter(Boolean),
-          ...asArray((analyzePayload as any)?.user_facing_gaps).map((item) => asString(item)).filter(Boolean),
-          ...asArray((analyzePayload as any)?.internal_debug_codes).map((item) => asString(item)).filter(Boolean),
-        ]);
-        const analyzeProvenance = asObject((analyzePayload as any)?.provenance) || null;
-        const sourceChain = uniqueStrings(asArray((analyzeProvenance as any)?.source_chain).map((item) => asString(item)).filter(Boolean));
-        const kbWrite = asObject((analyzeProvenance as any)?.kb_write || (analyzeProvenance as any)?.kbWrite) || null;
-        const blockedReason = asString((kbWrite as any)?.blocked_reason || (kbWrite as any)?.blockedReason) || null;
-        const looksDegraded =
-          !hasEffectiveVerdict ||
-          analyzeMissingReasons.some((code) =>
-            /(analysis_limited|evidence_missing|upstream_missing_or_unstructured|url_fetch_|on_page_fetch_blocked|incidecoder_|catalog_)/i.test(
-              String(code || ''),
-            ),
-          );
-        if (looksDegraded) {
-          const analyticsCtx: AnalyticsContext = {
-            brief_id: headers.brief_id,
-            trace_id: headers.trace_id,
-            aurora_uid: headers.aurora_uid,
-            lang: toLangPref(language),
-            state: agentState,
-          };
-          emitAuroraProductAnalysisDegraded(analyticsCtx, {
-            request_id: asString(analyzeEnv?.request_id) || null,
-            bff_trace_id: asString(analyzeEnv?.trace_id) || null,
-            reason: analyzeMissingReasons[0] || (!hasEffectiveVerdict ? 'unknown_verdict' : null),
-            reasons: analyzeMissingReasons.slice(0, 8),
-            source_chain: sourceChain.slice(0, 6),
-            blocked_reason: blockedReason,
+          if (inputText) {
+            base.name = inputText;
+          }
+          return Object.keys(base).length > 0 ? base : null;
+        })();
+
+        if (!skillProductAnchor) {
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'anchor_insufficient',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product yet. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
           });
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
         }
-        if (!parseEnvelopeApplied && !hasEffectiveVerdict) {
-          applyEnvelope(parseEnv);
-          parseEnvelopeApplied = true;
+
+        if (!isProductAnalyzeViaSkillEnabled()) {
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'flag_disabled',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'Product analysis mainline is unavailable right now. Please try again with a directly parseable URL or a fuller brand + product name.',
+            messageZh: '当前无法走正式产品分析主链。请稍后重试，或提供可直接解析的商品链接/更完整的品牌+产品名。',
+          });
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
         }
-        applyEnvelope(analyzeEnv);
-        setSessionState('P2_PRODUCT_RESULT');
+
+        try {
+          const session = buildChatSession({
+            state: sessionState,
+            profileSnapshot,
+            bootstrapProfile: bootstrapInfo?.profile ?? null,
+            sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+            sessionMeta,
+            analysisContext: null,
+          });
+          const priorMessages = buildChatRequestMessages(itemsRef.current);
+          const skillBody: Record<string, unknown> = {
+            session,
+            action: {
+              action_id: 'chip.action.analyze_product',
+              kind: 'chip',
+              data: {
+                reply_text: inputText,
+                product_anchor: skillProductAnchor,
+              },
+            },
+            language,
+            client_state: normalizeAgentState(agentState),
+            ...(priorMessages.length ? { messages: priorMessages } : {}),
+            ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+            ...(debug ? { debug: true } : {}),
+            ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+            ...(anchorProductUrl || asUrl ? { anchor_product_url: anchorProductUrl || asUrl } : {}),
+          };
+          const skillBodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(skillBody),
+          });
+          const routeMeta = readChatRouteMeta(skillBodyRaw);
+          const applied = chatResponseHasCardType(skillBodyRaw, ['product_verdict']) && applyChatPayload(skillBodyRaw);
+          if (applied) {
+            emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+              entry_source: 'product_deep_scan',
+              requested_skill: 'product.analyze',
+              route: 'skill',
+              accepted_card_types: ['product_verdict'],
+              response_card_types: routeMeta.card_types,
+              request_id: routeMeta.request_id,
+              bff_trace_id: routeMeta.trace_id,
+              fallback_used: false,
+              mainline_blocked: false,
+            });
+            setSessionState('P2_PRODUCT_RESULT');
+            return;
+          }
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'missing_expected_card',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product yet. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+            requestId: routeMeta.request_id,
+            traceId: routeMeta.trace_id,
+            responseCardTypes: routeMeta.card_types,
+          });
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
+        } catch (err) {
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'request_failed',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product yet. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+          });
+          if (debug) {
+            console.warn('[ProductDeepScan] skill analyze failed; mainline blocked', err);
+          }
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
+        }
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
       }
     },
-    [agentState, applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyChatPayload,
+      bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
+      debug,
+      headers,
+      language,
+      profileSnapshot,
+      sessionMeta,
+      sessionState,
+      applySkillMainlineBlockedState,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
 
   const runDupeSearch = useCallback(
@@ -10757,11 +10995,109 @@ export default function BffChat() {
       try {
         const requestHeaders = { ...headers, lang: language };
         const asUrl = parseMaybeUrl(originalText);
-        const env = await bffJson<V1Envelope>('/v1/dupe/suggest', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(asUrl ? { original_url: asUrl } : { original_text: originalText }),
-        });
-        applyEnvelope(env);
+        const skillProductAnchor = (() => {
+          const base: Record<string, unknown> = {};
+          if (asUrl) {
+            base.url = asUrl;
+          } else {
+            base.name = originalText;
+          }
+          return base;
+        })();
+
+        if (!isDupeSearchViaSkillEnabled()) {
+          applySkillMainlineBlockedState({
+            entrySource: 'chip.start.dupes',
+            requestedSkill: 'dupe.suggest',
+            reason: 'flag_disabled',
+            acceptedCardTypes: ['dupe_suggest'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product enough to find dupes. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品来找平替。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+          });
+        } else {
+          try {
+            const session = buildChatSession({
+              state: sessionState,
+              profileSnapshot,
+              bootstrapProfile: bootstrapInfo?.profile ?? null,
+              sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+              sessionMeta,
+              analysisContext: null,
+            });
+            const priorMessages = buildChatRequestMessages(itemsRef.current);
+            const skillBody: Record<string, unknown> = {
+              session,
+              action: {
+                action_id: 'chip.start.dupes',
+                kind: 'chip',
+                data: {
+                  reply_text: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
+                  product_anchor: skillProductAnchor,
+                },
+              },
+              language,
+              client_state: normalizeAgentState(agentState),
+              ...(priorMessages.length ? { messages: priorMessages } : {}),
+              ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+              ...(debug ? { debug: true } : {}),
+              ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+              ...(anchorProductUrl || asUrl ? { anchor_product_url: anchorProductUrl || asUrl } : {}),
+            };
+            const skillBodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+              method: 'POST',
+              body: JSON.stringify(skillBody),
+            });
+            const routeMeta = readChatRouteMeta(skillBodyRaw);
+            const applied = chatResponseHasCardType(skillBodyRaw, ['dupe_suggest']) && applyChatPayload(skillBodyRaw);
+            if (applied) {
+              emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+                entry_source: 'chip.start.dupes',
+                requested_skill: 'dupe.suggest',
+                route: 'skill',
+                accepted_card_types: ['dupe_suggest'],
+                response_card_types: routeMeta.card_types,
+                request_id: routeMeta.request_id,
+                bff_trace_id: routeMeta.trace_id,
+                fallback_used: false,
+              });
+              return;
+            }
+            applySkillMainlineBlockedState({
+              entrySource: 'chip.start.dupes',
+              requestedSkill: 'dupe.suggest',
+              reason: 'missing_expected_card',
+              acceptedCardTypes: ['dupe_suggest'],
+              titleEn: 'Need clearer product details',
+              titleZh: '还需要更清晰的产品信息',
+              messageEn: 'I could not fully ground this product enough to find dupes. Please share a more complete brand + product name or a directly parseable URL.',
+              messageZh: '我还无法稳定识别这款产品来找平替。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+              requestId: routeMeta.request_id,
+              traceId: routeMeta.trace_id,
+              responseCardTypes: routeMeta.card_types,
+            });
+            if (debug) {
+              console.warn('[DupeSearch] skill suggest response did not contain dupe_suggest result; mainline blocked');
+            }
+            return;
+          } catch (err) {
+            applySkillMainlineBlockedState({
+              entrySource: 'chip.start.dupes',
+              requestedSkill: 'dupe.suggest',
+              reason: 'request_failed',
+              acceptedCardTypes: ['dupe_suggest'],
+              titleEn: 'Need clearer product details',
+              titleZh: '还需要更清晰的产品信息',
+              messageEn: 'I could not fully ground this product enough to find dupes. Please share a more complete brand + product name or a directly parseable URL.',
+              messageZh: '我还无法稳定识别这款产品来找平替。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+            });
+            if (debug) {
+              console.warn('[DupeSearch] skill suggest failed; mainline blocked', err);
+            }
+            return;
+          }
+        }
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -10769,8 +11105,61 @@ export default function BffChat() {
         setLoadingIntent('default');
       }
     },
-    [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyChatPayload,
+      bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
+      debug,
+      headers,
+      language,
+      profileSnapshot,
+      sessionMeta,
+      sessionState,
+      applySkillMainlineBlockedState,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
+
+  const runLowConfidenceSkinAnalysis = useCallback(async (opts?: { fromRoutineForm?: boolean }) => {
+    const fromRoutineForm = opts?.fromRoutineForm === true;
+    if (fromRoutineForm) setRoutineFormBusy(true);
+    setAnalysisBusy(true);
+    setThinkingSteps([{
+      step: 'sim_0',
+      message: language === 'CN' ? '正在快速分析肤质...' : 'Running quick skin analysis...',
+      completed: false,
+    }]);
+    setError(null);
+    const stopQuickSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
+    try {
+      setSessionState('S4_ANALYSIS_LOADING');
+      const requestHeaders = { ...headers, lang: language };
+      const diagnosisGoal = deriveDiagnosisGoalForAnalysis(threadStateRef.current);
+      const body: Record<string, unknown> = {
+        use_photo: false,
+        ...(diagnosisGoal ? { goal: diagnosisGoal, diagnosis_goal: diagnosisGoal } : {}),
+      };
+      const env = await retryWithBackoff(
+        () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          timeoutMs: ANALYSIS_REQUEST_TIMEOUT_MS,
+        }),
+        { maxRetries: 1, baseDelayMs: 1500 },
+      );
+      applyEnvelope(env);
+    } catch (err) {
+      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      stopQuickSim();
+      setAnalysisBusy(false);
+      setThinkingSteps([]);
+      if (fromRoutineForm) setRoutineFormBusy(false);
+    }
+  }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
 
   const onCardAction = useCallback(
     async (actionId: string, data?: Record<string, any>) => {
@@ -11121,11 +11510,100 @@ export default function BffChat() {
         setError(null);
         try {
           const requestHeaders = { ...headers, lang: language };
-          const env = await bffJson<V1Envelope>('/v1/dupe/compare', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({ original, dupe }),
-          });
-          applyEnvelope(env);
+          if (!isDupeCompareViaSkillEnabled()) {
+            applySkillMainlineBlockedState({
+              entrySource: 'chip.action.dupe_compare',
+              requestedSkill: 'dupe.compare',
+              reason: 'flag_disabled',
+              acceptedCardTypes: ['compatibility'],
+              titleEn: 'Need clearer product details',
+              titleZh: '还需要更清晰的产品信息',
+              messageEn: 'I could not fully ground both products for a reliable comparison. Please share fuller brand + product names or directly parseable URLs.',
+              messageZh: '我还无法稳定识别这两款产品来做可靠对比。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+            });
+          } else {
+            try {
+              const session = buildChatSession({
+                state: sessionState,
+                profileSnapshot,
+                bootstrapProfile: bootstrapInfo?.profile ?? null,
+                sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+                sessionMeta,
+                analysisContext: null,
+              });
+              const priorMessages = buildChatRequestMessages(itemsRef.current);
+              const skillBody: Record<string, unknown> = {
+                session,
+                action: {
+                  action_id: 'chip.action.dupe_compare',
+                  kind: 'chip',
+                  data: {
+                    reply_text: language === 'CN' ? `对比：${dupeName || '平替'}` : `Compare: ${dupeName || 'dupe'}`,
+                    product_anchor: original,
+                    comparison_targets: [dupe],
+                  },
+                },
+                language,
+                client_state: normalizeAgentState(agentState),
+                ...(priorMessages.length ? { messages: priorMessages } : {}),
+                ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+                ...(debug ? { debug: true } : {}),
+                ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+                ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
+              };
+              const skillBodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+                method: 'POST',
+                body: JSON.stringify(skillBody),
+              });
+              const routeMeta = readChatRouteMeta(skillBodyRaw);
+              const applied = chatResponseHasCardType(skillBodyRaw, ['compatibility']) && applyChatPayload(skillBodyRaw);
+              if (applied) {
+                emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+                  entry_source: 'chip.action.dupe_compare',
+                  requested_skill: 'dupe.compare',
+                  route: 'skill',
+                  accepted_card_types: ['compatibility'],
+                  response_card_types: routeMeta.card_types,
+                  request_id: routeMeta.request_id,
+                  bff_trace_id: routeMeta.trace_id,
+                  fallback_used: false,
+                });
+                return;
+              }
+              applySkillMainlineBlockedState({
+                entrySource: 'chip.action.dupe_compare',
+                requestedSkill: 'dupe.compare',
+                reason: 'missing_expected_card',
+                acceptedCardTypes: ['compatibility'],
+                titleEn: 'Need clearer product details',
+                titleZh: '还需要更清晰的产品信息',
+                messageEn: 'I could not fully ground both products for a reliable comparison. Please share fuller brand + product names or directly parseable URLs.',
+                messageZh: '我还无法稳定识别这两款产品来做可靠对比。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+                requestId: routeMeta.request_id,
+                traceId: routeMeta.trace_id,
+                responseCardTypes: routeMeta.card_types,
+              });
+              if (debug) {
+                console.warn('[DupeCompare] skill compare response did not contain compatibility result; mainline blocked');
+              }
+              return;
+            } catch (err) {
+              applySkillMainlineBlockedState({
+                entrySource: 'chip.action.dupe_compare',
+                requestedSkill: 'dupe.compare',
+                reason: 'request_failed',
+                acceptedCardTypes: ['compatibility'],
+                titleEn: 'Need clearer product details',
+                titleZh: '还需要更清晰的产品信息',
+                messageEn: 'I could not fully ground both products for a reliable comparison. Please share fuller brand + product names or directly parseable URLs.',
+                messageZh: '我还无法稳定识别这两款产品来做可靠对比。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+              });
+              if (debug) {
+                console.warn('[DupeCompare] skill compare failed; mainline blocked', err);
+              }
+              return;
+            }
+          }
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -11547,14 +12025,24 @@ export default function BffChat() {
       agentState,
       anchorProductId,
       anchorProductUrl,
+      applyChatPayload,
       applyEnvelope,
+      applySkillMainlineBlockedState,
+      bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
       clearDiagnosisThreadState,
+      debug,
       getLatestAnalysisStorySnapshot,
       getSanitizedAnalysisPhotos,
+      handlePickPhoto,
       headers,
       language,
+      profileSnapshot,
       runProductDeepScan,
+      runLowConfidenceSkinAnalysis,
       sendChat,
+      sessionMeta,
+      sessionState,
       setAgentStateSafe,
       stripTransientDiagnosisCards,
       tryApplyEnvelopeFromBffError,
@@ -11622,44 +12110,6 @@ export default function BffChat() {
       },
     );
   }, [agentState, headers, isLoading, language, sendChat, setAgentStateSafe]);
-
-  const runLowConfidenceSkinAnalysis = useCallback(async (opts?: { fromRoutineForm?: boolean }) => {
-    const fromRoutineForm = opts?.fromRoutineForm === true;
-    if (fromRoutineForm) setRoutineFormBusy(true);
-    setAnalysisBusy(true);
-    setThinkingSteps([{
-      step: 'sim_0',
-      message: language === 'CN' ? '正在快速分析肤质...' : 'Running quick skin analysis...',
-      completed: false,
-    }]);
-    setError(null);
-    const stopQuickSim = startSimulatedThinking(ANALYSIS_SIM_STEPS[language] || ANALYSIS_SIM_STEPS.EN, setThinkingSteps);
-    try {
-      setSessionState('S4_ANALYSIS_LOADING');
-      const requestHeaders = { ...headers, lang: language };
-      const diagnosisGoal = deriveDiagnosisGoalForAnalysis(threadStateRef.current);
-      const body: Record<string, unknown> = {
-        use_photo: false,
-        ...(diagnosisGoal ? { goal: diagnosisGoal, diagnosis_goal: diagnosisGoal } : {}),
-      };
-      const env = await retryWithBackoff(
-        () => bffJson<V1Envelope>('/v1/analysis/skin', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(body),
-          timeoutMs: ANALYSIS_REQUEST_TIMEOUT_MS,
-        }),
-        { maxRetries: 1, baseDelayMs: 1500 },
-      );
-      applyEnvelope(env);
-    } catch (err) {
-      if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      stopQuickSim();
-      setAnalysisBusy(false);
-      setThinkingSteps([]);
-      if (fromRoutineForm) setRoutineFormBusy(false);
-    }
-  }, [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError]);
 
   const runRoutineSkinAnalysis = useCallback(
     async (
@@ -12317,8 +12767,13 @@ export default function BffChat() {
     },
     [
       agentState,
+      applyChatPayload,
+      applySkillMainlineBlockedState,
       bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
+      debug,
       headers,
+      handlePickPhoto,
       language,
       openRoutineIntakeSheet,
       profileSnapshot,
@@ -12327,6 +12782,8 @@ export default function BffChat() {
       runLowConfidenceSkinAnalysis,
       runRoutineBuilderEntry,
       sendChat,
+      sessionMeta,
+      sessionState,
       authSession,
       getLatestAnalysisStorySnapshot,
       getSanitizedAnalysisPhotos,
