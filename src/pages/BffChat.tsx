@@ -8402,6 +8402,17 @@ export default function BffChat() {
     threadStateRef.current = next;
   }, []);
 
+  const stripTransientDiagnosisCards = useCallback((prev: ChatItem[]) => {
+    return prev.filter((item) => {
+      if (item.role !== 'assistant' || item.kind !== 'cards') return true;
+      const cards = Array.isArray(item.cards) ? item.cards : [];
+      return !cards.some((card) => {
+        const type = asString((card as any)?.type || (card as any)?.card_type).trim();
+        return type === 'diagnosis_gate' || type === 'diagnosis_v2_photo_prompt';
+      });
+    });
+  }, []);
+
   const applyThreadOps = useCallback((opsRaw: unknown) => {
     const ops = Array.isArray(opsRaw) ? opsRaw : [];
     if (ops.length === 0) return;
@@ -10743,7 +10754,7 @@ export default function BffChat() {
         pendingActionAfterDiagnosisRef.current = null;
         clearDiagnosisThreadState();
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
         ]);
         setSessionState('idle');
@@ -10754,7 +10765,7 @@ export default function BffChat() {
         pendingActionAfterDiagnosisRef.current = null;
         clearDiagnosisThreadState();
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
         ]);
         setSessionState('idle');
@@ -10783,7 +10794,7 @@ export default function BffChat() {
         threadStateRef.current = nextThreadState;
 
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           {
             id: nextId(),
             role: 'user',
@@ -10819,7 +10830,7 @@ export default function BffChat() {
 
       if (actionId === 'take_photo') {
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '我来上传照片' : 'I will add photos' },
         ]);
         setAgentStateSafe('DIAG_PHOTO_OPTIN');
@@ -10829,7 +10840,7 @@ export default function BffChat() {
 
       if (actionId === 'skip_photo') {
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过照片，继续分析' : 'Skip photo and continue' },
         ]);
         setAgentStateSafe('DIAG_ANALYSIS_SUMMARY');
@@ -11521,6 +11532,7 @@ export default function BffChat() {
       runProductDeepScan,
       sendChat,
       setAgentStateSafe,
+      stripTransientDiagnosisCards,
       tryApplyEnvelopeFromBffError,
     ],
   );

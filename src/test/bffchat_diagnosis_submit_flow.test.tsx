@@ -158,6 +158,54 @@ describe('BffChat diagnosis submit flow', () => {
     expect(chatCalls).toHaveLength(1);
   });
 
+  it('removes the diagnosis gate after the user skips diagnosis', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat('/chat?chip_id=chip.start.diagnosis');
+
+    await screen.findByRole('button', { name: 'Deep hydration' });
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+
+    expect(screen.getByText('Skip diagnosis')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Choose your skincare goals' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start Analysis' })).not.toBeInTheDocument();
+  });
+
+  it('removes diagnosis cards before running low-confidence analysis after photo skip', async () => {
+    const mock = vi.mocked(bffJson);
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') return Promise.resolve(makeEnvelope());
+      if (path === '/v1/chat') return Promise.resolve(makeDiagnosisGateResponse() as any);
+      if (path === '/v1/analysis/skin') {
+        return Promise.resolve(makeEnvelope({ assistant_message: 'Low-confidence analysis started.' }));
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat('/chat?chip_id=chip.start.diagnosis');
+
+    await screen.findByRole('button', { name: 'Repair skin barrier' });
+    fireEvent.click(screen.getByRole('button', { name: 'Repair skin barrier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip and continue' }));
+
+    await waitFor(() => {
+      const analysisCalls = mock.mock.calls.filter(([path]) => path === '/v1/analysis/skin');
+      expect(analysisCalls).toHaveLength(1);
+    });
+
+    expect(screen.queryByRole('heading', { name: 'Choose your skincare goals' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take a selfie for better analysis' })).not.toBeInTheDocument();
+    expect(screen.getByText('Skip photo and continue')).toBeInTheDocument();
+  });
+
   it('enters the photo uploader when the user chooses to take a photo', async () => {
     const mock = vi.mocked(bffJson);
 
@@ -247,6 +295,8 @@ describe('BffChat diagnosis submit flow', () => {
     await screen.findByText('Ingredient & product recommendations');
     expect(screen.getByText('UV Filters SPF 45 Serum')).toBeInTheDocument();
     expect(screen.queryByText(/Gloss Bomb Cream/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Choose your skincare goals' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take a selfie for better analysis' })).not.toBeInTheDocument();
 
     await waitFor(() => {
       const analysisCalls = mock.mock.calls.filter(([path]) => path === '/v1/analysis/skin');
