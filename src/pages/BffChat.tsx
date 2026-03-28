@@ -10972,8 +10972,43 @@ export default function BffChat() {
   );
 
   const runDupeSearch = useCallback(
-    async (rawOriginal: string) => {
-      const originalText = String(rawOriginal || '').trim();
+    async (
+      rawOriginal:
+        | string
+        | {
+          displayText?: string;
+          inputText?: string;
+          productUrl?: string;
+          productAnchor?: Record<string, unknown>;
+        },
+    ) => {
+      const structuredInput = typeof rawOriginal === 'string' ? null : rawOriginal;
+      const structuredAnchor = asObject(structuredInput?.productAnchor) || null;
+      const structuredBrand = asString((structuredAnchor as any)?.brand);
+      const structuredName =
+        asString((structuredAnchor as any)?.display_name) ||
+        asString((structuredAnchor as any)?.displayName) ||
+        asString((structuredAnchor as any)?.name);
+      const structuredJoinedName =
+        structuredBrand && structuredName
+          ? structuredName.toLowerCase().startsWith(`${structuredBrand.toLowerCase()} `) || structuredName.toLowerCase() === structuredBrand.toLowerCase()
+            ? structuredName
+            : `${structuredBrand} ${structuredName}`.trim()
+          : structuredName || structuredBrand;
+      const originalText =
+        typeof rawOriginal === 'string'
+          ? String(rawOriginal || '').trim()
+          : String(
+            structuredInput?.inputText ||
+              structuredInput?.productUrl ||
+              structuredJoinedName ||
+              structuredInput?.displayText ||
+              '',
+          ).trim();
+      const displayText =
+        typeof rawOriginal === 'string'
+          ? originalText
+          : String(structuredInput?.displayText || structuredJoinedName || originalText).trim();
       if (!originalText) {
         setError(language === 'CN' ? '请先填写「目标商品」。' : 'Please provide a target product.');
         return;
@@ -10981,21 +11016,33 @@ export default function BffChat() {
 
       setItems((prev) => [
         ...prev,
-        {
-          id: nextId(),
-          role: 'user',
-          kind: 'text',
-          content: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
-        },
-      ]);
+          {
+            id: nextId(),
+            role: 'user',
+            kind: 'text',
+            content: language === 'CN' ? `找平替：${displayText || originalText}` : `Find dupes: ${displayText || originalText}`,
+          },
+        ]);
       setChatBusy(true);
       setLoadingIntent('default');
       setError(null);
 
       try {
         const requestHeaders = { ...headers, lang: language };
-        const asUrl = parseMaybeUrl(originalText);
+        const explicitUrl =
+          typeof rawOriginal === 'string'
+            ? ''
+            : /^https?:\/\/\S+/i.test(String(structuredInput?.productUrl || '').trim())
+              ? String(structuredInput?.productUrl || '').trim()
+              : '';
+        const asUrl = explicitUrl || parseMaybeUrl(originalText);
         const skillProductAnchor = (() => {
+          if (structuredAnchor) {
+            return {
+              ...structuredAnchor,
+              ...(asUrl && !asString((structuredAnchor as any)?.url) ? { url: asUrl } : {}),
+            };
+          }
           const base: Record<string, unknown> = {};
           if (asUrl) {
             base.url = asUrl;
@@ -11033,7 +11080,7 @@ export default function BffChat() {
                 action_id: 'chip.start.dupes',
                 kind: 'chip',
                 data: {
-                  reply_text: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
+                  reply_text: language === 'CN' ? `找平替：${displayText || originalText}` : `Find dupes: ${displayText || originalText}`,
                   product_anchor: skillProductAnchor,
                 },
               },
@@ -12560,9 +12607,11 @@ export default function BffChat() {
         return;
       }
 
+      const chipProductAnchor = asObject((chipData as any).product_anchor) || asObject((chipData as any).productAnchor);
       const shouldDeferImmediateUserEcho =
         effectiveActionId === 'chip.aurora.next_action.deep_dive_skin' ||
-        effectiveActionId === 'chip.aurora.next_action.solution_next_steps';
+        effectiveActionId === 'chip.aurora.next_action.solution_next_steps' ||
+        (id === 'chip.start.dupes' && Boolean(chipProductAnchor));
       if (!shouldDeferImmediateUserEcho) {
         setItems((prev) => [...stripReturnWelcome(prev), userItem]);
       }
@@ -12694,6 +12743,26 @@ export default function BffChat() {
         return;
       }
       if (id === 'chip.start.dupes') {
+        if (chipProductAnchor) {
+          const anchorBrand = asString((chipProductAnchor as any).brand);
+          const anchorName =
+            asString((chipProductAnchor as any).display_name) ||
+            asString((chipProductAnchor as any).displayName) ||
+            asString((chipProductAnchor as any).name);
+          const anchorDisplayText =
+            anchorBrand && anchorName
+              ? anchorName.toLowerCase().startsWith(`${anchorBrand.toLowerCase()} `) || anchorName.toLowerCase() === anchorBrand.toLowerCase()
+                ? anchorName
+                : `${anchorBrand} ${anchorName}`.trim()
+              : anchorName || anchorBrand || fallbackReplyText;
+          await runDupeSearch({
+            displayText: anchorDisplayText || fallbackReplyText,
+            inputText: anchorDisplayText || fallbackReplyText,
+            productUrl: asString((chipProductAnchor as any).url),
+            productAnchor: chipProductAnchor,
+          });
+          return;
+        }
         setDupeDraft({ original: '' });
         setDupeSheetOpen(true);
         return;

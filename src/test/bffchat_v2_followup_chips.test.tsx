@@ -196,4 +196,64 @@ describe('BffChat V2 follow-up chips', () => {
     expect(secondBody.message).toBe('Add the better option to routine');
     expect(secondBody.action).toBeUndefined();
   });
+
+  it('routes dupe.suggest follow-up chips through chat mainline with product_anchor', async () => {
+    const mock = vi.mocked(bffJson);
+    const productAnchor = {
+      brand: 'Nivea',
+      name: 'Nivea Creme',
+      product_id: 'nivea_creme_1',
+      url: 'https://example.com/products/nivea-creme',
+    };
+    const chatResponses: unknown[] = [
+      makeV2Response({
+        action_type: 'navigate_skill',
+        target_skill_id: 'dupe.suggest',
+        label: { en: 'Find alternatives' },
+        params: { product_anchor: productAnchor },
+      }),
+      makeEnvelope({
+        cards: [
+          {
+            card_type: 'dupe_suggest',
+            sections: [
+              {
+                type: 'dupe_suggest_structured',
+                anchor_product: { brand: 'Nivea', name: 'Creme', product_id: 'nivea_creme_1' },
+                dupe_count: 1,
+                comparable_count: 0,
+              },
+            ],
+            metadata: {},
+          },
+        ],
+      }),
+    ];
+
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap', trace_id: 'trace_bootstrap' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(chatResponses.shift() ?? makeEnvelope());
+      }
+      if (path === '/v1/dupe/suggest') {
+        throw new Error('dupe follow-up chip should not hit legacy /v1/dupe/suggest');
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat();
+    await submitPrompt('Analyze this moisturizer');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Find alternatives' }));
+
+    await waitFor(() => expect(getChatBodies(mock)).toHaveLength(2), { timeout: READY_TIMEOUT_MS });
+    const [, secondBody] = getChatBodies(mock);
+
+    expect(secondBody.message).toBeUndefined();
+    expect(secondBody.action?.action_id).toBe('chip.start.dupes');
+    expect(secondBody.action?.data?.product_anchor).toEqual(productAnchor);
+    expect(mock.mock.calls.some((call) => call[0] === '/v1/dupe/suggest')).toBe(false);
+  });
 });
