@@ -1046,6 +1046,79 @@ export function PhotoModulesCard({
     if (!morePanelAction || !morePanelModule) return null;
     const products = (Array.isArray(morePanelAction.products) ? morePanelAction.products : []).filter((row) => Boolean(row.title));
     const hasProducts = products.length > 0;
+    const featuredProduct = hasProducts ? products[0] : null;
+    const otherProducts = hasProducts ? products.slice(1) : [];
+    const renderProductRow = (product: PhotoModulesProduct, index: number, featured = false) => (
+      <button
+        key={`${morePanelModule.module_id}_${morePanelAction.ingredient_id}_${product.product_id || product.title || index}`}
+        type="button"
+        className={cn(
+          'w-full rounded-2xl border border-border/60 bg-background/80 text-left hover:bg-background disabled:opacity-70',
+          featured ? 'p-4 shadow-sm' : 'p-3',
+        )}
+        disabled={openingProductKey === `${morePanelModule.module_id}::${morePanelAction.ingredient_id}::${product.product_id || product.title || index}`}
+        onClick={() =>
+          void openProduct({
+            moduleId: morePanelModule.module_id,
+            action: morePanelAction,
+            product,
+            productIndex: index,
+          })
+        }
+      >
+        <div className="flex items-start gap-3">
+          {product.image_url ? (
+            <img
+              src={product.image_url}
+              alt={product.title}
+              className={cn('rounded-lg border border-border/60 object-cover', featured ? 'h-20 w-20' : 'h-14 w-14')}
+            />
+          ) : (
+            <div className={cn('flex items-center justify-center rounded-lg border border-border/60 bg-muted/30', featured ? 'h-20 w-20' : 'h-14 w-14')}>
+              <Sparkles className="h-4 w-4 text-muted-foreground" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            {featured ? (
+              <div className="mb-2">
+                <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                  {language === 'CN' ? '主推' : 'Top pick'}
+                </span>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-2">
+              <div className={cn('truncate font-semibold text-foreground', featured ? 'text-base' : 'text-sm')}>{product.title}</div>
+              {product.retrieval_source ? (
+                <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                  {sourceBadgeLabel(product.retrieval_source, language)}
+                </span>
+              ) : null}
+            </div>
+            {product.brand ? <div className="mt-0.5 text-xs text-muted-foreground">{product.brand}</div> : null}
+            {product.benefit_tags.length ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {product.benefit_tags.slice(0, featured ? 5 : 4).map((tag) => (
+                  <span key={tag} className="rounded-full border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {(formatPriceText(product) || formatSocialProofText(product, language)) ? (
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                {formatPriceText(product) ? <span>{formatPriceText(product)}</span> : null}
+                {formatSocialProofText(product, language) ? <span>{formatSocialProofText(product, language)}</span> : null}
+              </div>
+            ) : null}
+            {product.why_match ? (
+              <div className={cn('mt-2 text-muted-foreground', featured ? 'text-sm leading-relaxed' : 'text-[11px]')}>
+                {product.why_match}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </button>
+    );
     return (
       <div className="mt-3 space-y-3 px-4 pb-4">
         <div className="text-xs text-muted-foreground">
@@ -1054,53 +1127,16 @@ export function PhotoModulesCard({
             : `${morePanelAction.ingredient_name} · ${products.length} recommendations`}
         </div>
         {hasProducts ? (
-          <div className="space-y-2">
-            {products.map((product, index) => (
-              <button
-                key={`${morePanelModule.module_id}_${morePanelAction.ingredient_id}_${product.product_id || product.title || index}`}
-                type="button"
-                className="w-full rounded-xl border border-border/60 bg-background/80 p-3 text-left hover:bg-background disabled:opacity-70"
-                disabled={openingProductKey === `${morePanelModule.module_id}::${morePanelAction.ingredient_id}::${product.product_id || product.title || index}`}
-                onClick={() =>
-                  void openProduct({
-                    moduleId: morePanelModule.module_id,
-                    action: morePanelAction,
-                    product,
-                    productIndex: index,
-                  })
-                }
-              >
-                <div className="flex items-start gap-3">
-                  {product.image_url ? (
-                    <img src={product.image_url} alt={product.title} className="h-14 w-14 rounded-lg border border-border/60 object-cover" />
-                  ) : (
-                    <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-border/60 bg-muted/30">
-                      <Sparkles className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-foreground">{product.title}</div>
-                    {product.brand ? <div className="mt-0.5 text-xs text-muted-foreground">{product.brand}</div> : null}
-                    {product.benefit_tags.length ? (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {product.benefit_tags.slice(0, 4).map((tag) => (
-                          <span key={tag} className="rounded-full border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {(formatPriceText(product) || formatSocialProofText(product, language)) ? (
-                      <div className="mt-1.5 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                        {formatPriceText(product) ? <span>{formatPriceText(product)}</span> : null}
-                        {formatSocialProofText(product, language) ? <span>{formatSocialProofText(product, language)}</span> : null}
-                      </div>
-                    ) : null}
-                    {product.why_match ? <div className="mt-1 text-[11px] text-muted-foreground">{product.why_match}</div> : null}
-                  </div>
+          <div className="space-y-3">
+            {featuredProduct ? renderProductRow(featuredProduct, 0, true) : null}
+            {otherProducts.length ? (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  {language === 'CN' ? '其他推荐' : 'Other options'}
                 </div>
-              </button>
-            ))}
+                {otherProducts.map((product, index) => renderProductRow(product, index + 1, false))}
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="space-y-2">

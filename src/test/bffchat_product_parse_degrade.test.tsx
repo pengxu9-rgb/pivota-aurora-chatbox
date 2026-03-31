@@ -80,7 +80,7 @@ function makeProductVerdictSkillResponse() {
 }
 
 async function openProductEvaluateFlow() {
-  const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+  const entry = await screen.findByRole('button', { name: /evaluate a product/i });
   fireEvent.click(entry);
   return screen.findByPlaceholderText(/nivea creme/i);
 }

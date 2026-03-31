@@ -713,6 +713,99 @@ function ProductList({
   );
 }
 
+function productIdentity(item: ParsedProduct | null | undefined): string {
+  if (!item) return '';
+  return `${item.rank}::${item.name}`.toLowerCase();
+}
+
+function FeaturedProductCard({
+  item,
+  barrierImpaired,
+}: {
+  item: ParsedProduct;
+  barrierImpaired: boolean;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const detailsId = React.useId();
+  const actives = item.keyActives.slice(0, 4);
+  const caution = buildCautionLine(item, { barrierImpaired });
+  const why = buildWhyLine(item);
+
+  return (
+    <div className="rounded-3xl border border-border/70 bg-background/80 p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-2">
+          <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+            Top pick
+          </span>
+          <div className="text-lg font-semibold leading-tight text-foreground">{item.name}</div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="whitespace-nowrap">{parsePriceDisplay(item.priceText)}</span>
+            {item.availability ? (
+              <Badge variant="secondary" className="whitespace-nowrap">
+                {normalizeAvailabilityLabel(item.availability) || item.availability}
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+
+        {typeof item.score === 'number' ? (
+          <span className="shrink-0 rounded-full border border-border/60 bg-muted/60 px-2 py-1 text-xs font-semibold text-foreground">
+            {item.score}/100
+          </span>
+        ) : null}
+      </div>
+
+      {actives.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {actives.map((active) => (
+            <Badge key={active} variant="outline" className="whitespace-nowrap">
+              {active}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-3 text-sm leading-relaxed text-slate-700">
+        <span className="font-medium text-slate-900">Why this pick:</span> {why}
+      </div>
+
+      {caution ? (
+        <div className="mt-2 text-sm leading-relaxed text-amber-700">
+          <span className="font-medium">Caution:</span> {caution}
+        </div>
+      ) : null}
+
+      <div className="mt-3">
+        <button
+          type="button"
+          className="text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label="Toggle top pick details"
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          {expanded ? 'Hide details' : 'Why this pick'}
+        </button>
+      </div>
+
+      <div id={detailsId} hidden={!expanded} className="mt-3 space-y-2">
+        {item.sensitivityNote ? (
+          <div className="text-sm text-slate-700" style={clampStyle(2)}>
+            {item.sensitivityNote}
+          </div>
+        ) : null}
+
+        {item.notes.length ? (
+          <div className="text-sm text-slate-700" style={clampStyle(3)}>
+            {item.notes.join(' · ')}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function ProductPicksCard({
   rawContent,
   onPrimaryClick,
@@ -756,8 +849,12 @@ export function ProductPicksCard({
     return shortlist.slice(0, 2);
   }, [barrierImpaired, shortlist]);
 
+  const topPick = safest[0] || shortlist[0] || null;
+  const topPickKey = productIdentity(topPick);
+  const allOtherOptions = shortlist.filter((item) => productIdentity(item) !== topPickKey);
   const [fullOpen, setFullOpen] = React.useState(false);
   const fullId = React.useId();
+  const visibleOtherOptions = fullOpen ? allOtherOptions : allOtherOptions.slice(0, 3);
 
   const skinChip = profile?.skinType ? `Skin: ${titleCaseWord(profile.skinType)}` : null;
   const sensitivityChip = profile?.sensitivity ? `Sensitivity: ${titleCaseWord(profile.sensitivity)}` : null;
@@ -809,7 +906,7 @@ export function ProductPicksCard({
     <div className="space-y-4">
       <div className="space-y-2">
         <div className="space-y-1">
-          <div className="text-base font-semibold text-foreground">Product picks</div>
+          <div className="text-base font-semibold text-foreground">Recommendations for you</div>
           <div className="text-sm text-slate-500">{subtitle}</div>
         </div>
 
@@ -835,39 +932,37 @@ export function ProductPicksCard({
       </div>
 
       <div className="space-y-3">
-        <div className="text-sm font-semibold text-foreground">Safest picks ({Math.min(2, safest.length) || 2})</div>
-        {safest.length ? (
-          <ProductList items={safest} barrierImpaired={barrierImpaired} />
+        {topPick ? (
+          <FeaturedProductCard item={topPick} barrierImpaired={barrierImpaired} />
         ) : (
           <div className="text-sm text-slate-500">No products found in the shortlist.</div>
         )}
       </div>
 
-      <div className="space-y-3">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          aria-label="Toggle full shortlist"
-          aria-expanded={fullOpen}
-          aria-controls={fullId}
-          onClick={() => setFullOpen((v) => !v)}
-        >
-          <span>Full shortlist ({shortlist.length || 5})</span>
-          <ChevronDown className={`h-4 w-4 transition-transform ${fullOpen ? 'rotate-180' : ''}`} />
-        </button>
-
-        <div id={fullId} hidden={!fullOpen}>
-          {shortlist.length ? (
-            <ProductList items={shortlist} barrierImpaired={barrierImpaired} />
-          ) : (
-            <div className="text-sm text-slate-500">No products found in the shortlist.</div>
-          )}
+      {allOtherOptions.length ? (
+        <div className="space-y-3">
+          <div className="text-sm font-semibold text-foreground">Other options</div>
+          <ProductList items={visibleOtherOptions} barrierImpaired={barrierImpaired} />
+          {allOtherOptions.length > 3 ? (
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label="Toggle more options"
+              aria-expanded={fullOpen}
+              aria-controls={fullId}
+              onClick={() => setFullOpen((v) => !v)}
+            >
+              <span>{fullOpen ? 'Show fewer' : `Show all options (${allOtherOptions.length})`}</span>
+              <ChevronDown className={`h-4 w-4 transition-transform ${fullOpen ? 'rotate-180' : ''}`} />
+            </button>
+          ) : null}
+          <div id={fullId} hidden />
         </div>
-      </div>
+      ) : null}
 
       <div className="space-y-2 pt-1">
-        <Button className="w-full" onClick={onPrimaryClick} aria-label="See product recommendations">
-          See product recommendations
+        <Button className="w-full" onClick={onPrimaryClick} aria-label="View all picks">
+          View all picks
         </Button>
         <div className="flex flex-wrap justify-center gap-3">
           <Button variant="link" size="sm" onClick={onMakeGentler} aria-label="Make gentler">

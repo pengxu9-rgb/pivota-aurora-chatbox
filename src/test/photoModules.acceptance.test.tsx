@@ -368,7 +368,10 @@ describe('photo_modules_v1 acceptance', () => {
     expect(screen.queryByText('Night Recovery Essence')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /see more/i }));
 
-    expect(screen.getByText('Night Recovery Essence')).toBeInTheDocument();
+    expect(screen.getByText('More products')).toBeInTheDocument();
+    expect(screen.getByText('Top pick')).toBeInTheDocument();
+    expect(screen.getByText('Other options')).toBeInTheDocument();
+    expect(screen.getByText('Niacinamide Barrier Gel')).toBeInTheDocument();
   });
 
   it('opens internal PDP when canonical product ref is available', async () => {

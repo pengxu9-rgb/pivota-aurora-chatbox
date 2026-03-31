@@ -61,7 +61,7 @@ async function waitForEnabledInput(placeholder: string | RegExp) {
 }
 
 async function openProductEvaluateSheet() {
-  const entry = await waitForEnabledButton(/evaluate a specific product for me/i);
+  const entry = await waitForEnabledButton(/evaluate a product/i);
   fireEvent.click(entry);
   return waitForEnabledInput(/nivea creme/i);
 }

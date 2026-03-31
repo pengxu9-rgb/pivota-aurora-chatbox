@@ -4528,7 +4528,13 @@ export function RecommendationsCard({
         >
           <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
             <span>
-              {language === 'CN' ? '查看证据与完整说明' : 'View evidence & full notes'}
+              {hasAnyAlternatives
+                ? language === 'CN'
+                  ? '查看步骤与替代项'
+                  : 'View steps & alternatives'
+                : language === 'CN'
+                  ? '查看步骤与证据'
+                  : 'View steps & evidence'}
             </span>
             <ChevronDown className="h-4 w-4" />
           </summary>
@@ -9839,7 +9845,7 @@ export default function BffChat() {
         },
         {
           chip_id: 'chip.start.reco_products',
-          label: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
+          label: lang === 'CN' ? '推荐产品' : 'Recommend products',
           kind: 'quick_reply',
           data: {
             reply_text: lang === 'CN' ? '推荐一些产品（例如：提亮精华）' : 'Recommend a few products (e.g., brightening serum)',
@@ -9848,13 +9854,13 @@ export default function BffChat() {
         },
         {
           chip_id: 'chip.start.routine',
-          label: lang === 'CN' ? '生成早晚护肤 routine' : 'Build an AM/PM routine',
+          label: lang === 'CN' ? 'AM/PM routine' : 'AM/PM routine',
           kind: 'quick_reply',
           data: { reply_text: lang === 'CN' ? '生成一套早晚护肤 routine' : 'Build an AM/PM skincare routine', include_alternatives: true },
         },
         {
           chip_id: 'chip.start.evaluate',
-          label: lang === 'CN' ? '评估某个产品适合吗' : 'Evaluate a specific product for me',
+          label: lang === 'CN' ? '评估产品' : 'Evaluate a product',
           kind: 'quick_reply',
           data: { reply_text: lang === 'CN' ? '评估这款产品是否适合我' : 'Evaluate a specific product for me' },
         },
@@ -12874,7 +12880,7 @@ export default function BffChat() {
         chip_eval_single_product: { EN: 'Evaluate a product', CN: '评估某个产品' },
         'chip.start.reco_products': { EN: 'Recommend products', CN: '产品推荐' },
         chip_get_recos: { EN: 'Recommend products', CN: '产品推荐' },
-        'chip.start.routine': { EN: 'Build an AM/PM routine', CN: '生成早晚护肤 routine' },
+        'chip.start.routine': { EN: 'AM/PM routine', CN: 'AM/PM routine' },
         'chip.start.dupes': { EN: 'Find dupes / alternatives', CN: '找平替/替代品' },
         'chip.aurora.next_action.deep_dive_skin': { EN: 'Continue from my saved analysis', CN: '继续这次分析结果' },
         'chip.aurora.next_action.solution_next_steps': { EN: 'Continue from my saved analysis', CN: '继续这次分析结果' },

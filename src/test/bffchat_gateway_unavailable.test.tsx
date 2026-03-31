@@ -141,7 +141,7 @@ describe('BffChat gateway unavailable UX', () => {
       </MemoryRouter>,
     );
 
-    const entry = await waitForEnabledButton(/evaluate a specific product for me/i);
+    const entry = await screen.findByRole('button', { name: /evaluate a product/i });
     fireEvent.click(entry);
 
     const productInput = await waitForEnabledInput(/nivea creme/i);
