@@ -40,6 +40,7 @@ export function AuroraRoutineCard({
   onStepSecondaryAction,
 }: AuroraRoutineCardProps) {
   const L = <T,>(en: T, cn: T) => pickLocalizedText(language, { en, cn });
+  const secondaryActionLabel = L('Compare', '对比');
   const categoryLabels: Record<string, { EN: string; CN: string }> = {
     cleanser: { EN: 'Cleanser', CN: '洁面' },
     treatment: { EN: 'Treatment', CN: '精华' },
@@ -112,7 +113,8 @@ export function AuroraRoutineCard({
             {hasSecondaryAction ? (
               <button
                 type="button"
-                className="chip-button inline-flex items-center gap-1 text-[11px]"
+                className="chip-button inline-flex max-w-[7rem] items-center gap-1 whitespace-nowrap px-2.5 text-[11px]"
+                title={step.secondaryLabel || secondaryActionLabel}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (!onStepSecondaryAction) return;
@@ -120,7 +122,7 @@ export function AuroraRoutineCard({
                 }}
               >
                 <GitCompareArrows className="h-3.5 w-3.5" />
-                {step.secondaryLabel}
+                <span className="truncate">{secondaryActionLabel}</span>
               </button>
             ) : null}
           </div>

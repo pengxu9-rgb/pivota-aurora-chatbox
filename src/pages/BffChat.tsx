@@ -66,6 +66,8 @@ import {
   emitAuroraProductAlternativesFiltered,
   emitAuroraHowToLayerInlineOpened,
   emitAuroraProductParseMissing,
+  emitAuroraSkillRouteFallback,
+  emitAuroraSkillRouteResult,
   emitUiChipClicked,
   emitUiLanguageSwitched,
   emitUiOutboundOpened,
@@ -91,7 +93,7 @@ import {
 } from '@/lib/auroraAnalytics';
 import { buildChatSession } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
-import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
+import type { QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import {
@@ -193,6 +195,56 @@ function buildChatRequestMessages(items: ChatItem[]): ChatRequestMessage[] {
     messages.push({ role: item.role, content });
   }
   return messages.slice(-CHAT_CONTEXT_MESSAGE_LIMIT);
+}
+
+function chatResponseHasCardType(bodyRaw: unknown, expectedTypes: string[]): boolean {
+  const lowered = new Set(expectedTypes.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+  if (lowered.size === 0) return false;
+
+  const parsedV1 = parseChatResponseV1(bodyRaw);
+  if (parsedV1) {
+    return parsedV1.cards.some((card) => lowered.has(String(card?.type || '').trim().toLowerCase()));
+  }
+
+  const root = asObject(bodyRaw);
+  const cards = Array.isArray(root?.cards) ? root.cards : [];
+  return cards.some((card) => {
+    const row = asObject(card);
+    if (!row) return false;
+    const cardType = String(row.card_type || row.type || '').trim().toLowerCase();
+    return lowered.has(cardType);
+  });
+}
+
+function readChatRouteMeta(bodyRaw: unknown): {
+  request_id: string | null;
+  trace_id: string | null;
+  card_types: string[];
+} {
+  const parsedV1 = parseChatResponseV1(bodyRaw);
+  if (parsedV1) {
+    return {
+      request_id: asString(parsedV1.request_id) || null,
+      trace_id: asString(parsedV1.trace_id) || null,
+      card_types: uniqueStrings(parsedV1.cards.map((card) => asString(card?.type)).filter(Boolean)),
+    };
+  }
+
+  const root = asObject(bodyRaw);
+  const cards = Array.isArray(root?.cards) ? root.cards : [];
+  return {
+    request_id: asString(root?.request_id) || null,
+    trace_id: asString(root?.trace_id) || null,
+    card_types: uniqueStrings(
+      cards
+        .map((card) => {
+          const row = asObject(card);
+          if (!row) return '';
+          return asString(row.card_type || row.type);
+        })
+        .filter(Boolean),
+    ),
+  };
 }
 
 type ProductAlternativeTrackItem = {
@@ -854,6 +906,25 @@ const FF_SHOW_PASSIVE_GATES = (() => {
   return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
 })();
 
+const readBooleanEnvFlag = (rawValue: unknown, defaultValue: boolean): boolean => {
+  if (rawValue == null) return defaultValue;
+  const raw = String(rawValue).trim().toLowerCase();
+  if (!raw) return defaultValue;
+  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no');
+};
+
+const isProductAnalyzeViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_PRODUCT_ANALYZE_VIA_SKILL, true);
+
+const isDupeSearchViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_DUPE_SEARCH_VIA_SKILL, true);
+
+const isDupeCompareViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_DUPE_COMPARE_VIA_SKILL, true);
+
+const isRoutineBuilderViaSkillEnabled = (): boolean =>
+  readBooleanEnvFlag(import.meta.env.VITE_FF_AURORA_ROUTINE_BUILDER_VIA_SKILL, false);
+
 const toLangPref = (language: UiLanguage): LangPref => (language === 'CN' ? 'cn' : 'en');
 
 const LANGUAGE_MISMATCH_HINT_SNOOZE_MS = 6 * 60 * 60 * 1000;
@@ -1086,7 +1157,7 @@ const nextAgentStateForChip = (chipId: string): AgentState | null => {
     case 'chip.start.evaluate':
       return 'PRODUCT_LINK_EVAL';
     case 'chip.start.routine':
-      return 'RECO_GATE';
+      return 'ROUTINE_INTAKE';
     case 'chip.start.reco_products':
       return 'RECO_GATE';
     case 'chip.action.reco_routine':
@@ -1197,6 +1268,7 @@ const getChipVisualRoles = (chips: SuggestedChip[]): ChipVisualRole[] => {
 };
 
 const CHAT_CARDS_V1_TYPES = new Set([
+  'empty_state',
   'product_verdict',
   'compatibility',
   'routine',
@@ -1207,8 +1279,71 @@ const CHAT_CARDS_V1_TYPES = new Set([
   'nudge',
 ]);
 
+type MainlineBlockedReason =
+  | 'flag_disabled'
+  | 'request_failed'
+  | 'missing_expected_card'
+  | 'apply_failed'
+  | 'anchor_insufficient';
+
+function buildMainlineBlockedChatPayload(args: {
+  language: UiLanguage;
+  requestedSkill: string;
+  entrySource: string;
+  reason: MainlineBlockedReason;
+  titleEn: string;
+  titleZh: string;
+  messageEn: string;
+  messageZh: string;
+}) {
+  const {
+    language,
+    requestedSkill,
+    entrySource,
+    reason,
+    titleEn,
+    titleZh,
+    messageEn,
+    messageZh,
+  } = args;
+
+  return {
+    cards: [
+      {
+        card_type: 'empty_state',
+        title: language === 'CN' ? titleZh : titleEn,
+        metadata: {
+          mainline_blocked: true,
+          mainline_blocked_reason: reason,
+          requested_skill: requestedSkill,
+          entry_source: entrySource,
+        },
+        sections: [
+          {
+            type: 'empty_state_message',
+            message_en: messageEn,
+            message_zh: messageZh,
+            reason_code: reason,
+            mainline_blocked: true,
+            requested_skill: requestedSkill,
+            entry_source: entrySource,
+          },
+        ],
+      },
+    ],
+    ops: {
+      thread_ops: [],
+      profile_patch: {},
+      routine_patch: {},
+      experiment_events: [],
+    },
+    next_actions: [],
+  };
+}
+
 const iconForCard = (type: string): IconType => {
   const t = String(type || '').toLowerCase();
+  if (t === 'empty_state') return AlertTriangle;
   if (t === 'product_verdict') return Search;
   if (t === 'compatibility') return ListChecks;
   if (t === 'routine') return Sparkles;
@@ -1224,6 +1359,8 @@ const iconForCard = (type: string): IconType => {
   if (t === 'ingredient_plan') return FlaskConical;
   if (t === 'ingredient_plan_v2') return FlaskConical;
   if (t === 'analysis_story_v2') return ListChecks;
+  if (t === 'returning_triage') return RefreshCw;
+  if (t === 'skin_progress') return Activity;
   if (t === 'routine_product_audit_v1') return Search;
   if (t === 'routine_adjustment_plan_v1') return ListChecks;
   if (t === 'routine_recommendation_v1') return Sparkles;
@@ -1243,6 +1380,7 @@ const iconForCard = (type: string): IconType => {
 const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   const t = String(type || '');
   const key = t.toLowerCase();
+  if (key === 'empty_state') return language === 'CN' ? '还需要更多可识别信息' : 'Need clearer product details';
   if (key === 'product_verdict') return language === 'CN' ? '产品决策结论' : 'Product verdict';
   if (key === 'compatibility') return language === 'CN' ? '搭配与冲突建议' : 'Compatibility';
   if (key === 'routine') return language === 'CN' ? 'AM/PM 护肤流程' : 'Routine';
@@ -1259,6 +1397,8 @@ const titleForCard = (type: string, language: 'EN' | 'CN'): string => {
   if (key === 'ingredient_plan') return language === 'CN' ? '成分策略' : 'Ingredient plan';
   if (key === 'ingredient_plan_v2') return language === 'CN' ? '成分策略（个性化）' : 'Ingredient plan (personalized)';
   if (key === 'analysis_story_v2') return language === 'CN' ? '分析解读' : 'Analysis story';
+  if (key === 'returning_triage') return language === 'CN' ? '继续之前的诊断' : 'Continue your diagnosis';
+  if (key === 'skin_progress') return language === 'CN' ? '肌肤进展' : 'Skin progress';
   if (key === 'routine_product_audit_v1') return language === 'CN' ? '当前产品拆解' : 'Your current products';
   if (key === 'routine_adjustment_plan_v1') return language === 'CN' ? '先改什么' : 'What to change first';
   if (key === 'routine_recommendation_v1') return language === 'CN' ? '如果要升级，先补这里' : 'If you upgrade, start here';
@@ -1303,6 +1443,310 @@ const collapseAnalysisSummaryCards = (cards: Card[]): Card[] => {
   out.reverse();
   return out;
 };
+
+const localizedCardActionField = (
+  row: Record<string, unknown> | null | undefined,
+  field: string,
+  language: 'EN' | 'CN',
+): string => {
+  const item = row && typeof row === 'object' ? row : null;
+  if (!item) return '';
+  const localizedKey = `${field}_${language === 'CN' ? 'zh' : 'en'}`;
+  return asString((item as any)[localizedKey]) || asString((item as any)[field]);
+};
+
+const renderTokenPills = (items: string[], tone: 'default' | 'subtle' = 'default') => {
+  const className =
+    tone === 'subtle'
+      ? 'rounded-full border border-border/50 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground'
+      : 'rounded-full border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-foreground/80';
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item) => (
+        <span key={item} className={className}>
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+function ReturningTriageCardView({
+  payload,
+  language,
+  onAction,
+}: {
+  payload: Record<string, unknown>;
+  language: UiLanguage;
+  onAction: (actionId: string, data?: Record<string, any>) => void;
+}) {
+  const sections = asArray((payload as any).sections).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+  const summarySection =
+    sections.find((section) => asString((section as any).kind) === 'previous_diagnosis_summary') || null;
+  const actionSection =
+    sections.find((section) => asString((section as any).kind) === 'returning_action_selection') || null;
+  const summaryText = asString((summarySection as any)?.summary_text);
+  const skinType = asString((summarySection as any)?.skin_type);
+  const goals = asArray((summarySection as any)?.goals).map((item) => asString(item)).filter(Boolean) as string[];
+  const concerns = asArray((summarySection as any)?.primary_concerns).map((item) => asString(item)).filter(Boolean) as string[];
+  const blueprintId = asString((summarySection as any)?.blueprint_id);
+  const actionRows = (
+    asArray((actionSection as any)?.options).length
+      ? asArray((actionSection as any)?.options)
+      : asArray((payload as any).actions)
+  )
+    .map((row) => asObject(row))
+    .filter(Boolean) as Array<Record<string, unknown>>;
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+      <div className="space-y-2">
+        <div className="text-sm font-semibold text-foreground">
+          {language === 'CN' ? '我们保留了你上次诊断的基线。' : 'We still have your previous diagnosis baseline.'}
+        </div>
+        {summaryText ? <div className="text-sm leading-6 text-foreground/90">{summaryText}</div> : null}
+        <div className="flex flex-wrap gap-2">
+          {skinType ? (
+            <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+              {language === 'CN' ? `肤质：${skinType}` : `Skin type: ${skinType}`}
+            </span>
+          ) : null}
+          {blueprintId ? (
+            <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+              {language === 'CN' ? `基线：${blueprintId}` : `Baseline: ${blueprintId}`}
+            </span>
+          ) : null}
+        </div>
+        {goals.length ? (
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '当前目标' : 'Current goals'}</div>
+            {renderTokenPills(goals.slice(0, 4))}
+          </div>
+        ) : null}
+        {concerns.length ? (
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '重点问题' : 'Top concerns'}</div>
+            {renderTokenPills(concerns.slice(0, 4), 'subtle')}
+          </div>
+        ) : null}
+      </div>
+
+      {actionRows.length ? (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {language === 'CN' ? '接下来做什么' : 'What to do next'}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {actionRows.map((row, idx) => {
+              const actionId = asString((row as any).action_id) || asString((row as any).id);
+              if (!actionId) return null;
+              const label = localizedCardActionField(row, 'label', language === 'CN' ? 'CN' : 'EN');
+              const description = localizedCardActionField(row, 'description', language === 'CN' ? 'CN' : 'EN');
+              const targetSkillId = asString((row as any).target_skill_id);
+              const actionType = asString((row as any).action) || asString((row as any).type);
+              return (
+                <button
+                  key={`${actionId}_${idx}`}
+                  type="button"
+                  aria-label={label}
+                  className="rounded-2xl border border-border/60 bg-background/90 p-3 text-left transition hover:border-foreground/20 hover:bg-muted/30"
+                  onClick={() =>
+                    onAction(actionId, {
+                      reply_text: label,
+                      trigger_source: 'returning_triage',
+                      source_card_type: 'returning_triage',
+                      ...(actionType ? { action_type: actionType } : {}),
+                      ...(targetSkillId ? { target_skill_id: targetSkillId } : {}),
+                    })
+                  }
+                >
+                  <div className="text-sm font-medium text-foreground">{label}</div>
+                  {description ? <div className="mt-1 text-xs leading-5 text-muted-foreground">{description}</div> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SkinProgressCardView({
+  payload,
+  language,
+  onAction,
+}: {
+  payload: Record<string, unknown>;
+  language: UiLanguage;
+  onAction: (actionId: string, data?: Record<string, any>) => void;
+}) {
+  const sections = asArray((payload as any).sections).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+  const baselineSection = sections.find((section) => asString((section as any).kind) === 'progress_baseline') || null;
+  const deltaSection = sections.find((section) => asString((section as any).kind) === 'progress_delta') || null;
+  const highlightsSection = sections.find((section) => asString((section as any).kind) === 'progress_highlights') || null;
+  const recommendationSection = sections.find((section) => asString((section as any).kind) === 'progress_recommendation') || null;
+  const overallTrend = String(asString((deltaSection as any)?.overall_trend) || '').toLowerCase();
+  const confidence = Number((deltaSection as any)?.confidence);
+  const checkinsAnalyzed = Number((deltaSection as any)?.checkins_analyzed);
+  const concernDeltas = asArray((deltaSection as any)?.concern_deltas)
+    .map((row) => asObject(row))
+    .filter(Boolean) as Array<Record<string, unknown>>;
+  const improvements = asArray((highlightsSection as any)?.improvements).map((item) => asString(item)).filter(Boolean) as string[];
+  const regressions = asArray((highlightsSection as any)?.regressions).map((item) => asString(item)).filter(Boolean) as string[];
+  const stable = asArray((highlightsSection as any)?.stable).map((item) => asString(item)).filter(Boolean) as string[];
+  const recommendationText =
+    localizedCardActionField(recommendationSection, 'text', language === 'CN' ? 'CN' : 'EN') ||
+    asString((recommendationSection as any)?.text_en) ||
+    asString((recommendationSection as any)?.text_zh);
+  const skinType = asString((baselineSection as any)?.skin_type);
+  const goals = asArray((baselineSection as any)?.goals).map((item) => asString(item)).filter(Boolean) as string[];
+  const concerns = asArray((baselineSection as any)?.primary_concerns).map((item) => asString(item)).filter(Boolean) as string[];
+  const actionRows = asArray((payload as any).actions).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+
+  const trendLabel =
+    overallTrend === 'improving'
+      ? language === 'CN'
+        ? '整体在改善'
+        : 'Overall improving'
+      : overallTrend === 'worsening'
+        ? language === 'CN'
+          ? '有部分回退'
+          : 'Some regression detected'
+        : language === 'CN'
+          ? '整体相对稳定'
+          : 'Overall stable';
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-border/60 bg-background/70 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-border/60 bg-background/90 px-2 py-1 text-xs font-medium text-foreground">
+          {trendLabel}
+        </span>
+        {Number.isFinite(confidence) ? (
+          <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+            {language === 'CN' ? `置信度 ${Math.round(confidence * 100)}%` : `Confidence ${Math.round(confidence * 100)}%`}
+          </span>
+        ) : null}
+        {Number.isFinite(checkinsAnalyzed) && checkinsAnalyzed > 0 ? (
+          <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+            {language === 'CN' ? `已分析 ${checkinsAnalyzed} 次打卡` : `${checkinsAnalyzed} check-ins analyzed`}
+          </span>
+        ) : null}
+        {skinType ? (
+          <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+            {language === 'CN' ? `肤质：${skinType}` : `Skin type: ${skinType}`}
+          </span>
+        ) : null}
+      </div>
+
+      {goals.length ? (
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '跟踪目标' : 'Tracked goals'}</div>
+          {renderTokenPills(goals.slice(0, 4))}
+        </div>
+      ) : null}
+
+      {concerns.length ? (
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-muted-foreground">{language === 'CN' ? '重点问题' : 'Top concerns'}</div>
+          {renderTokenPills(concerns.slice(0, 4), 'subtle')}
+        </div>
+      ) : null}
+
+      {concernDeltas.length ? (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {language === 'CN' ? '变化摘要' : 'Change summary'}
+          </div>
+          <ul className="space-y-2 text-sm text-foreground">
+            {concernDeltas.slice(0, 4).map((row, idx) => {
+              const concern = asString((row as any).concern) || asString((row as any).label);
+              const note =
+                localizedCardActionField(row, 'note', language === 'CN' ? 'CN' : 'EN') ||
+                localizedCardActionField(row, 'summary', language === 'CN' ? 'CN' : 'EN');
+              return (
+                <li key={`${concern || 'delta'}_${idx}`} className="rounded-2xl border border-border/50 bg-background/80 p-3">
+                  <div className="text-sm font-medium text-foreground">{concern || (language === 'CN' ? '单项变化' : 'Concern change')}</div>
+                  {note ? <div className="mt-1 text-xs leading-5 text-muted-foreground">{note}</div> : null}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {improvements.length || regressions.length || stable.length ? (
+        <div className="grid gap-3 md:grid-cols-3">
+          {improvements.length ? (
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <div className="text-xs font-semibold text-emerald-700">{language === 'CN' ? '改善' : 'Improvements'}</div>
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {improvements.slice(0, 3).map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {regressions.length ? (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="text-xs font-semibold text-amber-700">{language === 'CN' ? '需要注意' : 'Watchouts'}</div>
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {regressions.slice(0, 3).map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {stable.length ? (
+            <div className="rounded-2xl border border-border/50 bg-muted/30 p-3">
+              <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '保持稳定' : 'Stable'}</div>
+              <ul className="mt-2 space-y-1 text-sm text-foreground">
+                {stable.slice(0, 3).map((item) => <li key={item}>• {item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {recommendationText ? (
+        <div className="rounded-2xl border border-border/60 bg-background/90 p-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {language === 'CN' ? '当前建议' : 'Recommendation now'}
+          </div>
+          <div className="mt-2 text-sm leading-6 text-foreground/90">{recommendationText}</div>
+        </div>
+      ) : null}
+
+      {actionRows.length ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {actionRows.map((row, idx) => {
+            const actionId = asString((row as any).action_id) || asString((row as any).id);
+            if (!actionId) return null;
+            const label = localizedCardActionField(row, 'label', language === 'CN' ? 'CN' : 'EN');
+            const targetSkillId = asString((row as any).target_skill_id);
+            const actionType = asString((row as any).action) || asString((row as any).type);
+            return (
+              <button
+                key={`${actionId}_${idx}`}
+                type="button"
+                aria-label={label}
+                className="rounded-2xl border border-border/60 bg-background/90 p-3 text-left transition hover:border-foreground/20 hover:bg-muted/30"
+                onClick={() =>
+                  onAction(actionId, {
+                    reply_text: label,
+                    trigger_source: 'skin_progress',
+                    source_card_type: 'skin_progress',
+                    ...(actionType ? { action_type: actionType } : {}),
+                    ...(targetSkillId ? { target_skill_id: targetSkillId } : {}),
+                  })
+                }
+              >
+                <div className="text-sm font-medium text-foreground">{label}</div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const removePhotoConfirmCardsFromHistory = (items: ChatItem[]): ChatItem[] => {
   if (!Array.isArray(items) || items.length === 0) return items;
@@ -1795,6 +2239,21 @@ const isRoutineChatAction = (action?: V1Action): boolean => {
 };
 
 function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Product {
+  const stripLeadingBrandFromName = (nameText: string, brandText: string) => {
+    const cleanName = asString(nameText);
+    const cleanBrand = asString(brandText);
+    if (!cleanName || !cleanBrand) return cleanName;
+    const norm = (value: string) => value.toLowerCase().replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+    const brandTokens = norm(cleanBrand).split(/\s+/).filter(Boolean);
+    const nameTokens = norm(cleanName).split(/\s+/).filter(Boolean);
+    let matched = 0;
+    while (matched < brandTokens.length && matched < nameTokens.length && brandTokens[matched] === nameTokens[matched]) {
+      matched += 1;
+    }
+    if (matched === 0) return cleanName;
+    const rawTokens = cleanName.split(/\s+/).filter(Boolean);
+    return rawTokens.slice(matched).join(' ').trim() || cleanName;
+  };
   const isUnknownToken = (value: unknown) => /^(unknown|n\/a|na|null|undefined|-|—)$/i.test(String(value ?? '').trim());
   const inferCategoryFromName = (nameText: string) => {
     const n = nameText.toLowerCase();
@@ -1811,7 +2270,8 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
     asString(raw.sku_id ?? raw.skuId ?? raw.product_id ?? raw.productId) ||
     `unknown_${Math.random().toString(16).slice(2)}`.slice(0, 24);
   const brand = asString(raw.brand) || '';
-  const name = asString(raw.name) || asString(raw.title) || asString(raw.display_name ?? raw.displayName) || '';
+  const rawName = asString(raw.name) || asString(raw.title) || asString(raw.display_name ?? raw.displayName) || '';
+  const name = stripLeadingBrandFromName(rawName, brand);
   const categoryRaw = asString(raw.category) || asString((raw as any).category_name ?? (raw as any).categoryName) || '';
   const category = (!categoryRaw || isUnknownToken(categoryRaw)) ? inferCategoryFromName(name) : categoryRaw;
   const description = asString(raw.description) || '';
@@ -1820,7 +2280,7 @@ function toUiProduct(raw: Record<string, unknown>, language: UiLanguage): Produc
 
   const product: Product = {
     sku_id: skuId,
-    brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown brand'),
+    brand,
     name: name || (language === 'CN' ? '未知产品' : 'Unknown product'),
     category: category || (language === 'CN' ? '未知品类' : 'Unknown'),
     description,
@@ -2268,7 +2728,7 @@ function toUiOffer(raw: Record<string, unknown>): Offer {
 
 function toDupeProduct(raw: Record<string, unknown> | null, language: UiLanguage) {
   const r = raw ?? {};
-  const brand = asString(r.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+  const brand = asString(r.brand) || '';
   const name = asString(r.name) || asString(r.display_name ?? r.displayName) || (language === 'CN' ? '未知产品' : 'Unknown product');
   const imageUrl = pickProductImageUrl(r) || undefined;
 
@@ -3487,7 +3947,7 @@ export function RecommendationsCard({
       if (replaceItems.length) {
         tracks.push({
           key: 'replace',
-          title: language === 'CN' ? '更多对比候选' : 'More comparison candidates',
+          title: language === 'CN' ? '对比选项' : 'Compare options',
           subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
           items: replaceItems,
           filteredCount: Math.max(0, alternativesSource.length - replaceItemsWithIndex.length),
@@ -3872,7 +4332,7 @@ export function RecommendationsCard({
                 const summaryStep: RecoRoutineStep = {
                   category: normalizeCategory(step || ''),
                   product: {
-                    brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown'),
+                    brand: brand || '',
                     name: name || (language === 'CN' ? '未知产品' : 'Unknown'),
                   },
                   type,
@@ -4301,6 +4761,7 @@ export function RecommendationsCard({
   const userVisibleWarnings = uniqueStrings(
     (payload as any)?.warning_codes_user_visible ?? (payload as any)?.warningCodesUserVisible ?? [],
   );
+  const recommendationMeta = asObject((payload as any).recommendation_meta);
 
   const warningCandidates = debug
     ? uniqueStrings([...userVisibleWarnings, ...rawWarnings, ...internalWarnings, ...rawMissing.filter((c) => warningLike.has(String(c)))])
@@ -4325,7 +4786,6 @@ export function RecommendationsCard({
     })
     .filter(Boolean)
     .join(' · ');
-  const recommendationMeta = asObject((payload as any).recommendation_meta);
   const recommendationBasis = (() => {
     if (!recommendationMeta) return null;
     const source = String(asString((recommendationMeta as any).source_mode) || '').trim().toLowerCase();
@@ -4599,11 +5059,11 @@ export function RecommendationsCard({
         if (!brand && !name) return null;
         return {
           category: normalizeCategory(step || ''),
-          product: { brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown'), name: name || (language === 'CN' ? '未知产品' : 'Unknown') },
+          product: { brand: brand || '', name: name || (language === 'CN' ? '未知产品' : 'Unknown') },
           type,
           external: isExternalItem,
           disabled: !canOpenPdp && !canOpenSecondaryAction,
-          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '查看更多对比' : 'More comparison candidates') : null,
+          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '对比' : 'Compare') : null,
           summary,
           slot,
           position: idx + 1,
@@ -4625,9 +5085,98 @@ export function RecommendationsCard({
 
   const amSteps = toRoutineSteps(groups.am, 'am');
   const pmSteps = toRoutineSteps(groups.pm, 'pm');
+  const frameworkSummary = asObject((payload as any).framework_summary) || null;
+  const frameworkRoles = (() => {
+    const fromPayload = asArray((payload as any).roles).map((entry) => asObject(entry)).filter(Boolean) as Array<Record<string, unknown>>;
+    if (fromPayload.length > 0) return fromPayload;
+    const fromSummary = asArray((frameworkSummary as any)?.prioritized_roles)
+      .map((entry) => asObject(entry))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    return fromSummary;
+  })();
+  const frameworkRoleMap = new Map(
+    frameworkRoles
+      .map((role) => {
+        const roleId = asString((role as any).role_id) || null;
+        return roleId ? [roleId, role] : null;
+      })
+      .filter(Boolean) as Array<[string, Record<string, unknown>]>,
+  );
+  const frameworkMode = Boolean(
+    frameworkSummary &&
+    frameworkRoles.length > 0 &&
+    items.some((item) => Boolean(asString((item as any)?.matched_role_id) || asString((item as any)?.matchedRoleId))),
+  );
+  const frameworkPrimaryRoleId =
+    asString((payload as any).primary_role_id) ||
+    asString((recommendationMeta as any)?.primary_role_id) ||
+    asString((frameworkSummary as any)?.primary_role_id) ||
+    null;
+  const frameworkPrimaryRecommendationId =
+    asString((payload as any).primary_recommendation_id) ||
+    asString((recommendationMeta as any)?.primary_recommendation_id) ||
+    null;
+  const frameworkSteps = frameworkMode
+    ? (toRoutineSteps(items, 'am').map((step) => {
+        const rawItem = asObject(step.rawItem) || {};
+        const matchedRoleId = asString((rawItem as any).matched_role_id) || asString((rawItem as any).matchedRoleId) || null;
+        const roleMeta = matchedRoleId ? frameworkRoleMap.get(matchedRoleId) || null : null;
+        return {
+          ...step,
+          matched_role_id: matchedRoleId,
+          matched_role_label:
+            asString((rawItem as any).matched_role_label) ||
+            asString((rawItem as any).matchedRoleLabel) ||
+            asString((roleMeta as any)?.label) ||
+            null,
+          matched_role_rank:
+            Number.isFinite(Number((rawItem as any).matched_role_rank)) ? Number((rawItem as any).matched_role_rank) : Number((roleMeta as any)?.rank || 99),
+          role_why_this_role:
+            asString((roleMeta as any)?.why_this_role) ||
+            asString((rawItem as any).role_why_this_role) ||
+            null,
+        };
+      }) as Array<RecoRoutineStep & {
+        matched_role_id: string | null;
+        matched_role_label: string | null;
+        matched_role_rank: number;
+        role_why_this_role: string | null;
+      }>)
+    : [];
+  const frameworkTopPick =
+    frameworkSteps.find((step) => {
+      const rawItem = asObject(step.rawItem) || {};
+      const productId =
+        asString((rawItem as any).product_id) ||
+        asString((rawItem as any).productId) ||
+        asString((rawItem as any)?.sku?.product_id) ||
+        asString((rawItem as any)?.sku?.productId) ||
+        null;
+      return Boolean(frameworkPrimaryRecommendationId) && productId === frameworkPrimaryRecommendationId;
+    }) ||
+    frameworkSteps.find((step) => step.matched_role_id === frameworkPrimaryRoleId) ||
+    frameworkSteps[0] ||
+    null;
+  const frameworkOtherSteps = frameworkTopPick
+    ? frameworkSteps.filter((step) => step !== frameworkTopPick)
+    : frameworkSteps;
+  const frameworkRolePriorityLabels = frameworkRoles
+    .slice()
+    .sort((left, right) => Number((left as any)?.rank || 99) - Number((right as any)?.rank || 99))
+    .map((role) => asString((role as any).label))
+    .filter(Boolean)
+    .slice(0, 3) as string[];
+  const frameworkSummaryHeader =
+    asString((frameworkSummary as any)?.concern_text)
+      ? language === 'CN'
+        ? `关于“${asString((frameworkSummary as any).concern_text)}”的推荐`
+        : `${asString((frameworkSummary as any).concern_text)} recommendations for you`
+      : language === 'CN'
+        ? '按护理角色排序的推荐'
+        : 'Recommendations organized by product role';
   const compatibilityRoutine = {
-    am: amSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
-    pm: pmSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
+    am: frameworkMode ? [] : amSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
+    pm: frameworkMode ? [] : pmSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
   };
   const compatibilityRequestKey = JSON.stringify(compatibilityRoutine);
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
@@ -4764,7 +5313,144 @@ export function RecommendationsCard({
         </div>
       ) : null}
 
-      {(amSteps.length || pmSteps.length) ? (
+      {frameworkMode && frameworkTopPick ? (
+        <div className="space-y-4 rounded-[28px] border border-border/60 bg-background/70 p-4 shadow-sm">
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                {language === 'CN' ? 'Recommendation framework' : 'Recommendation framework'}
+              </p>
+              <h3 className="text-lg font-semibold text-foreground">{frameworkSummaryHeader}</h3>
+              {frameworkRolePriorityLabels.length ? (
+                <p className="text-sm text-muted-foreground">
+                  {language === 'CN'
+                    ? `优先顺序：${frameworkRolePriorityLabels.join(' / ')}`
+                    : `Prioritized: ${frameworkRolePriorityLabels.join(' / ')}`}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {frameworkRoles
+                .slice()
+                .sort((left, right) => Number((left as any)?.rank || 99) - Number((right as any)?.rank || 99))
+                .slice(0, 3)
+                .map((role) => {
+                  const roleId = asString((role as any).role_id) || '';
+                  const isPrimary = roleId && roleId === frameworkPrimaryRoleId;
+                  const label = asString((role as any).label) || '';
+                  if (!label) return null;
+                  return (
+                    <span
+                      key={roleId || label}
+                      className={`rounded-full px-3 py-1 text-[11px] font-medium ${
+                        isPrimary
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'border border-border/60 bg-muted/50 text-muted-foreground'
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  );
+                })}
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-border/60 bg-background p-4 shadow-sm">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700">
+                {language === 'CN' ? '主推' : 'Top pick'}
+              </span>
+              {frameworkTopPick.matched_role_label ? (
+                <span className="rounded-full border border-border/60 bg-muted/50 px-3 py-1 text-xs font-medium text-muted-foreground">
+                  {frameworkTopPick.matched_role_label}
+                </span>
+              ) : null}
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-xl font-semibold text-foreground">{frameworkTopPick.product.name}</h4>
+              {frameworkTopPick.product.brand ? (
+                <p className="text-sm text-muted-foreground">{frameworkTopPick.product.brand}</p>
+              ) : null}
+            </div>
+            <div className="mt-3 space-y-2 text-sm text-foreground/90">
+              {frameworkTopPick.summary ? <p>{frameworkTopPick.summary}</p> : null}
+              {frameworkTopPick.role_why_this_role ? (
+                <p className="text-muted-foreground">{frameworkTopPick.role_why_this_role}</p>
+              ) : null}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="chip-button"
+                disabled={!frameworkTopPick.anchor_key}
+                onClick={() => {
+                  void openRecommendationPdpForStep(frameworkTopPick);
+                }}
+              >
+                {language === 'CN' ? '详情' : 'Details'}
+              </button>
+              {(frameworkTopPick.details_tracks.length > 0 || frameworkTopPick.can_load_alternatives) ? (
+                <button
+                  type="button"
+                  className="chip-button chip-button-outline"
+                  onClick={() => {
+                    void openRecommendationAlternativesForStep(frameworkTopPick);
+                  }}
+                >
+                  {language === 'CN' ? '对比' : 'Compare'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {frameworkOtherSteps.length ? (
+            <div className="space-y-3">
+              <div className="text-sm font-semibold text-foreground">
+                {language === 'CN' ? '其他选项' : 'Other options'}
+              </div>
+              <div className="space-y-2">
+                {frameworkOtherSteps.map((step, index) => (
+                  <div
+                    key={`${step.anchor_key || step.product.name}_${index}`}
+                    className="rounded-[22px] border border-border/60 bg-background/80 p-3 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-foreground">{step.product.name}</p>
+                          {step.matched_role_label ? (
+                            <span className="rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {step.matched_role_label}
+                            </span>
+                          ) : null}
+                        </div>
+                        {step.product.brand ? (
+                          <p className="truncate text-xs text-muted-foreground">{step.product.brand}</p>
+                        ) : null}
+                        {step.summary ? (
+                          <p className="line-clamp-2 text-xs text-muted-foreground">{step.summary}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="chip-button shrink-0"
+                        disabled={!step.anchor_key}
+                        onClick={() => {
+                          void openRecommendationPdpForStep(step);
+                        }}
+                      >
+                        {language === 'CN' ? '详情' : 'Details'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!frameworkMode && (amSteps.length || pmSteps.length) ? (
         <AuroraRoutineCard
           amSteps={amSteps}
           pmSteps={pmSteps}
@@ -5852,6 +6538,14 @@ function BffCardView({
     return <IngredientGoalMatchCard payload={payload as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
   }
 
+  if (cardType === 'returning_triage') {
+    return <ReturningTriageCardView payload={(asObject(payload) ?? {}) as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'skin_progress') {
+    return <SkinProgressCardView payload={(asObject(payload) ?? {}) as Record<string, unknown>} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
   if (cardType === 'diagnosis_gate') {
     const payloadObj = asObject(payload) || {};
     const sections = asArray((payloadObj as any).sections).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
@@ -5876,6 +6570,32 @@ function BffCardView({
 
   if (cardType === 'diagnosis_v2_photo_prompt') {
     return <DiagnosisV2PhotoPromptCard payload={payload as any} language={language} onAction={(id, data) => onAction(id, data)} />;
+  }
+
+  if (cardType === 'empty_state') {
+    const payloadObj = asObject(payload) || {};
+    const sections = asArray((payloadObj as any).sections).map((row) => asObject(row)).filter(Boolean) as Array<Record<string, unknown>>;
+    const messageSection = sections.find((section) => String(section?.type || '').trim() === 'empty_state_message') || null;
+    const message =
+      language === 'CN'
+        ? asString((messageSection as any)?.message_zh) || asString((messageSection as any)?.message_en)
+        : asString((messageSection as any)?.message_en) || asString((messageSection as any)?.message_zh);
+    const reasonCode =
+      asString((messageSection as any)?.reason_code) ||
+      asString((payloadObj as any)?.mainline_blocked_reason) ||
+      asString((payloadObj as any)?.reason_code);
+    return (
+      <div className="rounded-2xl border border-amber-300/70 bg-amber-50/70 p-3 text-sm text-amber-900">
+        <div className="font-medium">
+          {message || (language === 'CN' ? '当前还缺少足够的可识别信息。' : 'There is not enough grounded product detail yet.')}
+        </div>
+        {reasonCode ? (
+          <div className="mt-2 text-[11px] text-amber-800/80">
+            {language === 'CN' ? `原因：${reasonCode}` : `Reason: ${reasonCode}`}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   if (cardType === 'analysis_summary') {
@@ -7665,7 +8385,7 @@ function BffCardView({
                         {section.items.slice(0, 1).map((entry, idx) => {
                           const candidate = entry.candidate;
                           const sourceBlock = entry.block;
-                          const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
+                          const cBrand = asString(candidate.brand) || '';
                           const cName =
                             asString(candidate.name) ||
                             asString((candidate as any).display_name) ||
@@ -7703,8 +8423,8 @@ function BffCardView({
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <div className="text-[11px] text-muted-foreground">#{idx + 1}</div>
-                                  <div className="truncate text-sm font-semibold text-foreground">{cBrand}</div>
-                                  <div className="truncate text-xs text-muted-foreground">{cName}</div>
+                                  {cBrand ? <div className="truncate text-sm font-semibold text-foreground">{cBrand}</div> : null}
+                                  <div className={cBrand ? 'truncate text-xs text-muted-foreground' : 'truncate text-sm font-semibold text-foreground'}>{cName}</div>
                                 </div>
                                 {typeof cSimilarity === 'number' && Number.isFinite(cSimilarity) ? (
                                   <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
@@ -8321,6 +9041,17 @@ export default function BffChat() {
     threadStateRef.current = next;
   }, []);
 
+  const stripTransientDiagnosisCards = useCallback((prev: ChatItem[]) => {
+    return prev.filter((item) => {
+      if (item.role !== 'assistant' || item.kind !== 'cards') return true;
+      const cards = Array.isArray(item.cards) ? item.cards : [];
+      return !cards.some((card) => {
+        const type = asString((card as any)?.type || (card as any)?.card_type).trim();
+        return type === 'diagnosis_gate' || type === 'diagnosis_v2_photo_prompt';
+      });
+    });
+  }, []);
+
   const applyThreadOps = useCallback((opsRaw: unknown) => {
     const ops = Array.isArray(opsRaw) ? opsRaw : [];
     if (ops.length === 0) return;
@@ -8549,6 +9280,30 @@ export default function BffChat() {
     },
     [debug, headers, language],
   );
+
+  const buildRouteAnalyticsContext = useCallback(
+    (): AnalyticsContext => ({
+      brief_id: headers.brief_id,
+      trace_id: headers.trace_id,
+      aurora_uid: headers.aurora_uid,
+      lang: toLangPref(language),
+      state: agentStateRef.current,
+    }),
+    [headers.aurora_uid, headers.brief_id, headers.trace_id, language],
+  );
+
+  const currentRoutineDraftSource = useMemo(() => {
+    const profile = profileSnapshot ?? bootstrapInfo?.profile ?? null;
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return null;
+    return (profile as Record<string, unknown>).currentRoutine ?? (profile as Record<string, unknown>).current_routine ?? null;
+  }, [bootstrapInfo?.profile, profileSnapshot]);
+
+  const openRoutineIntakeSheet = useCallback(() => {
+    const hydratedDraft = buildRoutineDraftFromProfile(currentRoutineDraftSource);
+    setRoutineDraft(hydratedDraft || (hasAnyRoutineDraftInput(routineDraft) ? routineDraft : makeEmptyRoutineDraft()));
+    setRoutineTab('am');
+    setRoutineSheetOpen(true);
+  }, [currentRoutineDraftSource, routineDraft]);
 
   const applyEnvelope = useCallback((env: V1Envelope) => {
     const enhancedEnv = augmentEnvelopeWithIngredientReport(env);
@@ -8843,8 +9598,12 @@ export default function BffChat() {
           ...(card.subtitle ? { subtitle: card.subtitle } : {}),
           priority: card.priority,
           tags: card.tags,
-          sections: card.sections,
-          actions: card.actions,
+          sections: Array.isArray(card.sections) && card.sections.length
+            ? card.sections
+            : asArray((card as any)?.payload?.sections),
+          actions: Array.isArray(card.actions) && card.actions.length
+            ? card.actions
+            : asArray((card as any)?.payload?.actions),
           safety: response.safety,
           telemetry: response.telemetry,
         },
@@ -9180,11 +9939,13 @@ export default function BffChat() {
       }
 
       const SKILL_TO_CHIP: Record<string, string> = {
+        'ingredient.hub': 'chip.start.ingredients.entry',
         'ingredient.report': 'chip.start.ingredients.entry',
         'reco.step_based': 'chip.start.reco_products',
         'routine.apply_blueprint': 'chip.start.routine',
-        'routine.intake_products': 'chip.start.routine',
-        'routine.audit_optimize': 'chip.start.routine',
+        'routine.intake_products': 'chip_update_products',
+        'routine.audit_optimize': 'chip_eval_routine',
+        'travel.apply_mode': 'chip.start.travel',
         'product.analyze': 'chip.start.evaluate',
         'dupe.suggest': 'chip.start.dupes',
         'dupe.compare': 'chip.start.dupes',
@@ -9274,6 +10035,211 @@ export default function BffChat() {
       return true;
     },
     [applyChatResponseV1, applyEnvelope],
+  );
+
+  const applyChatPayload = useCallback(
+    (bodyRaw: unknown): boolean => {
+      const parsedV1 = parseChatResponseV1(bodyRaw);
+      const v2Response = (() => {
+        if (parsedV1) return null;
+        const obj = asObject(bodyRaw);
+        if (!obj || !Array.isArray(obj.cards)) return null;
+        const hasV2Cards = (obj.cards as unknown[]).some(
+          (c) => c && typeof c === 'object' && typeof (c as Record<string, unknown>).card_type === 'string',
+        );
+        if (!hasV2Cards && (obj.cards as unknown[]).length > 0) return null;
+        return {
+          cards: obj.cards as Array<Record<string, unknown>>,
+          ops: asObject(obj.ops) || {},
+          next_actions: Array.isArray(obj.next_actions) ? obj.next_actions : [],
+        };
+      })();
+      const legacyEnvelope =
+        !parsedV1
+        && !v2Response
+        && bodyRaw
+        && typeof bodyRaw === 'object'
+        && !Array.isArray(bodyRaw)
+        && asString((bodyRaw as Record<string, unknown>).request_id)
+        && asString((bodyRaw as Record<string, unknown>).trace_id)
+          ? (bodyRaw as V1Envelope)
+          : null;
+
+      if (!parsedV1 && !legacyEnvelope && !v2Response) return false;
+      if (parsedV1) applyChatResponseV1(parsedV1);
+      else if (legacyEnvelope) applyEnvelope(legacyEnvelope);
+      else if (v2Response) applyV2Response(v2Response);
+      return true;
+    },
+    [applyChatResponseV1, applyEnvelope, applyV2Response],
+  );
+
+  const applySkillMainlineBlockedState = useCallback(
+    (args: {
+      entrySource: string;
+      requestedSkill: string;
+      reason: MainlineBlockedReason;
+      acceptedCardTypes: string[];
+      messageEn: string;
+      messageZh: string;
+      titleEn: string;
+      titleZh: string;
+      requestId?: string | null;
+      traceId?: string | null;
+      responseCardTypes?: string[];
+    }) => {
+      const payload = buildMainlineBlockedChatPayload({
+        language,
+        requestedSkill: args.requestedSkill,
+        entrySource: args.entrySource,
+        reason: args.reason,
+        titleEn: args.titleEn,
+        titleZh: args.titleZh,
+        messageEn: args.messageEn,
+        messageZh: args.messageZh,
+      });
+      applyChatPayload(payload);
+      emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+        entry_source: args.entrySource,
+        requested_skill: args.requestedSkill,
+        route: 'blocked',
+        accepted_card_types: args.acceptedCardTypes,
+        response_card_types: args.responseCardTypes ?? ['empty_state'],
+        request_id: args.requestId ?? null,
+        bff_trace_id: args.traceId ?? null,
+        fallback_used: false,
+        fallback_reason: null,
+        fallback_path: null,
+        mainline_blocked: true,
+        mainline_blocked_reason: args.reason,
+      });
+    },
+    [applyChatPayload, buildRouteAnalyticsContext, language],
+  );
+
+  const runRoutineBuilderSkill = useCallback(
+    async (chip: SuggestedChip, args?: { fromState?: AgentState; requestedTransition?: RequestedTransition | null }) => {
+      const label = String(chip.label || '').trim() || (language === 'CN' ? '生成早晚护肤 routine' : 'Build an AM/PM routine');
+      const chipData = asObject(chip.data) || {};
+      const replyText = asString((chipData as any).reply_text) || label;
+      const userItem: ChatItem = { id: nextId(), role: 'user', kind: 'text', content: label };
+
+      setItems((prev) => [...prev.filter((it) => it.kind !== 'return_welcome'), userItem]);
+
+      const openLocalFallback = (reason: 'flag_disabled' | 'request_failed' | 'missing_expected_card' | 'apply_failed', meta?: {
+        request_id?: string | null;
+        bff_trace_id?: string | null;
+        response_card_types?: string[];
+        error_message?: string | null;
+      }) => {
+        emitAuroraSkillRouteFallback(buildRouteAnalyticsContext(), {
+          entry_source: 'chip.start.routine',
+          requested_skill: 'routine.apply_blueprint',
+          fallback_path: 'local_routine_sheet',
+          fallback_reason: reason,
+          accepted_card_types: ['routine'],
+          ...(meta ?? {}),
+        });
+        openRoutineIntakeSheet();
+      };
+
+      if (!isRoutineBuilderViaSkillEnabled()) {
+        openLocalFallback('flag_disabled');
+        return;
+      }
+
+      setChatBusy(true);
+      setLoadingIntent('default');
+      setError(null);
+
+      try {
+        const requestHeaders = { ...headers, lang: language };
+        const session = buildChatSession({
+          state: sessionState,
+          profileSnapshot,
+          bootstrapProfile: bootstrapInfo?.profile ?? null,
+          sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+          sessionMeta,
+          analysisContext: null,
+        });
+        const priorMessages = buildChatRequestMessages(itemsRef.current);
+        const skillBody: Record<string, unknown> = {
+          session,
+          action: {
+            action_id: 'chip.start.routine',
+            kind: 'chip',
+            data: {
+              ...chipData,
+              reply_text: replyText,
+            },
+          },
+          language,
+          client_state: normalizeAgentState(args?.fromState ?? agentState),
+          ...(args?.requestedTransition ? { requested_transition: args.requestedTransition } : {}),
+          ...(priorMessages.length ? { messages: priorMessages } : {}),
+          ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+          ...(debug ? { debug: true } : {}),
+          ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+          ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
+        };
+        const skillBodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+          method: 'POST',
+          body: JSON.stringify(skillBody),
+          timeoutMs: ROUTINE_CHAT_TIMEOUT_MS,
+        });
+        const routeMeta = readChatRouteMeta(skillBodyRaw);
+        const hasExpectedCard = chatResponseHasCardType(skillBodyRaw, ['routine']);
+        if (!hasExpectedCard) {
+          openLocalFallback('missing_expected_card', {
+            request_id: routeMeta.request_id,
+            bff_trace_id: routeMeta.trace_id,
+            response_card_types: routeMeta.card_types,
+          });
+          return;
+        }
+        const applied = applyChatPayload(skillBodyRaw);
+        if (!applied) {
+          openLocalFallback('apply_failed', {
+            request_id: routeMeta.request_id,
+            bff_trace_id: routeMeta.trace_id,
+            response_card_types: routeMeta.card_types,
+          });
+          return;
+        }
+        emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+          entry_source: 'chip.start.routine',
+          requested_skill: 'routine.apply_blueprint',
+          route: 'skill',
+          accepted_card_types: ['routine'],
+          response_card_types: routeMeta.card_types,
+          request_id: routeMeta.request_id,
+          bff_trace_id: routeMeta.trace_id,
+          fallback_used: false,
+        });
+      } catch (err) {
+        openLocalFallback('request_failed', {
+          error_message: toBffErrorMessage(err),
+        });
+      } finally {
+        setChatBusy(false);
+        setLoadingIntent('default');
+      }
+    },
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyChatPayload,
+      bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
+      debug,
+      headers,
+      language,
+      openRoutineIntakeSheet,
+      profileSnapshot,
+      sessionMeta,
+      sessionState,
+    ],
   );
 
   const bootstrap = useCallback(async () => {
@@ -9710,16 +10676,6 @@ export default function BffChat() {
         }
       }
 
-      try {
-        await patchGlowSessionProfile(
-          { brief_id: headers.brief_id, trace_id: headers.trace_id },
-          profilePatch,
-        );
-      } catch (err) {
-        if (debug) {
-          console.warn('[QuickProfile] legacy /session/profile/patch failed', err);
-        }
-      }
     },
     [debug, headers, language],
   );
@@ -10356,84 +11312,169 @@ export default function BffChat() {
           });
         }
         let parseEnvelopeApplied = false;
-        const analyzeBody = parsedProduct
-          ? asUrl
-            ? { product: parsedProduct, url: asUrl }
-            : { product: parsedProduct }
-          : asUrl
-            ? { url: asUrl }
-            : { name: inputText };
+        const skillProductAnchor = (() => {
+          const base = parsedProduct && typeof parsedProduct === 'object' && !Array.isArray(parsedProduct)
+            ? { ...(parsedProduct as Record<string, unknown>) }
+            : {};
+          if (asUrl && !asString((base as any).url)) {
+            (base as any).url = asUrl;
+          }
+          if (!asString((base as any).name) && !asString((base as any).display_name) && inputText) {
+            (base as any).name = inputText;
+          }
+          return Object.keys(base).length > 0 ? base : null;
+        })();
 
-        let analyzeEnv: V1Envelope;
-        try {
-          analyzeEnv = await bffJson<V1Envelope>('/v1/product/analyze', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify(analyzeBody),
+        if (!skillProductAnchor) {
+          if (!parseEnvelopeApplied) {
+            applyEnvelope(parseEnv);
+            parseEnvelopeApplied = true;
+          }
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'anchor_insufficient',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product yet. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
           });
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
+        }
+
+        if (!isProductAnalyzeViaSkillEnabled()) {
+          if (!parseEnvelopeApplied) {
+            applyEnvelope(parseEnv);
+            parseEnvelopeApplied = true;
+          }
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'flag_disabled',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'Product analysis mainline is unavailable right now. Please try again with a directly parseable URL or a fuller brand + product name.',
+            messageZh: '当前无法走正式产品分析主链。请稍后重试，或提供可直接解析的商品链接/更完整的品牌+产品名。',
+          });
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
+        }
+
+        try {
+          const session = buildChatSession({
+            state: sessionState,
+            profileSnapshot,
+            bootstrapProfile: bootstrapInfo?.profile ?? null,
+            sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+            sessionMeta,
+            analysisContext: null,
+          });
+          const priorMessages = buildChatRequestMessages(itemsRef.current);
+          const skillBody: Record<string, unknown> = {
+            session,
+            action: {
+              action_id: 'chip.action.analyze_product',
+              kind: 'chip',
+              data: {
+                reply_text: inputText,
+                product_anchor: skillProductAnchor,
+              },
+            },
+            language,
+            client_state: normalizeAgentState(agentState),
+            ...(priorMessages.length ? { messages: priorMessages } : {}),
+            ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+            ...(debug ? { debug: true } : {}),
+            ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+            ...(anchorProductUrl || asUrl ? { anchor_product_url: anchorProductUrl || asUrl } : {}),
+          };
+          const skillBodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(skillBody),
+          });
+          const routeMeta = readChatRouteMeta(skillBodyRaw);
+          const applied = chatResponseHasCardType(skillBodyRaw, ['product_verdict']) && applyChatPayload(skillBodyRaw);
+          if (applied) {
+            emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+              entry_source: 'product_deep_scan',
+              requested_skill: 'product.analyze',
+              route: 'skill',
+              accepted_card_types: ['product_verdict'],
+              response_card_types: routeMeta.card_types,
+              request_id: routeMeta.request_id,
+              bff_trace_id: routeMeta.trace_id,
+              fallback_used: false,
+              mainline_blocked: false,
+            });
+            setSessionState('P2_PRODUCT_RESULT');
+            return;
+          }
+          if (!parseEnvelopeApplied) {
+            applyEnvelope(parseEnv);
+            parseEnvelopeApplied = true;
+          }
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'missing_expected_card',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product yet. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+            requestId: routeMeta.request_id,
+            traceId: routeMeta.trace_id,
+            responseCardTypes: routeMeta.card_types,
+          });
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
         } catch (err) {
           if (!parseEnvelopeApplied) {
             applyEnvelope(parseEnv);
             parseEnvelopeApplied = true;
           }
-          throw err;
-        }
-        const analyzeCard = Array.isArray(analyzeEnv.cards) ? analyzeEnv.cards.find((c) => c && c.type === 'product_analysis') : null;
-        const analyzeAssessment =
-          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
-            ? asObject((analyzeCard.payload as any).assessment)
-            : null;
-        const analyzePayload =
-          analyzeCard && analyzeCard.payload && typeof analyzeCard.payload === 'object'
-            ? (analyzeCard.payload as Record<string, unknown>)
-            : null;
-        const verdict = (asString((analyzeAssessment as any)?.verdict) || '').trim().toLowerCase();
-        const hasEffectiveVerdict = Boolean(verdict && verdict !== 'unknown' && verdict !== '未知');
-        const analyzeMissingReasons = uniqueStrings([
-          ...asArray((analyzePayload as any)?.missing_info).map((item) => asString(item)).filter(Boolean),
-          ...asArray((analyzePayload as any)?.user_facing_gaps).map((item) => asString(item)).filter(Boolean),
-          ...asArray((analyzePayload as any)?.internal_debug_codes).map((item) => asString(item)).filter(Boolean),
-        ]);
-        const analyzeProvenance = asObject((analyzePayload as any)?.provenance) || null;
-        const sourceChain = uniqueStrings(asArray((analyzeProvenance as any)?.source_chain).map((item) => asString(item)).filter(Boolean));
-        const kbWrite = asObject((analyzeProvenance as any)?.kb_write || (analyzeProvenance as any)?.kbWrite) || null;
-        const blockedReason = asString((kbWrite as any)?.blocked_reason || (kbWrite as any)?.blockedReason) || null;
-        const looksDegraded =
-          !hasEffectiveVerdict ||
-          analyzeMissingReasons.some((code) =>
-            /(analysis_limited|evidence_missing|upstream_missing_or_unstructured|url_fetch_|on_page_fetch_blocked|incidecoder_|catalog_)/i.test(
-              String(code || ''),
-            ),
-          );
-        if (looksDegraded) {
-          const analyticsCtx: AnalyticsContext = {
-            brief_id: headers.brief_id,
-            trace_id: headers.trace_id,
-            aurora_uid: headers.aurora_uid,
-            lang: toLangPref(language),
-            state: agentState,
-          };
-          emitAuroraProductAnalysisDegraded(analyticsCtx, {
-            request_id: asString(analyzeEnv?.request_id) || null,
-            bff_trace_id: asString(analyzeEnv?.trace_id) || null,
-            reason: analyzeMissingReasons[0] || (!hasEffectiveVerdict ? 'unknown_verdict' : null),
-            reasons: analyzeMissingReasons.slice(0, 8),
-            source_chain: sourceChain.slice(0, 6),
-            blocked_reason: blockedReason,
+          applySkillMainlineBlockedState({
+            entrySource: 'product_deep_scan',
+            requestedSkill: 'product.analyze',
+            reason: 'request_failed',
+            acceptedCardTypes: ['product_verdict'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product yet. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
           });
+          if (debug) {
+            console.warn('[ProductDeepScan] skill analyze failed; mainline blocked', err);
+          }
+          setSessionState('P2_PRODUCT_RESULT');
+          return;
         }
-        if (!parseEnvelopeApplied && !hasEffectiveVerdict) {
-          applyEnvelope(parseEnv);
-          parseEnvelopeApplied = true;
-        }
-        applyEnvelope(analyzeEnv);
-        setSessionState('P2_PRODUCT_RESULT');
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChatBusy(false);
       }
     },
-    [agentState, applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyChatPayload,
+      applyEnvelope,
+      bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
+      debug,
+      headers,
+      language,
+      profileSnapshot,
+      sessionMeta,
+      sessionState,
+      applySkillMainlineBlockedState,
+      tryApplyEnvelopeFromBffError,
+    ],
   );
 
   const runDupeSearch = useCallback(
@@ -10460,11 +11501,109 @@ export default function BffChat() {
       try {
         const requestHeaders = { ...headers, lang: language };
         const asUrl = parseMaybeUrl(originalText);
-        const env = await bffJson<V1Envelope>('/v1/dupe/suggest', requestHeaders, {
-          method: 'POST',
-          body: JSON.stringify(asUrl ? { original_url: asUrl } : { original_text: originalText }),
-        });
-        applyEnvelope(env);
+        const skillProductAnchor = (() => {
+          const base: Record<string, unknown> = {};
+          if (asUrl) {
+            base.url = asUrl;
+          } else {
+            base.name = originalText;
+          }
+          return base;
+        })();
+
+        if (!isDupeSearchViaSkillEnabled()) {
+          applySkillMainlineBlockedState({
+            entrySource: 'chip.start.dupes',
+            requestedSkill: 'dupe.suggest',
+            reason: 'flag_disabled',
+            acceptedCardTypes: ['dupe_suggest'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground this product enough to find dupes. Please share a more complete brand + product name or a directly parseable URL.',
+            messageZh: '我还无法稳定识别这款产品来找平替。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+          });
+        } else {
+          try {
+            const session = buildChatSession({
+              state: sessionState,
+              profileSnapshot,
+              bootstrapProfile: bootstrapInfo?.profile ?? null,
+              sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+              sessionMeta,
+              analysisContext: null,
+            });
+            const priorMessages = buildChatRequestMessages(itemsRef.current);
+            const skillBody: Record<string, unknown> = {
+              session,
+              action: {
+                action_id: 'chip.start.dupes',
+                kind: 'chip',
+                data: {
+                  reply_text: language === 'CN' ? `找平替：${originalText}` : `Find dupes: ${originalText}`,
+                  product_anchor: skillProductAnchor,
+                },
+              },
+              language,
+              client_state: normalizeAgentState(agentState),
+              ...(priorMessages.length ? { messages: priorMessages } : {}),
+              ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+              ...(debug ? { debug: true } : {}),
+              ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+              ...(anchorProductUrl || asUrl ? { anchor_product_url: anchorProductUrl || asUrl } : {}),
+            };
+            const skillBodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+              method: 'POST',
+              body: JSON.stringify(skillBody),
+            });
+            const routeMeta = readChatRouteMeta(skillBodyRaw);
+            const applied = chatResponseHasCardType(skillBodyRaw, ['dupe_suggest']) && applyChatPayload(skillBodyRaw);
+            if (applied) {
+              emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+                entry_source: 'chip.start.dupes',
+                requested_skill: 'dupe.suggest',
+                route: 'skill',
+                accepted_card_types: ['dupe_suggest'],
+                response_card_types: routeMeta.card_types,
+                request_id: routeMeta.request_id,
+                bff_trace_id: routeMeta.trace_id,
+                fallback_used: false,
+              });
+              return;
+            }
+            applySkillMainlineBlockedState({
+              entrySource: 'chip.start.dupes',
+              requestedSkill: 'dupe.suggest',
+              reason: 'missing_expected_card',
+              acceptedCardTypes: ['dupe_suggest'],
+              titleEn: 'Need clearer product details',
+              titleZh: '还需要更清晰的产品信息',
+              messageEn: 'I could not fully ground this product enough to find dupes. Please share a more complete brand + product name or a directly parseable URL.',
+              messageZh: '我还无法稳定识别这款产品来找平替。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+              requestId: routeMeta.request_id,
+              traceId: routeMeta.trace_id,
+              responseCardTypes: routeMeta.card_types,
+            });
+            if (debug) {
+              console.warn('[DupeSearch] skill suggest response did not contain dupe_suggest result; mainline blocked');
+            }
+            return;
+          } catch (err) {
+            applySkillMainlineBlockedState({
+              entrySource: 'chip.start.dupes',
+              requestedSkill: 'dupe.suggest',
+              reason: 'request_failed',
+              acceptedCardTypes: ['dupe_suggest'],
+              titleEn: 'Need clearer product details',
+              titleZh: '还需要更清晰的产品信息',
+              messageEn: 'I could not fully ground this product enough to find dupes. Please share a more complete brand + product name or a directly parseable URL.',
+              messageZh: '我还无法稳定识别这款产品来找平替。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+            });
+            if (debug) {
+              console.warn('[DupeSearch] skill suggest failed; mainline blocked', err);
+            }
+            return;
+          }
+        }
       } catch (err) {
         if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -10472,7 +11611,143 @@ export default function BffChat() {
         setLoadingIntent('default');
       }
     },
-    [applyEnvelope, headers, language, tryApplyEnvelopeFromBffError],
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyChatPayload,
+      applyEnvelope,
+      bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
+      debug,
+      headers,
+      language,
+      profileSnapshot,
+      sessionMeta,
+      sessionState,
+      applySkillMainlineBlockedState,
+      tryApplyEnvelopeFromBffError,
+    ],
+  );
+
+  const runDupeCompare = useCallback(
+    async (args: { original: Record<string, unknown>; dupe: Record<string, unknown> }) => {
+      const original = args.original;
+      const dupe = args.dupe;
+      const requestHeaders = { ...headers, lang: language };
+      const dupeName = getComparableDisplayName(dupe);
+
+      if (!isDupeCompareViaSkillEnabled()) {
+        applySkillMainlineBlockedState({
+          entrySource: 'chip.action.dupe_compare',
+          requestedSkill: 'dupe.compare',
+          reason: 'flag_disabled',
+          acceptedCardTypes: ['compatibility'],
+          titleEn: 'Need clearer product details',
+          titleZh: '还需要更清晰的产品信息',
+          messageEn: 'I could not fully ground both products for a reliable comparison. Please share fuller brand + product names or directly parseable URLs.',
+          messageZh: '我还无法稳定识别这两款产品来做可靠对比。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+        });
+      } else {
+        try {
+          const session = buildChatSession({
+            state: sessionState,
+            profileSnapshot,
+            bootstrapProfile: bootstrapInfo?.profile ?? null,
+            sessionProfilePatch: pendingLocationSessionProfilePatchRef.current,
+            sessionMeta,
+            analysisContext: null,
+          });
+          const priorMessages = buildChatRequestMessages(itemsRef.current);
+          const skillBody: Record<string, unknown> = {
+            session,
+            action: {
+              action_id: 'chip.action.dupe_compare',
+              kind: 'chip',
+              data: {
+                reply_text: language === 'CN' ? `对比：${dupeName || '平替'}` : `Compare: ${dupeName || 'dupe'}`,
+                product_anchor: original,
+                comparison_targets: [dupe],
+              },
+            },
+            language,
+            client_state: normalizeAgentState(agentState),
+            ...(priorMessages.length ? { messages: priorMessages } : {}),
+            ...(Object.keys(threadStateRef.current).length > 0 ? { thread_state: threadStateRef.current } : {}),
+            ...(debug ? { debug: true } : {}),
+            ...(anchorProductId ? { anchor_product_id: anchorProductId } : {}),
+            ...(anchorProductUrl ? { anchor_product_url: anchorProductUrl } : {}),
+          };
+          const skillBodyRaw = await bffJson<unknown>('/v1/chat', requestHeaders, {
+            method: 'POST',
+            body: JSON.stringify(skillBody),
+          });
+          const routeMeta = readChatRouteMeta(skillBodyRaw);
+          const applied = chatResponseHasCardType(skillBodyRaw, ['compatibility']) && applyChatPayload(skillBodyRaw);
+          if (applied) {
+            emitAuroraSkillRouteResult(buildRouteAnalyticsContext(), {
+              entry_source: 'chip.action.dupe_compare',
+              requested_skill: 'dupe.compare',
+              route: 'skill',
+              accepted_card_types: ['compatibility'],
+              response_card_types: routeMeta.card_types,
+              request_id: routeMeta.request_id,
+              bff_trace_id: routeMeta.trace_id,
+              fallback_used: false,
+            });
+            return;
+          }
+          applySkillMainlineBlockedState({
+            entrySource: 'chip.action.dupe_compare',
+            requestedSkill: 'dupe.compare',
+            reason: 'missing_expected_card',
+            acceptedCardTypes: ['compatibility'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground both products for a reliable comparison. Please share fuller brand + product names or directly parseable URLs.',
+            messageZh: '我还无法稳定识别这两款产品来做可靠对比。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+            requestId: routeMeta.request_id,
+            traceId: routeMeta.trace_id,
+            responseCardTypes: routeMeta.card_types,
+          });
+          if (debug) {
+            console.warn('[DupeCompare] skill compare response did not contain compatibility result; mainline blocked');
+          }
+          return;
+        } catch (err) {
+          applySkillMainlineBlockedState({
+            entrySource: 'chip.action.dupe_compare',
+            requestedSkill: 'dupe.compare',
+            reason: 'request_failed',
+            acceptedCardTypes: ['compatibility'],
+            titleEn: 'Need clearer product details',
+            titleZh: '还需要更清晰的产品信息',
+            messageEn: 'I could not fully ground both products for a reliable comparison. Please share fuller brand + product names or directly parseable URLs.',
+            messageZh: '我还无法稳定识别这两款产品来做可靠对比。请提供更完整的品牌+产品名，或可直接解析的商品链接。',
+          });
+          if (debug) {
+            console.warn('[DupeCompare] skill compare failed; mainline blocked', err);
+          }
+          return;
+        }
+      }
+    },
+    [
+      agentState,
+      anchorProductId,
+      anchorProductUrl,
+      applyChatPayload,
+      applyEnvelope,
+      bootstrapInfo?.profile,
+      buildRouteAnalyticsContext,
+      debug,
+      headers,
+      language,
+      profileSnapshot,
+      sessionMeta,
+      sessionState,
+      applySkillMainlineBlockedState,
+    ],
   );
 
   const onCardAction = useCallback(
@@ -10481,7 +11756,7 @@ export default function BffChat() {
         pendingActionAfterDiagnosisRef.current = null;
         clearDiagnosisThreadState();
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
         ]);
         setSessionState('idle');
@@ -10492,7 +11767,7 @@ export default function BffChat() {
         pendingActionAfterDiagnosisRef.current = null;
         clearDiagnosisThreadState();
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过诊断' : 'Skip diagnosis' },
         ]);
         setSessionState('idle');
@@ -10521,7 +11796,7 @@ export default function BffChat() {
         threadStateRef.current = nextThreadState;
 
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           {
             id: nextId(),
             role: 'user',
@@ -10557,7 +11832,7 @@ export default function BffChat() {
 
       if (actionId === 'take_photo') {
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '我来上传照片' : 'I will add photos' },
         ]);
         setAgentStateSafe('DIAG_PHOTO_OPTIN');
@@ -10567,7 +11842,7 @@ export default function BffChat() {
 
       if (actionId === 'skip_photo') {
         setItems((prev) => [
-          ...prev,
+          ...stripTransientDiagnosisCards(prev),
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '跳过照片，继续分析' : 'Skip photo and continue' },
         ]);
         setAgentStateSafe('DIAG_ANALYSIS_SUMMARY');
@@ -10823,12 +12098,7 @@ export default function BffChat() {
         setLoadingIntent('default');
         setError(null);
         try {
-          const requestHeaders = { ...headers, lang: language };
-          const env = await bffJson<V1Envelope>('/v1/dupe/compare', requestHeaders, {
-            method: 'POST',
-            body: JSON.stringify({ original, dupe }),
-          });
-          applyEnvelope(env);
+          await runDupeCompare({ original, dupe });
         } catch (err) {
           if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -10941,9 +12211,7 @@ export default function BffChat() {
       }
 
       if (actionId === 'analysis_review_products') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         setItems((prev) => [
           ...prev,
           { id: nextId(), role: 'user', kind: 'text', content: language === 'CN' ? '评估我现在用的产品' : 'Review my current products' },
@@ -11201,8 +12469,10 @@ export default function BffChat() {
       getSanitizedAnalysisPhotos,
       headers,
       language,
+      openRoutineIntakeSheet,
       sendChat,
       setAgentStateSafe,
+      stripTransientDiagnosisCards,
       tryApplyEnvelopeFromBffError,
     ],
   );
@@ -11756,6 +13026,11 @@ export default function BffChat() {
         return;
       }
 
+      if (id === 'chip.start.routine') {
+        await runRoutineBuilderSkill(chip, { fromState, requestedTransition });
+        return;
+      }
+
       setItems((prev) => [...stripReturnWelcome(prev), userItem]);
       const activeProfile = profileSnapshot ?? bootstrapInfo?.profile ?? null;
       const existingRecoGoal = getPrimaryResolvedRecoGoal(activeProfile);
@@ -11825,16 +13100,12 @@ export default function BffChat() {
       }
 
       if (id === 'chip_update_products') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
 
       if (id === 'chip_eval_routine') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
 
@@ -11862,9 +13133,7 @@ export default function BffChat() {
         return;
       }
       if (id === 'chip.intake.paste_routine') {
-        setRoutineDraft(makeEmptyRoutineDraft());
-        setRoutineTab('am');
-        setRoutineSheetOpen(true);
+        openRoutineIntakeSheet();
         return;
       }
       if (id === 'chip.intake.skip_analysis') {
@@ -11910,8 +13179,11 @@ export default function BffChat() {
       quickProfileBusy,
       quickProfileDraft,
       runLowConfidenceSkinAnalysis,
+      runDupeCompare,
+      runRoutineBuilderSkill,
       sendChat,
       authSession,
+      openRoutineIntakeSheet,
       persistQuickProfilePatch,
       setAgentStateSafe,
     ]
@@ -11931,6 +13203,7 @@ export default function BffChat() {
         'chip.start.reco_products': { EN: 'Recommend products', CN: '产品推荐' },
         chip_get_recos: { EN: 'Recommend products', CN: '产品推荐' },
         'chip.start.routine': { EN: 'Build an AM/PM routine', CN: '生成早晚护肤 routine' },
+        'chip.start.travel': { EN: 'Open travel skincare plan', CN: '打开旅行护肤方案' },
         'chip.start.dupes': { EN: 'Find dupes / alternatives', CN: '找平替/替代品' },
         'chip.start.ingredients.entry': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
         'chip.start.ingredients': { EN: 'Ingredient science (evidence)', CN: '成分机理/证据链' },
@@ -11938,6 +13211,10 @@ export default function BffChat() {
 
       const label = (labelMap[id]?.[isCN ? 'CN' : 'EN'] ?? id).slice(0, 80);
       const replyTextMap: Record<string, { EN: string; CN: string }> = {
+        'chip.start.travel': {
+          EN: 'Please tailor skincare for this travel plan.',
+          CN: '请根据这个旅行计划给我护肤建议。',
+        },
         'chip.start.ingredients.entry': {
           EN: 'I want ingredient science (evidence/mechanism), not product recommendations yet.',
           CN: '我想聊成分科学（证据/机制），先不做产品推荐。',
@@ -12020,9 +13297,7 @@ export default function BffChat() {
       setPhotoSheetOpen(true);
     }
     if (searchParams.open === 'routine') {
-      setRoutineDraft(makeEmptyRoutineDraft());
-      setRoutineTab('am');
-      setRoutineSheetOpen(true);
+      openRoutineIntakeSheet();
     }
     if (searchParams.open === 'checkin') {
       setCheckinSheetOpen(true);
@@ -12065,7 +13340,7 @@ export default function BffChat() {
     } catch {
       // ignore
     }
-  }, [headers.brief_id, headers.trace_id, navigate, searchParams]);
+  }, [headers.brief_id, headers.trace_id, navigate, openRoutineIntakeSheet, searchParams]);
 
   useEffect(() => {
     if (!hasBootstrapped) return;
@@ -12284,6 +13559,7 @@ export default function BffChat() {
     },
     [headers, language],
   );
+
   const searchRoutineProducts = useCallback<RoutineProductSearchFn>(
     ({ query, limit }) =>
       resolveProductsSearch({
@@ -12293,7 +13569,6 @@ export default function BffChat() {
       }),
     [resolveProductsSearch],
   );
-
 
   return (
     <div className="chat-container">
@@ -12717,7 +13992,6 @@ export default function BffChat() {
                     className="chip-button"
                     onClick={() => {
                       setRoutineSheetOpen(false);
-                      setRoutineDraft(makeEmptyRoutineDraft());
                       setItems((prev) => [
                         ...prev,
                         {
@@ -12741,7 +14015,6 @@ export default function BffChat() {
                       const payload = buildCurrentRoutinePayloadFromDraft(routineDraft);
                       const text = routineDraftToDisplayText(routineDraft, language);
                       setRoutineSheetOpen(false);
-                      setRoutineDraft(makeEmptyRoutineDraft());
                       setItems((prev) => [...prev, { id: nextId(), role: 'user', kind: 'text', content: text }]);
                       void runRoutineSkinAnalysis(payload, undefined, { fromRoutineForm: true });
                     }}

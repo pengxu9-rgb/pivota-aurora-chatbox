@@ -142,13 +142,96 @@ describe('BffChat V2 recommendations cards', () => {
     expect(onOpenPdp).toHaveBeenCalledTimes(1);
     expect(onOpenPdp.mock.calls[0]?.[0]?.url).toContain('/products/prod_mask_1');
 
-    const compareButton = screen.getAllByRole('button', { name: /More comparison candidates/i })
+    const compareButton = screen.getAllByRole('button', { name: /^Compare$/i })
       .find((element) => element.tagName === 'BUTTON');
     expect(compareButton).toBeTruthy();
     fireEvent.click(compareButton as HTMLElement);
 
     await waitFor(() => expect(loadAlternativesForItem).toHaveBeenCalledTimes(1), { timeout: READY_TIMEOUT_MS });
     expect(onOpenAlternativesSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders framework-first recommendations as top pick plus other options', async () => {
+    renderRecommendationsCard({
+      card_id: 'card_framework_reco',
+      type: 'recommendations',
+      payload: {
+        framework_summary: {
+          concern_text: 'oily skin',
+          prioritized_roles: [
+            { role_id: 'oil_control_treatment', label: 'Oil-control treatment', why_this_role: 'Start with a targeted oil-control step.', rank: 1 },
+            { role_id: 'lightweight_moisturizer', label: 'Lightweight moisturizer', why_this_role: 'Keep hydration breathable.', rank: 2 },
+            { role_id: 'daily_sunscreen', label: 'Daily sunscreen', why_this_role: 'Protect during the day.', rank: 3 },
+          ],
+        },
+        roles: [
+          { role_id: 'oil_control_treatment', label: 'Oil-control treatment', why_this_role: 'Start with a targeted oil-control step.', rank: 1 },
+          { role_id: 'lightweight_moisturizer', label: 'Lightweight moisturizer', why_this_role: 'Keep hydration breathable.', rank: 2 },
+          { role_id: 'daily_sunscreen', label: 'Daily sunscreen', why_this_role: 'Protect during the day.', rank: 3 },
+        ],
+        primary_role_id: 'oil_control_treatment',
+        primary_recommendation_id: 'serum_1',
+        recommendations: [
+          {
+            product_id: 'serum_1',
+            merchant_id: 'merchant_serum_1',
+            brand: 'Clear Lab',
+            name: 'Oil Balance Serum',
+            display_name: 'Oil Balance Serum',
+            step: 'treatment',
+            matched_role_id: 'oil_control_treatment',
+            matched_role_label: 'Oil-control treatment',
+            canonical_product_ref: {
+              product_id: 'serum_1',
+              merchant_id: 'merchant_serum_1',
+            },
+            notes: ['Start with a targeted oil-control step to manage shine.'],
+            reasons: ['Best first step for managing shine.'],
+          },
+          {
+            product_id: 'cream_1',
+            merchant_id: 'merchant_cream_1',
+            brand: 'Balance Lab',
+            name: 'Air Gel Cream',
+            display_name: 'Air Gel Cream',
+            step: 'moisturizer',
+            matched_role_id: 'lightweight_moisturizer',
+            matched_role_label: 'Lightweight moisturizer',
+            canonical_product_ref: {
+              product_id: 'cream_1',
+              merchant_id: 'merchant_cream_1',
+            },
+            notes: ['Keeps hydration light and breathable.'],
+            reasons: ['Balanced hydration for oily skin.'],
+          },
+          {
+            product_id: 'spf_1',
+            merchant_id: 'merchant_spf_1',
+            brand: 'Solaris',
+            name: 'Daily UV Fluid SPF 50',
+            display_name: 'Daily UV Fluid SPF 50',
+            step: 'sunscreen',
+            matched_role_id: 'daily_sunscreen',
+            matched_role_label: 'Daily sunscreen',
+            canonical_product_ref: {
+              product_id: 'spf_1',
+              merchant_id: 'merchant_spf_1',
+            },
+            notes: ['Daytime UV protection still matters.'],
+            reasons: ['Daily protection for daytime use.'],
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText(/oily skin recommendations for you/i)).toBeInTheDocument();
+    expect(screen.getByText(/Top pick/i)).toBeInTheDocument();
+    expect(screen.getByText(/Other options/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Oil Balance Serum/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Air Gel Cream/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Daily UV Fluid SPF 50/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Morning Routine/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/More comparison candidates/i)).not.toBeInTheDocument();
   });
 
   it('opens external/search fallback from summary routine rows for llm_seed items', async () => {
@@ -295,7 +378,7 @@ describe('BffChat V2 recommendations cards', () => {
       loadRecommendationCompatibility: vi.fn().mockResolvedValue(null),
     });
 
-    const compareButton = (await screen.findAllByRole('button', { name: /More comparison candidates/i }))
+    const compareButton = (await screen.findAllByRole('button', { name: /^Compare$/i }))
       .find((element) => element.tagName === 'BUTTON');
     expect(compareButton).toBeTruthy();
     fireEvent.click(compareButton as HTMLElement);
@@ -363,7 +446,7 @@ describe('BffChat V2 recommendations cards', () => {
     fireEvent.change(input, { target: { value: 'Recommend a facial mask that suits me.' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
 
-    const compareButton = (await screen.findAllByRole('button', { name: /More comparison candidates/i }))
+    const compareButton = (await screen.findAllByRole('button', { name: /^Compare$/i }))
       .find((element) => element.tagName === 'BUTTON');
     expect(compareButton).toBeTruthy();
     fireEvent.click(compareButton as HTMLElement);
