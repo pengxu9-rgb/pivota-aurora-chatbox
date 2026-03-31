@@ -3569,7 +3569,60 @@ export function RecommendationsCard({
       return language === 'CN' ? '相似' : 'Similar';
     };
 
-    const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
+     const buildStepAlternativesSheetTracks = (
+       alternativesSource: Array<Record<string, unknown>>,
+       pairingSource: string[],
+       comparisonSource: string[],
+     ): ProductAlternativeTrack[] => {
+      const replaceItems: ProductAlternativeTrackItem[] = alternativesSource
+        .map((alt, rank) => {
+          const kind = asString((alt as any).kind).toLowerCase();
+          const block: RecoBlockType =
+            kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
+          return {
+            candidate: alt,
+            block,
+            rank: rank + 1,
+            intent: 'replace',
+          };
+        })
+        .slice(0, 8);
+
+      const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
+      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
+        candidate: {
+          name: text,
+          display_name: text,
+          why_candidate: { summary: text },
+          tradeoff_notes: [text],
+        },
+        block: 'related_products',
+        rank: rank + 1,
+        intent: 'pair',
+      }));
+
+      const tracks: ProductAlternativeTrack[] = [];
+      if (replaceItems.length) {
+        tracks.push({
+          key: 'replace',
+          title: language === 'CN' ? '更多对比' : 'Compare options',
+          subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
+          items: replaceItems,
+          filteredCount: 0,
+        });
+      }
+      if (pairItems.length) {
+        tracks.push({
+          key: 'pair',
+          title: language === 'CN' ? '搭配与组合建议' : 'Pairing suggestions',
+          subtitle: language === 'CN' ? '可叠加或互补使用的建议' : 'Items/steps that pair or complement this choice',
+          items: pairItems,
+          filteredCount: 0,
+        });
+       }
+       return tracks;
+     };
+     const detailsTracks = buildStepAlternativesSheetTracks(alternativesRaw, pairingRules, comparisonNotes);
     const anchorProductIdForAlternatives = subjectProductGroupId || canonicalProductId || productId || skuId || null;
     const alternativesBusyKey = anchorId || `q:${(resolveQuery || q || '').slice(0, 180)}`;
     const isLazyAlternativesBusy = lazyAlternativesBusyKey === alternativesBusyKey;
@@ -3585,6 +3638,8 @@ export function RecommendationsCard({
     const canOpenSheet = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
     const canOpenPdp = Boolean(anchorId);
     const canOpenDetails = canOpenPdp || canOpenSheet;
+    const detailsAriaLabel = language === 'CN' ? '查看详情' : 'View details';
+    const detailsButtonLabel = language === 'CN' ? '详情' : 'Details';
 
     return (
       <div key={`${step}_${idx}`} className="rounded-2xl border border-border/60 bg-background/60 p-3 shadow-sm">
@@ -3605,7 +3660,8 @@ export function RecommendationsCard({
             <div className="text-xs text-muted-foreground">#{idx + 1}</div>
             <button
               type="button"
-              className="chip-button text-[11px]"
+              aria-label={detailsAriaLabel}
+              className="chip-button !px-3 !py-2 text-[11px] max-w-[104px] sm:max-w-none"
               disabled={isResolving || isLazyAlternativesBusy || !canOpenDetails}
               onClick={() => {
                 const summaryStep: RecoRoutineStep = {
@@ -3638,10 +3694,8 @@ export function RecommendationsCard({
                 }
               }}
             >
-              {language === 'CN' ? '查看详情' : 'View details'}
-              {isResolving || isLazyAlternativesBusy ? (
-                <span className="ml-2 text-[10px] text-muted-foreground">{language === 'CN' ? '加载中…' : 'Loading…'}</span>
-              ) : null}
+              {detailsButtonLabel}
+              {isResolving || isLazyAlternativesBusy ? '…' : ''}
             </button>
           </div>
         </div>
@@ -3863,7 +3917,8 @@ export function RecommendationsCard({
                       </div>
                       <button
                         type="button"
-                      className="chip-button"
+                      aria-label={language === 'CN' ? '查看详情' : 'View details'}
+                      className="chip-button !px-3 !py-2 text-[11px] max-w-[104px] sm:max-w-none"
                       disabled={isAltResolving}
                       onClick={() =>
                         void openPdpFromCard({
@@ -3879,7 +3934,7 @@ export function RecommendationsCard({
                         })
                       }
                     >
-                        {language === 'CN' ? '查看详情' : 'View details'}
+                        {language === 'CN' ? '详情' : 'Details'}
                       </button>
                     </div>
 
@@ -4153,6 +4208,59 @@ export function RecommendationsCard({
       ? `推荐依据：${contextText} · 路径：${sourceLabel}${extrasText}`
       : `Why this fits: ${contextText} · Path: ${sourceLabel}${extrasText}`;
   })();
+  const frameworkSummary = asObject((payload as any).framework_summary);
+  const frameworkRoles = (Array.isArray((payload as any).roles) ? (payload as any).roles : [])
+    .map((role) => asObject(role))
+    .filter(Boolean) as Array<Record<string, unknown>>;
+  const frameworkPrimaryRoleId =
+    asString((payload as any).primary_role_id) ||
+    asString((recommendationMeta as any)?.primary_role_id) ||
+    asString((frameworkSummary as any)?.primary_role_id) ||
+    null;
+  const frameworkPrimaryRecommendationId =
+    asString((payload as any).primary_recommendation_id) ||
+    asString((recommendationMeta as any)?.primary_recommendation_id) ||
+    null;
+  const frameworkMode = Boolean(frameworkSummary && frameworkRoles.length > 0 && items.length > 0);
+  const orderedFrameworkRoles = frameworkRoles
+    .slice()
+    .sort((left, right) => Number((left as any)?.rank || 99) - Number((right as any)?.rank || 99));
+  const frameworkPrimaryRole =
+    orderedFrameworkRoles.find((role) => asString((role as any)?.role_id) === frameworkPrimaryRoleId)
+    || orderedFrameworkRoles[0]
+    || null;
+  const frameworkTopPickIndex = frameworkMode
+    ? items.findIndex((item) => {
+      const productId =
+        asString((item as any)?.product_id) ||
+        asString((item as any)?.productId) ||
+        asString((item as any)?.sku?.product_id) ||
+        asString((item as any)?.sku?.productId) ||
+        null;
+      return Boolean(frameworkPrimaryRecommendationId) && productId === frameworkPrimaryRecommendationId;
+    })
+    : -1;
+  const frameworkMatchedRoleIndex = frameworkMode
+    ? items.findIndex((item) => asString((item as any)?.matched_role_id) === frameworkPrimaryRoleId)
+    : -1;
+  const frameworkTopPickResolvedIndex =
+    frameworkTopPickIndex >= 0 ? frameworkTopPickIndex : frameworkMatchedRoleIndex >= 0 ? frameworkMatchedRoleIndex : frameworkMode ? 0 : -1;
+  const frameworkTopPick =
+    frameworkTopPickResolvedIndex >= 0
+      ? { item: items[frameworkTopPickResolvedIndex], index: frameworkTopPickResolvedIndex }
+      : null;
+  const frameworkOtherOptions = frameworkMode
+    ? items
+      .map((item, index) => ({ item, index }))
+      .filter(({ index }) => index !== frameworkTopPickResolvedIndex)
+    : [];
+  const frameworkConcernText = asString((frameworkSummary as any)?.concern_text) || null;
+  const frameworkHeadline = asString((frameworkSummary as any)?.headline) || null;
+  const frameworkRoleConflict = Boolean((recommendationMeta as any)?.role_conflict_present);
+  const frameworkTopPickRoleLabel =
+    asString((frameworkTopPick?.item as any)?.matched_role_label) ||
+    asString((frameworkPrimaryRole as any)?.label) ||
+    null;
 
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
     if (!list.length) return null;
@@ -4503,7 +4611,81 @@ export function RecommendationsCard({
         </div>
       ) : null}
 
-      {(amSteps.length || pmSteps.length) ? (
+      {frameworkMode ? (
+        <div className="space-y-3">
+          <section className="rounded-2xl border border-border/60 bg-background/70 p-4">
+            {frameworkConcernText ? (
+              <div className="text-xs font-medium text-muted-foreground">
+                {language === 'CN' ? `问题：${frameworkConcernText}` : `Concern: ${frameworkConcernText}`}
+              </div>
+            ) : null}
+            {frameworkHeadline ? (
+              <div className="mt-1 text-base font-semibold text-foreground">{frameworkHeadline}</div>
+            ) : null}
+            {frameworkPrimaryRole && asString((frameworkPrimaryRole as any)?.why_this_role) ? (
+              <div className="mt-2 text-sm text-muted-foreground">
+                {asString((frameworkPrimaryRole as any)?.why_this_role)}
+              </div>
+            ) : null}
+            {orderedFrameworkRoles.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {orderedFrameworkRoles.map((role, roleIndex) => {
+                  const roleId = asString((role as any)?.role_id) || '';
+                  const active = roleId && roleId === frameworkPrimaryRoleId;
+                  return (
+                    <span
+                      key={roleId || asString((role as any)?.label) || `framework_role_${roleIndex}`}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-[11px] font-medium',
+                        active
+                          ? 'border-primary/30 bg-primary/10 text-primary'
+                          : 'border-border/60 bg-muted/50 text-muted-foreground',
+                      )}
+                    >
+                      {asString((role as any)?.label) || (language === 'CN' ? '护理角色' : 'Role')}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+
+          {frameworkTopPick ? (
+            <section className="space-y-2" data-testid="reco-framework-top-pick">
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                  {language === 'CN' ? '主推' : 'Top pick'}
+                </span>
+                {frameworkTopPickRoleLabel ? (
+                  <span className="text-xs font-medium text-muted-foreground">{frameworkTopPickRoleLabel}</span>
+                ) : null}
+              </div>
+              {renderStep(frameworkTopPick.item, frameworkTopPick.index)}
+            </section>
+          ) : null}
+
+          {frameworkOtherOptions.length ? (
+            <section className="space-y-2" data-testid="reco-framework-other-options">
+              <div className="text-sm font-semibold text-foreground">
+                {language === 'CN' ? '其他推荐' : 'Other options'}
+              </div>
+              <div className="space-y-2">
+                {frameworkOtherOptions.map(({ item, index }) => renderStep(item, index))}
+              </div>
+            </section>
+          ) : null}
+
+          {frameworkRoleConflict ? (
+            <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+              {language === 'CN'
+                ? '当前只展示与这套护理框架一致的主链推荐；不一致候选已被降级为观测信息。'
+                : 'Only products that stay inside this care framework are surfaced on the mainline; conflicting candidates were downgraded to observations.'}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!frameworkMode && (amSteps.length || pmSteps.length) ? (
         <AuroraRoutineCard
           amSteps={amSteps}
           pmSteps={pmSteps}
@@ -4520,7 +4702,7 @@ export function RecommendationsCard({
         />
       ) : null}
 
-      {(groups.am.length || groups.pm.length || groups.other.length) ? (
+      {!frameworkMode && (groups.am.length || groups.pm.length || groups.other.length) ? (
         <details
           className="rounded-2xl border border-border/60 bg-background/60 p-3"
           open={detailsOpen}
