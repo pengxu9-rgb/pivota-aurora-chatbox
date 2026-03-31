@@ -682,7 +682,7 @@ export function RoutineCompatibilityFooter({
       <div className="mt-3 flex flex-wrap gap-2">
         <Button type="button" onClick={() => openPanel('advanced_compatibility_check')}>
           <CheckCircle2 className="mr-1 h-4 w-4" />
-          {language === 'CN' ? 'Advanced compatibility check' : 'Advanced compatibility check'}
+          {language === 'CN' ? 'Check fit' : 'Check fit'}
         </Button>
       </div>
 

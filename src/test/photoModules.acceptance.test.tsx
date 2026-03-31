@@ -304,6 +304,8 @@ describe('photo_modules_v1 acceptance', () => {
     fireEvent.click(screen.getByRole('button', { name: /more/i }));
 
     expect(screen.getByText('More products')).toBeInTheDocument();
+    expect(screen.getByText('Top pick')).toBeInTheDocument();
+    expect(screen.getByText('Other options')).toBeInTheDocument();
     expect(screen.getByText('Niacinamide Barrier Gel')).toBeInTheDocument();
   });
 

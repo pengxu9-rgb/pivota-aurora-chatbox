@@ -132,7 +132,7 @@ describe('BffChat product-parse degraded UX', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    const entry = await screen.findByRole('button', { name: /evaluate a product/i });
     fireEvent.click(entry);
 
     const productInput = await screen.findByPlaceholderText(/nivea creme/i);
@@ -223,7 +223,7 @@ describe('BffChat product-parse degraded UX', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    const entry = await screen.findByRole('button', { name: /evaluate a product/i });
     fireEvent.click(entry);
 
     const productInput = await screen.findByPlaceholderText(/nivea creme/i);
@@ -324,7 +324,7 @@ describe('BffChat product-parse degraded UX', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    const entry = await screen.findByRole('button', { name: /evaluate a product/i });
     fireEvent.click(entry);
 
     const productInput = await screen.findByPlaceholderText(/nivea creme/i);
@@ -407,7 +407,7 @@ describe('BffChat product-parse degraded UX', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    const entry = await screen.findByRole('button', { name: /evaluate a product/i });
     fireEvent.click(entry);
 
     const productInput = await screen.findByPlaceholderText(/nivea creme/i);
@@ -529,7 +529,7 @@ describe('BffChat product-parse degraded UX', () => {
       </MemoryRouter>,
     );
 
-    const entry = await screen.findByRole('button', { name: /evaluate a specific product for me/i });
+    const entry = await screen.findByRole('button', { name: /evaluate a product/i });
     fireEvent.click(entry);
 
     const productInput = await screen.findByPlaceholderText(/nivea creme/i);
