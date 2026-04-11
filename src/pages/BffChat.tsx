@@ -31,6 +31,7 @@ import { PhotoModulesCard } from '@/components/aurora/cards/PhotoModulesCard';
 import { AnalysisStoryCard } from '@/components/aurora/cards/AnalysisStoryCard';
 import { IngredientPlanCard } from '@/components/aurora/cards/IngredientPlanCard';
 import { CompatibilityInsightsCard } from '@/components/aurora/cards/CompatibilityInsightsCard';
+import { AuroraRecommendationProductCard } from '@/components/aurora/cards/AuroraRecommendationProductCard';
 import { AuroraRoutineCard, type RoutineStep } from '@/components/aurora/cards/AuroraRoutineCard';
 import { RoutineProductAuditCard } from '@/components/aurora/cards/RoutineProductAuditCard';
 import { RoutineAdjustmentPlanCard } from '@/components/aurora/cards/RoutineAdjustmentPlanCard';
@@ -114,6 +115,7 @@ import { readProductRefTarget, resolveProductOpenTargets } from '@/lib/productOp
 import { parseChatResponseV1 } from '@/lib/chatCardsParser';
 import type { ChatCardV1, ChatResponseV1, QuickReplyV1 } from '@/lib/chatCardsTypes';
 import { adaptChatCardForRichRender } from '@/lib/chatCardsAdapters';
+import { buildRecommendationRenderItems, deriveRecommendationBundleMode } from '@/lib/recommendationCardContract';
 import {
   getComparableDisplayName,
   isComparableProductLike,
@@ -2660,18 +2662,7 @@ export function RecommendationsCard({
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
   const payload = asObject(card.payload) || {};
-  const items = (() => {
-    const fromPayload = asArray(payload.recommendations) as RecoItem[];
-    if (fromPayload.length > 0) return fromPayload;
-    const sections = asArray((payload as any).sections);
-    for (const section of sections) {
-      const sec = section && typeof section === 'object' ? section as Record<string, unknown> : null;
-      if (!sec) continue;
-      const products = asArray(sec.products) as RecoItem[];
-      if (products.length > 0) return products;
-    }
-    return [] as RecoItem[];
-  })();
+  const items = useMemo(() => buildRecommendationRenderItems(payload) as RecoItem[], [payload]);
   const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
   const hasMissingAlternatives =
     hasAnyAlternatives && items.some((it) => asArray((it as any).alternatives).length === 0);
@@ -3124,15 +3115,66 @@ export function RecommendationsCard({
     return language === 'CN' ? '其他' : 'Other';
   };
 
+  const formatRecoPriceLabel = useCallback((item: RecoItem, sku: Record<string, unknown> | null, product: Record<string, unknown> | null) => {
+    const explicitPriceLabel =
+      asString((item as any).price_label) ||
+      asString((item as any).priceLabel) ||
+      asString((product as any)?.price_label) ||
+      asString((sku as any)?.price_label);
+    if (explicitPriceLabel) return explicitPriceLabel;
+
+    const priceObject =
+      asObject((item as any).price) ||
+      asObject(product?.price) ||
+      asObject(sku?.price) ||
+      null;
+    const amountFromObject = asNumber(priceObject?.amount);
+    const amount =
+      amountFromObject != null
+        ? amountFromObject
+        : asNumber((item as any).price) ??
+          asNumber(product?.price) ??
+          asNumber(sku?.price);
+    const currency =
+      asString(priceObject?.currency) ||
+      asString((item as any).currency) ||
+      asString(product?.currency) ||
+      asString(sku?.currency) ||
+      'USD';
+    const unknown = priceObject?.unknown === true;
+    if (unknown || amount == null) return null;
+    const symbol =
+      currency.toUpperCase() === 'CNY' || currency.toUpperCase() === 'RMB'
+        ? '¥'
+        : currency.toUpperCase() === 'EUR'
+          ? '€'
+          : currency.toUpperCase() === 'GBP'
+            ? '£'
+            : '$';
+    return `${symbol}${Math.round(amount * 100) / 100}`;
+  }, []);
+
   const extractRecoDisplayData = useCallback(
     (item: RecoItem) => {
       const sku = asObject(item.sku) || asObject(item.product) || null;
+      const fallbackProduct = asObject(item.product) || null;
       const modules = asArray((item as any).modules).map((entry) => asObject(entry)).filter(Boolean) as Array<Record<string, unknown>>;
       const moduleData = modules.map((entry) => asObject((entry as any).data)).find(Boolean) || null;
       const pdpPayload = asObject((moduleData as any)?.pdp_payload) || asObject((moduleData as any)?.pdpPayload) || null;
       const pdpProduct = asObject((pdpPayload as any)?.product) || asObject((moduleData as any)?.product) || null;
+      const bestFor = uniqueStrings([
+        ...asArray((item as any).best_for).map((value) => asString(value)),
+        ...asArray((item as any).bestFor).map((value) => asString(value)),
+      ]).slice(0, 4);
+      const keyFeatures = uniqueStrings([
+        ...asArray((item as any).key_features).map((value) => asString(value)),
+        ...asArray((item as any).keyFeatures).map((value) => asString(value)),
+        ...asArray((item as any).benefit_tags).map((value) => asString(value)),
+        ...asArray((item as any).benefitTags).map((value) => asString(value)),
+      ]).slice(0, 6);
       return {
         sku,
+        product: pdpProduct || fallbackProduct || sku,
         brand:
           asString(sku?.brand) ||
           asString((sku as any)?.Brand) ||
@@ -3172,9 +3214,28 @@ export function RecommendationsCard({
           asString((pdpProduct as any)?.productId) ||
           asString((item as any)?.subject?.id) ||
           null,
+        imageUrl:
+          pickProductImageUrl(item) ||
+          pickProductImageUrl(pdpProduct) ||
+          pickProductImageUrl(fallbackProduct) ||
+          pickProductImageUrl(sku) ||
+          null,
+        whyThisOne:
+          asString((item as any).why_this_one) ||
+          asString((item as any).whyThisOne) ||
+          asString((item as any).short_description) ||
+          asString((item as any).shortDescription) ||
+          null,
+        bestFor,
+        keyFeatures,
+        priceLabel: formatRecoPriceLabel(item, sku, pdpProduct || fallbackProduct),
+        pricePosition:
+          asString((item as any).price_position) ||
+          asString((item as any).pricePosition) ||
+          null,
       };
     },
-    [],
+    [formatRecoPriceLabel],
   );
 
   const buildStepAlternativesSheetTracks = useCallback(
@@ -3574,32 +3635,44 @@ export function RecommendationsCard({
        pairingSource: string[],
        comparisonSource: string[],
      ): ProductAlternativeTrack[] => {
-      const replaceItems: ProductAlternativeTrackItem[] = alternativesSource
+      const replaceItemsWithIndex = alternativesSource
         .map((alt, rank) => {
-          const kind = asString((alt as any).kind).toLowerCase();
+          const display = normalizeAlternativeDisplayCandidate(alt);
+          if (!display) return null;
+          const kind = String(asString((alt as any).kind) || '').toLowerCase();
           const block: RecoBlockType =
             kind === 'dupe' ? 'dupes' : kind === 'premium' ? 'related_products' : 'competitors';
           return {
             candidate: alt,
+            display,
             block,
             rank: rank + 1,
             intent: 'replace',
           };
         })
-        .slice(0, 8);
+        .filter(Boolean) as ProductAlternativeTrackItem[];
+      const replaceItems = replaceItemsWithIndex.slice(0, 8);
 
       const pairNotes = uniqueStrings([...pairingSource, ...comparisonSource]).slice(0, 8);
-      const pairItems: ProductAlternativeTrackItem[] = pairNotes.map((text, rank) => ({
-        candidate: {
-          name: text,
-          display_name: text,
-          why_candidate: { summary: text },
-          tradeoff_notes: [text],
-        },
-        block: 'related_products',
-        rank: rank + 1,
-        intent: 'pair',
-      }));
+      const pairItems: ProductAlternativeTrackItem[] = pairNotes
+        .map((text, rank) => {
+          const candidate = {
+            name: text,
+            display_name: text,
+            why_candidate: { summary: text },
+            tradeoff_notes: [text],
+          };
+          const display = normalizeAlternativeDisplayCandidate(candidate);
+          if (!display) return null;
+          return {
+            candidate,
+            display,
+            block: 'related_products',
+            rank: rank + 1,
+            intent: 'pair',
+          };
+        })
+        .filter(Boolean) as ProductAlternativeTrackItem[];
 
       const tracks: ProductAlternativeTrack[] = [];
       if (replaceItems.length) {
@@ -3608,7 +3681,7 @@ export function RecommendationsCard({
           title: language === 'CN' ? '更多对比' : 'Compare options',
           subtitle: language === 'CN' ? '用于替换当前产品' : 'Direct alternatives to replace current product',
           items: replaceItems,
-          filteredCount: 0,
+          filteredCount: Math.max(0, alternativesSource.length - replaceItemsWithIndex.length),
         });
       }
       if (pairItems.length) {
@@ -4208,60 +4281,6 @@ export function RecommendationsCard({
       ? `推荐依据：${contextText} · 路径：${sourceLabel}${extrasText}`
       : `Why this fits: ${contextText} · Path: ${sourceLabel}${extrasText}`;
   })();
-  const frameworkSummary = asObject((payload as any).framework_summary);
-  const frameworkRoles = (Array.isArray((payload as any).roles) ? (payload as any).roles : [])
-    .map((role) => asObject(role))
-    .filter(Boolean) as Array<Record<string, unknown>>;
-  const frameworkPrimaryRoleId =
-    asString((payload as any).primary_role_id) ||
-    asString((recommendationMeta as any)?.primary_role_id) ||
-    asString((frameworkSummary as any)?.primary_role_id) ||
-    null;
-  const frameworkPrimaryRecommendationId =
-    asString((payload as any).primary_recommendation_id) ||
-    asString((recommendationMeta as any)?.primary_recommendation_id) ||
-    null;
-  const frameworkMode = Boolean(frameworkSummary && frameworkRoles.length > 0 && items.length > 0);
-  const orderedFrameworkRoles = frameworkRoles
-    .slice()
-    .sort((left, right) => Number((left as any)?.rank || 99) - Number((right as any)?.rank || 99));
-  const frameworkPrimaryRole =
-    orderedFrameworkRoles.find((role) => asString((role as any)?.role_id) === frameworkPrimaryRoleId)
-    || orderedFrameworkRoles[0]
-    || null;
-  const frameworkTopPickIndex = frameworkMode
-    ? items.findIndex((item) => {
-      const productId =
-        asString((item as any)?.product_id) ||
-        asString((item as any)?.productId) ||
-        asString((item as any)?.sku?.product_id) ||
-        asString((item as any)?.sku?.productId) ||
-        null;
-      return Boolean(frameworkPrimaryRecommendationId) && productId === frameworkPrimaryRecommendationId;
-    })
-    : -1;
-  const frameworkMatchedRoleIndex = frameworkMode
-    ? items.findIndex((item) => asString((item as any)?.matched_role_id) === frameworkPrimaryRoleId)
-    : -1;
-  const frameworkTopPickResolvedIndex =
-    frameworkTopPickIndex >= 0 ? frameworkTopPickIndex : frameworkMatchedRoleIndex >= 0 ? frameworkMatchedRoleIndex : frameworkMode ? 0 : -1;
-  const frameworkTopPick =
-    frameworkTopPickResolvedIndex >= 0
-      ? { item: items[frameworkTopPickResolvedIndex], index: frameworkTopPickResolvedIndex }
-      : null;
-  const frameworkOtherOptions = frameworkMode
-    ? items
-      .map((item, index) => ({ item, index }))
-      .filter(({ index }) => index !== frameworkTopPickResolvedIndex)
-    : [];
-  const frameworkConcernText = asString((frameworkSummary as any)?.concern_text) || null;
-  const frameworkHeadline = asString((frameworkSummary as any)?.headline) || null;
-  const frameworkRoleConflict = Boolean((recommendationMeta as any)?.role_conflict_present);
-  const frameworkTopPickRoleLabel =
-    asString((frameworkTopPick?.item as any)?.matched_role_label) ||
-    asString((frameworkPrimaryRole as any)?.label) ||
-    null;
-
   const renderSection = (slot: 'am' | 'pm' | 'other', list: RecoItem[]) => {
     if (!list.length) return null;
     return (
@@ -4441,17 +4460,35 @@ export function RecommendationsCard({
         });
         const canOpenPdp = Boolean(anchorId);
         const canOpenSecondaryAction = Boolean(onOpenAlternativesSheet) && (detailsTracks.length > 0 || canLoadAlternatives);
-        const summary = reasons[0] || notes[0] || null;
+        const summary = display.whyThisOne || reasons[0] || notes[0] || null;
+        const benefitTags = uniqueStrings([
+          ...display.keyFeatures,
+          ...display.bestFor,
+        ]).slice(0, 4);
 
         if (!brand && !name) return null;
         return {
           category: normalizeCategory(step || ''),
-          product: { brand: brand || (language === 'CN' ? '未知品牌' : 'Unknown'), name: name || (language === 'CN' ? '未知产品' : 'Unknown') },
+          product: { brand: brand || '', name: name || (language === 'CN' ? '未知产品' : 'Unknown') },
           type,
           external: isExternalItem,
           disabled: !canOpenPdp && !canOpenSecondaryAction,
-          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '查看更多对比' : 'More comparison candidates') : null,
+          secondaryLabel: canOpenSecondaryAction ? (language === 'CN' ? '找替代/搭配' : 'Find alternatives') : null,
           summary,
+          support_text:
+            display.pricePosition ||
+            asString((item as any).matched_role_label) ||
+            asString((item as any).matchedRoleLabel) ||
+            null,
+          image_url: display.imageUrl,
+          price_label: display.priceLabel,
+          price_position: display.pricePosition,
+          benefit_tags: benefitTags,
+          comparison_mode:
+            asString((item as any).comparison_mode) ||
+            asString((item as any).comparisonMode) ||
+            null,
+          same_role_peer_count: Number((item as any).same_role_peer_count) || 0,
           slot,
           position: idx + 1,
           rawItem: item,
@@ -4472,9 +4509,133 @@ export function RecommendationsCard({
 
   const amSteps = toRoutineSteps(groups.am, 'am');
   const pmSteps = toRoutineSteps(groups.pm, 'pm');
+  const frameworkSummary = asObject((payload as any).framework_summary) || null;
+  const frameworkRoles = (() => {
+    const fromPayload = asArray((payload as any).roles).map((entry) => asObject(entry)).filter(Boolean) as Array<Record<string, unknown>>;
+    if (fromPayload.length > 0) return fromPayload;
+    const fromSummary = asArray((frameworkSummary as any)?.prioritized_roles)
+      .map((entry) => asObject(entry))
+      .filter(Boolean) as Array<Record<string, unknown>>;
+    return fromSummary;
+  })();
+  const frameworkRoleMap = new Map(
+    frameworkRoles
+      .map((role) => {
+        const roleId = asString((role as any).role_id) || null;
+        return roleId ? [roleId, role] : null;
+      })
+      .filter(Boolean) as Array<[string, Record<string, unknown>]>,
+  );
+  const frameworkMode = Boolean(
+    frameworkSummary &&
+    frameworkRoles.length > 0 &&
+    items.some((item) => Boolean(asString((item as any)?.matched_role_id) || asString((item as any)?.matchedRoleId))),
+  );
+  const frameworkPrimaryRoleId =
+    asString((payload as any).primary_role_id) ||
+    asString((recommendationMeta as any)?.primary_role_id) ||
+    asString((frameworkSummary as any)?.primary_role_id) ||
+    null;
+  const frameworkPrimaryRecommendationId =
+    asString((payload as any).primary_recommendation_id) ||
+    asString((recommendationMeta as any)?.primary_recommendation_id) ||
+    null;
+  const frameworkSteps = frameworkMode
+    ? (toRoutineSteps(items, 'am').map((step) => {
+        const rawItem = asObject(step.rawItem) || {};
+        const matchedRoleId = asString((rawItem as any).matched_role_id) || asString((rawItem as any).matchedRoleId) || null;
+        const roleMeta = matchedRoleId ? frameworkRoleMap.get(matchedRoleId) || null : null;
+        return {
+          ...step,
+          matched_role_id: matchedRoleId,
+          matched_role_label:
+            asString((rawItem as any).matched_role_label) ||
+            asString((rawItem as any).matchedRoleLabel) ||
+            asString((roleMeta as any)?.label) ||
+            null,
+          matched_role_rank:
+            Number.isFinite(Number((rawItem as any).matched_role_rank)) ? Number((rawItem as any).matched_role_rank) : Number((roleMeta as any)?.rank || 99),
+          role_why_this_role:
+            asString((roleMeta as any)?.why_this_role) ||
+            asString((rawItem as any).role_why_this_role) ||
+            null,
+        };
+      }) as Array<RecoRoutineStep & {
+        matched_role_id: string | null;
+        matched_role_label: string | null;
+        matched_role_rank: number;
+        role_why_this_role: string | null;
+        image_url?: string | null;
+        price_label?: string | null;
+        price_position?: string | null;
+        benefit_tags?: string[];
+        support_text?: string | null;
+        comparison_mode?: string | null;
+        same_role_peer_count?: number;
+      }>)
+    : [];
+  const frameworkTopPick =
+    frameworkSteps.find((step) => {
+      const rawItem = asObject(step.rawItem) || {};
+      const productId =
+        asString((rawItem as any).product_id) ||
+        asString((rawItem as any).productId) ||
+        asString((rawItem as any)?.sku?.product_id) ||
+        asString((rawItem as any)?.sku?.productId) ||
+        null;
+      return Boolean(frameworkPrimaryRecommendationId) && productId === frameworkPrimaryRecommendationId;
+    }) ||
+    frameworkSteps.find((step) => step.matched_role_id === frameworkPrimaryRoleId) ||
+    frameworkSteps[0] ||
+    null;
+  const frameworkOtherSteps = frameworkTopPick
+    ? frameworkSteps.filter((step) => step !== frameworkTopPick)
+    : frameworkSteps;
+  const frameworkRolePriorityLabels = frameworkRoles
+    .slice()
+    .sort((left, right) => Number((left as any)?.rank || 99) - Number((right as any)?.rank || 99))
+    .map((role) => asString((role as any).label))
+    .filter(Boolean)
+    .slice(0, 3) as string[];
+  const recommendationBundleMode = deriveRecommendationBundleMode(payload, items);
+  const recommendationBundleStrip = (() => {
+    if (recommendationBundleMode === 'same_role_comparison') {
+      return {
+        label: language === 'CN' ? '同类横向比较' : 'Same-type comparison',
+        detail:
+          language === 'CN'
+            ? '这轮会把同一角色下的候选放在一起比较价格和取舍。'
+            : 'This set compares options within the same product role, including price and tradeoffs.',
+      };
+    }
+    if (recommendationBundleMode === 'routine_mix') {
+      return {
+        label: language === 'CN' ? '基础 routine' : 'Basic routine',
+        detail:
+          language === 'CN'
+            ? '这几件是不同步骤的组合，不是同类替代品。'
+            : 'These picks cover different routine steps rather than acting as direct substitutes.',
+      };
+    }
+    return {
+      label: language === 'CN' ? '聚焦推荐' : 'Focused recommendation',
+      detail:
+        language === 'CN'
+          ? '这轮主要围绕一个最优先的商品选择。'
+          : 'This round is centered on one highest-priority product recommendation.',
+    };
+  })();
+  const frameworkSummaryHeader =
+    asString((frameworkSummary as any)?.concern_text)
+      ? language === 'CN'
+        ? `关于“${asString((frameworkSummary as any).concern_text)}”的推荐`
+        : `${asString((frameworkSummary as any).concern_text)} recommendations for you`
+      : language === 'CN'
+        ? '按护理角色排序的推荐'
+        : 'Recommendations organized by product role';
   const compatibilityRoutine = {
-    am: amSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
-    pm: pmSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
+    am: frameworkMode ? [] : amSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
+    pm: frameworkMode ? [] : pmSteps.map((step) => toCompatibilityStepInput(step.rawItem)),
   };
   const compatibilityRequestKey = JSON.stringify(compatibilityRoutine);
   const ingredientRenderMode = deriveIngredientRenderMode(payload);
@@ -4611,75 +4772,145 @@ export function RecommendationsCard({
         </div>
       ) : null}
 
-      {frameworkMode ? (
-        <div className="space-y-3">
-          <section className="rounded-2xl border border-border/60 bg-background/70 p-4">
-            {frameworkConcernText ? (
-              <div className="text-xs font-medium text-muted-foreground">
-                {language === 'CN' ? `问题：${frameworkConcernText}` : `Concern: ${frameworkConcernText}`}
+      {frameworkMode && frameworkTopPick ? (
+        <div className="space-y-4 rounded-[28px] border border-border/60 bg-background/70 p-4 shadow-sm">
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                {language === 'CN' ? 'Recommendation framework' : 'Recommendation framework'}
+              </p>
+              <h3 className="text-lg font-semibold text-foreground">{frameworkSummaryHeader}</h3>
+              {frameworkRolePriorityLabels.length ? (
+                <p className="text-sm text-muted-foreground">
+                  {language === 'CN'
+                    ? `优先顺序：${frameworkRolePriorityLabels.join(' / ')}`
+                    : `Prioritized: ${frameworkRolePriorityLabels.join(' / ')}`}
+                </p>
+              ) : null}
+            </div>
+            <div className="rounded-[22px] border border-border/60 bg-muted/35 p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                {recommendationBundleStrip.label}
               </div>
-            ) : null}
-            {frameworkHeadline ? (
-              <div className="mt-1 text-base font-semibold text-foreground">{frameworkHeadline}</div>
-            ) : null}
-            {frameworkPrimaryRole && asString((frameworkPrimaryRole as any)?.why_this_role) ? (
-              <div className="mt-2 text-sm text-muted-foreground">
-                {asString((frameworkPrimaryRole as any)?.why_this_role)}
-              </div>
-            ) : null}
-            {orderedFrameworkRoles.length ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {orderedFrameworkRoles.map((role, roleIndex) => {
-                  const roleId = asString((role as any)?.role_id) || '';
-                  const active = roleId && roleId === frameworkPrimaryRoleId;
+              <p className="mt-1 text-sm text-foreground/90">{recommendationBundleStrip.detail}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {frameworkRoles
+                .slice()
+                .sort((left, right) => Number((left as any)?.rank || 99) - Number((right as any)?.rank || 99))
+                .slice(0, 3)
+                .map((role) => {
+                  const roleId = asString((role as any).role_id) || '';
+                  const isPrimary = roleId && roleId === frameworkPrimaryRoleId;
+                  const label = asString((role as any).label) || '';
+                  if (!label) return null;
                   return (
                     <span
-                      key={roleId || asString((role as any)?.label) || `framework_role_${roleIndex}`}
-                      className={cn(
-                        'rounded-full border px-2.5 py-1 text-[11px] font-medium',
-                        active
-                          ? 'border-primary/30 bg-primary/10 text-primary'
-                          : 'border-border/60 bg-muted/50 text-muted-foreground',
-                      )}
+                      key={roleId || label}
+                      className={`rounded-full px-3 py-1 text-[11px] font-medium ${
+                        isPrimary
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'border border-border/60 bg-muted/50 text-muted-foreground'
+                      }`}
                     >
-                      {asString((role as any)?.label) || (language === 'CN' ? '护理角色' : 'Role')}
+                      {label}
                     </span>
                   );
                 })}
-              </div>
-            ) : null}
-          </section>
+            </div>
+          </div>
 
-          {frameworkTopPick ? (
-            <section className="space-y-2" data-testid="reco-framework-top-pick">
-              <div className="flex items-center gap-2">
-                <span className="rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary">
-                  {language === 'CN' ? '主推' : 'Top pick'}
-                </span>
-                {frameworkTopPickRoleLabel ? (
-                  <span className="text-xs font-medium text-muted-foreground">{frameworkTopPickRoleLabel}</span>
-                ) : null}
-              </div>
-              {renderStep(frameworkTopPick.item, frameworkTopPick.index)}
-            </section>
-          ) : null}
+          <AuroraRecommendationProductCard
+            primary
+            badgeLabel={language === 'CN' ? '主推首选' : 'Best first buy'}
+            name={frameworkTopPick.product.name}
+            brand={frameworkTopPick.product.brand}
+            imageUrl={frameworkTopPick.image_url || null}
+            priceLabel={frameworkTopPick.price_label || null}
+            pricePosition={frameworkTopPick.price_position || null}
+            roleLabel={frameworkTopPick.matched_role_label || null}
+            summary={frameworkTopPick.summary || null}
+            supportText={frameworkTopPick.role_why_this_role || frameworkTopPick.support_text || null}
+            chips={Array.isArray(frameworkTopPick.benefit_tags) ? frameworkTopPick.benefit_tags : []}
+            openLabel={language === 'CN' ? '查看详情' : 'View details'}
+            openAriaLabel={
+              language === 'CN'
+                ? `查看 ${frameworkTopPick.product.name} 详情`
+                : `View details for ${frameworkTopPick.product.name}`
+            }
+            secondaryLabel={
+              frameworkTopPick.details_tracks.length > 0 || frameworkTopPick.can_load_alternatives
+                ? (language === 'CN' ? '找替代/搭配' : 'Find alternatives')
+                : null
+            }
+            secondaryAriaLabel={
+              frameworkTopPick.details_tracks.length > 0 || frameworkTopPick.can_load_alternatives
+                ? (
+                  language === 'CN'
+                    ? `查看 ${frameworkTopPick.product.name} 的替代和搭配`
+                    : `Find alternatives for ${frameworkTopPick.product.name}`
+                )
+                : null
+            }
+            openDisabled={!frameworkTopPick.anchor_key}
+            onOpen={() => {
+              void openRecommendationPdpForStep(frameworkTopPick);
+            }}
+            onSecondary={() => {
+              void openRecommendationAlternativesForStep(frameworkTopPick);
+            }}
+          />
 
-          {frameworkOtherOptions.length ? (
-            <section className="space-y-2" data-testid="reco-framework-other-options">
+          {frameworkOtherSteps.length ? (
+            <div className="space-y-3">
               <div className="text-sm font-semibold text-foreground">
-                {language === 'CN' ? '其他推荐' : 'Other options'}
+                {recommendationBundleMode === 'same_role_comparison'
+                  ? (language === 'CN' ? '对比候选' : 'Comparison picks')
+                  : (language === 'CN' ? '补齐 routine 的其他步骤' : 'Other routine steps')}
               </div>
               <div className="space-y-2">
-                {frameworkOtherOptions.map(({ item, index }) => renderStep(item, index))}
+                {frameworkOtherSteps.map((step, index) => (
+                  <AuroraRecommendationProductCard
+                    key={`${step.anchor_key || step.product.name}_${index}`}
+                    name={step.product.name}
+                    brand={step.product.brand}
+                    imageUrl={step.image_url || null}
+                    priceLabel={step.price_label || null}
+                    pricePosition={step.price_position || null}
+                    roleLabel={step.matched_role_label || null}
+                    summary={step.summary || null}
+                    supportText={step.role_why_this_role || step.support_text || null}
+                    chips={Array.isArray(step.benefit_tags) ? step.benefit_tags : []}
+                    openLabel={language === 'CN' ? '查看详情' : 'View details'}
+                    openAriaLabel={
+                      language === 'CN'
+                        ? `查看 ${step.product.name} 详情`
+                        : `View details for ${step.product.name}`
+                    }
+                    secondaryLabel={
+                      step.details_tracks.length > 0 || step.can_load_alternatives
+                        ? (language === 'CN' ? '找替代/搭配' : 'Find alternatives')
+                        : null
+                    }
+                    secondaryAriaLabel={
+                      step.details_tracks.length > 0 || step.can_load_alternatives
+                        ? (
+                          language === 'CN'
+                            ? `查看 ${step.product.name} 的替代和搭配`
+                            : `Find alternatives for ${step.product.name}`
+                        )
+                        : null
+                    }
+                    openDisabled={!step.anchor_key}
+                    onOpen={() => {
+                      void openRecommendationPdpForStep(step);
+                    }}
+                    onSecondary={() => {
+                      void openRecommendationAlternativesForStep(step);
+                    }}
+                  />
+                ))}
               </div>
-            </section>
-          ) : null}
-
-          {frameworkRoleConflict ? (
-            <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
-              {language === 'CN'
-                ? '当前只展示与这套护理框架一致的主链推荐；不一致候选已被降级为观测信息。'
-                : 'Only products that stay inside this care framework are surfaced on the mainline; conflicting candidates were downgraded to observations.'}
             </div>
           ) : null}
         </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/ui/use-toast', () => ({
@@ -18,7 +18,6 @@ const buildRecoCard = (args: {
   subjectProductGroupId?: string | null;
   canonicalProductRef?: { product_id: string; merchant_id?: string } | null;
   pdpOpen?: { path?: string; resolve_reason_code?: string; external?: { query?: string; url?: string } } | null;
-  payloadPatch?: Record<string, unknown>;
 }): Card => ({
   card_id: 'reco_card_1',
   type: 'recommendations',
@@ -53,108 +52,13 @@ const buildRecoCard = (args: {
         },
       },
     ],
-    ...(args.payloadPatch ?? {}),
   },
 });
 
-const buildFrameworkRecoCard = (): Card => ({
-  card_id: 'reco_framework_card_1',
-  type: 'recommendations',
-  payload: {
-    framework_summary: {
-      concern_text: 'im oily skin, what product should i use?',
-      headline: 'Start with product roles, then match products inside each role',
-      primary_role_id: 'oil_control_treatment',
-    },
-    roles: [
-      {
-        role_id: 'oil_control_treatment',
-        label: 'Oil-control treatment',
-        why_this_role: 'Start with targeted oil control before supporting steps.',
-        rank: 1,
-        preferred_step: 'treatment',
-      },
-      {
-        role_id: 'lightweight_moisturizer',
-        label: 'Lightweight moisturizer',
-        why_this_role: 'Keep hydration breathable.',
-        rank: 2,
-        preferred_step: 'moisturizer',
-      },
-      {
-        role_id: 'daily_sunscreen',
-        label: 'Daily sunscreen',
-        why_this_role: 'Protect during the day.',
-        rank: 3,
-        preferred_step: 'sunscreen',
-      },
-    ],
-    primary_role_id: 'oil_control_treatment',
-    primary_recommendation_id: 'serum_chat_1',
-    recommendation_meta: {
-      primary_role_id: 'oil_control_treatment',
-      primary_recommendation_id: 'serum_chat_1',
-      role_conflict_present: false,
-      source_mode: 'catalog_grounded',
-    },
-    recommendations: [
-      {
-        product_id: 'spf_chat_1',
-        matched_role_id: 'daily_sunscreen',
-        matched_role_label: 'Daily sunscreen',
-        step: 'sunscreen',
-        sku: {
-          brand: 'SunGuard',
-          display_name: 'Daily UV Fluid SPF 50',
-        },
-      },
-      {
-        product_id: 'serum_chat_1',
-        matched_role_id: 'oil_control_treatment',
-        matched_role_label: 'Oil-control treatment',
-        step: 'treatment',
-        sku: {
-          brand: 'Clarity Lab',
-          display_name: 'Oil Balance Serum',
-        },
-      },
-      {
-        product_id: 'moist_chat_1',
-        matched_role_id: 'lightweight_moisturizer',
-        matched_role_label: 'Lightweight moisturizer',
-        step: 'moisturizer',
-        sku: {
-          brand: 'LightLab',
-          display_name: 'Air Gel Cream',
-        },
-      },
-    ],
-  },
-});
+const getOpenProductButton = () =>
+  screen.getByRole('button', { name: /(?:view details|open product)/i });
 
 describe('RecommendationsCard View details routing', () => {
-  it('renders framework-first recommendations as top pick plus other options using primary_recommendation_id', () => {
-    render(
-      <RecommendationsCard
-        card={buildFrameworkRecoCard()}
-        language="EN"
-        debug={false}
-      />,
-    );
-
-    expect(screen.getByText('Top pick')).toBeInTheDocument();
-    expect(screen.getByText('Other options')).toBeInTheDocument();
-    expect(screen.getByText(/Concern: im oily skin, what product should i use\?/i)).toBeInTheDocument();
-
-    const topPick = screen.getByTestId('reco-framework-top-pick');
-    expect(within(topPick).getByText(/Oil Balance Serum/i)).toBeInTheDocument();
-    expect(within(topPick).queryByText(/Daily UV Fluid SPF 50/i)).not.toBeInTheDocument();
-
-    const otherOptions = screen.getByTestId('reco-framework-other-options');
-    expect(within(otherOptions).getByText(/Daily UV Fluid SPF 50/i)).toBeInTheDocument();
-    expect(within(otherOptions).getByText(/Air Gel Cream/i)).toBeInTheDocument();
-  });
-
   it('1) uses subject.product_group_id first: opens internal only, no resolve, no new tab', async () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
     const onOpenPdp = vi.fn();
@@ -170,7 +74,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(onOpenPdp).toHaveBeenCalledTimes(1);
@@ -202,7 +106,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(onOpenPdp).toHaveBeenCalledTimes(1);
@@ -232,7 +136,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(resolveProductRef).toHaveBeenCalledTimes(1);
@@ -273,7 +177,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(resolveProductRef).toHaveBeenCalledTimes(1);
@@ -306,7 +210,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledTimes(1);
@@ -345,7 +249,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledTimes(1);
@@ -388,7 +292,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(resolveProductRef).toHaveBeenCalledTimes(1);
@@ -424,7 +328,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(resolveProductRef).toHaveBeenCalledTimes(1);
@@ -453,7 +357,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(resolveProductRef).toHaveBeenCalledTimes(1);
@@ -478,7 +382,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(resolveProductRef).toHaveBeenCalledTimes(1);
@@ -519,7 +423,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(resolveProductRef).toHaveBeenCalledTimes(1);
@@ -552,7 +456,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(onOpenPdp).toHaveBeenCalledTimes(1);
@@ -579,7 +483,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledTimes(1);
@@ -625,7 +529,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /view details/i }));
+    fireEvent.click(getOpenProductButton());
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledTimes(1);
@@ -655,7 +559,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    const button = screen.getByRole('button', { name: /view details/i });
+    const button = getOpenProductButton();
     fireEvent.click(button);
     fireEvent.click(button);
 
@@ -687,7 +591,7 @@ describe('RecommendationsCard View details routing', () => {
       />,
     );
 
-    const button = screen.getByRole('button', { name: /view details/i });
+    const button = getOpenProductButton();
     fireEvent.click(button);
     await waitFor(() => {
       expect(onOpenPdp).toHaveBeenCalledTimes(1);

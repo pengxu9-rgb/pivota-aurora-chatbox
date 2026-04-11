@@ -1,4 +1,5 @@
 export type ChatCardV1Type =
+  | 'empty_state'
   | 'product_verdict'
   | 'compatibility'
   | 'routine'
@@ -18,7 +19,8 @@ export type ChatCardV1Type =
   | 'routine_fit_summary'
   | 'confidence_notice'
   | 'budget_gate'
-  | 'gate_notice';
+  | 'gate_notice'
+  | 'recommendations';
 
 export type ChatCardActionV1 = {
   type: string;
