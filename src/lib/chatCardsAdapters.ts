@@ -129,6 +129,16 @@ const asStringArray = (value: unknown, limit = 20): string[] => {
   return out;
 };
 
+const PRODUCT_VERDICT_INGREDIENT_HEADING_PATTERNS = [
+  /^key ingredients?$/i,
+  /^beneficial ingredients?$/i,
+  /^caution ingredients?$/i,
+  /^active ingredients?$/i,
+];
+
+const sanitizeProductVerdictIngredientList = (items: string[]): string[] =>
+  items.filter((item) => !PRODUCT_VERDICT_INGREDIENT_HEADING_PATTERNS.some((pattern) => pattern.test(item)));
+
 const normalizeCategory = (raw: unknown): string => {
   const token = asString(raw).toLowerCase();
   if (!token) return 'treatment';
@@ -568,8 +578,8 @@ const adaptProductVerdict = (
     source.match_score,
     suitabilityFallbackScore[suitability],
   );
-  const beneficial = asStringArray(source.beneficial_ingredients, 10);
-  const caution = asStringArray(source.caution_ingredients, 10);
+  const beneficial = sanitizeProductVerdictIngredientList(asStringArray(source.beneficial_ingredients, 10));
+  const caution = sanitizeProductVerdictIngredientList(asStringArray(source.caution_ingredients, 10));
   const safetySignals = caution.length ? caution : watchoutLines;
   const usage = asObject(source.usage) || {};
   const usageNotes = asStringArray(usage.notes, 6);

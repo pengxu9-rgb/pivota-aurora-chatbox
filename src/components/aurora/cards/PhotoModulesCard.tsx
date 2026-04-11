@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Droplets, Sparkles } from 'lucide-react';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import type {
   PhotoModulesAction,
   PhotoModulesProduct,
@@ -458,85 +456,6 @@ const pickTopIssueType = (module: PhotoModulesModule | null): string | null => {
   return sorted[0]?.issue_type || null;
 };
 
-const explainProductsEmptyReason = (reason: string | null, language: Language): string => {
-  const token = String(reason || '').trim().toLowerCase();
-  if (!token) {
-    return language === 'CN' ? '当前暂无可展示商品。' : 'No suitable product is available right now.';
-  }
-  if (token === 'ingredient_id_missing') {
-    return language === 'CN' ? '成分标识缺失，暂时无法匹配商品。' : 'Ingredient id is missing, so product matching is unavailable.';
-  }
-  if (token === 'strict_filter_fallback_only') {
-    return language === 'CN' ? '严格过滤后暂无直出商品，可先查看外部搜索建议。' : 'Strict filtering removed all direct products. External search suggestions are available.';
-  }
-  if (token === 'low_evidence') {
-    return language === 'CN' ? '当前证据强度不足，暂不直推商品。' : 'Evidence strength is limited, so direct product output is withheld.';
-  }
-  if (token === 'ingredient_constraint_no_match') {
-    return language === 'CN'
-      ? '未找到确认含有该成分的产品。'
-      : 'No confirmed products containing this ingredient found yet.';
-  }
-  if (token === 'ingredient_no_verified_candidates') {
-    return language === 'CN'
-      ? '暂无经过验证的含该成分产品候选。'
-      : 'No verified product candidates containing the queried ingredient.';
-  }
-  return language === 'CN'
-    ? `暂无直出商品（${token}）。`
-    : `No direct product was returned (${token}).`;
-};
-
-const sourceBadgeLabel = (source: string, language: Language): string => {
-  const token = String(source || '').trim().toLowerCase();
-  if (token === 'catalog') return language === 'CN' ? '目录' : 'Catalog';
-  if (token === 'external_seed') return language === 'CN' ? '外部候选' : 'External';
-  if (token === 'llm_fallback') return language === 'CN' ? 'LLM 兜底' : 'LLM fallback';
-  return language === 'CN' ? '推荐' : 'Recommended';
-};
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mql = window.matchMedia(query);
-    const onChange = () => setMatches(Boolean(mql.matches));
-    onChange();
-    if (typeof mql.addEventListener === 'function') mql.addEventListener('change', onChange);
-    else mql.addListener(onChange);
-    return () => {
-      if (typeof mql.removeEventListener === 'function') mql.removeEventListener('change', onChange);
-      else mql.removeListener(onChange);
-    };
-  }, [query]);
-
-  return matches;
-}
-
-const formatPriceText = (product: PhotoModulesProduct): string => {
-  const label = String(product.price_label || '').trim();
-  if (label) return label;
-  if (!Number.isFinite(Number(product.price))) return '';
-  const currency = String(product.currency || '').trim().toUpperCase();
-  const amount = Number(product.price);
-  const symbol = currency === 'CNY' || currency === 'RMB' ? '¥' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$';
-  return `${symbol}${Math.round(amount * 100) / 100}`;
-};
-
-const formatSocialProofText = (product: PhotoModulesProduct, language: Language): string => {
-  const social = product.social_proof;
-  if (!social) return '';
-  const parts: string[] = [];
-  if (Number.isFinite(Number(social.rating))) parts.push(`${Number(social.rating).toFixed(1)}/5`);
-  if (Number.isFinite(Number(social.review_count))) {
-    const count = Math.max(0, Math.trunc(Number(social.review_count)));
-    parts.push(language === 'CN' ? `${count} 条评价` : `${count} reviews`);
-  }
-  if (String(social.summary || '').trim()) parts.push(String(social.summary || '').trim());
-  return parts.join(' · ');
-};
-
 const buildActionProductQuery = (action: PhotoModulesAction, product: PhotoModulesProduct): string => {
   const title = String(product.title || '').trim();
   const brand = String(product.brand || '').trim();
@@ -581,11 +500,7 @@ export function PhotoModulesCard({
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [selectedIssueType, setSelectedIssueType] = useState<string | null>(null);
   const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null);
-  const [morePanelOpen, setMorePanelOpen] = useState(false);
-  const [morePanelModuleId, setMorePanelModuleId] = useState<string | null>(null);
-  const [morePanelActionIngredientId, setMorePanelActionIngredientId] = useState<string | null>(null);
   const [openingProductKey, setOpeningProductKey] = useState<string | null>(null);
-  const isDesktop = useMediaQuery('(min-width: 768px)');
   const imageAspect = `${model.face_crop.render_size_px_hint.w}/${model.face_crop.render_size_px_hint.h}`;
   const cropImageUrl = model.face_crop.crop_image_url;
   const originalImageUrl = model.face_crop.original_image_url;
@@ -683,26 +598,6 @@ export function PhotoModulesCard({
       ?? null,
     [model.modules, preferredModuleId, selectedModuleId],
   );
-  const morePanelModule = useMemo(
-    () => model.modules.find((module) => module.module_id === morePanelModuleId) ?? null,
-    [model.modules, morePanelModuleId],
-  );
-  const morePanelAction = useMemo(
-    () =>
-      (morePanelModule?.actions || []).find(
-        (action) => `${morePanelModule?.module_id || ''}::${action.ingredient_id}` === morePanelActionIngredientId,
-      ) || null,
-    [morePanelActionIngredientId, morePanelModule],
-  );
-  useEffect(() => {
-    if (!morePanelOpen) return;
-    if (!MORE_PANEL_ENABLED) {
-      setMorePanelOpen(false);
-      return;
-    }
-    if (morePanelModule && morePanelAction) return;
-    setMorePanelOpen(false);
-  }, [morePanelAction, morePanelModule, morePanelOpen]);
 
   const moduleEvidenceRegionIds = useMemo(() => {
     if (!selectedModule) return allRegionIds;
@@ -863,13 +758,6 @@ export function PhotoModulesCard({
         quality_grade: model.quality_grade,
       });
     }
-  };
-
-  const openMorePanel = (module: PhotoModulesModule, action: PhotoModulesAction) => {
-    if (!MORE_PANEL_ENABLED) return;
-    setMorePanelModuleId(module.module_id);
-    setMorePanelActionIngredientId(`${module.module_id}::${action.ingredient_id}`);
-    setMorePanelOpen(true);
   };
 
   const openExternal = (url: string, query: string) => {
@@ -1040,124 +928,6 @@ export function PhotoModulesCard({
     } finally {
       setOpeningProductKey((prev) => (prev === productKey ? null : prev));
     }
-  };
-
-  const renderMorePanelBody = () => {
-    if (!morePanelAction || !morePanelModule) return null;
-    const products = (Array.isArray(morePanelAction.products) ? morePanelAction.products : []).filter((row) => Boolean(row.title));
-    const hasProducts = products.length > 0;
-    const featuredProduct = hasProducts ? products[0] : null;
-    const otherProducts = hasProducts ? products.slice(1) : [];
-    const renderProductRow = (product: PhotoModulesProduct, index: number, featured = false) => (
-      <button
-        key={`${morePanelModule.module_id}_${morePanelAction.ingredient_id}_${product.product_id || product.title || index}`}
-        type="button"
-        className={cn(
-          'w-full rounded-2xl border border-border/60 bg-background/80 text-left hover:bg-background disabled:opacity-70',
-          featured ? 'p-4 shadow-sm' : 'p-3',
-        )}
-        disabled={openingProductKey === `${morePanelModule.module_id}::${morePanelAction.ingredient_id}::${product.product_id || product.title || index}`}
-        onClick={() =>
-          void openProduct({
-            moduleId: morePanelModule.module_id,
-            action: morePanelAction,
-            product,
-            productIndex: index,
-          })
-        }
-      >
-        <div className="flex items-start gap-3">
-          {product.image_url ? (
-            <img
-              src={product.image_url}
-              alt={product.title}
-              className={cn('rounded-lg border border-border/60 object-cover', featured ? 'h-20 w-20' : 'h-14 w-14')}
-            />
-          ) : (
-            <div className={cn('flex items-center justify-center rounded-lg border border-border/60 bg-muted/30', featured ? 'h-20 w-20' : 'h-14 w-14')}>
-              <Sparkles className="h-4 w-4 text-muted-foreground" />
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            {featured ? (
-              <div className="mb-2">
-                <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
-                  {language === 'CN' ? '主推' : 'Top pick'}
-                </span>
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between gap-2">
-              <div className={cn('truncate font-semibold text-foreground', featured ? 'text-base' : 'text-sm')}>{product.title}</div>
-              {product.retrieval_source ? (
-                <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                  {sourceBadgeLabel(product.retrieval_source, language)}
-                </span>
-              ) : null}
-            </div>
-            {product.brand ? <div className="mt-0.5 text-xs text-muted-foreground">{product.brand}</div> : null}
-            {product.benefit_tags.length ? (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {product.benefit_tags.slice(0, featured ? 5 : 4).map((tag) => (
-                  <span key={tag} className="rounded-full border border-border/60 bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            {(formatPriceText(product) || formatSocialProofText(product, language)) ? (
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                {formatPriceText(product) ? <span>{formatPriceText(product)}</span> : null}
-                {formatSocialProofText(product, language) ? <span>{formatSocialProofText(product, language)}</span> : null}
-              </div>
-            ) : null}
-            {product.why_match ? (
-              <div className={cn('mt-2 text-muted-foreground', featured ? 'text-sm leading-relaxed' : 'text-[11px]')}>
-                {product.why_match}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </button>
-    );
-    return (
-      <div className="mt-3 space-y-3 px-4 pb-4">
-        <div className="text-xs text-muted-foreground">
-          {language === 'CN'
-            ? `${morePanelAction.ingredient_name} · 共 ${products.length} 个推荐`
-            : `${morePanelAction.ingredient_name} · ${products.length} recommendations`}
-        </div>
-        {hasProducts ? (
-          <div className="space-y-3">
-            {featuredProduct ? renderProductRow(featuredProduct, 0, true) : null}
-            {otherProducts.length ? (
-              <div className="space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                  {language === 'CN' ? '其他推荐' : 'Other options'}
-                </div>
-                {otherProducts.map((product, index) => renderProductRow(product, index + 1, false))}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              {explainProductsEmptyReason(morePanelAction.products_empty_reason, language)}
-            </div>
-            {(Array.isArray(morePanelAction.external_search_ctas) ? morePanelAction.external_search_ctas : []).slice(0, 4).map((cta, idx) => (
-              <a
-                key={`${morePanelAction.ingredient_id}_cta_${idx}`}
-                href={cta.url || '#'}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex rounded-full border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted/20"
-              >
-                {cta.title || (language === 'CN' ? '外部搜索' : 'External search')}
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-    );
   };
 
   return (
@@ -1448,32 +1218,6 @@ export function PhotoModulesCard({
           ) : null}
         </div>
       </CardContent>
-      {MORE_PANEL_ENABLED ? (
-        isDesktop ? (
-        <Sheet open={morePanelOpen} onOpenChange={setMorePanelOpen}>
-          <SheetContent
-            side="right"
-            className="w-[480px] max-w-[92vw] overflow-y-auto"
-            aria-label={language === 'CN' ? '查看更多商品' : 'More products'}
-            aria-describedby={undefined}
-          >
-            <SheetHeader>
-              <SheetTitle>{language === 'CN' ? '查看更多商品' : 'More products'}</SheetTitle>
-            </SheetHeader>
-            {renderMorePanelBody()}
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <Drawer open={morePanelOpen} onOpenChange={setMorePanelOpen}>
-          <DrawerContent aria-label={language === 'CN' ? '查看更多商品' : 'More products'} aria-describedby={undefined}>
-            <DrawerHeader>
-              <DrawerTitle>{language === 'CN' ? '查看更多商品' : 'More products'}</DrawerTitle>
-            </DrawerHeader>
-            {renderMorePanelBody()}
-          </DrawerContent>
-        </Drawer>
-      )
-      ) : null}
     </Card>
   );
 }

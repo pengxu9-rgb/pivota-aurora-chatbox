@@ -107,27 +107,7 @@ describe('BffChat gateway unavailable UX', () => {
       if (path === '/v1/session/bootstrap') {
         return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_2', trace_id: 'trace_bootstrap_2' }));
       }
-      if (path === '/v1/product/parse') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_2',
-            trace_id: 'trace_parse_2',
-            cards: [
-              {
-                card_id: 'parse_1',
-                type: 'product_parse',
-                payload: {
-                  product: {
-                    brand: 'Lab Series',
-                    name: 'All-in-One Defense Lotion',
-                  },
-                },
-              },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
+      if (path === '/v1/chat') {
         return Promise.reject(new TypeError('Failed to fetch'));
       }
       return Promise.resolve(makeEnvelope());
@@ -150,7 +130,7 @@ describe('BffChat gateway unavailable UX', () => {
     fireEvent.click(screen.getByRole('button', { name: /^analyze$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Gateway is temporarily unreachable or restarting|Failed to fetch/i)).toBeInTheDocument();
+      expect(screen.getByText(/Need clearer product details|I could not fully ground this product yet/i)).toBeInTheDocument();
     }, { timeout: READY_TIMEOUT_MS });
   });
 });

@@ -33,6 +33,7 @@ import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
 import { bffJson } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
+import type { ChatResponseV1 } from '@/lib/chatCardsTypes';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -44,6 +45,63 @@ function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
     session_patch: args?.session_patch ?? {},
     events: args?.events ?? [],
   };
+}
+
+function makeV1Response(args?: Partial<ChatResponseV1>): ChatResponseV1 {
+  return {
+    version: '1.0',
+    request_id: args?.request_id ?? 'req_chat_v1',
+    trace_id: args?.trace_id ?? 'trace_chat_v1',
+    assistant_text: args?.assistant_text ?? 'Here is a v1 response.',
+    cards: args?.cards ?? [],
+    follow_up_questions: args?.follow_up_questions ?? [],
+    suggested_quick_replies: args?.suggested_quick_replies ?? [],
+    ops: args?.ops ?? {
+      thread_ops: [],
+      profile_patch: [],
+      routine_patch: [],
+      experiment_events: [],
+    },
+    safety: args?.safety ?? {
+      risk_level: 'none',
+      red_flags: [],
+      disclaimer: '',
+    },
+    telemetry: args?.telemetry ?? {
+      intent: 'unknown',
+      intent_confidence: 0.4,
+      entities: [],
+    },
+  };
+}
+
+function makeProductVerdictResponse({
+  requestId = 'req_product_verdict',
+  traceId = 'trace_product_verdict',
+  sections,
+  title = 'Product verdict',
+}: {
+  requestId?: string;
+  traceId?: string;
+  sections: Array<Record<string, unknown>>;
+  title?: string;
+}): ChatResponseV1 {
+  return makeV1Response({
+    request_id: requestId,
+    trace_id: traceId,
+    assistant_text: 'Product verdict is ready.',
+    cards: [
+      {
+        id: 'product_verdict_card',
+        type: 'product_verdict',
+        priority: 1,
+        title,
+        tags: ['fit'],
+        sections,
+        actions: [],
+      },
+    ],
+  });
 }
 
 const READY_TIMEOUT_MS = 5000;
@@ -77,342 +135,29 @@ async function submitComposerPrompt(value: string) {
   fireEvent.submit(input.closest('form') as HTMLFormElement);
 }
 
-// V4 payload fixture
-function makeV4ProductAnalysisPayload() {
-  return {
-    assessment: {
-      verdict: 'Suitable',
-      verdict_level: 'cautiously_ok',
-      data_quality_banner: 'Official INCI extraction was blocked; analysis based on INCIDecoder data only.',
-      top_takeaways: [
-        'Good UV protection with broad-spectrum filters.',
-        'Lightweight for oily skin.',
-      ],
-      best_for: ['Oily-combination skin needing daytime SPF.'],
-      watchouts: [
-        {
-          issue: 'Contains oxybenzone (potential irritant for sensitive skin)',
-          status: 'confirmed',
-          what_to_do: 'Consider a mineral SPF alternative if sensitivity occurs.',
-        },
-        {
-          issue: 'Fragrance possible based on unverified INCI',
-          status: 'possible',
-          what_to_do: 'Patch test if reactive.',
-        },
-      ],
-      how_to_use: {
-        when: 'AM only',
-        frequency: 'daily',
-        order_in_routine: 'Last step of AM routine before makeup',
-        pairing_rules: ['Apply after moisturizer and wait 2 minutes.'],
-        stop_signs: ['Persistent redness or stinging after application.'],
-      },
-    },
-    evidence: {
-      product_type_reasoning: 'Name and URL contain "SPF", classified as spf.',
-      key_functions: ['UV protection', 'Lightweight hydration'],
-      key_ingredients_by_function: [
-        { function: 'UV filters', ingredients: ['Oxybenzone', 'Avobenzone'], confidence: 'high' },
-        { function: 'Humectants', ingredients: ['Glycerin'], confidence: 'medium' },
-      ],
-      social_signals: { typical_positive: ['lightweight', 'no white cast'], typical_negative: [] },
-      sources: ['Official page'],
-      expert_notes: ['Evidence source: INCIDecoder supplement used.'],
-      confidence: 0.65,
-      missing_info: ['on_page_fetch_blocked', 'incidecoder_source_used'],
-    },
-    inci_status: {
-      extraction: 'blocked',
-      consensus_tier: 'medium',
-      verification_required: true,
-      total_ingredients: 18,
-      sources: [],
-    },
-    confidence: 0.65,
-    missing_info: ['on_page_fetch_blocked', 'incidecoder_source_used'],
-  };
+async function analyzeProduct(value: string) {
+  const productInput = await openProductEvaluateSheet();
+  fireEvent.change(productInput, { target: { value } });
+  await clickAnalyzeButton();
 }
 
-function makeMarch7LabSeriesPayload() {
-  return {
-    product: {
-      url: 'https://www.labseries.com/product/32020/91265/skincare/moisturizerspf/all-in-one-defense-lotion-moisturizer-spf-35/all-in-one?size=100ml_%2F_3.4oz',
-      name: 'All-In-One Defense Lotion Moisturizer SPF 35',
-      brand: 'Lab Series',
-      price: {
-        amount: 52,
-        source: 'json_ld_offer',
-        unknown: false,
-        currency: 'USD',
-        captured_at: '2026-03-04T08:25:46.570Z',
-      },
-      display_name: 'Lab Series All-In-One Defense Lotion Moisturizer SPF 35',
-    },
-    evidence: {
-      science: {
-        fit_notes: [
-          'For sensitive or impaired-barrier days, start low-frequency and avoid same-night stacking of strong actives.',
-          'Ingredient-source consistency is limited; cross-check with package INCI.',
-        ],
-        mechanisms: [
-          'Peptide complexes are commonly used to support firmness and the look of fine lines (effect depends on formula and concentration).',
-          'Humectant blend suggests hydration support and moisture retention.',
-        ],
-        risk_notes: [
-          'May include fragrance-related ingredients; patch testing is recommended for sensitive skin.',
-        ],
-        key_ingredients: ['Acetyl Hexapeptide-8', 'Sodium Hyaluronate'],
-      },
-      sources: [
-        {
-          url: 'https://www.labseries.com/product/32020/91265/skincare/moisturizerspf/all-in-one-defense-lotion-moisturizer-spf-35/all-in-one?size=100ml_%2F_3.4oz',
-          type: 'official_page',
-          label: 'labseries.com',
-          confidence: 0.78,
-        },
-        {
-          url: 'https://incidecoder.com/products/lab-series-pro-ls-all-in-one-face-treatment',
-          type: 'inci_decoder',
-          label: 'INCIDecoder',
-          confidence: 0.82,
-        },
-      ],
-      confidence: 0.67,
-      expert_notes: [
-        'Evidence source: ingredient list parsed from labseries.com.',
-        'INCIDecoder supplement loaded (60 ingredients, match=0.67).',
-        'Price signal from page: USD 52 (used for comparable matching).',
-      ],
-      missing_info: [
-        'retail_source_no_match',
-        'incidecoder_source_used',
-        'version_verification_needed',
-        'concentration_unknown',
-      ],
-      social_signals: {
-        platform_scores: {
-          BrandSite: 0.88,
-        },
-        risk_for_groups: [
-          'Sensitive skin: start low and monitor for stinging/redness.',
-          'Acne-prone skin: watch for clogging/breakout feedback.',
-          'Impaired barrier: prioritize moisturizer and reduce active layering.',
-        ],
-        typical_negative: ['drying feel'],
-        typical_positive: ['hydration'],
-      },
-      key_ingredients_by_function: [
-        {
-          function: 'Humectants',
-          ingredients: ['Sodium Hyaluronate'],
-          confidence: 'medium',
-        },
-      ],
-      product_type_reasoning: 'Product type classified as spf_moisturizer based on name/URL/ingredient signals.',
-    },
-    assessment: {
-      not_for: [
-        'May include fragrance-related ingredients; patch testing is recommended for sensitive skin.',
-      ],
-      reasons: [
-        'Fit signal: lower irritation exposure and redness risk; keep acne/comedone control on track.',
-        'May include fragrance-related ingredients; patch testing is recommended for sensitive skin.',
-        'On-page sentiment leans positive: hydration.',
-      ],
-      summary: 'May include fragrance-related ingredients; patch testing is recommended for sensitive skin.',
-      verdict: 'Likely Suitable',
-      best_for: [
-        'Ingredient-source consistency is limited; cross-check with package INCI.',
-      ],
-      how_to_use: {
-        when: 'AM only',
-        frequency: 'daily',
-        order_in_routine: 'Layer from thinnest to thickest; keep hydration before occlusive steps.',
-        pairing_rules: [
-          'Use daytime SPF as the final AM step.',
-          'Reapply about every 2 hours when outdoors.',
-        ],
-        stop_signs: [
-          'Persistent stinging beyond 30-60 seconds',
-          'Worsening redness/dry itch',
-          'Noticeable breakout or barrier instability signals',
-        ],
-      },
-      if_not_ideal: [
-        'If persistent stinging/redness appears, pause this product and return to a gentle cleanse + barrier-repair baseline.',
-      ],
-      anchor_product: {
-        url: 'https://www.labseries.com/product/32020/91265/skincare/moisturizerspf/all-in-one-defense-lotion-moisturizer-spf-35/all-in-one?size=100ml_%2F_3.4oz',
-        name: 'All-In-One Defense Lotion Moisturizer SPF 35',
-        brand: 'Lab Series',
-        price: {
-          amount: 52,
-          source: 'json_ld_offer',
-          unknown: false,
-          currency: 'USD',
-          captured_at: '2026-03-04T08:25:46.570Z',
-        },
-        display_name: 'Lab Series All-In-One Defense Lotion Moisturizer SPF 35',
-      },
-      better_pairing: [
-        'Pairing idea: keep consistent daytime SPF and single-variable PM iteration to judge fit reliably.',
-      ],
-      formula_intent: [
-        'Peptide complexes are commonly used to support firmness and the look of fine lines (effect depends on formula and concentration).',
-        'Humectant blend suggests hydration support and moisture retention.',
-        'Core driver: Sodium Hyaluronate (humectant), mainly targeting Hydrates by binding water; usually low irritation.',
-      ],
-      hero_ingredient: {
-        why: 'Hydrates by binding water; usually low irritation.',
-        name: 'Sodium Hyaluronate',
-        role: 'humectant',
-        source: 'heuristic',
-      },
-      follow_up_question: 'Do you prefer "gentler" or "faster-visible results"? I can tune the next-step options based on that.',
-      ingredient_confidence_tier: 'low',
-      verdict_level: 'needs_verification',
-      top_takeaways: [
-        'Peptide complexes are commonly used to support firmness and the look of fine lines (effect depends on formula and concentration).',
-        'Humectant blend suggests hydration support and moisture retention.',
-        'Core driver: Sodium Hyaluronate (humectant), mainly targeting Hydrates by binding water; usually low irritation.',
-        'Fit signal: lower irritation exposure and redness risk; keep acne/comedone control on track.',
-      ],
-      watchouts: [
-        {
-          issue: 'May include fragrance-related ingredients; patch testing is recommended for sensitive skin.',
-          status: 'possible',
-          what_to_do: 'Patch test first; stop if stinging or redness persists.',
-        },
-      ],
-      data_quality_banner:
-        'Ingredient evidence relies on INCIDecoder and may vary by version/region. Cross-check your package INCI before relying on ingredient-specific guidance.',
-    },
-    confidence: 0.67,
-    provenance: {
-      generated_at: '2026-03-04T08:25:47.816Z',
-      contract_version: 'aurora.product_intel.contract.v2',
-      pipeline: 'reco_blocks_dag.v1',
-      source: 'url_realtime_product_intel_async_backfill',
-      source_chain: ['official_page', 'inci_decoder', 'llm_extraction'],
-      quality_band: 'high',
-      confidence_band: 'medium',
-    },
-    competitors: {
-      candidates: [],
-      _meta: {
-        warnings: ['no_competitor_candidates_from_upstream'],
-      },
-      block_type: 'competitors',
-    },
-    dupes: {
-      candidates: [],
-      _meta: {
-        warnings: ['dupes_missing'],
-      },
-      block_type: 'dupes',
-    },
-    related_products: {
-      candidates: [],
-      _meta: {
-        confidence: {
-          score: 0.678,
-          level: 'med',
-          reasons: ['related_products=upstream_or_router'],
-        },
-      },
-      block_type: 'related_products',
-    },
-    missing_info: [
-      'retail_source_no_match',
-      'incidecoder_source_used',
-      'version_verification_needed',
-      'ingredient_concentration_unknown',
-      'analysis_in_progress',
-      'concentration_unknown',
-    ],
-    social_signals: {
-      overall_summary: {
-        top_pos_themes: ['hydration'],
-        top_neg_themes: ['drying feel'],
-        watchouts: [
-          'Sensitive skin: start low and monitor for stinging/redness.',
-          'Acne-prone skin: watch for clogging/breakout feedback.',
-          'Impaired barrier: prioritize moisturizer and reduce active layering.',
-        ],
-      },
-    },
-    ingredient_intel: {
-      inci_raw: 'Acetyl Hexapeptide-8, Sodium Hyaluronate',
-      inci_normalized: [
-        {
-          inci: 'Acetyl Hexapeptide-8',
-          functions: ['barrier_support', 'humectant_hydration'],
-          risks: [],
-          suitability_tags: [],
-        },
-        {
-          inci: 'Sodium Hyaluronate',
-          functions: ['humectant_hydration'],
-          risks: [],
-          suitability_tags: [],
-        },
-      ],
-      actives: [
-        {
-          name: 'Acetyl Hexapeptide-8',
-          rationale:
-            'Peptide complexes are commonly used to support firmness and the look of fine lines (effect depends on formula and concentration).',
-        },
-        {
-          name: 'Sodium Hyaluronate',
-          rationale: 'Humectant blend suggests hydration support and moisture retention.',
-        },
-      ],
-      red_flags: [
-        'May include fragrance-related ingredients; patch testing is recommended for sensitive skin.',
-      ],
-    },
-    user_facing_gaps: [
-      'retail_source_no_match',
-      'incidecoder_source_used',
-      'version_verification_needed',
-      'ingredient_concentration_unknown',
-      'analysis_in_progress',
-    ],
-    confidence_by_block: {
-      ingredient_intel: { score: 0.908, level: 'high' },
-      skin_fit: { score: 0.875, level: 'high' },
-      social_signals: { score: 0.805, level: 'high' },
-      competitors: { score: 0.18, level: 'low' },
-      related_products: { score: 0.64, level: 'med' },
-      dupes: { score: 0.35, level: 'low' },
-    },
-    product_intel_contract_version: 'aurora.product_intel.contract.v2',
-    inci_status: {
-      extraction: 'success',
-      consensus_tier: 'low',
-      sources: [
-        {
-          type: 'official_page',
-          url: 'https://www.labseries.com/product/32020/91265/skincare/moisturizerspf/all-in-one-defense-lotion-moisturizer-spf-35/all-in-one?size=100ml_%2F_3.4oz',
-          confidence: 0.78,
-          ingredient_count: null,
-        },
-        {
-          type: 'inci_decoder',
-          url: 'https://incidecoder.com/products/lab-series-pro-ls-all-in-one-face-treatment',
-          confidence: 0.82,
-          ingredient_count: null,
-        },
-      ],
-      verification_required: true,
-      total_ingredients: 2,
-    },
-  };
+function expectMainlineOnlyRouting(mock: ReturnType<typeof vi.mocked<typeof bffJson>>) {
+  expect(mock.mock.calls.some((call) => call[0] === '/v1/chat')).toBe(true);
+  expect(mock.mock.calls.some((call) => call[0] === '/v1/product/parse')).toBe(false);
+  expect(mock.mock.calls.some((call) => call[0] === '/v1/product/analyze')).toBe(false);
 }
 
-describe('BffChat product-analysis template v2', () => {
+function renderChat() {
+  render(
+    <MemoryRouter initialEntries={['/chat']}>
+      <ShopProvider>
+        <BffChat />
+      </ShopProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe('BffChat product verdict mainline rendering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
@@ -424,69 +169,48 @@ describe('BffChat product-analysis template v2', () => {
     }
   });
 
-  it('renders formula intent separately from fit notes and shows follow-up question', async () => {
+  it('renders rich product verdict with skin-profile fit, usage guidance, and a budget alternative', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_v2', trace_id: 'trace_bootstrap_v2' }));
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_fit', trace_id: 'trace_bootstrap_fit' }));
       }
-      if (path === '/v1/product/parse') {
+      if (path === '/v1/chat') {
         return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_v2',
-            trace_id: 'trace_parse_v2',
-            cards: [
+          makeProductVerdictResponse({
+            requestId: 'req_chat_fit',
+            traceId: 'trace_chat_fit',
+            sections: [
               {
-                card_id: 'parse_v2',
-                type: 'product_parse',
-                payload: {
-                  product: { brand: 'Lab Series', name: 'Defense Lotion SPF 35' },
-                  confidence: 0.81,
-                  missing_info: [],
-                  parse_source: 'answer_json',
+                kind: 'product_verdict_structured',
+                verdict: 'Suitable',
+                product_name: 'Defense Lotion SPF 35',
+                brand: 'Lab Series',
+                suitability: 'good',
+                match_score: 82,
+                beneficial_ingredients: ['Niacinamide', 'Panthenol'],
+                caution_ingredients: ['Fragrance'],
+                mechanisms: ['Lightweight hydration support', 'Daily oil control'],
+                usage: {
+                  timing: 'AM',
+                  notes: ['Use as the last step before sun exposure.'],
+                },
+                skin_profile_match: {
+                  skin_type: 'oily',
+                  matched_concerns: ['oil_control', 'daily_spf'],
+                  unmatched_concerns: ['barrier'],
+                },
+                dupe_recommendation: {
+                  name: 'Defense Moisturizer',
+                  brand: 'Demo',
+                  reason: 'Lower-cost option for everyday wear.',
+                  savingsPercent: 25,
                 },
               },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_v2',
-            trace_id: 'trace_analyze_v2',
-            cards: [
               {
-                card_id: 'analyze_v2',
-                type: 'product_analysis',
-                payload: {
-                  assessment: {
-                    verdict: 'Caution',
-                    summary: 'Usable for day wear but can feel drying for reactive skin.',
-                    formula_intent: [
-                      'Provides UV protection with broad-spectrum filters.',
-                      'Adds lightweight hydration to reduce daytime dryness.',
-                    ],
-                    best_for: ['Oily-combination skin needing daytime SPF with light hydration.'],
-                    not_for: ['Highly reactive skin during barrier-flare periods.'],
-                    if_not_ideal: ['Switch to fragrance-free SPF and pause irritating actives for 1-2 weeks.'],
-                    better_pairing: ['Pair with a barrier-repair moisturizer at night.'],
-                    follow_up_question: 'Do you get tightness within 30 minutes after applying this SPF?',
-                    reasons: [
-                      'Your profile: oily / sensitivity=medium / barrier=healthy.',
-                      'May feel drying when used without additional hydration.',
-                    ],
-                  },
-                  evidence: {
-                    science: { key_ingredients: ['niacinamide'], mechanisms: ['barrier support'], fit_notes: [], risk_notes: ['dryness risk'] },
-                    social_signals: { typical_positive: [], typical_negative: [], risk_for_groups: [] },
-                    expert_notes: ['Patch-test if currently irritated.'],
-                    confidence: 0.71,
-                    missing_info: ['version_verification_needed', 'social_signals_low_confidence'],
-                  },
-                  confidence: 0.71,
-                  missing_info: ['version_verification_needed', 'social_signals_low_confidence'],
-                },
+                kind: 'bullets',
+                title: 'Why this fits',
+                items: ['Lightweight lotion texture suits oily skin.'],
               },
             ],
           }),
@@ -495,68 +219,61 @@ describe('BffChat product-analysis template v2', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, { target: { value: 'Lab Series Defense Lotion SPF 35' } });
-    await clickAnalyzeButton();
+    renderChat();
+    await analyzeProduct('Lab Series Defense Lotion SPF 35');
 
     await waitFor(() => {
-      expect(screen.getByText(/what the formula is trying to do/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /defense lotion spf 35/i })).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/key takeaway/i)).toBeInTheDocument();
-    expect(screen.getByText(/usable for day wear but can feel drying/i)).toBeInTheDocument();
-    expect(screen.getByText(/provides uv protection with broad-spectrum filters/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/oily-combination skin needing daytime spf with light hydration/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/one smart follow-up question/i)).toBeInTheDocument();
-    expect(screen.getByText(/do you get tightness within 30 minutes/i)).toBeInTheDocument();
-    expect(screen.getByText(/analysis limits \(2\)/i)).toBeInTheDocument();
-
+    expectMainlineOnlyRouting(mock);
+    expect(screen.getByText(/^lab series$/i)).toBeInTheDocument();
+    expect(screen.getByText('82')).toBeInTheDocument();
+    expect(screen.getByText(/good match/i)).toBeInTheDocument();
+    expect(screen.getByText(/matched to your oily skin profile/i)).toBeInTheDocument();
+    expect(screen.getByText(/oil control/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not address/i)).toBeInTheDocument();
+    expect(screen.getByText(/dehydration/i)).toBeInTheDocument();
+    expect(screen.getByText(/morning use/i)).toBeInTheDocument();
+    expect(screen.getByText(/use as the last step before sun exposure/i)).toBeInTheDocument();
+    expect(screen.getByText(/niacinamide/i)).toBeInTheDocument();
+    expect(screen.getByText(/fragrance/i)).toBeInTheDocument();
+    expect(screen.getByText(/budget alternative/i)).toBeInTheDocument();
+    expect(screen.getByText(/save 25%/i)).toBeInTheDocument();
+    expect(screen.getByText(/defense moisturizer/i)).toBeInTheDocument();
   });
 
-  it('renders V4 payload: verdict_level badge, data_quality_banner, and watchouts', async () => {
+  it('falls back to watchout checklist items when structured caution ingredients are missing', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_v4', trace_id: 'trace_bootstrap_v4' }));
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_watchouts', trace_id: 'trace_bootstrap_watchouts' }));
       }
-      if (path === '/v1/product/parse') {
+      if (path === '/v1/chat') {
         return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_v4',
-            trace_id: 'trace_parse_v4',
-            cards: [
+          makeProductVerdictResponse({
+            requestId: 'req_chat_watchouts',
+            traceId: 'trace_chat_watchouts',
+            sections: [
               {
-                card_id: 'parse_v4',
-                type: 'product_parse',
-                payload: {
-                  product: { brand: 'La Roche-Posay', name: 'Anthelios SPF 50' },
-                  confidence: 0.9,
-                  missing_info: [],
-                  parse_source: 'answer_json',
+                kind: 'product_verdict_structured',
+                verdict: 'Suitable',
+                product_name: 'Barrier Gel SPF',
+                brand: 'Demo',
+                suitability: 'good',
+                match_score: 79,
+                beneficial_ingredients: ['Panthenol'],
+                caution_ingredients: [],
+                mechanisms: ['Barrier support'],
+                usage: {
+                  timing: 'AM',
+                  notes: ['Apply before sun exposure.'],
                 },
               },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_v4',
-            trace_id: 'trace_analyze_v4',
-            cards: [
               {
-                card_id: 'analyze_v4',
-                type: 'product_analysis',
-                payload: makeV4ProductAnalysisPayload(),
+                kind: 'checklist',
+                title: 'Watchouts',
+                items: ['Essential oils may sting compromised skin.'],
               },
             ],
           }),
@@ -565,173 +282,41 @@ describe('BffChat product-analysis template v2', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, { target: { value: 'La Roche-Posay Anthelios SPF 50' } });
-    await clickAnalyzeButton();
-
-    // V4: data quality banner
-    await waitFor(() => {
-      expect(screen.getByText(/data quality note/i)).toBeInTheDocument();
-    });
-    expect(screen.getByText(/official inci extraction was blocked/i)).toBeInTheDocument();
-
-    // V4: verdict_level badge (cautiously_ok)
-    expect(screen.getByText(/cautiously ok/i)).toBeInTheDocument();
-
-    // V4: top takeaways
-    expect(screen.getByText(/good uv protection with broad-spectrum filters/i)).toBeInTheDocument();
-
-    // V4: watchouts with status
-    expect(screen.getByText(/contains oxybenzone/i)).toBeInTheDocument();
-    expect(screen.getByText(/confirmed/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/possible/i).length).toBeGreaterThan(0);
-  });
-
-  it('renders V4 payload: SPF how_to_use shows AM only guidance', async () => {
-    const mock = vi.mocked(bffJson);
-    mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_spf', trace_id: 'trace_spf' }));
-      }
-      if (path === '/v1/product/parse') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_spf',
-            trace_id: 'trace_parse_spf',
-            cards: [
-              {
-                card_id: 'parse_spf',
-                type: 'product_parse',
-                payload: {
-                  product: { brand: 'EltaMD', name: 'UV Clear SPF 46' },
-                  confidence: 0.88,
-                  missing_info: [],
-                  parse_source: 'answer_json',
-                },
-              },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_spf',
-            trace_id: 'trace_analyze_spf',
-            cards: [
-              {
-                card_id: 'analyze_spf',
-                type: 'product_analysis',
-                payload: {
-                  ...makeV4ProductAnalysisPayload(),
-                  assessment: {
-                    ...makeV4ProductAnalysisPayload().assessment,
-                    verdict_level: 'recommended',
-                    data_quality_banner: null,
-                    how_to_use: {
-                      when: 'AM only',
-                      frequency: 'daily',
-                      order_in_routine: 'Last step before makeup',
-                      pairing_rules: ['Apply every 2 hours when outdoors.'],
-                      stop_signs: ['Stinging or redness on application.'],
-                    },
-                  },
-                },
-              },
-            ],
-          }),
-        );
-      }
-      return Promise.resolve(makeEnvelope());
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, { target: { value: 'EltaMD UV Clear SPF 46' } });
-    await clickAnalyzeButton();
+    renderChat();
+    await analyzeProduct('Barrier Gel SPF');
 
     await waitFor(() => {
-      expect(screen.getByText(/how to use/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /barrier gel spf/i })).toBeInTheDocument();
     });
 
-    // SPF should show AM only
-    expect(screen.getByText(/AM only/i)).toBeInTheDocument();
-    // Should show reapplication guidance
-    expect(screen.getByText(/every 2 hours when outdoors/i)).toBeInTheDocument();
-    // Should NOT contain PM-first language
-    expect(screen.queryByText(/pm first/i)).toBeNull();
-    expect(screen.queryByText(/2-3 nights/i)).toBeNull();
+    expectMainlineOnlyRouting(mock);
+    expect(screen.getByText(/caution/i)).toBeInTheDocument();
+    expect(screen.getByText(/essential oils may sting compromised skin/i)).toBeInTheDocument();
   });
 
-  it('V4 rendering isolates data-quality lines and filters heading tokens in ingredient chips', async () => {
+  it('normalizes verdict text and PM timing when structured suitability is absent', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_v4_clean', trace_id: 'trace_v4_clean' }));
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_pm', trace_id: 'trace_bootstrap_pm' }));
       }
-      if (path === '/v1/product/parse') {
+      if (path === '/v1/chat') {
         return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_v4_clean',
-            trace_id: 'trace_parse_v4_clean',
-            cards: [
+          makeProductVerdictResponse({
+            requestId: 'req_chat_pm',
+            traceId: 'trace_chat_pm',
+            sections: [
               {
-                card_id: 'parse_v4_clean',
-                type: 'product_parse',
-                payload: {
-                  product: { brand: 'Lab Series', name: 'Defense Lotion SPF 35' },
-                  confidence: 0.9,
-                  missing_info: [],
-                  parse_source: 'answer_json',
-                },
-              },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_v4_clean',
-            trace_id: 'trace_analyze_v4_clean',
-            cards: [
-              {
-                card_id: 'analyze_v4_clean',
-                type: 'product_analysis',
-                payload: {
-                  ...makeV4ProductAnalysisPayload(),
-                  assessment: {
-                    ...makeV4ProductAnalysisPayload().assessment,
-                    formula_intent: [
-                      'Humectant blend suggests hydration support and moisture retention.',
-                      'Official-page INCI extraction was blocked; INCIDecoder was used as a supplemental source.',
-                    ],
-                  },
-                  evidence: {
-                    ...makeV4ProductAnalysisPayload().evidence,
-                    key_ingredients_by_function: [],
-                    science: {
-                      key_ingredients: ['Key Ingredients', 'Sodium Hyaluronate'],
-                      mechanisms: ['Humectant blend suggests hydration support and moisture retention.'],
-                      fit_notes: [],
-                      risk_notes: [],
-                    },
-                  },
+                kind: 'product_verdict_structured',
+                verdict: 'Caution',
+                product_name: 'Night Peel Serum',
+                brand: 'Demo',
+                beneficial_ingredients: ['Lactic Acid'],
+                caution_ingredients: ['Do not layer with retinoids'],
+                mechanisms: ['Resurfacing support'],
+                usage: {
+                  timing: 'PM only',
+                  notes: ['Use on alternate nights only.'],
                 },
               },
             ],
@@ -741,74 +326,44 @@ describe('BffChat product-analysis template v2', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
+    await analyzeProduct('Night Peel Serum');
 
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, { target: { value: 'Lab Series Defense Lotion SPF 35' } });
-    await clickAnalyzeButton();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /night peel serum/i })).toBeInTheDocument();
+    });
 
-    await screen.findByText(/what the formula is trying to do/i);
-    expect(screen.getAllByText(/humectant blend suggests hydration support/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/^official-page inci extraction was blocked/i)).toBeNull();
-    expect(screen.queryByRole('button', { name: /^key ingredients$/i })).toBeNull();
-    expect(screen.getByRole('button', { name: /sodium hyaluronate/i })).toBeInTheDocument();
+    expectMainlineOnlyRouting(mock);
+    expect(screen.getByText(/use with caution/i)).toBeInTheDocument();
+    expect(screen.getByText('68')).toBeInTheDocument();
+    expect(screen.getByText(/evening use/i)).toBeInTheDocument();
+    expect(screen.getByText(/use on alternate nights only/i)).toBeInTheDocument();
   });
 
-  it('social snapshot avoids blanket caution when only generic risk-group bullets are present', async () => {
+  it('defaults to morning and evening usage when timing is omitted', async () => {
     const mock = vi.mocked(bffJson);
     mock.mockImplementation((path: string) => {
       if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_social_tone', trace_id: 'trace_social_tone' }));
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_both', trace_id: 'trace_bootstrap_both' }));
       }
-      if (path === '/v1/product/parse') {
+      if (path === '/v1/chat') {
         return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_social_tone',
-            trace_id: 'trace_parse_social_tone',
-            cards: [
+          makeProductVerdictResponse({
+            requestId: 'req_chat_both',
+            traceId: 'trace_chat_both',
+            sections: [
               {
-                card_id: 'parse_social_tone',
-                type: 'product_parse',
-                payload: {
-                  product: { brand: 'Demo', name: 'Hydrating Gel' },
-                  confidence: 0.85,
-                  missing_info: [],
-                  parse_source: 'answer_json',
-                },
-              },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_social_tone',
-            trace_id: 'trace_analyze_social_tone',
-            cards: [
-              {
-                card_id: 'analyze_social_tone',
-                type: 'product_analysis',
-                payload: {
-                  ...makeV4ProductAnalysisPayload(),
-                  evidence: {
-                    ...makeV4ProductAnalysisPayload().evidence,
-                    social_signals: {
-                      typical_positive: ['hydration'],
-                      typical_negative: [],
-                      risk_for_groups: [
-                        'Sensitive skin: start low and monitor for stinging/redness.',
-                        'Acne-prone skin: watch for clogging/breakout feedback.',
-                        'Impaired barrier: prioritize moisturizer and reduce active layering.',
-                      ],
-                    },
-                  },
+                kind: 'product_verdict_structured',
+                verdict: 'Suitable',
+                product_name: 'Hydration Gel',
+                brand: 'Demo',
+                suitability: 'good',
+                match_score: 78,
+                beneficial_ingredients: ['Sodium Hyaluronate'],
+                caution_ingredients: [],
+                mechanisms: ['Hydration support'],
+                usage: {
+                  notes: ['Use after cleansing and before moisturizer.'],
                 },
               },
             ],
@@ -818,20 +373,124 @@ describe('BffChat product-analysis template v2', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
+    renderChat();
+    await analyzeProduct('Hydration Gel');
 
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, { target: { value: 'Demo Hydrating Gel' } });
-    await clickAnalyzeButton();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /hydration gel/i })).toBeInTheDocument();
+    });
 
-    await screen.findByText(/social feedback snapshot/i);
-    expect(screen.queryByText(/overall feedback suggests caution/i)).toBeNull();
+    expectMainlineOnlyRouting(mock);
+    expect(screen.getByText(/morning & evening/i)).toBeInTheDocument();
+    expect(screen.getByText(/use after cleansing and before moisturizer/i)).toBeInTheDocument();
+  });
+
+  it('uses why-this-fits bullets as usage fallback when usage notes are missing', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_fallback', trace_id: 'trace_bootstrap_fallback' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeProductVerdictResponse({
+            requestId: 'req_chat_fallback',
+            traceId: 'trace_chat_fallback',
+            sections: [
+              {
+                kind: 'product_verdict_structured',
+                verdict: 'Suitable',
+                product_name: 'Calming Essence',
+                brand: 'Demo',
+                suitability: 'good',
+                match_score: 81,
+                beneficial_ingredients: ['Beta-Glucan'],
+                caution_ingredients: [],
+                mechanisms: ['Soothing support'],
+                usage: {
+                  timing: 'PM',
+                  notes: [],
+                },
+              },
+              {
+                kind: 'bullets',
+                title: 'Why this fits',
+                items: ['Comforting texture for redness-prone skin on recovery nights.'],
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat();
+    await analyzeProduct('Calming Essence');
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /calming essence/i })).toBeInTheDocument();
+    });
+
+    expectMainlineOnlyRouting(mock);
+    expect(screen.getByText(/evening use/i)).toBeInTheDocument();
+    expect(screen.getByText(/comforting texture for redness-prone skin on recovery nights/i)).toBeInTheDocument();
+  });
+
+  it('keeps product verdict renderable when optional subsection items are malformed', async () => {
+    const mock = vi.mocked(bffJson);
+    mock.mockImplementation((path: string) => {
+      if (path === '/v1/session/bootstrap') {
+        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_malformed', trace_id: 'trace_bootstrap_malformed' }));
+      }
+      if (path === '/v1/chat') {
+        return Promise.resolve(
+          makeProductVerdictResponse({
+            requestId: 'req_chat_malformed',
+            traceId: 'trace_chat_malformed',
+            sections: [
+              {
+                kind: 'product_verdict_structured',
+                verdict: 'Good fit',
+                product_name: 'Hydration Gel',
+                brand: 'Demo',
+                suitability: 'good',
+                match_score: 78,
+                beneficial_ingredients: ['Key Ingredients', 'Sodium Hyaluronate', null],
+                caution_ingredients: [null, 'Patch test first if your barrier is unstable.'],
+                mechanisms: ['Supports hydration retention.', null],
+                usage: {
+                  timing: 'AM/PM',
+                  notes: ['After cleansing', null],
+                },
+              },
+              {
+                kind: 'bullets',
+                title: 'Why this fits',
+                items: ['Hydration-first gel texture with some irritation monitoring.', null],
+              },
+              {
+                kind: 'checklist',
+                title: 'Watchouts',
+                items: [null, 'Patch test first if your barrier is unstable.'],
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(makeEnvelope());
+    });
+
+    renderChat();
+    await analyzeProduct('Demo Hydration Gel');
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /hydration gel/i })).toBeInTheDocument();
+    });
+
+    expectMainlineOnlyRouting(mock);
+    expect(screen.getByText(/sodium hyaluronate/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^key ingredients$/i)).toBeNull();
+    expect(screen.queryByText(/this card failed to render and was safely downgraded/i)).toBeNull();
   });
 
   it('dupe_compare limited mode shows compact guidance and supports price.amount', async () => {
@@ -873,14 +532,7 @@ describe('BffChat product-analysis template v2', () => {
       return Promise.resolve(makeEnvelope());
     });
 
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
+    renderChat();
     await submitComposerPrompt('compare tradeoffs');
 
     await screen.findByText(/tradeoff detail is missing/i, {}, { timeout: READY_TIMEOUT_MS });
@@ -888,310 +540,5 @@ describe('BffChat product-analysis template v2', () => {
     expect(screen.queryAllByText(/price unavailable/i).length).toBe(0);
     expect(screen.getByText(/\$52/i)).toBeInTheDocument();
     expect(screen.getByText(/\$39/i)).toBeInTheDocument();
-  });
-
-  it('V3 payload backward compatibility: still renders verdict and key takeaway', async () => {
-    const mock = vi.mocked(bffJson);
-    mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_v3_compat', trace_id: 'trace_v3_compat' }));
-      }
-      if (path === '/v1/product/parse') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_v3_compat',
-            trace_id: 'trace_parse_v3_compat',
-            cards: [
-              {
-                card_id: 'parse_v3',
-                type: 'product_parse',
-                payload: {
-                  product: { brand: 'CeraVe', name: 'Moisturizing Cream' },
-                  confidence: 0.82,
-                  missing_info: [],
-                  parse_source: 'answer_json',
-                },
-              },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_v3_compat',
-            trace_id: 'trace_analyze_v3_compat',
-            cards: [
-              {
-                card_id: 'analyze_v3',
-                type: 'product_analysis',
-                payload: {
-                  // V3 payload: no verdict_level field
-                  assessment: {
-                    verdict: 'Suitable',
-                    summary: 'Great barrier-repair moisturizer for dry skin.',
-                    formula_intent: ['Ceramides restore barrier function.'],
-                    best_for: ['Dry and sensitive skin.'],
-                    not_for: ['Very oily skin.'],
-                    follow_up_question: 'Do you have any fragrance sensitivity?',
-                    reasons: ['Contains ceramides and hyaluronic acid.'],
-                  },
-                  evidence: {
-                    science: { key_ingredients: ['ceramide'], mechanisms: ['barrier support'], fit_notes: [], risk_notes: [] },
-                    social_signals: { typical_positive: [], typical_negative: [], risk_for_groups: [] },
-                    expert_notes: ['Evidence source: official page.'],
-                    confidence: 0.82,
-                    missing_info: [],
-                  },
-                  confidence: 0.82,
-                  missing_info: [],
-                },
-              },
-            ],
-          }),
-        );
-      }
-      return Promise.resolve(makeEnvelope());
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, { target: { value: 'CeraVe Moisturizing Cream' } });
-    await clickAnalyzeButton();
-
-    // V3 fallback: should show verdict badge (not verdict_level)
-    await waitFor(() => {
-      expect(screen.getAllByText(/verdict:/i).length).toBeGreaterThan(0);
-    });
-    expect(screen.getAllByText(/suitable/i).length).toBeGreaterThan(0);
-    // Should show V3 key takeaway
-    expect(screen.getByText(/key takeaway/i)).toBeInTheDocument();
-    // Should NOT show V4-specific fields that aren't present
-    expect(screen.queryByText(/data quality note/i)).toBeNull();
-    expect(screen.queryByText(/assessment:/i)).toBeNull();
-  });
-
-  it('renders the March 7 Lab Series payload, hides parse noise, and keeps compatibility footer active', async () => {
-    const mock = vi.mocked(bffJson);
-    mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_bootstrap_march7',
-            trace_id: 'trace_bootstrap_march7',
-            session_patch: {
-              profile: {
-                skinType: 'oily',
-                sensitivity: 'medium',
-                barrierStatus: 'impaired',
-                goals: ['dark_spots', 'pores'],
-                currentRoutine: {
-                  am: [
-                    { step: 'cleanser', product: 'Low-foam Gel Cleanser' },
-                    { step: 'moisturizer', product: 'Barrier Gel Cream' },
-                    { step: 'spf', product: 'Daily UV Fluid SPF 50' },
-                  ],
-                  pm: [
-                    { step: 'cleanser', product: 'Low-foam Gel Cleanser' },
-                    { step: 'treatment', product: 'Azelaic Acid Serum' },
-                    { step: 'moisturizer', product: 'Barrier Gel Cream' },
-                  ],
-                },
-              },
-            },
-          }),
-        );
-      }
-      if (path === '/v1/product/parse') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_march7',
-            trace_id: 'trace_parse_march7',
-            cards: [
-              {
-                card_id: 'parse_march7',
-                type: 'product_parse',
-                payload: {
-                  product: {
-                    brand: 'Labseries',
-                    name: 'All One',
-                    url: 'https://www.labseries.com/product/32020/91265/skincare/moisturizerspf/all-in-one-defense-lotion-moisturizer-spf-35/all-in-one?size=100ml_%2F_3.4oz',
-                  },
-                  confidence: 0.25,
-                  missing_info: ['anchor_soft_blocked_ambiguous', 'anchor_id_not_used_due_to_low_trust'],
-                  parse_source: 'upstream_structured',
-                },
-              },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_march7',
-            trace_id: 'trace_analyze_march7',
-            cards: [
-              {
-                card_id: 'analyze_march7',
-                type: 'product_analysis',
-                payload: makeMarch7LabSeriesPayload(),
-              },
-            ],
-          }),
-        );
-      }
-      return Promise.resolve(makeEnvelope());
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, {
-      target: {
-        value:
-          'https://www.labseries.com/product/32020/91265/skincare/moisturizerspf/all-in-one-defense-lotion-moisturizer-spf-35/all-in-one?size=100ml_%2F_3.4oz',
-      },
-    });
-    await clickAnalyzeButton();
-
-    await waitFor(() => {
-      expect(screen.getByText(/data quality note/i)).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/needs verification/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/sodium hyaluronate/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/ingredient evidence relies on incidecoder/i)).toBeInTheDocument();
-    expect(screen.getByText(/advanced compatibility check/i)).toBeInTheDocument();
-    expect(screen.queryByText(/confidence 25%/i)).toBeNull();
-    expect(screen.queryByText(/source upstream structured/i)).toBeNull();
-    expect(screen.queryByText(/an unreliable anchor was blocked from id binding/i)).toBeNull();
-    expect(screen.queryByText(/this card failed to render and was safely downgraded/i)).toBeNull();
-  });
-
-  it('keeps product analysis renderable when optional subsections are malformed', async () => {
-    const mock = vi.mocked(bffJson);
-    mock.mockImplementation((path: string) => {
-      if (path === '/v1/session/bootstrap') {
-        return Promise.resolve(makeEnvelope({ request_id: 'req_bootstrap_malformed', trace_id: 'trace_bootstrap_malformed' }));
-      }
-      if (path === '/v1/product/parse') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_parse_malformed',
-            trace_id: 'trace_parse_malformed',
-            cards: [
-              {
-                card_id: 'parse_malformed',
-                type: 'product_parse',
-                payload: {
-                  product: { brand: 'Demo', name: 'Hydration Gel' },
-                  confidence: 0.8,
-                  missing_info: [],
-                  parse_source: 'answer_json',
-                },
-              },
-            ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_analyze_malformed',
-            trace_id: 'trace_analyze_malformed',
-            cards: [
-              {
-                card_id: 'analyze_malformed',
-                type: 'product_analysis',
-                payload: {
-                  assessment: {
-                    verdict: 'Likely Suitable',
-                    verdict_level: 'cautiously_ok',
-                    summary: 'Hydration-first gel texture with some irritation monitoring.',
-                    reasons: ['Hydration-first gel texture with some irritation monitoring.'],
-                    watchouts: [null, { text: 'Patch test first if your barrier is unstable.', recommendation: 'Stop if stinging persists.' }],
-                    how_to_use: {
-                      when: 'AM/PM',
-                      frequency: 'daily',
-                      order_in_routine: 'After cleansing',
-                      pairing_rules: ['Keep strong acids on alternate nights.'],
-                      stop_signs: ['Persistent redness'],
-                    },
-                  },
-                  evidence: {
-                    science: {
-                      key_ingredients: ['Key Ingredients', 'Sodium Hyaluronate'],
-                      mechanisms: ['Supports hydration retention.'],
-                      fit_notes: [],
-                      risk_notes: [],
-                    },
-                    key_ingredients_by_function: [
-                      null,
-                      { function: 'Humectants', ingredients: ['Sodium Hyaluronate', 'Key Ingredients'], confidence: 'medium' },
-                    ],
-                    social_signals: { typical_positive: ['hydration'], typical_negative: [], risk_for_groups: [] },
-                    expert_notes: ['Evidence source: demo payload.'],
-                    missing_info: [],
-                  },
-                  related_products: {
-                    candidates: [
-                      null,
-                      'bad-shape',
-                      {
-                        brand: 'Brand X',
-                        name: 'Hydration Cloud Gel',
-                        similarity_score: 0.72,
-                        why_candidate: {
-                          reasons_user_visible: ['Hydration overlap'],
-                        },
-                      },
-                    ],
-                  },
-                  competitors: { candidates: [null, 123] },
-                  dupes: { candidates: [] },
-                  confidence: 0.61,
-                  missing_info: [],
-                },
-              },
-            ],
-          }),
-        );
-      }
-      return Promise.resolve(makeEnvelope());
-    });
-
-    render(
-      <MemoryRouter initialEntries={['/chat']}>
-        <ShopProvider>
-          <BffChat />
-        </ShopProvider>
-      </MemoryRouter>,
-    );
-
-    const productInput = await openProductEvaluateSheet();
-    fireEvent.change(productInput, { target: { value: 'Demo Hydration Gel' } });
-    await clickAnalyzeButton();
-
-    await waitFor(() => {
-      expect(screen.getAllByText(/sodium hyaluronate/i).length).toBeGreaterThan(0);
-    });
-
-    expect(screen.getAllByText(/sodium hyaluronate/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/advanced compatibility check/i)).toBeInTheDocument();
-    expect(screen.queryByText(/this card failed to render and was safely downgraded/i)).toBeNull();
   });
 });

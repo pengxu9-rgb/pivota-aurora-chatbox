@@ -22,6 +22,7 @@ import BffChat from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
 import { bffJson } from '@/lib/pivotaAgentBff';
 import type { V1Envelope } from '@/lib/pivotaAgentBff';
+import type { ChatResponseV1 } from '@/lib/chatCardsTypes';
 import { TimeoutError } from '@/utils/requestWithTimeout';
 
 const CHAT_TIMEOUT_MS = 15000;
@@ -35,6 +36,34 @@ function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
     cards: args?.cards ?? [],
     session_patch: args?.session_patch ?? {},
     events: args?.events ?? [],
+  };
+}
+
+function makeV1Response(args?: Partial<ChatResponseV1>): ChatResponseV1 {
+  return {
+    version: '1.0',
+    request_id: args?.request_id ?? 'req_chat_v1',
+    trace_id: args?.trace_id ?? 'trace_chat_v1',
+    assistant_text: args?.assistant_text ?? 'Here is a v1 response.',
+    cards: args?.cards ?? [],
+    follow_up_questions: args?.follow_up_questions ?? [],
+    suggested_quick_replies: args?.suggested_quick_replies ?? [],
+    ops: args?.ops ?? {
+      thread_ops: [],
+      profile_patch: [],
+      routine_patch: [],
+      experiment_events: [],
+    },
+    safety: args?.safety ?? {
+      risk_level: 'none',
+      red_flags: [],
+      disclaimer: '',
+    },
+    telemetry: args?.telemetry ?? {
+      intent: 'unknown',
+      intent_confidence: 0.4,
+      entities: [],
+    },
   };
 }
 
@@ -119,7 +148,7 @@ describe('Routine entry stability', () => {
       </MemoryRouter>,
     );
 
-    const trigger = await screen.findByRole('button', { name: /Build an AM\/PM routine/i });
+    const trigger = await screen.findByRole('button', { name: /AM\/PM routine/i });
     fireEvent.click(trigger);
 
     await waitFor(() => {
@@ -276,35 +305,38 @@ describe('Routine entry stability', () => {
           }),
         );
       }
-      if (path === '/v1/product/parse') {
+      if (path === '/v1/chat') {
         return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_product_parse_preview',
-            trace_id: 'trace_product_parse_preview',
+          makeV1Response({
+            request_id: 'req_product_verdict_preview',
+            trace_id: 'trace_product_verdict_preview',
+            assistant_text: 'Product verdict ready.',
             cards: [
               {
-                card_id: 'parse_card_preview',
-                type: 'product_parse',
-                payload: {
-                  product: {
-                    display_name: 'Biotherm Force Cleanser',
-                    name: 'Biotherm Force Cleanser',
-                    url: 'https://example.com/biotherm-force-cleanser',
+                id: 'product_verdict_preview',
+                type: 'product_verdict',
+                priority: 1,
+                title: 'Verdict: Good fit',
+                tags: ['fit'],
+                sections: [
+                  {
+                    kind: 'product_verdict_structured',
+                    verdict: 'Good fit',
+                    product_name: 'Biotherm Force Cleanser',
+                    brand: 'Biotherm',
+                    suitability: 'good',
+                    beneficial_ingredients: ['Glycerin'],
+                    caution_ingredients: [],
+                    mechanisms: ['Barrier-friendly cleanse'],
+                    usage: {
+                      timing: 'AM',
+                      notes: ['Use as your cleansing step.'],
+                    },
                   },
-                  confidence: 0.88,
-                  parse_source: 'heuristic_url',
-                },
+                ],
+                actions: [],
               },
             ],
-          }),
-        );
-      }
-      if (path === '/v1/product/analyze') {
-        return Promise.resolve(
-          makeEnvelope({
-            request_id: 'req_product_analyze_preview',
-            trace_id: 'trace_product_analyze_preview',
-            cards: [],
           }),
         );
       }
@@ -332,14 +364,27 @@ describe('Routine entry stability', () => {
     const previewButton = await screen.findByRole('button', { name: /Analyze this product/i });
     expect(previewButton).toBeInTheDocument();
 
-    expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/parse')).toHaveLength(0);
-    expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/analyze')).toHaveLength(0);
+    expect(mock.mock.calls.filter((call) => call[0] === '/v1/chat')).toHaveLength(0);
 
     fireEvent.click(previewButton);
 
     await waitFor(() => {
-      expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/parse')).toHaveLength(1);
-      expect(mock.mock.calls.filter((call) => call[0] === '/v1/product/analyze')).toHaveLength(1);
+      expect(mock.mock.calls.filter((call) => call[0] === '/v1/chat')).toHaveLength(1);
+    });
+
+    const chatCall = mock.mock.calls.find((call) => call[0] === '/v1/chat');
+    expect(chatCall).toBeTruthy();
+    expect(JSON.parse(String((chatCall?.[2] as RequestInit | undefined)?.body || '{}'))).toMatchObject({
+      action: {
+        action_id: 'chip.action.analyze_product',
+        data: {
+          reply_text: 'Biotherm Force Cleanser',
+          product_anchor: {
+            name: 'Biotherm Force Cleanser',
+            url: 'https://example.com/biotherm-force-cleanser',
+          },
+        },
+      },
     });
   });
 

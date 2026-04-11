@@ -293,8 +293,7 @@ describe('BffChat diagnosis submit flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start Analysis' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Skip and continue' }));
 
-    await screen.findByText('Ingredient & product recommendations');
-    expect(screen.getByText('UV Filters SPF 45 Serum')).toBeInTheDocument();
+    await screen.findByText('UV Filters SPF 45 Serum');
     expect(screen.queryByText(/Gloss Bomb Cream/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Choose your skincare goals' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Take a selfie for better analysis' })).not.toBeInTheDocument();
