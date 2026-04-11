@@ -39,6 +39,8 @@ export type RecommendationMeta = {
     | 'llm_primary'
     | 'llm_catalog_hybrid'
     | 'catalog_grounded'
+    | 'framework_mainline'
+    | 'step_aware_mainline'
     | 'catalog_transient_fallback'
     | 'bridge_error'
     | 'artifact_matcher'
@@ -432,6 +434,8 @@ export type RecoAlternativesRequest = {
   product?: Record<string, unknown>;
   anchor_product_id?: string;
   max_total?: number;
+  recommendation_mode?: 'pool_only' | 'hybrid_fallback' | 'open_world_only';
+  disable_synthetic_local_fallback?: boolean;
   include_debug?: boolean;
 };
 

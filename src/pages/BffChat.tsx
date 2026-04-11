@@ -271,6 +271,51 @@ type ProductAlternativeTrack = {
   filteredCount: number;
 };
 
+const SYNTHETIC_ALTERNATIVE_SUFFIX_RE = /\((budget dupe|similar option|premium option)\)$/i;
+const SYNTHETIC_ALTERNATIVE_REASON_RE = /returning immediate alternatives while richer results refresh in background/i;
+
+function isSyntheticLocalFallbackAlternative(candidate: Record<string, unknown>): boolean {
+  const product = asObject((candidate as any).product) || null;
+  const missingInfo = uniqueStrings([
+    ...asArray((candidate as any).missing_info).map((value) => asString(value)),
+    ...asArray((candidate as any).missingInfo).map((value) => asString(value)),
+    ...asArray((product as any)?.missing_info).map((value) => asString(value)),
+    ...asArray((product as any)?.missingInfo).map((value) => asString(value)),
+  ]);
+  if (missingInfo.some((value) => String(value || '').trim().toLowerCase() === 'local_fallback_seed')) {
+    return true;
+  }
+  const name =
+    asString((candidate as any).name) ||
+    asString((candidate as any).display_name) ||
+    asString((candidate as any).displayName) ||
+    asString((product as any)?.name) ||
+    asString((product as any)?.display_name) ||
+    asString((product as any)?.displayName) ||
+    '';
+  if (SYNTHETIC_ALTERNATIVE_SUFFIX_RE.test(name)) return true;
+  const reasons = uniqueStrings([
+    ...asArray((candidate as any).reasons).map((value) => asString(value)),
+    ...asArray((candidate as any).tradeoff_notes ?? (candidate as any).tradeoffNotes).map((value) => asString(value)),
+  ]);
+  return reasons.some((value) => SYNTHETIC_ALTERNATIVE_REASON_RE.test(String(value || '')));
+}
+
+function formatRecommendationSourceLabel(sourceMode: string, language: UiLanguage): string {
+  const source = String(sourceMode || '').trim().toLowerCase();
+  if (source === 'llm_primary') return language === 'CN' ? 'LLM 主推荐' : 'LLM primary';
+  if (source === 'llm_catalog_hybrid') return language === 'CN' ? 'LLM + 商品库匹配' : 'LLM + catalog match';
+  if (source === 'catalog_grounded') return language === 'CN' ? '商品库锚定推荐' : 'catalog grounded';
+  if (source === 'framework_mainline') return language === 'CN' ? '目标驱动方案' : 'goal-based routine';
+  if (source === 'step_aware_mainline') return language === 'CN' ? '步骤导向方案' : 'step-guided routine';
+  if (source === 'catalog_transient_fallback') return language === 'CN' ? '商品库临时降级' : 'catalog fallback';
+  if (source === 'bridge_error') return language === 'CN' ? '桥接降级' : 'bridge fallback';
+  if (source === 'artifact_matcher') return language === 'CN' ? '结构化诊断匹配' : 'artifact matcher';
+  if (source === 'upstream_fallback') return language === 'CN' ? '上游补全回退' : 'upstream fallback';
+  if (source === 'travel_handoff') return language === 'CN' ? '旅行场景接续' : 'travel handoff';
+  return language === 'CN' ? '规则保守路径' : 'rules-only';
+}
+
 function buildAlternativeTradeoffSummary(candidate: Record<string, unknown>): string | null {
   const tradeoffs = asObject((candidate as any).tradeoffs) || asObject((candidate as any).tradeoff) || null;
   const priceDeltaUsd = asNumber((tradeoffs as any)?.price_delta_usd ?? (tradeoffs as any)?.priceDeltaUsd);
@@ -294,6 +339,7 @@ function buildAlternativeTradeoffSummary(candidate: Record<string, unknown>): st
 function normalizeAlternativeDisplayCandidate(rawCandidate: Record<string, unknown> | null): ProductAlternativeDisplayCandidate | null {
   const candidate = rawCandidate && typeof rawCandidate === 'object' && !Array.isArray(rawCandidate) ? rawCandidate : null;
   if (!candidate) return null;
+  if (isSyntheticLocalFallbackAlternative(candidate)) return null;
   const product = asObject((candidate as any).product) || null;
   const whyCandidate = asObject((candidate as any).why_candidate || (candidate as any).whyCandidate) || null;
   const brand = asString((candidate as any).brand) || asString((product as any)?.brand) || null;
@@ -4196,42 +4242,7 @@ export function RecommendationsCard({
   const recommendationBasis = (() => {
     if (!recommendationMeta) return null;
     const source = String(asString((recommendationMeta as any).source_mode) || '').trim().toLowerCase();
-    const sourceLabel =
-      source === 'llm_primary'
-        ? language === 'CN'
-          ? 'LLM 主推荐'
-          : 'LLM primary'
-        : source === 'llm_catalog_hybrid'
-        ? language === 'CN'
-          ? 'LLM + 商品库匹配'
-          : 'LLM + catalog match'
-        : source === 'catalog_grounded'
-        ? language === 'CN'
-          ? '商品库锚定推荐'
-          : 'catalog grounded'
-        : source === 'catalog_transient_fallback'
-        ? language === 'CN'
-          ? '商品库临时降级'
-          : 'catalog fallback'
-        : source === 'bridge_error'
-        ? language === 'CN'
-          ? '桥接降级'
-          : 'bridge fallback'
-        : source === 'artifact_matcher'
-        ? language === 'CN'
-          ? '结构化诊断匹配'
-          : 'artifact matcher'
-        : source === 'upstream_fallback'
-          ? language === 'CN'
-            ? '上游补全回退'
-            : 'upstream fallback'
-          : source === 'travel_handoff'
-            ? language === 'CN'
-              ? '旅行场景接续'
-              : 'travel handoff'
-          : language === 'CN'
-            ? '规则保守路径'
-            : 'rules-only';
+    const sourceLabel = formatRecommendationSourceLabel(source, language);
     const flags: string[] = [];
     if ((recommendationMeta as any).used_recent_logs === true) {
       flags.push(language === 'CN' ? '近期打卡' : 'recent check-ins');
@@ -9177,6 +9188,8 @@ export default function BffChat() {
         ...(String(anchorProductId || '').trim() ? { anchor_product_id: String(anchorProductId || '').trim().slice(0, 180) } : {}),
         ...(product && typeof product === 'object' ? { product } : {}),
         max_total: 6,
+        recommendation_mode: 'hybrid_fallback' as const,
+        disable_synthetic_local_fallback: true,
         include_debug: Boolean(debug),
       };
       if (!body.product_input && !body.anchor_product_id && !body.product) return null;

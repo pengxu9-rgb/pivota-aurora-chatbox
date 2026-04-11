@@ -402,7 +402,7 @@ describe('BffChat V2 recommendations cards', () => {
               card_type: 'recommendations',
               metadata: {
                 recommendation_meta: {
-                  source_mode: 'llm_catalog_hybrid',
+                  source_mode: 'framework_mainline',
                   trigger_source: 'text',
                 },
                 recommendations: [
@@ -445,7 +445,7 @@ describe('BffChat V2 recommendations cards', () => {
     expect(await screen.findByText(/Hydrating Repair Mask/i)).toBeInTheDocument();
     expect(screen.getByText(/Sensibio Comfort Mask/i)).toBeInTheDocument();
     expect(screen.getByText(/External/i)).toBeInTheDocument();
-    expect(screen.getByText(/LLM \+ catalog match/i)).toBeInTheDocument();
+    expect(screen.getByText(/goal-based routine/i)).toBeInTheDocument();
     expect(screen.getByText(/Why this fits/i)).toBeInTheDocument();
     expect(screen.queryByText(/rules-only/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/unknown\.response/i)).not.toBeInTheDocument();
@@ -570,10 +570,69 @@ describe('BffChat V2 recommendations cards', () => {
     fireEvent.click(compareButton as HTMLElement);
 
     await waitFor(() => expect(alternativesMock).toHaveBeenCalledTimes(1), { timeout: READY_TIMEOUT_MS });
+    expect(alternativesMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        recommendation_mode: 'hybrid_fallback',
+        disable_synthetic_local_fallback: true,
+      }),
+      expect.anything(),
+    );
     await waitFor(() => expect(toastMock).toHaveBeenCalled(), { timeout: READY_TIMEOUT_MS });
     expect(toastMock.mock.calls.some(([payload]) => String((payload as any)?.title || '').includes('No extra comparison candidates yet'))).toBe(true);
     expect(screen.queryByText(/More alternatives & pairing ideas/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Unknown brand/i)).not.toBeInTheDocument();
+  });
+
+  it('filters synthetic fallback alternatives before opening the alternatives sheet', async () => {
+    const onOpenAlternativesSheet = vi.fn();
+    const loadAlternativesForItem = vi.fn().mockResolvedValue({
+      alternatives: [
+        {
+          product: {
+            brand: 'The Ordinary',
+            name: 'The Ordinary Niacinamide 10% + Zinc 1% (budget dupe)',
+          },
+          reasons: ['Returning immediate alternatives while richer results refresh in background.'],
+          missing_info: ['local_fallback_seed'],
+        },
+      ],
+    });
+    const toastMock = vi.mocked(toast);
+
+    renderRecommendationsCard({
+      card_id: 'card_summary_synthetic_compare_guard',
+      type: 'recommendations',
+      payload: {
+        recommendations: [
+          {
+            slot: 'pm',
+            step: 'serum',
+            brand: 'The Ordinary',
+            name: 'Niacinamide 10% + Zinc 1%',
+            reasons: ['Oil-control support.'],
+            canonical_product_ref: {
+              product_id: 'prod_serum_guard',
+              merchant_id: 'merchant_serum_guard',
+            },
+          },
+        ],
+      },
+    }, {
+      onOpenAlternativesSheet,
+      loadAlternativesForItem,
+      loadRecommendationCompatibility: vi.fn().mockResolvedValue(null),
+    });
+
+    const compareButton = (await screen.findAllByRole('button', { name: /Find alternatives/i }))
+      .find((element) => element.tagName === 'BUTTON');
+    expect(compareButton).toBeTruthy();
+    fireEvent.click(compareButton as HTMLElement);
+
+    await waitFor(() => expect(loadAlternativesForItem).toHaveBeenCalledTimes(1), { timeout: READY_TIMEOUT_MS });
+    await waitFor(() => expect(toastMock).toHaveBeenCalled(), { timeout: READY_TIMEOUT_MS });
+    expect(onOpenAlternativesSheet).not.toHaveBeenCalled();
+    expect(screen.queryByText(/More alternatives & pairing ideas/i)).not.toBeInTheDocument();
   });
 
   it('shows compatibility only when lazy routine simulation returns analysis_ready', async () => {
