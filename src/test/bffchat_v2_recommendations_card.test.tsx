@@ -272,7 +272,7 @@ describe('BffChat V2 recommendations cards', () => {
 
     expect(await screen.findByText(/oily skin recommendations for you/i)).toBeInTheDocument();
     expect(screen.getByText(/Basic routine/i)).toBeInTheDocument();
-    expect(screen.getByText(/Best first buy/i)).toBeInTheDocument();
+    expect(screen.getByText(/Suggested starting point/i)).toBeInTheDocument();
     expect(screen.getByText(/Other routine steps/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Oil Balance Serum/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Air Gel Cream/i).length).toBeGreaterThan(0);
@@ -285,6 +285,97 @@ describe('BffChat V2 recommendations cards', () => {
     expect(screen.queryByText(/More comparison candidates/i)).not.toBeInTheDocument();
   });
 
+  it('uses neutral lead-pick framing for same-role comparison bundles', async () => {
+    renderRecommendationsCard({
+      card_id: 'card_same_role_compare',
+      type: 'recommendations',
+      payload: {
+        recommendation_meta: {
+          selected_target_ids: ['daily_sunscreen'],
+          comparison_mode: 'same_role_comparison',
+        },
+        framework_summary: {
+          concern_text: 'daily sunscreen',
+          prioritized_roles: [
+            { role_id: 'daily_sunscreen', label: 'Daily sunscreen', why_this_role: 'Keep protection lightweight.', rank: 1 },
+          ],
+        },
+        roles: [
+          { role_id: 'daily_sunscreen', label: 'Daily sunscreen', why_this_role: 'Keep protection lightweight.', rank: 1 },
+        ],
+        primary_role_id: 'daily_sunscreen',
+        primary_recommendation_id: 'spf_1',
+        sections: [
+          {
+            kind: 'product_cards',
+            products: [
+              {
+                product_id: 'spf_1',
+                merchant_id: 'merchant_spf_1',
+                brand: 'Solaris',
+                name: 'Invisible UV Serum SPF 50',
+                matched_role_id: 'daily_sunscreen',
+                matched_role_label: 'Daily sunscreen',
+                why_this_one: 'Lightweight daily coverage.',
+                price_label: '$19',
+                same_role_peer_count: 3,
+              },
+              {
+                product_id: 'spf_2',
+                merchant_id: 'merchant_spf_2',
+                brand: 'Filter Lab',
+                name: 'Oil-Control Sun Fluid SPF 50',
+                matched_role_id: 'daily_sunscreen',
+                matched_role_label: 'Daily sunscreen',
+                why_this_one: 'Mattifying finish for oily skin.',
+                price_label: '$24',
+                same_role_peer_count: 3,
+              },
+            ],
+          },
+        ],
+        recommendations: [
+          {
+            product_id: 'spf_1',
+            merchant_id: 'merchant_spf_1',
+            brand: 'Solaris',
+            name: 'Invisible UV Serum SPF 50',
+            step: 'sunscreen',
+            matched_role_id: 'daily_sunscreen',
+            matched_role_label: 'Daily sunscreen',
+            comparison_mode: 'same_role_comparison',
+            same_role_peer_count: 3,
+            canonical_product_ref: {
+              product_id: 'spf_1',
+              merchant_id: 'merchant_spf_1',
+            },
+            reasons: ['Lightweight daily coverage.'],
+          },
+          {
+            product_id: 'spf_2',
+            merchant_id: 'merchant_spf_2',
+            brand: 'Filter Lab',
+            name: 'Oil-Control Sun Fluid SPF 50',
+            step: 'sunscreen',
+            matched_role_id: 'daily_sunscreen',
+            matched_role_label: 'Daily sunscreen',
+            comparison_mode: 'same_role_comparison',
+            same_role_peer_count: 3,
+            canonical_product_ref: {
+              product_id: 'spf_2',
+              merchant_id: 'merchant_spf_2',
+            },
+            reasons: ['Mattifying finish for oily skin.'],
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText(/Same-type comparison/i)).toBeInTheDocument();
+    expect(screen.getByText(/Current lead pick/i)).toBeInTheDocument();
+    expect(screen.getByText(/Compare finish, price, and tradeoffs before deciding/i)).toBeInTheDocument();
+    expect(screen.getByText(/Comparison picks/i)).toBeInTheDocument();
+  });
   it('prefers payload.sections product rows as the display source while keeping payload.recommendations PDP refs', async () => {
     const onOpenPdp = vi.fn();
 
@@ -507,6 +598,44 @@ describe('BffChat V2 recommendations cards', () => {
     expect(firstCandidate?.brand).toBe('Fresh');
     expect(firstCandidate?.name).toBe('Rose Face Mask');
     expect(firstTrack?.items).toHaveLength(1);
+  });
+
+  it('shows up to five inline alternatives and labels cosmetic-finish sunscreen options', async () => {
+    renderRecommendationsCard({
+      card_id: 'card_inline_alt_preview',
+      type: 'recommendations',
+      payload: {
+        recommendations: [
+          {
+            slot: 'am',
+            step: 'sunscreen',
+            brand: 'Anchor Lab',
+            name: 'Daily UV Serum SPF 45',
+            canonical_product_ref: {
+              product_id: 'anchor_spf_1',
+              merchant_id: 'merchant_anchor_spf_1',
+            },
+            reasons: ['Lightweight daily sunscreen for oily skin.'],
+            alternatives: [
+              { kind: 'similar', product: { brand: 'Brand 1', name: 'Shield Fluid SPF 50' }, reasons: ['Lightweight finish'] },
+              { kind: 'similar', product: { brand: 'Brand 2', name: 'Matte UV Gel SPF 50' }, reasons: ['Oil-control finish'] },
+              { kind: 'premium', product: { brand: 'Brand 3', name: 'Invisible Face Serum SPF 60' }, reasons: ['Higher SPF'] },
+              { kind: 'similar', product: { brand: 'Brand 4', name: 'Soft-Radiance Drops SPF 40' }, reasons: ['Glow finish for makeup-friendly wear'] },
+              { kind: 'dupe', product: { brand: 'Brand 5', name: 'Daily Sun Milk SPF 50' }, reasons: ['Budget sunscreen swap'] },
+            ],
+          },
+        ],
+      },
+    });
+
+    fireEvent.click(screen.getByText(/Alternatives \(dupe \/ similar \/ premium\)/i));
+
+    expect(await screen.findByText(/Shield Fluid SPF 50/i)).toBeInTheDocument();
+    expect(screen.getByText(/Matte UV Gel SPF 50/i)).toBeInTheDocument();
+    expect(screen.getByText(/Invisible Face Serum SPF 60/i)).toBeInTheDocument();
+    expect(screen.getByText(/Soft-Radiance Drops SPF 40/i)).toBeInTheDocument();
+    expect(screen.getByText(/Daily Sun Milk SPF 50/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Glow finish$/i).length).toBeGreaterThan(0);
   });
 
   it('shows toast and skips opening a placeholder sheet when external compare returns empty', async () => {

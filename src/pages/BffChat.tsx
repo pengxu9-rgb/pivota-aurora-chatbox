@@ -316,6 +316,60 @@ function formatRecommendationSourceLabel(sourceMode: string, language: UiLanguag
   return language === 'CN' ? '规则保守路径' : 'rules-only';
 }
 
+const INLINE_ALTERNATIVES_PREVIEW_LIMIT = 5;
+const PRODUCT_ANALYSIS_ALTERNATIVES_PREVIEW_LIMIT = 3;
+const SUNSCREEN_LIKE_RE = /\b(spf(?:\s*\d+)?|sunscreen|sun screen|sun serum|uv|sun fluid|sun cream|sun gel|sun milk|face serum spf)\b/i;
+const GLOW_FINISH_RE = /\b(glow|glowscreen|radiance|radiant|dewy|luminous|illuminat|shimmer)\b/i;
+const TINTED_FINISH_RE = /\b(tinted|tone[\s-]?up)\b/i;
+const COSMETIC_FINISH_RE = /\b(primer|makeup[-\s]?grip|drops)\b/i;
+
+const flattenUiTextSignals = (parts: unknown[]): string =>
+  parts
+    .flatMap((part) => {
+      if (typeof part === 'string') return [part];
+      if (part == null) return [];
+      if (Array.isArray(part)) return part.map((entry) => asString(entry)).filter(Boolean);
+      return [asString(part)];
+    })
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+const deriveAlternativeFinishLabel = (
+  language: UiLanguage,
+  ...parts: unknown[]
+): string | null => {
+  const signal = flattenUiTextSignals(parts);
+  if (!signal || !SUNSCREEN_LIKE_RE.test(signal)) return null;
+  if (TINTED_FINISH_RE.test(signal)) return language === 'CN' ? '润色妆感' : 'Tinted finish';
+  if (GLOW_FINISH_RE.test(signal)) return language === 'CN' ? '提亮妆感' : 'Glow finish';
+  if (COSMETIC_FINISH_RE.test(signal)) return language === 'CN' ? '偏妆感' : 'Cosmetic finish';
+  return null;
+};
+
+const getRecommendationPrimaryBadgeLabel = (
+  recommendationBundleMode: 'routine_mix' | 'same_role_comparison' | 'single_pick',
+  language: UiLanguage,
+): string => {
+  if (recommendationBundleMode === 'same_role_comparison') {
+    return language === 'CN' ? '当前领先项' : 'Current lead pick';
+  }
+  if (recommendationBundleMode === 'routine_mix') {
+    return language === 'CN' ? '建议起步项' : 'Suggested starting point';
+  }
+  return language === 'CN' ? '建议选择' : 'Suggested pick';
+};
+
+const getRecommendationPrimaryContextNote = (
+  recommendationBundleMode: 'routine_mix' | 'same_role_comparison' | 'single_pick',
+  language: UiLanguage,
+): string | null => {
+  if (recommendationBundleMode !== 'same_role_comparison') return null;
+  return language === 'CN'
+    ? '前排卡片只是当前排序领先项，仍建议比较肤感、价格和取舍。'
+    : 'The lead card reflects the current ranking. Compare finish, price, and tradeoffs before deciding.';
+};
+
 function buildAlternativeTradeoffSummary(candidate: Record<string, unknown>): string | null {
   const tradeoffs = asObject((candidate as any).tradeoffs) || asObject((candidate as any).tradeoff) || null;
   const priceDeltaUsd = asNumber((tradeoffs as any)?.price_delta_usd ?? (tradeoffs as any)?.priceDeltaUsd);
@@ -3847,7 +3901,7 @@ export function RecommendationsCard({
               <ChevronDown className="h-4 w-4" />
             </summary>
             <div className="mt-3 space-y-2">
-              {alternativesRaw.slice(0, 3).map((alt, j) => {
+              {alternativesRaw.slice(0, INLINE_ALTERNATIVES_PREVIEW_LIMIT).map((alt, j) => {
                 const kind = asString((alt as any).kind);
                 const kindLabel = labelKind(kind);
                 const similarity = asNumber((alt as any).similarity);
@@ -3989,6 +4043,25 @@ export function RecommendationsCard({
                     .replace(/^优势：\s*/i, '')
                     .trim()
                   : null;
+                const altBestUse =
+                  asString((alt as any)?.best_use) ||
+                  asString((alt as any)?.bestUse) ||
+                  asString((altProduct as any)?.best_use) ||
+                  asString((altProduct as any)?.bestUse) ||
+                  asString((alt as any)?.expected_outcome) ||
+                  asString((alt as any)?.expectedOutcome) ||
+                  asString((altProduct as any)?.expected_outcome) ||
+                  asString((altProduct as any)?.expectedOutcome) ||
+                  null;
+                const altFinishLabel = deriveAlternativeFinishLabel(
+                  language,
+                  step,
+                  kind,
+                  altName,
+                  reason,
+                  tradeoffs,
+                  altBestUse,
+                );
 
                 const availability = uniqueStrings(asArray((altProduct as any)?.availability)).find(Boolean) || null;
                 const priceObj = asObject((altProduct as any)?.price);
@@ -4032,28 +4105,37 @@ export function RecommendationsCard({
                               {availability}
                             </span>
                           ) : null}
+                          {altFinishLabel ? (
+                            <span className="whitespace-nowrap rounded-full border border-amber-200/70 bg-amber-50 px-2 py-0.5 text-amber-800">
+                              {altFinishLabel}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <button
                         type="button"
-                      aria-label={language === 'CN' ? '查看详情' : 'View details'}
-                      className="chip-button !px-3 !py-2 text-[11px] max-w-[104px] sm:max-w-none"
-                      disabled={isAltResolving}
-                      onClick={() =>
-                        void openPdpFromCard({
-                          anchor_key: altAnchorId,
-                          position: idx + 1,
-                          brand: altBrand,
-                          name: altName,
-                          subject_product_group_id: altSubjectProductGroupId,
-                          canonical_product_ref: altCanonicalRefTarget,
-                          resolve_query: altResolveQuery || null,
-                          hints: Object.keys(altResolverHints).length ? altResolverHints : undefined,
-                          pdp_open: altPdpOpenHint,
-                        })
-                      }
-                    >
-                        {language === 'CN' ? '详情' : 'Details'}
+                        className="chip-button"
+                        aria-label={
+                          language === 'CN'
+                            ? `打开 ${altName || (language === 'CN' ? '候选商品' : 'candidate')}`
+                            : `Open product ${altName || 'option'}`
+                        }
+                        disabled={isAltResolving}
+                        onClick={() =>
+                          void openPdpFromCard({
+                            anchor_key: altAnchorId,
+                            position: idx + 1,
+                            brand: altBrand,
+                            name: altName,
+                            subject_product_group_id: altSubjectProductGroupId,
+                            canonical_product_ref: altCanonicalRefTarget,
+                            resolve_query: altResolveQuery || null,
+                            hints: Object.keys(altResolverHints).length ? altResolverHints : undefined,
+                            pdp_open: altPdpOpenHint,
+                          })
+                        }
+                      >
+                        {language === 'CN' ? '打开商品' : 'Open product'}
                       </button>
                     </div>
 
@@ -4609,6 +4691,8 @@ export function RecommendationsCard({
     .filter(Boolean)
     .slice(0, 3) as string[];
   const recommendationBundleMode = deriveRecommendationBundleMode(payload, items);
+  const frameworkPrimaryBadgeLabel = getRecommendationPrimaryBadgeLabel(recommendationBundleMode, language);
+  const frameworkPrimaryContextNote = getRecommendationPrimaryContextNote(recommendationBundleMode, language);
   const recommendationBundleStrip = (() => {
     if (recommendationBundleMode === 'same_role_comparison') {
       return {
@@ -4833,7 +4917,7 @@ export function RecommendationsCard({
 
           <AuroraRecommendationProductCard
             primary
-            badgeLabel={language === 'CN' ? '主推首选' : 'Best first buy'}
+            badgeLabel={frameworkPrimaryBadgeLabel}
             name={frameworkTopPick.product.name}
             brand={frameworkTopPick.product.brand}
             imageUrl={frameworkTopPick.image_url || null}
@@ -4871,6 +4955,12 @@ export function RecommendationsCard({
               void openRecommendationAlternativesForStep(frameworkTopPick);
             }}
           />
+
+          {frameworkPrimaryContextNote ? (
+            <div className="rounded-[20px] border border-border/60 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+              {frameworkPrimaryContextNote}
+            </div>
+          ) : null}
 
           {frameworkOtherSteps.length ? (
             <div className="space-y-3">
@@ -8275,7 +8365,7 @@ function BffCardView({
                         </div>
                       </div>
                       <div className="mt-2 space-y-2">
-                        {section.items.slice(0, 1).map((entry, idx) => {
+                        {section.items.slice(0, PRODUCT_ANALYSIS_ALTERNATIVES_PREVIEW_LIMIT).map((entry, idx) => {
                           const candidate = entry.candidate;
                           const sourceBlock = entry.block;
                           const cBrand = asString(candidate.brand) || (language === 'CN' ? '未知品牌' : 'Unknown brand');
@@ -8296,6 +8386,14 @@ function BffCardView({
                           const cTradeoffNotes = uniqueStrings((candidate as any).tradeoff_notes || (candidate as any).tradeoffNotes).slice(0, 3);
                           const cTradeoff = cTradeoffNotes[0] || cHighlights.find((line) => !isLikelyUrl(line)) || cWhy[1] || '';
                           const cExpectedOutcome = asString((candidate as any).expected_outcome || (candidate as any).expectedOutcome);
+                          const cFinishLabel = deriveAlternativeFinishLabel(
+                            language,
+                            section.title,
+                            cName,
+                            cWhy,
+                            cTradeoff,
+                            cExpectedOutcome,
+                          );
                           const cUrl = cHighlights.find((x) => isLikelyUrl(x)) || asString((candidate as any).url) || '';
                           const llmSuggestion = asObject((candidate as any).llm_suggestion || (candidate as any).llmSuggestion) || null;
                           const llmSuggestedLabel = normalizeRecoLabel(llmSuggestion?.suggested_label);
@@ -8319,13 +8417,20 @@ function BffCardView({
                                   <div className="truncate text-sm font-semibold text-foreground">{cBrand}</div>
                                   <div className="truncate text-xs text-muted-foreground">{cName}</div>
                                 </div>
-                                {typeof cSimilarity === 'number' && Number.isFinite(cSimilarity) ? (
-                                  <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                                    {language === 'CN'
-                                      ? `相似度 ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`
-                                      : `Similarity ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`}
-                                  </span>
-                                ) : null}
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                  {cFinishLabel ? (
+                                    <span className="rounded-full border border-amber-200/70 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">
+                                      {cFinishLabel}
+                                    </span>
+                                  ) : null}
+                                  {typeof cSimilarity === 'number' && Number.isFinite(cSimilarity) ? (
+                                    <span className="rounded-full border border-border/60 bg-background/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                                      {language === 'CN'
+                                        ? `相似度 ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`
+                                        : `Similarity ${Math.round((cSimilarity <= 1 ? cSimilarity * 100 : cSimilarity))}%`}
+                                    </span>
+                                  ) : null}
+                                </div>
                               </div>
 
                               {cWhy.length ? (
