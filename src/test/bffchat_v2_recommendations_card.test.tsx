@@ -156,6 +156,9 @@ describe('BffChat V2 recommendations cards', () => {
       card_id: 'card_framework_reco',
       type: 'recommendations',
       payload: {
+        recommendation_meta: {
+          selected_target_ids: ['oil_control_treatment', 'lightweight_moisturizer', 'daily_sunscreen'],
+        },
         framework_summary: {
           concern_text: 'oily skin',
           prioritized_roles: [
@@ -171,6 +174,49 @@ describe('BffChat V2 recommendations cards', () => {
         ],
         primary_role_id: 'oil_control_treatment',
         primary_recommendation_id: 'serum_1',
+        sections: [
+          {
+            kind: 'product_cards',
+            products: [
+              {
+                product_id: 'serum_1',
+                merchant_id: 'merchant_serum_1',
+                brand: 'Clear Lab',
+                name: 'Oil Balance Serum',
+                matched_role_id: 'oil_control_treatment',
+                matched_role_label: 'Oil-control treatment',
+                why_this_one: 'Directly targets excess shine without adding weight.',
+                price_label: '$12',
+                image_url: 'https://example.com/oil-balance.jpg',
+                key_features: ['Niacinamide 10%', 'Zinc 1%', 'Lightweight serum'],
+              },
+              {
+                product_id: 'cream_1',
+                merchant_id: 'merchant_cream_1',
+                brand: 'Balance Lab',
+                name: 'Air Gel Cream',
+                matched_role_id: 'lightweight_moisturizer',
+                matched_role_label: 'Lightweight moisturizer',
+                why_this_one: 'Adds breathable hydration without a greasy finish.',
+                price_label: '$28',
+                image_url: 'https://example.com/air-gel.jpg',
+                key_features: ['Gel-cream texture', 'Breathable hydration'],
+              },
+              {
+                product_id: 'spf_1',
+                merchant_id: 'merchant_spf_1',
+                brand: 'Solaris',
+                name: 'Daily UV Fluid SPF 50',
+                matched_role_id: 'daily_sunscreen',
+                matched_role_label: 'Daily sunscreen',
+                why_this_one: 'Keeps daytime protection lightweight.',
+                price_label: '$19',
+                image_url: 'https://example.com/uv-fluid.jpg',
+                key_features: ['SPF 50', 'Lightweight fluid'],
+              },
+            ],
+          },
+        ],
         recommendations: [
           {
             product_id: 'serum_1',
@@ -225,13 +271,177 @@ describe('BffChat V2 recommendations cards', () => {
     });
 
     expect(await screen.findByText(/oily skin recommendations for you/i)).toBeInTheDocument();
-    expect(screen.getByText(/Top pick/i)).toBeInTheDocument();
-    expect(screen.getByText(/Other options/i)).toBeInTheDocument();
+    expect(screen.getByText(/Basic routine/i)).toBeInTheDocument();
+    expect(screen.getByText(/Suggested starting point/i)).toBeInTheDocument();
+    expect(screen.getByText(/Other routine steps/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Oil Balance Serum/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Air Gel Cream/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Daily UV Fluid SPF 50/i).length).toBeGreaterThan(0);
+    expect(screen.getByText('$12')).toBeInTheDocument();
+    expect(screen.getByText('$28')).toBeInTheDocument();
+    expect(screen.getByText('$19')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /View details/i }).length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByText(/Morning Routine/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/More comparison candidates/i)).not.toBeInTheDocument();
+  });
+
+  it('uses neutral lead-pick framing for same-role comparison bundles', async () => {
+    renderRecommendationsCard({
+      card_id: 'card_same_role_compare',
+      type: 'recommendations',
+      payload: {
+        recommendation_meta: {
+          selected_target_ids: ['daily_sunscreen'],
+          comparison_mode: 'same_role_comparison',
+        },
+        framework_summary: {
+          concern_text: 'daily sunscreen',
+          prioritized_roles: [
+            { role_id: 'daily_sunscreen', label: 'Daily sunscreen', why_this_role: 'Keep protection lightweight.', rank: 1 },
+          ],
+        },
+        roles: [
+          { role_id: 'daily_sunscreen', label: 'Daily sunscreen', why_this_role: 'Keep protection lightweight.', rank: 1 },
+        ],
+        primary_role_id: 'daily_sunscreen',
+        primary_recommendation_id: 'spf_1',
+        sections: [
+          {
+            kind: 'product_cards',
+            products: [
+              {
+                product_id: 'spf_1',
+                merchant_id: 'merchant_spf_1',
+                brand: 'Solaris',
+                name: 'Invisible UV Serum SPF 50',
+                matched_role_id: 'daily_sunscreen',
+                matched_role_label: 'Daily sunscreen',
+                why_this_one: 'Lightweight daily coverage.',
+                price_label: '$19',
+                same_role_peer_count: 3,
+              },
+              {
+                product_id: 'spf_2',
+                merchant_id: 'merchant_spf_2',
+                brand: 'Filter Lab',
+                name: 'Oil-Control Sun Fluid SPF 50',
+                matched_role_id: 'daily_sunscreen',
+                matched_role_label: 'Daily sunscreen',
+                why_this_one: 'Mattifying finish for oily skin.',
+                price_label: '$24',
+                same_role_peer_count: 3,
+              },
+            ],
+          },
+        ],
+        recommendations: [
+          {
+            product_id: 'spf_1',
+            merchant_id: 'merchant_spf_1',
+            brand: 'Solaris',
+            name: 'Invisible UV Serum SPF 50',
+            step: 'sunscreen',
+            matched_role_id: 'daily_sunscreen',
+            matched_role_label: 'Daily sunscreen',
+            comparison_mode: 'same_role_comparison',
+            same_role_peer_count: 3,
+            canonical_product_ref: {
+              product_id: 'spf_1',
+              merchant_id: 'merchant_spf_1',
+            },
+            reasons: ['Lightweight daily coverage.'],
+          },
+          {
+            product_id: 'spf_2',
+            merchant_id: 'merchant_spf_2',
+            brand: 'Filter Lab',
+            name: 'Oil-Control Sun Fluid SPF 50',
+            step: 'sunscreen',
+            matched_role_id: 'daily_sunscreen',
+            matched_role_label: 'Daily sunscreen',
+            comparison_mode: 'same_role_comparison',
+            same_role_peer_count: 3,
+            canonical_product_ref: {
+              product_id: 'spf_2',
+              merchant_id: 'merchant_spf_2',
+            },
+            reasons: ['Mattifying finish for oily skin.'],
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText(/Same-type comparison/i)).toBeInTheDocument();
+    expect(screen.getByText(/Current lead pick/i)).toBeInTheDocument();
+    expect(screen.getByText(/Compare finish, price, and tradeoffs before deciding/i)).toBeInTheDocument();
+    expect(screen.getByText(/Comparison picks/i)).toBeInTheDocument();
+  });
+
+  it('prefers payload.sections product rows as the display source while keeping payload.recommendations PDP refs', async () => {
+    const onOpenPdp = vi.fn();
+
+    renderRecommendationsCard({
+      card_id: 'card_sections_authority',
+      type: 'recommendations',
+      payload: {
+        framework_summary: {
+          concern_text: 'oily skin',
+          prioritized_roles: [
+            { role_id: 'oil_control_treatment', label: 'Oil-control treatment', why_this_role: 'Start with a targeted oil-control step.', rank: 1 },
+          ],
+        },
+        roles: [
+          { role_id: 'oil_control_treatment', label: 'Oil-control treatment', why_this_role: 'Start with a targeted oil-control step.', rank: 1 },
+        ],
+        primary_role_id: 'oil_control_treatment',
+        primary_recommendation_id: 'serum_1',
+        sections: [
+          {
+            kind: 'product_cards',
+            products: [
+              {
+                product_id: 'serum_1',
+                merchant_id: 'merchant_serum_1',
+                brand: 'Clear Lab',
+                name: 'Oil Balance Serum',
+                matched_role_id: 'oil_control_treatment',
+                matched_role_label: 'Oil-control treatment',
+                why_this_one: 'Section-row summary should win.',
+                price_label: '$12',
+                image_url: 'https://example.com/oil-balance.jpg',
+              },
+            ],
+          },
+        ],
+        recommendations: [
+          {
+            product_id: 'serum_1',
+            merchant_id: 'merchant_serum_1',
+            brand: 'Raw Brand',
+            name: 'Raw Payload Name',
+            step: 'treatment',
+            matched_role_id: 'oil_control_treatment',
+            canonical_product_ref: {
+              product_id: 'serum_1',
+              merchant_id: 'merchant_serum_1',
+            },
+            reasons: ['Payload-level reason for PDP open.'],
+          },
+        ],
+      },
+    }, {
+      onOpenPdp,
+    });
+
+    expect(await screen.findByText('Section-row summary should win.')).toBeInTheDocument();
+    expect(screen.getAllByText('Oil Balance Serum').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Raw Payload Name')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /View details/i }));
+    await waitFor(() => {
+      expect(onOpenPdp).toHaveBeenCalledTimes(1);
+    });
+    expect(onOpenPdp.mock.calls[0]?.[0]?.url).toContain('/products/serum_1');
   });
 
   it('opens external/search fallback from summary routine rows for llm_seed items', async () => {
@@ -389,6 +599,44 @@ describe('BffChat V2 recommendations cards', () => {
     expect(firstCandidate?.brand).toBe('Fresh');
     expect(firstCandidate?.name).toBe('Rose Face Mask');
     expect(firstTrack?.items).toHaveLength(1);
+  });
+
+  it('shows up to five inline alternatives and labels cosmetic-finish sunscreen options', async () => {
+    renderRecommendationsCard({
+      card_id: 'card_inline_alt_preview',
+      type: 'recommendations',
+      payload: {
+        recommendations: [
+          {
+            slot: 'am',
+            step: 'sunscreen',
+            brand: 'Anchor Lab',
+            name: 'Daily UV Serum SPF 45',
+            canonical_product_ref: {
+              product_id: 'anchor_spf_1',
+              merchant_id: 'merchant_anchor_spf_1',
+            },
+            reasons: ['Lightweight daily sunscreen for oily skin.'],
+            alternatives: [
+              { kind: 'similar', product: { brand: 'Brand 1', name: 'Shield Fluid SPF 50' }, reasons: ['Lightweight finish'] },
+              { kind: 'similar', product: { brand: 'Brand 2', name: 'Matte UV Gel SPF 50' }, reasons: ['Oil-control finish'] },
+              { kind: 'premium', product: { brand: 'Brand 3', name: 'Invisible Face Serum SPF 60' }, reasons: ['Higher SPF'] },
+              { kind: 'similar', product: { brand: 'Brand 4', name: 'Soft-Radiance Drops SPF 40' }, reasons: ['Glow finish for makeup-friendly wear'] },
+              { kind: 'dupe', product: { brand: 'Brand 5', name: 'Daily Sun Milk SPF 50' }, reasons: ['Budget sunscreen swap'] },
+            ],
+          },
+        ],
+      },
+    });
+
+    fireEvent.click(screen.getByText(/Alternatives \(dupe \/ similar \/ premium\)/i));
+
+    expect(await screen.findByText(/Shield Fluid SPF 50/i)).toBeInTheDocument();
+    expect(screen.getByText(/Matte UV Gel SPF 50/i)).toBeInTheDocument();
+    expect(screen.getByText(/Invisible Face Serum SPF 60/i)).toBeInTheDocument();
+    expect(screen.getByText(/Soft-Radiance Drops SPF 40/i)).toBeInTheDocument();
+    expect(screen.getByText(/Daily Sun Milk SPF 50/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Glow finish$/i).length).toBeGreaterThan(0);
   });
 
   it('shows toast and skips opening a placeholder sheet when external compare returns empty', async () => {
