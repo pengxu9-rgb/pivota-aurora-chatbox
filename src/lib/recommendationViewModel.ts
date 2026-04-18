@@ -142,8 +142,8 @@ const FREQUENCY_LABELS: Record<string, Record<Language, string>> = {
 };
 
 const PRIORITY_LABELS: Record<PriorityLabel, Record<Language, string>> = {
-  best_match: { EN: 'Best match', CN: '最佳匹配' },
-  strong_match: { EN: 'Strong match', CN: '强力匹配' },
+  best_match: { EN: 'Close match', CN: '较匹配' },
+  strong_match: { EN: 'Solid match', CN: '匹配度较高' },
   support_option: { EN: 'Support option', CN: '辅助选项' },
 };
 

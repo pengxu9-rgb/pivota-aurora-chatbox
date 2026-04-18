@@ -67,7 +67,7 @@ describe('ingredient_plan_v2 rich product UI', () => {
     expect(screen.getByText('Brand A')).toBeInTheDocument();
     expect(screen.getByText('$39.00')).toBeInTheDocument();
     expect(screen.getByText('Plan strength: Balanced')).toBeInTheDocument();
-    expect(screen.getAllByText('Best match').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Close match').length).toBeGreaterThan(0);
     expect(screen.queryByText('https://example.com/pdp')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /view product: niacinamide serum/i }));

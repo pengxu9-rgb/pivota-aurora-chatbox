@@ -352,7 +352,7 @@ const getRecommendationPrimaryBadgeLabel = (
   language: UiLanguage,
 ): string => {
   if (recommendationBundleMode === 'same_role_comparison') {
-    return language === 'CN' ? '当前领先项' : 'Current lead pick';
+    return language === 'CN' ? '当前对比候选' : 'Current comparison pick';
   }
   if (recommendationBundleMode === 'routine_mix') {
     return language === 'CN' ? '建议起步项' : 'Suggested starting point';
@@ -7949,7 +7949,7 @@ function BffCardView({
             {/* V4: best_for from assessment — shown alongside legacy best_for when available */}
             {isV4Payload && v4BestFor.length ? (
               <div className="rounded-2xl border border-border/60 bg-background/60 p-3">
-                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
+                <div className="text-xs font-semibold text-muted-foreground">{language === 'CN' ? '适合场景' : 'Fit signals'}</div>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
                   {v4BestFor.map((item) => (
                     <li key={item}>{item}</li>
@@ -7962,7 +7962,7 @@ function BffCardView({
                 <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {bestForSignals.length ? (
                   <div>
-                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '更适合' : 'Best for'}</div>
+                    <div className="text-[11px] font-semibold text-muted-foreground">{language === 'CN' ? '适合场景' : 'Fit signals'}</div>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
                       {bestForSignals.slice(0, 3).map((item) => (
                         <li key={item}>{item}</li>

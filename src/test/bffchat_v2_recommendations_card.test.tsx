@@ -151,7 +151,7 @@ describe('BffChat V2 recommendations cards', () => {
     expect(onOpenAlternativesSheet).toHaveBeenCalledTimes(1);
   });
 
-  it('renders framework-first recommendations as top pick plus other options', async () => {
+  it('renders framework-first recommendations as primary pick plus other options', async () => {
     renderRecommendationsCard({
       card_id: 'card_framework_reco',
       type: 'recommendations',
@@ -372,7 +372,7 @@ describe('BffChat V2 recommendations cards', () => {
     });
 
     expect(await screen.findByText(/Same-type comparison/i)).toBeInTheDocument();
-    expect(screen.getByText(/Current lead pick/i)).toBeInTheDocument();
+    expect(screen.getByText(/Current comparison pick/i)).toBeInTheDocument();
     expect(screen.getByText(/Compare finish, price, and tradeoffs before deciding/i)).toBeInTheDocument();
     expect(screen.getByText(/Comparison picks/i)).toBeInTheDocument();
   });

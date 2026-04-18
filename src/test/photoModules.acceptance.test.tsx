@@ -331,7 +331,7 @@ describe('photo_modules_v1 acceptance', () => {
     expect(highlightCanvas).toHaveAttribute('data-highlight-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-visible-count', '1');
     expect(highlightCanvas).toHaveAttribute('data-highlight-mode', 'region');
-    expect(screen.getByText('Best match')).toBeInTheDocument();
+    expect(screen.getByText('Close match')).toBeInTheDocument();
     expect(screen.getByText('Well-supported')).toBeInTheDocument();
     expect(screen.getByText('Niacinamide 5% Serum')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /see more/i })).toBeInTheDocument();
