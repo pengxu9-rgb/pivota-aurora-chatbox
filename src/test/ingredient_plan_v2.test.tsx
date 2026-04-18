@@ -85,7 +85,7 @@ describe('ingredient_plan_v2 card', () => {
 
     expect(screen.getByText('Baseline support')).toBeInTheDocument();
     expect(screen.getByText('Plan strength: Gentle')).toBeInTheDocument();
-    expect(screen.getAllByText('Best match').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Close match').length).toBeGreaterThan(0);
     expect(screen.queryByText(/P\d+/)).not.toBeInTheDocument();
 
     expect(screen.getByText('Competitor Serum A')).toBeInTheDocument();

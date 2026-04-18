@@ -6,7 +6,7 @@ const en = {
 
   // ── S1 Open Intent ──
   's1.greeting': "Hi! I'm Aurora, your professional beauty consultant.",
-  's1.intro': "I'll analyze your skin, recommend the best products, and find you budget-friendly alternatives with similar results.",
+  's1.intro': "I'll analyze your skin, recommend suitable products, and find you budget-friendly alternatives with similar results.",
   's1.disclaimer': "Not medical advice—just product suitability guidance based on science.",
   's1.question': "What brings you here today?",
   's1.chip.routine': "Build a routine",
