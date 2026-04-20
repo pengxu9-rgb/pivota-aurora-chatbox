@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, ChevronRight, Search } from 'lucide-react';
+import { Globe, ChevronRight, Search, ExternalLink } from 'lucide-react';
 
 import { EnvStressBreakdown } from '@/components/aurora/charts/EnvStressBreakdown';
 import { EnvStressRadar } from '@/components/aurora/charts/EnvStressRadar';
@@ -11,7 +11,12 @@ import { normalizeEnvStressUiModelV1 } from '@/lib/auroraUiContracts';
 import { pickLocalizedText } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Language } from '@/lib/types';
-import type { CategorizedKitEntry, TravelProductLookupQuery } from '@/lib/auroraEnvStress';
+import type {
+  CategorizedKitEntry,
+  TravelPhasePlanItem,
+  TravelProductLookupQuery,
+  TravelReadinessProductPreviewItem,
+} from '@/lib/auroraEnvStress';
 
 type MetricDelta = {
   home?: number | null;
@@ -114,6 +119,68 @@ function buildConcernBrowseLookup(entry: CategorizedKitEntry, language: Language
     categoryTitle: entry.title,
     ingredientHints: entry.ingredient_logic,
     preferBrand,
+  };
+}
+
+function isGroundedTravelPreviewProduct(product: TravelReadinessProductPreviewItem | Record<string, unknown> | null | undefined) {
+  if (!product || typeof product !== 'object') return false;
+  const source = String((product as any).product_source || '').trim().toLowerCase();
+  const authority = String((product as any).authority_status || (product as any).match_status || '').trim().toLowerCase();
+  const displayMode = String((product as any).display_mode || '').trim().toLowerCase();
+  if (source === 'rule_fallback' || source === 'llm_generated' || source === 'category_guidance') return false;
+  if (authority === 'category_only' || displayMode === 'category_only') return false;
+  return Boolean(
+    (product as any).is_grounded === true ||
+      String((product as any).product_id || '').trim() ||
+      source === 'catalog' ||
+      source === 'external_seed' ||
+      source === 'internal' ||
+      /grounded|catalog|authority|resolved/.test(authority),
+  );
+}
+
+function formatTravelProductPrice(product: TravelReadinessProductPreviewItem) {
+  if (product.price_label) return product.price_label;
+  if (typeof product.price !== 'number' || !Number.isFinite(product.price)) return null;
+  const currency = typeof product.currency === 'string' && product.currency.trim() ? product.currency.trim() : '';
+  const rounded = Number.isInteger(product.price) ? `${product.price}` : `${Math.round(product.price * 100) / 100}`;
+  return currency ? `${currency} ${rounded}` : rounded;
+}
+
+function formatTravelRoleLabel(language: Language, roleId?: string | null, fallback?: string | null) {
+  const token = String(roleId || fallback || '').trim().toLowerCase();
+  const en: Record<string, string> = {
+    sun_protection: 'Sunscreen',
+    lightweight_moisturizer: 'Light moisturizer',
+    hydration_serum: 'Hydration serum',
+    recovery_mask: 'Recovery mask',
+    body_lip_hand: 'Body / lip / hand',
+    cleanser: 'Cleanser',
+    eye_care: 'Eye care',
+  };
+  const cn: Record<string, string> = {
+    sun_protection: '防晒',
+    lightweight_moisturizer: '轻保湿',
+    hydration_serum: '补水精华',
+    recovery_mask: '修护面膜',
+    body_lip_hand: '身体/唇/手',
+    cleanser: '清洁',
+    eye_care: '眼部护理',
+  };
+  return (language === 'CN' ? cn[token] : en[token]) || fallback || roleId || (language === 'CN' ? '商品' : 'Product');
+}
+
+function buildTravelProductLookupFromPreview(
+  product: TravelReadinessProductPreviewItem,
+  language: Language,
+  categoryTitle: string,
+): TravelProductLookupQuery {
+  const query = [product.brand, product.name].map((value) => String(value || '').trim()).filter(Boolean).join(' ').trim();
+  return {
+    searchQuery: buildTravelLookupSearchQuery(language, query || product.name || categoryTitle),
+    categoryTitle,
+    ingredientHints: Array.isArray(product.reasons) ? product.reasons.join(' · ') : null,
+    preferBrand: product.brand || null,
   };
 }
 
@@ -380,17 +447,211 @@ function ConcernCard({
   );
 }
 
+function TravelPreviewProductCard({
+  product,
+  language,
+  phaseTitle,
+  onProductLookup,
+  onOpenTravelProduct,
+}: {
+  product: TravelReadinessProductPreviewItem;
+  language: Language;
+  phaseTitle: string;
+  onProductLookup?: (query: TravelProductLookupQuery) => void;
+  onOpenTravelProduct?: (product: TravelReadinessProductPreviewItem) => void;
+}) {
+  const price = formatTravelProductPrice(product);
+  const grounded = isGroundedTravelPreviewProduct(product);
+  const canOpen = grounded && Boolean(onOpenTravelProduct || onProductLookup);
+  const label = formatTravelRoleLabel(language, product.role_id, product.category);
+  const handleOpen = () => {
+    if (!canOpen) return;
+    if (onOpenTravelProduct) {
+      onOpenTravelProduct(product);
+      return;
+    }
+    onProductLookup?.(buildTravelProductLookupFromPreview(product, language, phaseTitle));
+  };
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-background/75 p-2.5 text-[11px] shadow-sm">
+      <div className="flex gap-2.5">
+        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted/30">
+          {product.image_url ? (
+            <img src={product.image_url} alt={product.name || label} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
+              {language === 'CN' ? '商品' : 'Product'}
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+              {label}
+            </span>
+            {price ? (
+              <span className="rounded-full border border-emerald-300/50 bg-emerald-50/50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-800">
+                {price}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 font-semibold leading-snug text-foreground/90">
+            {product.brand ? `${product.brand} ` : ''}
+            {product.name || (language === 'CN' ? '已验证商品' : 'Grounded product')}
+          </div>
+          {Array.isArray(product.reasons) && product.reasons.length ? (
+            <div className="mt-1 text-muted-foreground/75">{product.reasons.slice(0, 2).join(' · ')}</div>
+          ) : null}
+          <button
+            type="button"
+            disabled={!canOpen}
+            onClick={handleOpen}
+            className={cn(
+              'mt-2 inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium transition-colors',
+              canOpen
+                ? 'border-border/70 bg-background/80 text-foreground/80 hover:bg-muted/40'
+                : 'cursor-not-allowed border-border/50 bg-muted/20 text-muted-foreground/50',
+            )}
+            aria-label={
+              language === 'CN'
+                ? `查看 ${product.name || '商品'} 详情`
+                : `View details for ${product.name || 'product'}`
+            }
+          >
+            <ExternalLink className="h-3 w-3" />
+            {language === 'CN' ? '查看详情' : 'View details'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TravelPhasePlanSection({
+  language,
+  travelReadiness,
+  onProductLookup,
+  onOpenTravelProduct,
+}: {
+  language: Language;
+  travelReadiness: Record<string, any>;
+  onProductLookup?: (query: TravelProductLookupQuery) => void;
+  onOpenTravelProduct?: (product: TravelReadinessProductPreviewItem) => void;
+}) {
+  const phasePlan = Array.isArray(travelReadiness.phase_plan)
+    ? (travelReadiness.phase_plan as TravelPhasePlanItem[])
+    : [];
+  if (!phasePlan.length) return null;
+
+  const products = Array.isArray(travelReadiness.shopping_preview?.products)
+    ? (travelReadiness.shopping_preview.products as TravelReadinessProductPreviewItem[])
+    : [];
+  const productsById = new Map<string, TravelReadinessProductPreviewItem>();
+  for (const product of products) {
+    const productId = String(product.product_id || '').trim();
+    if (!productId || productsById.has(productId)) continue;
+    productsById.set(productId, product);
+  }
+  const groundedProducts = products.filter(isGroundedTravelPreviewProduct).slice(0, 6);
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/60 px-0.5">
+        {language === 'CN' ? '分阶段旅行护肤方案' : 'Step-by-step travel plan'}
+      </div>
+      {phasePlan.slice(0, 5).map((phase, index) => {
+        const phaseProductIds = Array.isArray(phase.product_ids) ? phase.product_ids : [];
+        const phaseProducts = phase.id === 'local_shopping'
+          ? groundedProducts
+          : phaseProductIds.map((id) => productsById.get(String(id))).filter(Boolean) as TravelReadinessProductPreviewItem[];
+        const isCategoryOnly = !phaseProducts.length;
+        return (
+          <div key={phase.id || `phase_${index}`} className="rounded-2xl border border-border/70 bg-muted/15 p-3 text-[11px] text-muted-foreground">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/50">
+                  {phase.timing || `${language === 'CN' ? '阶段' : 'Phase'} ${index + 1}`}
+                </div>
+                <div className="mt-0.5 text-sm font-semibold text-foreground/90">{phase.title}</div>
+              </div>
+              <span className={cn(
+                'shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-medium',
+                isCategoryOnly
+                  ? 'border-amber-300/60 bg-amber-50/50 text-amber-800'
+                  : 'border-emerald-300/60 bg-emerald-50/50 text-emerald-800',
+              )}>
+                {isCategoryOnly
+                  ? language === 'CN' ? '品类指导' : 'Category guidance'
+                  : language === 'CN' ? '已匹配商品' : 'Grounded products'}
+              </span>
+            </div>
+
+            {phase.why ? <div className="mt-2 text-foreground/80">{phase.why}</div> : null}
+            {Array.isArray(phase.actions) && phase.actions.length ? (
+              <ul className="mt-2 space-y-1">
+                {phase.actions.slice(0, 4).map((line) => (
+                  <li key={line} className="flex gap-1.5">
+                    <span className="text-foreground/80">•</span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            {phaseProducts.length ? (
+              <div className="mt-3 grid gap-2">
+                {phaseProducts.map((product) => (
+                  <TravelPreviewProductCard
+                    key={`${phase.id}_${product.product_id || product.name}`}
+                    product={product}
+                    language={language}
+                    phaseTitle={phase.title}
+                    onProductLookup={onProductLookup}
+                    onOpenTravelProduct={onOpenTravelProduct}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="mt-2 rounded-xl border border-border/60 bg-background/50 p-2 text-[10px] text-muted-foreground">
+                {language === 'CN'
+                  ? '当前阶段没有已验证本地商品；这里只保留护理动作和品类方向。'
+                  : 'No grounded local product is attached to this phase yet; this stays as care guidance and category direction.'}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <BuyingChannelsFooter language={language} travelReadiness={travelReadiness} />
+    </div>
+  );
+}
+
 function ConcernRecommendationsSection({
   language,
   travelReadiness,
   sections,
   onProductLookup,
+  onOpenTravelProduct,
 }: {
   language: Language;
   travelReadiness: Record<string, any>;
   sections: StructuredSections;
   onProductLookup?: (query: TravelProductLookupQuery) => void;
+  onOpenTravelProduct?: (product: TravelReadinessProductPreviewItem) => void;
 }) {
+  const phasePlan = Array.isArray(travelReadiness.phase_plan) ? travelReadiness.phase_plan : [];
+  if (phasePlan.length) {
+    return (
+      <TravelPhasePlanSection
+        language={language}
+        travelReadiness={travelReadiness}
+        onProductLookup={onProductLookup}
+        onOpenTravelProduct={onOpenTravelProduct}
+      />
+    );
+  }
+
   const categorizedKit: CategorizedKitEntry[] | undefined = travelReadiness.categorized_kit;
   const hasCategorizedKit = Array.isArray(categorizedKit) && categorizedKit.length > 0;
 
@@ -761,6 +1022,7 @@ export function EnvStressCard({
   onOpenRecommendations,
   onRefineRoutine,
   onProductLookup,
+  onOpenTravelProduct,
 }: {
   payload: unknown;
   language: Language;
@@ -768,6 +1030,7 @@ export function EnvStressCard({
   onOpenRecommendations?: () => void;
   onRefineRoutine?: () => void;
   onProductLookup?: (query: TravelProductLookupQuery) => void;
+  onOpenTravelProduct?: (product: TravelReadinessProductPreviewItem) => void;
 }) {
   const { model, didWarn } = normalizeEnvStressUiModelV1(payload);
 
@@ -938,6 +1201,7 @@ export function EnvStressCard({
                 travelReadiness={travelReadiness}
                 sections={sections}
                 onProductLookup={onProductLookup}
+                onOpenTravelProduct={onOpenTravelProduct}
               />
 
               {/* --- SECTION 3: Situational Advice --- */}

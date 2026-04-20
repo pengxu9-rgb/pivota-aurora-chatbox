@@ -79,6 +79,18 @@ describe("aurora ui contracts", () => {
             reapply_rule: "Every 2 hours outdoors",
           },
         ],
+        phase_plan: [
+          {
+            id: "pre_trip_prepare",
+            title: "Before you leave",
+            timing: "T-3 to T-1",
+            why: "Pack tolerated core items.",
+            actions: ["Pack SPF and a barrier cream."],
+            product_role_ids: ["sun_protection"],
+            product_ids: ["p1"],
+            coverage_status: "grounded",
+          },
+        ],
         categorized_kit: [
           {
             id: "sun_protection",
@@ -118,11 +130,26 @@ describe("aurora ui contracts", () => {
           products: [
             {
               product_id: "p1",
+              merchant_id: "external_seed",
               name: "Barrier Cream",
               brand: "Aurora Lab",
               reasons: ["repair"],
               product_source: "llm_generated",
+              role_id: "lightweight_moisturizer",
+              authority_status: "grounded",
               match_status: "catalog_verified",
+              display_mode: "product_card",
+              pdp_open: { product_id: "p1", merchant_id: "external_seed" },
+              is_grounded: true,
+              image_url: "https://example.test/barrier.jpg",
+              price: 1200,
+              currency: "JPY",
+            },
+            {
+              product_id: "p2",
+              name: "SPF Fluid",
+              product_source: "external_seed",
+              match_status: "external_seed_hit",
             },
           ],
           brand_candidates: [
@@ -154,6 +181,8 @@ describe("aurora ui contracts", () => {
     expect(model?.travel_readiness?.forecast_window?.[0]?.date).toBe("2026-03-01");
     expect(model?.travel_readiness?.alerts?.[0]?.severity).toBe("orange");
     expect(model?.travel_readiness?.reco_bundle?.[0]?.trigger).toBe("Elevated UV");
+    expect(model?.travel_readiness?.phase_plan?.[0]?.id).toBe("pre_trip_prepare");
+    expect(model?.travel_readiness?.phase_plan?.[0]?.product_ids).toEqual(["p1"]);
     expect(model?.travel_readiness?.categorized_kit?.[0]?.id).toBe("sun_protection");
     expect(model?.travel_readiness?.categorized_kit?.[0]?.title).toBe("Sun protection");
     expect(model?.travel_readiness?.categorized_kit?.[0]?.preparations?.[0]?.name).toBe("Sunscreen fluid");
@@ -167,6 +196,10 @@ describe("aurora ui contracts", () => {
     expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.name).toBe("Barrier Cream");
     expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.product_source).toBe("llm_generated");
     expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.match_status).toBe("catalog_verified");
+    expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.pdp_open).toEqual({ product_id: "p1", merchant_id: "external_seed" });
+    expect(model?.travel_readiness?.shopping_preview?.products?.[0]?.image_url).toBe("https://example.test/barrier.jpg");
+    expect(model?.travel_readiness?.shopping_preview?.products?.[1]?.product_source).toBe("external_seed");
+    expect(model?.travel_readiness?.shopping_preview?.products?.[1]?.match_status).toBe("catalog_verified");
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[0]?.match_status).toBe("kb_verified");
     expect(model?.travel_readiness?.shopping_preview?.brand_candidates?.[1]?.match_status).toBe("llm_only");
     expect(model?.travel_readiness?.shopping_preview?.buying_channels).toEqual(["beauty_retail", "ecommerce"]);

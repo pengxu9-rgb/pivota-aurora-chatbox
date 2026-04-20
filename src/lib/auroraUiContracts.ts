@@ -198,6 +198,7 @@ function normalizeStringArray(value: unknown, maxItems = 8, maxLen = 140): strin
 function normalizeBrandMatchStatus(value: unknown): 'kb_verified' | 'catalog_verified' | 'llm_only' {
   const token = normalizeOptionalText(value, 32)?.toLowerCase();
   if (token === 'kb_verified' || token === 'catalog_verified' || token === 'llm_only') return token;
+  if (token === 'grounded' || token === 'authority' || token === 'external_seed_hit' || token === 'internal_hit') return 'catalog_verified';
   return 'llm_only';
 }
 
@@ -212,9 +213,23 @@ function normalizeCategorizedKitMatchStatus(
   return 'llm_only';
 }
 
-function normalizeProductSource(value: unknown): 'catalog' | 'rule_fallback' | 'llm_generated' | undefined {
+function normalizeProductSource(value: unknown):
+  | 'catalog'
+  | 'external_seed'
+  | 'internal'
+  | 'category_guidance'
+  | 'rule_fallback'
+  | 'llm_generated'
+  | undefined {
   const token = normalizeOptionalText(value, 32)?.toLowerCase();
-  if (token === 'catalog' || token === 'rule_fallback' || token === 'llm_generated') return token;
+  if (
+    token === 'catalog' ||
+    token === 'external_seed' ||
+    token === 'internal' ||
+    token === 'category_guidance' ||
+    token === 'rule_fallback' ||
+    token === 'llm_generated'
+  ) return token;
   if (token === 'llm_only') return 'llm_generated';
   return undefined;
 }
@@ -396,6 +411,29 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
       .slice(0, 4) as any;
   }
 
+  const phasePlan = Array.isArray(value.phase_plan) ? value.phase_plan : [];
+  if (phasePlan.length) {
+    out.phase_plan = phasePlan
+      .map((item) => {
+        const row = isPlainObject(item) ? item : {};
+        const id = normalizeOptionalText(row.id, 80);
+        const title = normalizeOptionalText(row.title, 120);
+        if (!id || !title) return null;
+        return {
+          id,
+          title,
+          timing: normalizeOptionalText(row.timing, 120),
+          why: normalizeOptionalText(row.why, 260),
+          actions: normalizeStringArray(row.actions, 5, 260),
+          product_role_ids: normalizeStringArray(row.product_role_ids ?? row.productRoleIds, 10, 80),
+          product_ids: normalizeStringArray(row.product_ids ?? row.productIds, 8, 120),
+          coverage_status: normalizeOptionalText(row.coverage_status ?? row.coverageStatus, 48),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 5) as any;
+  }
+
   const categorizedKit = Array.isArray(value.categorized_kit) ? value.categorized_kit : [];
   if (categorizedKit.length) {
     out.categorized_kit = categorizedKit
@@ -511,18 +549,28 @@ function normalizeTravelReadinessV1(value: unknown): EnvStressUiModelV1['travel_
           return {
             rank: coerceInt(row.rank) ?? undefined,
             product_id: normalizeOptionalText(row.product_id, 120),
+            merchant_id: normalizeOptionalText(row.merchant_id, 80),
+            product_group_id: normalizeOptionalText(row.product_group_id, 160),
             name,
             brand: normalizeOptionalText(row.brand, 80),
             category: normalizeOptionalText(row.category, 80),
+            role_id: normalizeOptionalText(row.role_id ?? row.roleId, 80),
             reasons: normalizeStringArray(row.reasons, 4, 100),
-            product_source: normalizeProductSource(row.product_source),
-            match_status: normalizeBrandMatchStatus(row.match_status),
+            product_source: normalizeProductSource(row.product_source ?? row.productSource),
+            authority_status: normalizeOptionalText(row.authority_status ?? row.authorityStatus, 80),
+            match_status: normalizeBrandMatchStatus(row.match_status ?? row.matchStatus),
+            display_mode: normalizeOptionalText(row.display_mode ?? row.displayMode, 80),
+            pdp_open: isPlainObject(row.pdp_open) ? row.pdp_open : isPlainObject(row.pdpOpen) ? row.pdpOpen : null,
+            is_grounded: typeof row.is_grounded === 'boolean' ? row.is_grounded : typeof row.isGrounded === 'boolean' ? row.isGrounded : null,
             price: coerceNumber(row.price),
+            price_label: normalizeOptionalText(row.price_label ?? row.priceLabel, 48),
             currency: normalizeOptionalText(row.currency, 12),
+            image_url: normalizeOptionalText(row.image_url ?? row.imageUrl, 500),
+            canonical_url: normalizeOptionalText(row.canonical_url ?? row.canonicalUrl ?? row.url, 500),
           };
         })
         .filter(Boolean)
-        .slice(0, 3) as any,
+        .slice(0, 6) as any,
       brand_candidates: brandCandidates
         .map((item) => {
           const row = isPlainObject(item) ? item : {};

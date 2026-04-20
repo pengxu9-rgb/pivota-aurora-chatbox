@@ -54,14 +54,24 @@ export type TravelReadinessPersonalFocusItem = {
 export type TravelReadinessProductPreviewItem = {
   rank?: number;
   product_id?: string | null;
+  merchant_id?: string | null;
+  product_group_id?: string | null;
   name?: string;
   brand?: string | null;
   category?: string | null;
+  role_id?: string | null;
   reasons?: string[];
-  product_source?: 'catalog' | 'rule_fallback' | 'llm_generated' | null;
+  product_source?: 'catalog' | 'external_seed' | 'internal' | 'category_guidance' | 'rule_fallback' | 'llm_generated' | null;
+  authority_status?: string | null;
   match_status?: TravelReadinessBrandMatchStatus | null;
+  display_mode?: string | null;
+  pdp_open?: Record<string, unknown> | null;
+  is_grounded?: boolean | null;
   price?: number | null;
+  price_label?: string | null;
   currency?: string | null;
+  image_url?: string | null;
+  canonical_url?: string | null;
 };
 
 export type TravelReadinessBrandMatchStatus = 'kb_verified' | 'catalog_verified' | 'llm_only';
@@ -89,6 +99,17 @@ export type TravelRecoBundleItem = {
   ingredient_logic?: string | null;
   product_types?: string[];
   reapply_rule?: string | null;
+};
+
+export type TravelPhasePlanItem = {
+  id: string;
+  title: string;
+  timing?: string | null;
+  why?: string | null;
+  actions?: string[];
+  product_role_ids?: string[];
+  product_ids?: string[];
+  coverage_status?: 'grounded' | 'partial' | 'category_only' | string | null;
 };
 
 export type CategorizedKitPreparation = {
@@ -183,6 +204,7 @@ export type TravelReadinessV1 = {
     mask_tips?: string[];
   };
   reco_bundle?: TravelRecoBundleItem[];
+  phase_plan?: TravelPhasePlanItem[];
   categorized_kit?: CategorizedKitEntry[];
   category_recommendations?: {
     category: string;
