@@ -4,6 +4,129 @@ import { describe, expect, it, vi } from 'vitest';
 import { EnvStressCard } from '@/components/aurora/cards/EnvStressCard';
 
 describe('EnvStressCard travel readiness', () => {
+  it('renders phase-first travel plan with grounded local shopping products', () => {
+    const onOpenTravelProduct = vi.fn();
+
+    render(
+      <EnvStressCard
+        payload={{
+          schema_version: 'aurora.ui.env_stress.v1',
+          ess: 70,
+          tier: 'Moderate',
+          radar: [{ axis: 'UV', value: 70 }],
+          notes: [],
+          travel_readiness: {
+            destination_context: {
+              destination: 'Tokyo',
+              start_date: '2026-04-27',
+              end_date: '2026-05-02',
+              env_source: 'weather_api',
+            },
+            delta_vs_origin: {
+              temperature: { home: 12, destination: 23, delta: 11, unit: 'C' },
+              humidity: { home: 62, destination: 78, delta: 16, unit: '%' },
+              uv: { home: 4, destination: 7, delta: 3, unit: '' },
+              summary_tags: ['warmer', 'more_humid', 'higher_uv'],
+            },
+            phase_plan: [
+              {
+                id: 'pre_trip_prepare',
+                title: 'Before you leave',
+                timing: 'T-3 to T-1',
+                why: 'Pack tolerated core products.',
+                actions: ['Pack daily SPF and a lightweight moisturizer.'],
+                product_role_ids: ['sun_protection'],
+                product_ids: [],
+                coverage_status: 'category_only',
+              },
+              {
+                id: 'flight_cabin',
+                title: 'On the flight',
+                timing: 'Boarding through arrival',
+                why: 'Cabin dryness can increase tightness.',
+                actions: ['Keep the cabin routine simple and low-irritation.'],
+                product_role_ids: ['hydration_serum'],
+                product_ids: [],
+                coverage_status: 'category_only',
+              },
+              {
+                id: 'arrival_first_48h',
+                title: 'First 48 hours after landing',
+                timing: 'Arrival day through night 2',
+                why: 'Prioritize barrier comfort before new actives.',
+                actions: ['Use gentle cleansing, moisturizer, and SPF.'],
+                product_role_ids: ['lightweight_moisturizer'],
+                product_ids: [],
+                coverage_status: 'category_only',
+              },
+              {
+                id: 'during_trip_daily',
+                title: 'Daily while there',
+                timing: 'Every trip day',
+                why: 'Use lighter layers while keeping SPF consistent.',
+                actions: ['AM moisturizer plus sunscreen; PM cleanse sunscreen well.'],
+                product_role_ids: ['sun_protection'],
+                product_ids: [],
+                coverage_status: 'category_only',
+              },
+              {
+                id: 'local_shopping',
+                title: 'Shop locally',
+                timing: 'After landing',
+                why: 'Only catalog-grounded local products are shown.',
+                actions: ['Review sunscreen and lightweight hydration options.'],
+                product_role_ids: ['sun_protection'],
+                product_ids: ['jp_spf_1'],
+                coverage_status: 'grounded',
+              },
+            ],
+            shopping_preview: {
+              coverage_status: 'grounded',
+              products: [
+                {
+                  product_id: 'jp_spf_1',
+                  merchant_id: 'external_seed',
+                  name: 'Biore UV Aqua Rich Watery Essence',
+                  brand: 'Biore',
+                  role_id: 'sun_protection',
+                  product_source: 'external_seed',
+                  authority_status: 'grounded',
+                  match_status: 'catalog_verified',
+                  display_mode: 'product_card',
+                  is_grounded: true,
+                  image_url: 'https://example.test/biore.jpg',
+                  price: 1078,
+                  currency: 'JPY',
+                  pdp_open: { product_id: 'jp_spf_1', merchant_id: 'external_seed' },
+                  reasons: ['Light sunscreen texture for humid Tokyo days.'],
+                },
+              ],
+              buying_channels: ['beauty_retail', 'ecommerce'],
+              city_hint: 'Tokyo',
+            },
+          },
+        }}
+        language="EN"
+        onOpenTravelProduct={onOpenTravelProduct}
+      />,
+    );
+
+    expect(screen.getByText('Step-by-step travel plan')).toBeInTheDocument();
+    expect(screen.getByText('Before you leave')).toBeInTheDocument();
+    expect(screen.getByText('On the flight')).toBeInTheDocument();
+    expect(screen.getByText('First 48 hours after landing')).toBeInTheDocument();
+    expect(screen.getByText('Daily while there')).toBeInTheDocument();
+    expect(screen.getByText('Shop locally')).toBeInTheDocument();
+    expect(screen.getAllByText('Category guidance').length).toBeGreaterThan(0);
+    expect(screen.getByText('Grounded products')).toBeInTheDocument();
+    expect(screen.getByText(/Biore UV Aqua Rich Watery Essence/)).toBeInTheDocument();
+    expect(screen.getByText('JPY 1078')).toBeInTheDocument();
+    expect(screen.queryByText('Skincare concerns & preparation')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /View details for Biore UV/i }));
+    expect(onOpenTravelProduct).toHaveBeenCalledWith(expect.objectContaining({ product_id: 'jp_spf_1' }));
+  });
+
   it('renders categorized concern sections and CTA actions when categorized_kit exists', () => {
     const onOpenCheckin = vi.fn();
     const onOpenRecommendations = vi.fn();

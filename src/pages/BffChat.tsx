@@ -100,7 +100,7 @@ import {
   loadAuroraAuthSession,
   saveAuroraAuthSession,
 } from '@/lib/auth';
-import type { TravelProductLookupQuery } from '@/lib/auroraEnvStress';
+import type { TravelProductLookupQuery, TravelReadinessProductPreviewItem } from '@/lib/auroraEnvStress';
 import {
   getLangMismatchHintMutedUntil,
   getLangReplyMode,
@@ -5896,6 +5896,15 @@ function BffCardView({
     [language, onOpenPdp, resolveProductRef],
   );
 
+  const handleOpenTravelPreviewProduct = useCallback(
+    async (product: TravelReadinessProductPreviewItem) => {
+      const raw = (product && typeof product === 'object' ? product : {}) as Record<string, unknown>;
+      const uiProduct = toUiProduct(raw, language);
+      await openTravelLookupProduct({ raw, product: uiProduct });
+    },
+    [language, openTravelLookupProduct],
+  );
+
   const travelLookupTitle = language === 'CN' ? '旅行产品查找' : 'Travel product lookup';
   const travelLookupBody = travelLookupState ? (
     <div className="space-y-3 px-4 pb-4">
@@ -6174,6 +6183,7 @@ function BffCardView({
               })
             }
             onProductLookup={handleTravelProductLookup}
+            onOpenTravelProduct={handleOpenTravelPreviewProduct}
           />
           {travelLookupPanel}
         </div>
@@ -6458,6 +6468,7 @@ function BffCardView({
             })
           }
           onProductLookup={handleTravelProductLookup}
+          onOpenTravelProduct={handleOpenTravelPreviewProduct}
         />
         {travelLookupPanel}
       </div>
