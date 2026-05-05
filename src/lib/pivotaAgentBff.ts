@@ -106,6 +106,27 @@ export type BffHeaders = {
 
 const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
 
+const PIVOTA_AGENT_FALLBACK_URL = 'https://pivota-agent-production.up.railway.app';
+
+// Vite inlines `import.meta.env.VITE_*` at build time, so this check
+// effectively runs against the build's configuration. If a build ships
+// without VITE_PIVOTA_AGENT_URL or VITE_SHOP_GATEWAY_URL set, every
+// agent request from that bundle will silently route to production —
+// exactly the kind of misconfiguration we want a loud signal for
+// (preview builds, staging, dev boxes without .env). Logged once per
+// session to keep the browser console clean.
+let _fallbackWarned = false;
+const _maybeWarnPivotaAgentFallback = () => {
+  if (_fallbackWarned) return;
+  _fallbackWarned = true;
+  // eslint-disable-next-line no-console
+  console.error(
+    '[pivotaAgentBff] No VITE_PIVOTA_AGENT_URL / VITE_SHOP_GATEWAY_URL set at build time; ' +
+      `falling back to hardcoded ${PIVOTA_AGENT_FALLBACK_URL}. ` +
+      'Configure the env var in this build to avoid silently routing to production.',
+  );
+};
+
 export const getPivotaAgentBaseUrl = () => {
   const explicit = import.meta.env.VITE_PIVOTA_AGENT_URL?.trim();
   if (explicit) return normalizeBaseUrl(explicit);
@@ -115,7 +136,8 @@ export const getPivotaAgentBaseUrl = () => {
   if (shopGatewayUrl) return normalizeBaseUrl(shopGatewayUrl);
 
   // Sensible default for local dev / quick start.
-  return 'https://pivota-agent-production.up.railway.app';
+  _maybeWarnPivotaAgentFallback();
+  return PIVOTA_AGENT_FALLBACK_URL;
 };
 
 const joinUrl = (baseUrl: string, path: string) => {
