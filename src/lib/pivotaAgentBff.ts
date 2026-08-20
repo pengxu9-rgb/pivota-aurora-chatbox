@@ -106,7 +106,7 @@ export type BffHeaders = {
 
 const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
 
-const PIVOTA_AGENT_FALLBACK_URL = 'https://pivota-agent-production.up.railway.app';
+const PIVOTA_AGENT_FALLBACK_URL = 'https://gateway.pivota.cc';
 
 // Vite inlines `import.meta.env.VITE_*` at build time, so this check
 // effectively runs against the build's configuration. If a build ships
