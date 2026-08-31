@@ -2,6 +2,7 @@ import { getOrCreateAuroraUid } from './persistence';
 import type { ChatIntroHintV1 } from './chatCardsTypes';
 import { requestWithTimeout } from '@/utils/requestWithTimeout';
 import { syncAuroraAuthSessionFromResponse } from './auth';
+import { normalizeRuntimeUpstream, PIVOTA_STABLE_GATEWAY_URL } from './runtimeUpstream';
 
 export type Language = 'EN' | 'CN';
 
@@ -106,8 +107,6 @@ export type BffHeaders = {
 
 const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
 
-const PIVOTA_AGENT_FALLBACK_URL = 'https://pivota-agent-production.up.railway.app';
-
 // Vite inlines `import.meta.env.VITE_*` at build time, so this check
 // effectively runs against the build's configuration. If a build ships
 // without VITE_PIVOTA_AGENT_URL or VITE_SHOP_GATEWAY_URL set, every
@@ -122,22 +121,22 @@ const _maybeWarnPivotaAgentFallback = () => {
   // eslint-disable-next-line no-console
   console.error(
     '[pivotaAgentBff] No VITE_PIVOTA_AGENT_URL / VITE_SHOP_GATEWAY_URL set at build time; ' +
-      `falling back to hardcoded ${PIVOTA_AGENT_FALLBACK_URL}. ` +
+      `falling back to stable ingress ${PIVOTA_STABLE_GATEWAY_URL}. ` +
       'Configure the env var in this build to avoid silently routing to production.',
   );
 };
 
 export const getPivotaAgentBaseUrl = () => {
   const explicit = import.meta.env.VITE_PIVOTA_AGENT_URL?.trim();
-  if (explicit) return normalizeBaseUrl(explicit);
+  if (explicit) return normalizeRuntimeUpstream(explicit);
 
   // Back-compat: many deployments already configure this to the pivota-agent host.
   const shopGatewayUrl = import.meta.env.VITE_SHOP_GATEWAY_URL?.trim();
-  if (shopGatewayUrl) return normalizeBaseUrl(shopGatewayUrl);
+  if (shopGatewayUrl) return normalizeRuntimeUpstream(shopGatewayUrl);
 
   // Sensible default for local dev / quick start.
   _maybeWarnPivotaAgentFallback();
-  return PIVOTA_AGENT_FALLBACK_URL;
+  return PIVOTA_STABLE_GATEWAY_URL;
 };
 
 const joinUrl = (baseUrl: string, path: string) => {

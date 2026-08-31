@@ -1,5 +1,6 @@
 import type { Session } from './types';
 import { getAuroraUid, getLangPref } from './persistence';
+import { normalizeRuntimeUpstream } from './runtimeUpstream';
 
 export class PivotaApiError extends Error {
   readonly status: number;
@@ -17,15 +18,12 @@ const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
 
 export const getApiRootUrl = () => {
   const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-  if (!baseUrl) return undefined;
-  return normalizeBaseUrl(baseUrl);
+  return normalizeRuntimeUpstream(baseUrl);
 };
 
 export const getApiBaseUrl = () => {
   const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-  if (!baseUrl) return undefined;
-
-  const normalized = normalizeBaseUrl(baseUrl);
+  const normalized = normalizeRuntimeUpstream(baseUrl);
 
   // Most Glow Agent endpoints live under `/v1`. To reduce misconfiguration
   // (especially on Vercel), auto-append `/v1` when callers provide only the host.
@@ -37,13 +35,13 @@ export const isBackendConfigured = () => Boolean(getApiBaseUrl());
 
 export const getShopGatewayUrl = () => {
   const url = import.meta.env.VITE_SHOP_GATEWAY_URL?.trim();
-  if (url) return normalizeBaseUrl(url);
+  if (url) return normalizeRuntimeUpstream(url);
   return getApiRootUrl();
 };
 
 export const getUploadBaseUrl = () => {
   const uploadUrl = import.meta.env.VITE_UPLOAD_ENDPOINT?.trim();
-  if (uploadUrl) return normalizeBaseUrl(uploadUrl);
+  if (uploadUrl) return normalizeRuntimeUpstream(uploadUrl);
   return getApiBaseUrl();
 };
 
