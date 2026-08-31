@@ -12,23 +12,23 @@
   "rewrites": [
     {
       "source": "/v1/:path*",
-      "destination": "https://pivota-agent-production.up.railway.app/v1/:path*"
+      "destination": "https://gateway.pivota.cc/v1/:path*"
     },
     {
       "source": "/v2/:path*",
-      "destination": "https://pivota-agent-production.up.railway.app/v2/:path*"
+      "destination": "https://gateway.pivota.cc/v2/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://pivota-agent-production.up.railway.app/health"
+      "destination": "https://gateway.pivota.cc/health"
     },
     {
       "source": "/healthz",
-      "destination": "https://pivota-agent-production.up.railway.app/healthz"
+      "destination": "https://gateway.pivota.cc/healthz"
     },
     {
       "source": "/metrics",
-      "destination": "https://pivota-agent-production.up.railway.app/metrics"
+      "destination": "https://gateway.pivota.cc/metrics"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

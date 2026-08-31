@@ -27,18 +27,18 @@ Default dev server: `http://localhost:8080`
 Set these in Vercel (or locally via `.env.local`):
 
 ```bash
-# pivota-agent BFF (Railway)
-VITE_PIVOTA_AGENT_URL=https://pivota-agent-production.up.railway.app
+# Stable public ingress for the agent BFF
+VITE_PIVOTA_AGENT_URL=https://gateway.pivota.cc
 
 # Pivota shopping UI (PDP + checkout)
 VITE_PIVOTA_SHOP_URL=https://agent.pivota.cc
 
 # Back-compat (used when VITE_PIVOTA_AGENT_URL is unset)
-VITE_SHOP_GATEWAY_URL=https://pivota-agent-production.up.railway.app
+VITE_SHOP_GATEWAY_URL=https://gateway.pivota.cc
 
 # Legacy (optional): keep old Glow Agent UI working at /legacy
-VITE_API_BASE_URL=https://pivota-glow-guide-production.up.railway.app
-VITE_UPLOAD_ENDPOINT=https://pivota-glow-guide-production.up.railway.app
+VITE_API_BASE_URL=https://gateway.pivota.cc
+VITE_UPLOAD_ENDPOINT=https://gateway.pivota.cc/v1
 ```
 
 ## Deploy (Vercel)
