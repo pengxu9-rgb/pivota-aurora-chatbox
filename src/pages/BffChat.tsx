@@ -103,6 +103,7 @@ import {
 import type { TravelProductLookupQuery, TravelReadinessProductPreviewItem } from '@/lib/auroraEnvStress';
 import {
   getLangMismatchHintMutedUntil,
+  getOrCreateAuroraUid,
   getLangReplyMode,
   setLangMismatchHintMutedUntil,
   setLangReplyMode,
@@ -136,6 +137,7 @@ import { cn } from '@/lib/utils';
 import { AuroraSidebar } from '@/components/mobile/AuroraSidebar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { loadChatHistory, type ChatHistoryItem } from '@/lib/chatHistory';
+import { clearChatRecovery, loadChatRecovery, saveChatRecovery } from '@/lib/bffChatRecovery';
 import { normalizeProfileFromBootstrap, buildProfileUpdatePatch } from '@/lib/auroraProfile';
 import { parseCurrentRoutine } from '@/lib/currentRoutineState';
 import { saveAuroraProfileCache } from '@/lib/userProfile';
@@ -174,6 +176,22 @@ type ChatRequestMessage = {
   role: 'user' | 'assistant';
   content: string;
 };
+
+function isRecoveredChatItem(value: unknown): value is ChatItem {
+  const item = asObject(value);
+  if (!item || typeof item.id !== 'string') return false;
+  if (item.kind === 'text') return (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string';
+  if (item.role !== 'assistant') return false;
+  if (item.kind === 'cards') return Array.isArray(item.cards) && item.cards.every((card) => {
+    const row = asObject(card);
+    return row && typeof row.type === 'string' && typeof row.card_id === 'string';
+  });
+  if (item.kind === 'chips') return Array.isArray(item.chips) && item.chips.every((chip) => {
+    const row = asObject(chip);
+    return row && typeof row.chip_id === 'string' && typeof row.label === 'string';
+  });
+  return item.kind === 'return_welcome' && (item.summary == null || !!asObject(item.summary));
+}
 
 const CHAT_CONTEXT_MESSAGE_LIMIT = 10;
 const DIAGNOSIS_THREAD_STATE_KEYS = [
@@ -8993,6 +9011,13 @@ export default function BffChat() {
     };
   }
   const initialAuthSession = initialAuthSessionRef.current.value;
+  const [recovery] = useState(() => {
+    if (initialAuthSession) { clearChatRecovery(); return undefined; }
+    return loadChatRecovery(getOrCreateAuroraUid(), searchParams.brief_id, isRecoveredChatItem);
+  });
+  const recoveredTranscriptRef = useRef(Boolean(recovery?.items.length));
+  // Once an account was used in this mount, never save its transcript as anonymous.
+  const recoveryDisabledRef = useRef(Boolean(initialAuthSession));
   const pendingLocationSessionProfilePatchRef = useRef<Record<string, unknown> | null>(
     asObject((location.state as any)?.session_patch?.profile) || null,
   );
@@ -9005,20 +9030,21 @@ export default function BffChat() {
     const traceId = searchParams.trace_id;
     return {
       ...base,
+      ...(recovery ? { brief_id: recovery.briefId, trace_id: recovery.traceId } : {}),
       ...(initialAuthSession?.token ? { auth_token: initialAuthSession.token } : {}),
       ...(briefId ? { brief_id: briefId.slice(0, 128) } : {}),
       ...(traceId ? { trace_id: traceId.slice(0, 128) } : {}),
     };
   });
-  const [sessionState, setSessionState] = useState<string>('idle');
+  const [sessionState, setSessionState] = useState<string>(recovery?.sessionState || 'idle');
   const [sessionMeta, setSessionMeta] = useState<Record<string, unknown> | null>(() => {
     const next: Record<string, unknown> = {};
     if (searchParams.artifact_id) next.latest_artifact_id = searchParams.artifact_id;
     if (searchParams.activity_id) next.source_activity_id = searchParams.activity_id;
     return Object.keys(next).length ? next : null;
   });
-  const [agentState, setAgentState] = useState<AgentState>('IDLE_CHAT');
-  const agentStateRef = useRef<AgentState>('IDLE_CHAT');
+  const [agentState, setAgentState] = useState<AgentState>(() => normalizeAgentState(recovery?.agentState) || 'IDLE_CHAT');
+  const agentStateRef = useRef<AgentState>(agentState);
   useEffect(() => {
     agentStateRef.current = agentState;
   }, [agentState]);
@@ -9051,8 +9077,8 @@ export default function BffChat() {
     }
   });
   const [input, setInput] = useState('');
-  const [items, setItems] = useState<ChatItem[]>([]);
-  const itemsRef = useRef<ChatItem[]>([]);
+  const [items, setItems] = useState<ChatItem[]>(recovery?.items || []);
+  const itemsRef = useRef<ChatItem[]>(recovery?.items || []);
   const [chatBusy, setChatBusy] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [routineFormBusy, setRoutineFormBusy] = useState(false);
@@ -9074,7 +9100,7 @@ export default function BffChat() {
   const [ingredientQuestionBusy, setIngredientQuestionBusy] = useState(false);
   const pendingActionAfterDiagnosisRef = useRef<V1Action | null>(null);
   const [pendingRecoGoalOther, setPendingRecoGoalOther] = useState(false);
-  const threadStateRef = useRef<Record<string, unknown>>({});
+  const threadStateRef = useRef<Record<string, unknown>>(recovery?.threadState || {});
 
   const clearDiagnosisThreadState = useCallback(() => {
     const next = { ...(threadStateRef.current || {}) };
@@ -9189,6 +9215,17 @@ export default function BffChat() {
   const [dupeSheetOpen, setDupeSheetOpen] = useState(false);
   const [authSheetOpen, setAuthSheetOpen] = useState(false);
   const [authSession, setAuthSession] = useState(() => initialAuthSession);
+  useEffect(() => {
+    if (authSession) recoveryDisabledRef.current = true;
+    if (recoveryDisabledRef.current) { clearChatRecovery(); return; }
+    if (!hasBootstrapped || isLoading || photoUploading || routineFormBusy) return;
+    if (searchParams.brief_id && searchParams.brief_id !== headers.brief_id) return;
+    if (!items.some((item) => item.role === 'user')) { clearChatRecovery(); return; }
+    saveChatRecovery({
+      uid: headers.aurora_uid, briefId: headers.brief_id, traceId: headers.trace_id,
+      items, threadState: threadStateRef.current, sessionState, agentState,
+    });
+  }, [authSession, hasBootstrapped, isLoading, photoUploading, routineFormBusy, items, headers, sessionState, agentState, searchParams.brief_id]);
   const [authMode, setAuthMode] = useState<'code' | 'password'>('code');
   const [authStage, setAuthStage] = useState<'email' | 'code'>('email');
   const [authDraft, setAuthDraft] = useState(() => ({
@@ -10444,7 +10481,7 @@ export default function BffChat() {
         },
       ];
 
-      if (!hasBootstrapped) {
+      if (!hasBootstrapped && !recoveredTranscriptRef.current) {
         if (FF_RETURN_WELCOME && isReturning) {
           setItems([
             { id: nextId(), role: 'assistant', kind: 'text', content: intro },
@@ -10462,8 +10499,8 @@ export default function BffChat() {
             { id: nextId(), role: 'assistant', kind: 'chips', chips: startChips },
           ]);
         }
-        setHasBootstrapped(true);
       }
+      setHasBootstrapped(true);
     } catch (err) {
       if (!tryApplyEnvelopeFromBffError(err)) setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -10472,6 +10509,9 @@ export default function BffChat() {
   }, [agentState, applySessionPatchStateToThreadState, hasBootstrapped, headers, language, tryApplyEnvelopeFromBffError]);
 
   const startNewChat = useCallback(() => {
+    clearChatRecovery();
+    recoveredTranscriptRef.current = false;
+    threadStateRef.current = {};
     setError(null);
     setSessionState('idle');
     setAgentStateSafe('IDLE_CHAT');
@@ -13485,6 +13525,10 @@ export default function BffChat() {
     if (nextBriefId === headers.brief_id) return;
 
     const nextTraceId = String(searchParams.trace_id || '').trim() || makeDefaultHeaders(language).trace_id;
+
+    clearChatRecovery();
+    recoveredTranscriptRef.current = false;
+    threadStateRef.current = {};
 
     setError(null);
     setSessionState('idle');
