@@ -22,7 +22,7 @@ vi.mock('@/lib/pivotaAgentBff', async () => {
 
 import BffChat, { RecommendationsCard } from '@/pages/BffChat';
 import { ShopProvider } from '@/contexts/shop';
-import { bffJson, fetchRecoAlternatives, fetchRoutineSimulation } from '@/lib/pivotaAgentBff';
+import { bffJson, bffChatStream, fetchRecoAlternatives, fetchRoutineSimulation } from '@/lib/pivotaAgentBff';
 import { toast } from '@/components/ui/use-toast';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
 
@@ -83,6 +83,34 @@ function renderRecommendationsCard(card: Card, args?: {
 }
 
 describe('BffChat V2 recommendations cards', () => {
+  it('shows streamed catalog products without opening routine evidence', async () => {
+    vi.mocked(bffJson).mockResolvedValue(makeEnvelope());
+    vi.mocked(bffChatStream).mockImplementationOnce(async (_headers, _body, handlers) => {
+      handlers.onResult?.({
+        cards: [{
+          card_type: 'recommendations', sections: [],
+          metadata: {
+            source_mode: 'catalog_search',
+            recommendation_meta: { source_mode: 'catalog_search', query: 'knight unicorn blush' },
+            recommendations: [{
+              product_id: 'sig_9e3039e79deaf1860585156c7fd1d3c1', merchant_id: 'merch_c5e24a8d3738d73b',
+              brand: 'Knight Unicorn', name: 'Knight Unicorn Satin Blush', price: '23.00', currency: 'USD',
+              image_url: 'https://cdn.shopify.com/blush.webp', source: 'catalog_search',
+            }],
+          },
+        }], ops: {}, next_actions: [],
+      } as any);
+    });
+    renderChat();
+    const input = await waitForEnabledComposer();
+    fireEvent.change(input, { target: { value: 'knight unicorn blush' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(await screen.findByRole('button', { name: 'View details for Knight Unicorn Satin Blush' })).toBeVisible();
+    expect(screen.getByText('$23')).toBeVisible();
+    expect(screen.getByRole('img', { name: 'Knight Unicorn Satin Blush' })).toBeVisible();
+    expect(screen.queryByText('View steps & evidence')).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
