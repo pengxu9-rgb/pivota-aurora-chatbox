@@ -4,7 +4,7 @@ The previous `tsc --noEmit` command read the solution config with `files: []` an
 
 `npm run typecheck` now checks both application and Vite projects through the TypeScript compiler API. Empty or invalid projects fail closed. Build runs this command, so deployment builds and CI share the same guard.
 
-Main currently has **213 known diagnostics** (183 distinct fingerprints), down from the initial 220 after fixing runtime scope/callback errors and a missing type import. The reviewed `typecheck-baseline.json` is explicit technical debt, not evidence of a type-clean application. It records compiler version, project, relative file, diagnostic code/message, source line and occurrence count. Paths and line numbers are normalized for portable builds; changing or adding an error is not covered by a generic file/code allowance.
+Main currently has **185 known diagnostics** (155 distinct fingerprints), down from the initial 220 after fixing runtime scope/callback errors, missing diagnosis contracts and bilingual label fallbacks. The reviewed `typecheck-baseline.json` is explicit technical debt, not evidence of a type-clean application. It records compiler version, project, relative file, diagnostic code/message, source line and occurrence count. Paths and line numbers are normalized for portable builds; changing or adding an error is not covered by a generic file/code allowance.
 
 - New diagnostics or increased occurrence counts fail.
 - Fixed diagnostics leave stale entries and fail until the unused allowance is removed.

@@ -402,6 +402,13 @@ export interface AnalyticsEvent {
   data?: Record<string, any>;
 }
 
+export type {
+  DiagnosisV2GoalPreset, DiagnosisV2GoalProfile, DiagnosisV2FollowupQuestion,
+  DiagnosisV2IntroPayload, DiagnosisV2InferredAxis, DiagnosisV2Strategy,
+  DiagnosisV2ImprovementTip, DiagnosisV2ResultPayload, DiagnosisV2ThinkingStep,
+  DiagnosisV2LoginPromptPayload, DiagnosisV2PhotoPromptPayload,
+} from './diagnosisV2Types';
+
 // Action Types
 export interface CardAction {
   action_id: string;

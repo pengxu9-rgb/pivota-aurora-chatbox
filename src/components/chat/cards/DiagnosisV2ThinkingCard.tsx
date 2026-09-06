@@ -35,7 +35,7 @@ export function DiagnosisV2ThinkingCard({ steps, language }: Props) {
 
   const stepsByStage = STAGE_ORDER.map((stageKey) => ({
     stageKey,
-    label: STAGE_LABELS[stageKey]?.[language] || stageKey,
+    label: STAGE_LABELS[stageKey]?.[language === 'CN' ? 'CN' : 'EN'] || stageKey,
     stageSteps: steps.filter((step) => step.stage === stageKey),
   }));
 

@@ -16,7 +16,7 @@ type Props = {
   onAction: (actionId: string, data?: Record<string, any>) => void;
 };
 
-const AXIS_LABELS: Record<string, Record<Language, string>> = {
+const AXIS_LABELS: Record<string, Record<'EN' | 'CN', string>> = {
   barrier_irritation_risk: { EN: 'Barrier irritation risk', CN: '屏障刺激风险' },
   hydration_level: { EN: 'Hydration level', CN: '保湿水平' },
   sensitivity: { EN: 'Sensitivity', CN: '敏感度' },
@@ -50,7 +50,7 @@ const TREND_CONFIG = {
   new: { icon: null, color: '', label: { EN: 'New', CN: '新增' } },
 };
 
-const LEVEL_LABELS: Record<string, Record<Language, string>> = {
+const LEVEL_LABELS: Record<string, Record<'EN' | 'CN', string>> = {
   low: { EN: 'Low', CN: '低' },
   moderate: { EN: 'Moderate', CN: '中' },
   high: { EN: 'High', CN: '高' },
@@ -59,10 +59,11 @@ const LEVEL_LABELS: Record<string, Record<Language, string>> = {
 
 function translateAxis(axis: string, language: Language): string {
   const key = axis.toLowerCase().replace(/\s+/g, '_');
-  return AXIS_LABELS[key]?.[language] ?? axis.replace(/_/g, ' ');
+  return AXIS_LABELS[key]?.[language === 'CN' ? 'CN' : 'EN'] ?? axis.replace(/_/g, ' ');
 }
 
 function AxisBar({ axis, language }: { axis: DiagnosisV2InferredAxis; language: Language }) {
+  const copyLanguage = language === 'CN' ? 'CN' : 'EN';
   const [expanded, setExpanded] = useState(false);
   const levelOrder = ['low', 'moderate', 'high', 'severe'];
   const levelIndex = levelOrder.indexOf(axis.level);
@@ -80,7 +81,7 @@ function AxisBar({ axis, language }: { axis: DiagnosisV2InferredAxis; language: 
               LEVEL_BG_COLORS[axis.level] ?? 'border-slate-200 bg-slate-100 text-slate-700',
             )}
           >
-            {LEVEL_LABELS[axis.level]?.[language] ?? axis.level}
+            {LEVEL_LABELS[axis.level]?.[copyLanguage] ?? axis.level}
           </span>
           <span className="rounded bg-slate-200/80 px-2 py-0.5 text-xs font-medium text-slate-700">
             {Math.round(axis.confidence * 100)}%
@@ -95,8 +96,8 @@ function AxisBar({ axis, language }: { axis: DiagnosisV2InferredAxis; language: 
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>
-                    {TREND_CONFIG[axis.trend]?.label[language]}{' '}
-                    {axis.previous_level && `(${LEVEL_LABELS[axis.previous_level]?.[language] ?? axis.previous_level})`}
+                    {TREND_CONFIG[axis.trend]?.label[copyLanguage]}{' '}
+                    {axis.previous_level && `(${LEVEL_LABELS[axis.previous_level]?.[copyLanguage] ?? axis.previous_level})`}
                   </p>
                 </TooltipContent>
               </Tooltip>

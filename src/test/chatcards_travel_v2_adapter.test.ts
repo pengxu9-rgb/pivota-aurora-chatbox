@@ -45,7 +45,9 @@ describe('chatCardsAdapters travel v2 compatibility', () => {
 
     expect(hit).not.toBeNull();
     expect(hit?.kind).toBe('travel');
-    expect(hit && 'data' in hit ? hit.data.payload.schema_version : null).toBe('aurora.ui.env_stress.v1');
-    expect(hit && 'data' in hit ? hit.data.payload.travel_readiness.destination_context.destination : null).toBe('Singapore');
+    expect(hit?.kind === 'travel' ? hit.data.payload.schema_version : null).toBe('aurora.ui.env_stress.v1');
+    expect(hit?.kind === 'travel' ? hit.data.payload.travel_readiness : null).toMatchObject({
+      destination_context: { destination: 'Singapore' },
+    });
   });
 });
