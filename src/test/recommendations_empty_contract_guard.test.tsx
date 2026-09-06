@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/auroraAnalytics', async () => {
@@ -15,6 +15,23 @@ import type { Card } from '@/lib/pivotaAgentBff';
 import { emitAuroraEmptyRecommendationsContractViolation } from '@/lib/auroraAnalytics';
 
 describe('RecommendationsCard empty contract guard', () => {
+  it('dispatches ingredient empty-match actions with their query context', () => {
+    const onAction = vi.fn();
+    render(<RecommendationsCard language="EN" debug={false} onAction={onAction} card={{
+      card_id: 'empty_action', type: 'recommendations',
+      payload: {
+        recommendations: [], task_mode: 'ingredient_lookup_no_candidates',
+        products_empty_reason: 'ingredient_constraint_no_match',
+        ingredient_context: { query: 'niacinamide' },
+        empty_match_actions: [{ action_id: 'broaden_to_goal', label: 'Broaden' }],
+      },
+    }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Broaden' }));
+    expect(onAction).toHaveBeenCalledWith('broaden_to_goal', expect.objectContaining({
+      ingredient_query: 'niacinamide', trigger_source: 'ingredient_empty_match',
+      source_card_type: 'recommendations',
+    }));
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -74,6 +91,7 @@ describe('RecommendationsCard empty contract guard', () => {
     );
 
     expect(screen.getByText(/No confirmed ingredient-matched products found yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Broaden' })).toBeDisabled();
     expect(vi.mocked(emitAuroraEmptyRecommendationsContractViolation).mock.calls.length).toBe(0);
   });
 

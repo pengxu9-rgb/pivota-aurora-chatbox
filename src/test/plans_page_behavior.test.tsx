@@ -59,6 +59,44 @@ function makePlan(overrides: Partial<TravelPlanCardModel> = {}): TravelPlanCardM
 }
 
 describe('Plans page behavior', () => {
+  it('retries an ambiguous edit with the original itinerary intact', async () => {
+    const plan = makePlan({ destination: 'Paris', itinerary: 'Museum visits and outdoor walks' });
+    const summary = { active_trip_id: null, home_region: 'San Francisco', counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 } };
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({ plans: [plan], summary });
+    vi.mocked(updateTravelPlan)
+      .mockRejectedValueOnce(new PivotaAgentBffError('Ambiguous destination', 409, {
+        error: 'DESTINATION_AMBIGUOUS', normalized_query: 'Paris',
+        candidates: [{
+          label: 'Paris, Ile-de-France, France', canonical_name: 'Paris',
+          latitude: 48.85341, longitude: 2.3488, country_code: 'FR',
+          country: 'France', admin1: 'Ile-de-France', timezone: 'Europe/Paris',
+        }],
+      }))
+      .mockResolvedValueOnce({ plan, summary });
+    render(<Plans />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Confirm destination')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Paris, Ile-de-France, France/i }));
+    await waitFor(() => expect(updateTravelPlan).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(updateTravelPlan).mock.calls[1][2]).toEqual(expect.objectContaining({
+      itinerary: 'Museum visits and outdoor walks',
+      destination_place: expect.objectContaining({ canonical_name: 'Paris', resolution_source: 'user_selected' }),
+    }));
+  });
+  it('shows the original edit API error without a scope exception', async () => {
+    vi.mocked(listTravelPlans).mockResolvedValueOnce({
+      plans: [makePlan({ itinerary: 'Outdoor walks' })],
+      summary: { active_trip_id: null, home_region: 'San Francisco', counts: { in_trip: 0, upcoming: 1, completed: 0, archived: 0 } },
+    });
+    vi.mocked(updateTravelPlan).mockRejectedValueOnce(new Error('Plan service temporarily unavailable'));
+    render(<Plans />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Plan service temporarily unavailable')).toBeInTheDocument();
+    expect(updateTravelPlan).toHaveBeenCalledWith(expect.any(String), 'trip_1', expect.objectContaining({ itinerary: 'Outdoor walks' }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).not.toBeDisabled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(listTravelPlans).mockResolvedValue({
