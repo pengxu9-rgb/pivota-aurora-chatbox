@@ -89,7 +89,7 @@ import {
   emitMemoryWritten,
   type AnalyticsContext,
 } from '@/lib/auroraAnalytics';
-import { buildChatSession } from '@/lib/chatSession';
+import { buildChatSession, type ChatSessionAnalysisContext } from '@/lib/chatSession';
 import { buildReturnWelcomeSummary, type ReturnWelcomeSummary } from '@/lib/returnWelcomeSummary';
 import { patchGlowSessionProfile, type QuickProfileProfilePatch } from '@/lib/glowSessionProfile';
 import type { DiagnosisResult, FlowState, Language as UiLanguage, Offer, Product, Session, SkinConcern, SkinType } from '@/lib/types';
@@ -2667,6 +2667,7 @@ export function RecommendationsCard({
   card,
   language,
   debug,
+  onAction,
   resolveOffers,
   resolveProductRef,
   resolveProductsSearch,
@@ -2680,6 +2681,7 @@ export function RecommendationsCard({
   card: Card;
   language: 'EN' | 'CN';
   debug: boolean;
+  onAction?: (actionId: string, data?: Record<string, unknown>) => void;
   resolveOffers?: (args: { sku_id?: string | null; product_id?: string | null; merchant_id?: string | null }) => Promise<any>;
   resolveProductRef?: (args: {
     query: string;
@@ -4833,6 +4835,7 @@ export function RecommendationsCard({
                 <button
                   key={actionId}
                   type="button"
+                  disabled={!onAction || !actionId}
                   className="rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60 transition-colors"
                   onClick={() => {
                     if (!onAction || !actionId) return;
@@ -7022,6 +7025,7 @@ function BffCardView({
           card={card}
           language={language}
           debug={debug}
+          onAction={onAction}
           resolveOffers={resolveOffers}
           resolveProductRef={resolveProductRef}
           resolveProductsSearch={resolveProductsSearch}

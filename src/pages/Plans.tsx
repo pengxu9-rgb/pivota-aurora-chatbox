@@ -408,9 +408,9 @@ export default function Plans() {
       setError(validationError);
       return;
     }
+    const itineraryText = editDraft.itinerary.trim();
     try {
       setWorkingTripId(tripId);
-      const itineraryText = editDraft.itinerary.trim();
       const updatePayload: UpdateTravelPlanInput = {
         destination: editDraft.destination.trim(),
         departure_region: editDraft.departure_region.trim(),
