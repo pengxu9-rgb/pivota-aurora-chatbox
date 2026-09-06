@@ -2762,6 +2762,7 @@ export function RecommendationsCard({
   const clickLockByKeyRef = useRef<Set<string>>(new Set());
 
   const payload = asObject(card.payload) || {};
+  const catalogSearchMode = asString(payload.source_mode || asObject(payload.recommendation_meta)?.source_mode) === 'catalog_search';
   const items = useMemo(() => buildRecommendationRenderItems(payload) as RecoItem[], [payload]);
   const hasAnyAlternatives = items.some((it) => asArray((it as any).alternatives).length > 0);
   const hasMissingAlternatives =
@@ -4861,13 +4862,31 @@ export function RecommendationsCard({
           {language === 'CN' ? '成分匹配验证中…' : 'Verifying ingredient match…'}
         </div>
       ) : null}
-      {recommendationBasis ? (
+      {recommendationBasis && !catalogSearchMode ? (
         <div className="rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           {recommendationBasis}
         </div>
       ) : null}
 
-      {frameworkMode && frameworkTopPick ? (
+      {catalogSearchMode ? (
+        <div className="space-y-3" aria-label={language === 'CN' ? '商品搜索结果' : 'Catalog search results'}>
+          {toRoutineSteps(items, 'am').map((step, index) => (
+            <AuroraRecommendationProductCard
+              key={`${step.anchor_key || step.product.name}_${index}`}
+              name={step.product.name}
+              brand={step.product.brand}
+              imageUrl={step.image_url || null}
+              priceLabel={step.price_label || null}
+              openLabel={language === 'CN' ? '查看详情' : 'View details'}
+              openAriaLabel={language === 'CN' ? `查看 ${step.product.name} 详情` : `View details for ${step.product.name}`}
+              openDisabled={!step.anchor_key}
+              onOpen={() => { void openRecommendationPdpForStep(step); }}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {!catalogSearchMode && frameworkMode && frameworkTopPick ? (
         <div className="space-y-4 rounded-[28px] border border-border/60 bg-background/70 p-4 shadow-sm">
           <div className="space-y-2">
             <div className="space-y-1">
@@ -5017,7 +5036,7 @@ export function RecommendationsCard({
         </div>
       ) : null}
 
-      {!frameworkMode && (amSteps.length || pmSteps.length) ? (
+      {!catalogSearchMode && !frameworkMode && (amSteps.length || pmSteps.length) ? (
         <AuroraRoutineCard
           amSteps={amSteps}
           pmSteps={pmSteps}
@@ -5034,7 +5053,7 @@ export function RecommendationsCard({
         />
       ) : null}
 
-      {!frameworkMode && (groups.am.length || groups.pm.length || groups.other.length) ? (
+      {!catalogSearchMode && !frameworkMode && (groups.am.length || groups.pm.length || groups.other.length) ? (
         <details
           className="rounded-2xl border border-border/60 bg-background/60 p-3"
           open={detailsOpen}
