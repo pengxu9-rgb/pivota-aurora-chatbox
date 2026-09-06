@@ -10,6 +10,8 @@ on:
       - "package-lock.json"
       - "vite.config.*"
       - "tsconfig*.json"
+      - "scripts/typecheck*"
+      - "typecheck-baseline.json"
       - ".github/workflows/chatbox-ci.yml"
   push:
     branches: ["main"]
@@ -41,6 +43,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Typecheck guard tests
+        run: npm run test:typecheck
 
       - name: Unit tests
         run: npm test
