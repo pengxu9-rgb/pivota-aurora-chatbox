@@ -25,6 +25,9 @@ import { ShopProvider } from '@/contexts/shop';
 import { bffJson, bffChatStream, fetchRecoAlternatives, fetchRoutineSimulation } from '@/lib/pivotaAgentBff';
 import { toast } from '@/components/ui/use-toast';
 import type { Card, V1Envelope } from '@/lib/pivotaAgentBff';
+import { saveChatRecovery } from '@/lib/bffChatRecovery';
+import { getOrCreateAuroraUid } from '@/lib/persistence';
+import { saveAuroraAuthSession } from '@/lib/auth';
 
 function makeEnvelope(args?: Partial<V1Envelope>): V1Envelope {
   return {
@@ -46,9 +49,9 @@ async function waitForEnabledComposer() {
   return input;
 }
 
-function renderChat() {
-  render(
-    <MemoryRouter initialEntries={['/chat']}>
+function renderChat(path = '/chat') {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
       <ShopProvider>
         <BffChat />
       </ShopProvider>
@@ -83,6 +86,42 @@ function renderRecommendationsCard(card: Card, args?: {
 }
 
 describe('BffChat V2 recommendations cards', () => {
+  function seedRecovery() {
+    saveChatRecovery({
+      uid: getOrCreateAuroraUid(), briefId: 'previous-brief', traceId: 'previous-trace',
+      items: [{ id: 'restored-user', kind: 'text', role: 'user', content: 'previous private conversation' }],
+      threadState: { catalog_brand: 'Knight Unicorn' }, sessionState: 'idle', agentState: 'IDLE_CHAT',
+    });
+  }
+
+  it('does not restore an anonymous transcript into a signed-in session', async () => {
+    seedRecovery();
+    saveAuroraAuthSession({ token: 'test-token', email: 'test@example.com' });
+    vi.mocked(bffJson).mockResolvedValue(makeEnvelope());
+    renderChat();
+    await waitForEnabledComposer();
+    expect(screen.queryByText('previous private conversation')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem('aurora_bff_chat_recovery_v1')).toBeNull();
+  });
+
+  it('does not restore the active transcript into a different explicit brief', async () => {
+    seedRecovery();
+    vi.mocked(bffJson).mockResolvedValue(makeEnvelope());
+    renderChat('/chat?brief_id=new-brief');
+    await waitForEnabledComposer();
+    expect(screen.queryByText('previous private conversation')).not.toBeInTheDocument();
+    expect(vi.mocked(bffJson).mock.calls.find(([path]) => path === '/v1/session/bootstrap')?.[1].brief_id).toBe('new-brief');
+  });
+
+  it('clears anonymous recovery when authentication changes', async () => {
+    seedRecovery();
+    vi.mocked(bffJson).mockResolvedValue(makeEnvelope());
+    renderChat();
+    await waitForEnabledComposer();
+    saveAuroraAuthSession({ token: 'test-token', email: 'test@example.com' });
+    await waitFor(() => expect(sessionStorage.getItem('aurora_bff_chat_recovery_v1')).toBeNull());
+  });
+
   it('shows streamed catalog products without opening routine evidence', async () => {
     vi.mocked(bffJson).mockResolvedValue(makeEnvelope());
     vi.mocked(bffChatStream).mockImplementationOnce(async (_headers, _body, handlers) => {
@@ -101,7 +140,7 @@ describe('BffChat V2 recommendations cards', () => {
         }], ops: {}, next_actions: [],
       } as any);
     });
-    renderChat();
+    const mounted = renderChat();
     const input = await waitForEnabledComposer();
     fireEvent.change(input, { target: { value: 'knight unicorn blush' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
@@ -109,11 +148,24 @@ describe('BffChat V2 recommendations cards', () => {
     expect(screen.getByText('$23')).toBeVisible();
     expect(screen.getByRole('img', { name: 'Knight Unicorn Satin Blush' })).toBeVisible();
     expect(screen.queryByText('View steps & evidence')).not.toBeInTheDocument();
+    const originalHeaders = vi.mocked(bffChatStream).mock.calls[0][0];
+    mounted.unmount();
+    renderChat();
+    const restoredInput = await waitForEnabledComposer();
+    expect(screen.getByRole('button', { name: 'View details for Knight Unicorn Satin Blush' })).toBeVisible();
+    expect(screen.getByText('knight unicorn blush')).toBeVisible();
+    const bootstrapHeaders = vi.mocked(bffJson).mock.calls.filter(([path]) => path === '/v1/session/bootstrap').at(-1)?.[1];
+    expect(bootstrapHeaders?.brief_id).toBe(originalHeaders.brief_id);
+    fireEvent.change(restoredInput, { target: { value: 'only blush' } });
+    fireEvent.submit(restoredInput.closest('form') as HTMLFormElement);
+    await waitFor(() => expect(vi.mocked(bffChatStream).mock.calls.length).toBe(2));
+    expect(JSON.stringify(vi.mocked(bffChatStream).mock.calls[1][1])).toContain('knight unicorn blush');
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    window.sessionStorage.clear();
     if (!HTMLElement.prototype.scrollIntoView) {
       Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
         value: vi.fn(),
